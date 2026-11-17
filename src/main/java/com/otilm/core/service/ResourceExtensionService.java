@@ -12,6 +12,7 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface ResourceExtensionService {
@@ -74,4 +75,11 @@ public interface ResourceExtensionService {
         throw new NotSupportedException("Authorized object attribute loading is not supported for this resource");
     }
 
+    /**
+     * The connector the object belongs to: Core lends it the object's own references and sends the object to no other
+     * connector. Empty for an object of no connector. Checks no permission.
+     */
+    default Optional<UUID> findOwningConnector(UUID objectUuid) {
+        return Optional.empty();
+    }
 }

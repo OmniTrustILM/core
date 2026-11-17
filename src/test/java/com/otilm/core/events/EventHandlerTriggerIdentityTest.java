@@ -5,6 +5,7 @@ import com.otilm.api.model.core.logging.enums.ActorType;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.otilm.api.model.core.other.ResourceEvent;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.workflows.Trigger;
 import com.otilm.core.dao.entity.workflows.TriggerAssociation;
 import com.otilm.core.dao.entity.workflows.TriggerHistory;
@@ -31,6 +32,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.User;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -81,7 +83,7 @@ class EventHandlerTriggerIdentityTest {
         EventContext<Certificate> context = contextFor(uploaderUuid);
         context.getPlatformTriggers().getTriggers().add(associationCreatedBy(triggerCreatorUuid));
 
-        handler.evaluateTriggers(context, context.getPlatformTriggers(), new Certificate(), null, null);
+        handler.evaluateTriggers(context, context.getPlatformTriggers(), aCertificate().build(), null, null);
 
         assertThat(currentUsername())
                 .as("identity after the trigger loop must be the acting user, not the trigger's creator")
@@ -101,7 +103,7 @@ class EventHandlerTriggerIdentityTest {
         EventContext<Certificate> context = contextFor(uploaderUuid);
         context.getPlatformTriggers().getIgnoreTriggers().add(associationCreatedBy(triggerCreatorUuid));
 
-        handler.evaluateIgnoreTriggers(context, context.getPlatformTriggers(), new Certificate(), null, null);
+        handler.evaluateIgnoreTriggers(context, context.getPlatformTriggers(), aCertificate().build(), null, null);
 
         assertThat(currentUsername())
                 .as("identity after the ignore-trigger loop must be the acting user")
@@ -121,7 +123,7 @@ class EventHandlerTriggerIdentityTest {
         EventContext<Certificate> context = contextFor(uploaderUuid);
         context.getPlatformTriggers().getTriggers().add(associationCreatedBy(triggerCreatorUuid));
 
-        handler.evaluateTriggers(context, context.getPlatformTriggers(), new Certificate(), null, null);
+        handler.evaluateTriggers(context, context.getPlatformTriggers(), aCertificate().build(), null, null);
 
         assertThat(usernameInsideLoop)
                 .as("the trigger itself must be evaluated as its creator, not as the acting user")
@@ -142,7 +144,7 @@ class EventHandlerTriggerIdentityTest {
         EventContext<Certificate> context = contextFor(uploaderUuid);
         context.getPlatformTriggers().getTriggers().add(associationCreatedBy(triggerCreatorUuid));
 
-        handler.evaluateTriggers(context, context.getPlatformTriggers(), new Certificate(), null, null);
+        handler.evaluateTriggers(context, context.getPlatformTriggers(), aCertificate().build(), null, null);
 
         assertThat(actorNameInsideLoop)
                 .as("the acting user's actor name must not remain while the trigger creator's uuid is installed")
@@ -166,7 +168,7 @@ class EventHandlerTriggerIdentityTest {
         EventContext<Certificate> context = contextFor(triggerCreatorUuid);
         context.getPlatformTriggers().getTriggers().add(associationCreatedBy(triggerCreatorUuid));
 
-        handler.evaluateTriggers(context, context.getPlatformTriggers(), new Certificate(), null, null);
+        handler.evaluateTriggers(context, context.getPlatformTriggers(), aCertificate().build(), null, null);
 
         verify(authHelper).authenticateAsUser(triggerCreatorUuid);
     }
@@ -185,7 +187,7 @@ class EventHandlerTriggerIdentityTest {
         EventContext<Certificate> context = contextFor(triggerCreatorUuid);
         context.getPlatformTriggers().getTriggers().add(associationCreatedBy(triggerCreatorUuid));
 
-        handler.evaluateTriggers(context, context.getPlatformTriggers(), new Certificate(), null, null);
+        handler.evaluateTriggers(context, context.getPlatformTriggers(), aCertificate().build(), null, null);
 
         verify(authHelper).authenticateAsUser(triggerCreatorUuid);
     }
@@ -199,7 +201,7 @@ class EventHandlerTriggerIdentityTest {
         EventContext<Certificate> context = contextFor(null);
         context.getPlatformTriggers().getTriggers().add(associationCreatedBy(triggerCreatorUuid));
 
-        handler.evaluateTriggers(context, context.getPlatformTriggers(), new Certificate(), null, null);
+        handler.evaluateTriggers(context, context.getPlatformTriggers(), aCertificate().build(), null, null);
 
         assertThat(SecurityContextHolder.getContext().getAuthentication())
                 .as("an event with no acting user must not inherit the trigger creator's identity")
@@ -227,8 +229,10 @@ class EventHandlerTriggerIdentityTest {
         EventContext<Certificate> context = contextFor(null);
         context.getPlatformTriggers().getTriggers().add(associationCreatedBy(deletedOwnerUuid));
 
+        X509CertificateEntity certificate = aCertificate().build();
+
         assertThatThrownBy(
-                () -> handler.evaluateTriggers(context, context.getPlatformTriggers(), new Certificate(), null, null))
+                () -> handler.evaluateTriggers(context, context.getPlatformTriggers(), certificate, null, null))
                 .as("the event must fail rather than evaluate the trigger under an anonymous principal")
                 .isInstanceOf(PlatformAuthenticationException.class);
 
@@ -259,7 +263,7 @@ class EventHandlerTriggerIdentityTest {
         context.getPlatformTriggers().getTriggers().add(associationCreatedBy(firstOwner));
         context.getPlatformTriggers().getTriggers().add(associationCreatedBy(secondOwner));
 
-        handler.evaluateTriggers(context, context.getPlatformTriggers(), new Certificate(), null, null);
+        handler.evaluateTriggers(context, context.getPlatformTriggers(), aCertificate().build(), null, null);
 
         assertThat(actorUuidsSeen).containsExactly(firstOwner.toString(), secondOwner.toString());
     }
@@ -275,7 +279,7 @@ class EventHandlerTriggerIdentityTest {
         EventContext<Certificate> context = contextFor(uploaderUuid);
         context.getPlatformTriggers().getTriggers().add(associationCreatedBy(uploaderUuid));
 
-        handler.evaluateTriggers(context, context.getPlatformTriggers(), new Certificate(), null, null);
+        handler.evaluateTriggers(context, context.getPlatformTriggers(), aCertificate().build(), null, null);
 
         assertThat(actorUuidsSeen).containsExactly(uploaderUuid.toString());
     }
@@ -293,7 +297,7 @@ class EventHandlerTriggerIdentityTest {
         context.getPlatformTriggers().getTriggers().add(associationCreatedBy(ownerUuid));
         context.getPlatformTriggers().getTriggers().add(associationCreatedBy(null));
 
-        handler.evaluateTriggers(context, context.getPlatformTriggers(), new Certificate(), null, null);
+        handler.evaluateTriggers(context, context.getPlatformTriggers(), aCertificate().build(), null, null);
 
         assertThat(actorUuidsSeen).containsExactly(ownerUuid.toString(), null);
     }
@@ -333,7 +337,7 @@ class EventHandlerTriggerIdentityTest {
     private EventContext<Certificate> contextFor(UUID actingUserUuid) {
         EventMessage message = new EventMessage(ResourceEvent.CERTIFICATE_UPLOADED, Resource.CERTIFICATE, null, null,
                 null, null, actingUserUuid, null);
-        return new EventContext<>(message, triggerEvaluator, new Certificate(), null);
+        return new EventContext<>(message, triggerEvaluator, aCertificate().build(), null);
     }
 
     private TriggerAssociation associationCreatedBy(UUID triggeredBy) {

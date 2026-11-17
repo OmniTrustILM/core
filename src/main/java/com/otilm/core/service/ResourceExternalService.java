@@ -6,6 +6,8 @@ import com.otilm.api.model.client.attribute.ResponseAttribute;
 import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.attribute.common.AttributeContent;
+import com.otilm.api.model.core.auth.ObjectAllowedActionsRequestDto;
+import com.otilm.api.model.core.auth.ObjectAllowedActionsResponseDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.other.ResourceDto;
 import com.otilm.api.model.core.other.ResourceEvent;
@@ -15,7 +17,6 @@ import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.core.security.authz.SecuredResource;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -78,4 +79,14 @@ public interface ResourceExternalService {
      * @return Map of events
      */
     Map<ResourceEvent, List<ResourceEventDto>> listAllResourceEvents();
+
+    /**
+     * Reports the actions the current principal may perform on each of the objects, leaving out objects that do not
+     * exist or that the principal may neither list nor view.
+     *
+     * @param resource Resource the objects belong to
+     * @param request UUIDs of the objects
+     * @return Allowed actions per visible object
+     */
+    ObjectAllowedActionsResponseDto listObjectAllowedActions(Resource resource, ObjectAllowedActionsRequestDto request);
 }

@@ -22,10 +22,10 @@ import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
-import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
@@ -49,6 +49,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 
 public class ClientOperationServiceV1ITest extends BaseSpringBootTest {
 
@@ -136,12 +138,13 @@ public class ClientOperationServiceV1ITest extends BaseSpringBootTest {
         CertificateContent certificateContent = new CertificateContent();
         certificateContent = certificateContentRepository.save(certificateContent);
 
-        Certificate certificate = new Certificate();
-        certificate.setSubjectDn("testCertificate");
-        certificate.setIssuerDn("testCertificate");
-        certificate.setSerialNumber("123456789");
-        certificate.setCertificateContent(certificateContent);
-        certificate.setCertificateContentId(certificateContent.getId());
+        X509CertificateEntity certificate = aCertificate()
+                .withSubjectDn("testCertificate")
+                .withIssuerDn("testCertificate")
+                .withSerialNumber("123456789")
+                .withCertificateContent(certificateContent)
+                .withCertificateContentId(certificateContent.getId())
+                .build();
         certificateRepository.save(certificate);
 
         raProfileRepository.save(raProfile);

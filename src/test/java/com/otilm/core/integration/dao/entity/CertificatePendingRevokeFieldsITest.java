@@ -7,13 +7,17 @@ import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateRepository;
+import com.otilm.core.service.writer.CertificatePendingRevokeWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -34,10 +38,12 @@ class CertificatePendingRevokeFieldsITest extends BaseSpringBootTest {
 
     @Autowired
     private CertificateRepository certificateRepository;
+    @Autowired
+    private CertificatePendingRevokeWriter pendingRevokeWriter;
 
     @Test
     void newCertificate_hasNullPendingRevokeFields_byDefault() {
-        Certificate cert = new Certificate();
+        X509CertificateEntity cert = aCertificate().build();
         certificateRepository.save(cert);
 
         Certificate fetched = certificateRepository.findByUuid(cert.getUuid()).orElseThrow();
@@ -47,7 +53,7 @@ class CertificatePendingRevokeFieldsITest extends BaseSpringBootTest {
 
     @Test
     void destroyKeyFlag_roundTrips() {
-        Certificate cert = new Certificate();
+        X509CertificateEntity cert = aCertificate().build();
         cert.setPendingRevokeDestroyKey(Boolean.TRUE);
         certificateRepository.save(cert);
 
@@ -57,7 +63,7 @@ class CertificatePendingRevokeFieldsITest extends BaseSpringBootTest {
 
     @Test
     void destroyKeyFlag_canBeFalse() {
-        Certificate cert = new Certificate();
+        X509CertificateEntity cert = aCertificate().build();
         cert.setPendingRevokeDestroyKey(Boolean.FALSE);
         certificateRepository.save(cert);
 
@@ -73,7 +79,7 @@ class CertificatePendingRevokeFieldsITest extends BaseSpringBootTest {
         attr.setContentType(AttributeContentType.STRING);
         attr.setContent(List.of(new StringAttributeContentV2("Compromised")));
 
-        Certificate cert = new Certificate();
+        X509CertificateEntity cert = aCertificate().build();
         cert.setPendingRevokeAttributes(List.of(attr));
         certificateRepository.save(cert);
 
@@ -98,7 +104,7 @@ class CertificatePendingRevokeFieldsITest extends BaseSpringBootTest {
         attr.setContentType(AttributeContentType.STRING);
         attr.setContent(List.of(new StringAttributeContentV3("KeyCompromise")));
 
-        Certificate cert = new Certificate();
+        X509CertificateEntity cert = aCertificate().build();
         cert.setPendingRevokeAttributes(List.of(attr));
         certificateRepository.save(cert);
 
@@ -129,7 +135,7 @@ class CertificatePendingRevokeFieldsITest extends BaseSpringBootTest {
         v3.setContentType(AttributeContentType.STRING);
         v3.setContent(List.of(new StringAttributeContentV3("new")));
 
-        Certificate cert = new Certificate();
+        X509CertificateEntity cert = aCertificate().build();
         cert.setPendingRevokeAttributes(List.of(v2, v3));
         certificateRepository.save(cert);
 
@@ -144,31 +150,66 @@ class CertificatePendingRevokeFieldsITest extends BaseSpringBootTest {
     }
 
     @Test
-    void clearingPendingRevokeFields_persistsAsNull() {
-        // Set values, save, then clear, save, fetch — fields should be null again.
-        Certificate cert = new Certificate();
-        cert.setPendingRevokeDestroyKey(Boolean.TRUE);
-        RequestAttributeV2 attr = new RequestAttributeV2();
-        attr.setName("dummy");
-        attr.setContentType(AttributeContentType.STRING);
-        attr.setContent(List.of(new StringAttributeContentV2("x")));
-        cert.setPendingRevokeAttributes(List.of(attr));
-        certificateRepository.save(cert);
+    void persistsAttributes_whenWriterSavesThem() {
+        // given
+        X509CertificateEntity cert = certificateRepository.save(aCertificate().build());
+        RequestAttributeV2 attribute = aStringAttribute("dummy");
 
-        cert.setPendingRevokeDestroyKey(null);
-        cert.setPendingRevokeAttributes(null);
-        certificateRepository.save(cert);
+        // when
+        pendingRevokeWriter.save(cert.getUuid(), List.of(attribute));
 
+        // then
         Certificate fetched = certificateRepository.findByUuid(cert.getUuid()).orElseThrow();
-        assertNull(fetched.getPendingRevokeDestroyKey());
-        assertNull(fetched.getPendingRevokeAttributes());
+        assertThat(fetched.getPendingRevokeAttributes()).hasSize(1);
+        assertThat(fetched.getPendingRevokeAttributes().getFirst().getName()).isEqualTo("dummy");
+    }
+
+    @Test
+    void persistsNullAttributes_whenWriterClearsThem() {
+        // given
+        X509CertificateEntity cert = aCertificate().build();
+        cert.setPendingRevokeAttributes(List.of(aStringAttribute("dummy")));
+        certificateRepository.save(cert);
+
+        // when
+        pendingRevokeWriter.clear(cert.getUuid());
+
+        // then
+        Certificate fetched = certificateRepository.findByUuid(cert.getUuid()).orElseThrow();
+        assertThat(fetched.getPendingRevokeAttributes()).isNull();
+    }
+
+    @Test
+    void persistsNullDestroyKey_whenEntityClearsIt() {
+        // given
+        X509CertificateEntity cert = aCertificate().build();
+        cert.setPendingRevokeDestroyKey(Boolean.TRUE);
+        certificateRepository.save(cert);
+
+        // when
+        cert.setPendingRevokeDestroyKey(null);
+        certificateRepository.save(cert);
+
+        // then
+        Certificate fetched = certificateRepository.findByUuid(cert.getUuid()).orElseThrow();
+        assertThat(fetched.getPendingRevokeDestroyKey()).isNull();
     }
 
     @Test
     void newCertificate_archivedFlagUnaffected() {
         // Sanity: ensure adding the new columns hasn't broken the existing archived default.
-        Certificate cert = new Certificate();
+        X509CertificateEntity cert = aCertificate().build();
         certificateRepository.save(cert);
         assertFalse(certificateRepository.findByUuid(cert.getUuid()).orElseThrow().isArchived());
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+
+    private static RequestAttributeV2 aStringAttribute(String name) {
+        RequestAttributeV2 attribute = new RequestAttributeV2();
+        attribute.setName(name);
+        attribute.setContentType(AttributeContentType.STRING);
+        attribute.setContent(List.of(new StringAttributeContentV2("x")));
+        return attribute;
     }
 }

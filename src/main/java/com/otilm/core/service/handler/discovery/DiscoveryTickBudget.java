@@ -2,7 +2,11 @@ package com.otilm.core.service.handler.discovery;
 
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.core.messaging.jms.configuration.DiscoveryWorkProperties;
+import com.otilm.core.messaging.jms.configuration.StatusPollProperties.PollSchedule;
 import com.otilm.core.model.discovery.DiscoveryWorkType;
+import com.otilm.core.service.writer.discovery.DiscoveryWorkTick;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
 
@@ -27,33 +31,57 @@ public class DiscoveryTickBudget {
     }
 
     /**
-     * Charges one unanswered tick.
+     * Refreshes the budget a clear answer earned without restarting the backoff ramp: the tick's row is due at its next
+     * rung, with the counter held at the rung where the ladder reaches its slowest delay.
+     */
+    public void refresh(DiscoveryWorkTick tick) {
+        PollSchedule ladder = workProperties.scheduleFor(tick.workType());
+        int nextAttempt = Math.min(tick.attempt() + 1, ladder.ceilingAttempt());
+        tick.reschedule(nextAttempt, OffsetDateTime.now(ZoneOffset.UTC).plus(ladder.delayFor(nextAttempt)));
+    }
+
+    /**
+     * Refreshes the budget like {@link #refresh}, but makes the row due at the ladder's slowest rung: for an answer
+     * that says nothing is ready yet, where asking again sooner only repeats it.
+     */
+    public void refreshAtSlowestRung(DiscoveryWorkTick tick) {
+        PollSchedule ladder = workProperties.scheduleFor(tick.workType());
+        int nextAttempt = Math.min(tick.attempt() + 1, ladder.ceilingAttempt());
+        tick.reschedule(nextAttempt, OffsetDateTime.now(ZoneOffset.UTC).plus(ladder.delayFor(ladder.ceilingAttempt())));
+    }
+
+    /**
+     * Charges one unanswered tick. The ending is fenced: a late failure of an overtaken tick ends nothing.
      *
+     * @param fence whether the tick still speaks for the run, checked under the run's row lock
      * @param terminalReason Core-authored text for the run's ending, used only once the budget is spent
      * @return whether this call ended the run, leaving the caller nothing to reschedule
      */
-    public boolean spend(UUID discoveryUuid, DiscoveryWorkType workType, int attempt, String terminalReason) {
+    public boolean spend(UUID discoveryUuid, DiscoveryWorkType workType, int attempt, DiscoveryTickFence fence,
+            String terminalReason) {
         if (attempt + 1 < workProperties.scheduleFor(workType).maxAttempts()) {
             return false;
         }
-        terminator.endConnectorOwned(discoveryUuid, DiscoveryStatus.FAILED, terminalReason);
-        return true;
+        return terminator.endIfAdmitted(discoveryUuid, fence, DiscoveryStatus.FAILED, terminalReason);
     }
 
     /**
      * Charges a tick the connector did not answer, ending the run at once when the failure says the connector has
-     * forgotten it — retrying that costs the same refusal every time.
+     * forgotten it — retrying that costs the same refusal every time. Fenced like {@link #spend}.
      *
+     * @param fence whether the tick still speaks for the run, checked under the run's row lock
      * @param whatStopped Core-authored description of the call that failed; the connector's own text is never forwarded
      */
-    public boolean spendOnUnanswered(UUID discoveryUuid, DiscoveryWorkType workType, int attempt, Throwable e,
-            String whatStopped) {
+    public boolean spendOnUnanswered(UUID discoveryUuid, DiscoveryWorkType workType, int attempt,
+            DiscoveryTickFence fence, Throwable e, String whatStopped) {
         if (DiscoveryConnectorErrors.isRunNoLongerTracked(e)) {
-            terminator
-                    .endConnectorOwned(discoveryUuid, DiscoveryStatus.FAILED,
+            return terminator
+                    .endIfAdmitted(discoveryUuid, fence, DiscoveryStatus.FAILED,
                             "The connector no longer tracks this run");
-            return true;
         }
-        return spend(discoveryUuid, workType, attempt, whatStopped + ": " + DiscoveryConnectorErrors.describe(e));
+        String reason = DiscoveryConnectorErrors.isReferenceRefusal(e)
+                ? DiscoveryConnectorErrors.describe(e)
+                : whatStopped + ": " + DiscoveryConnectorErrors.describe(e);
+        return spend(discoveryUuid, workType, attempt, fence, reason);
     }
 }

@@ -1,0 +1,36 @@
+{
+  "content_sha256": "2ec82f3f8e8d81c543e10e21cc1ca3b0f02c3364061857e01d205d12ce4c01ed",
+  "files": {
+    "conventions/pr-and-commits.md": {
+      "source_path": "conventions/pr-and-commits.md",
+      "source_sha256": "e48b81db891dea465820350cc25d2c29802d4afc62a100337443c5703d3bd434"
+    },
+    "cross-repo.md": {
+      "source_path": "review-context/cross-repo.md",
+      "source_sha256": "991f76ae22014fe334e87e0526263c86e4a67f78bca3d971715c3e1858ce2553"
+    },
+    "org-map.md": {
+      "source_path": "review-context/org-map.md",
+      "source_sha256": "c6f215a1dc48f86aced5ebfcb2c742f884dff80ec93274c9eacba7eedb3d48c9"
+    },
+    "repos/core.md": {
+      "source_path": "repos/core.md",
+      "source_sha256": "ba1596fe39b00c61b94bc534ac1ad6343bd8cb3b71d1ede26e12ccd822a647cd"
+    },
+    "repos/interfaces.md": {
+      "source_path": "repos/interfaces.md",
+      "source_sha256": "a5c379561d1b150bbe9b2db92669c5c2917111e636f5e3315791dffe249f176e"
+    },
+    "review-policy.md": {
+      "source_path": "review-context/review-policy.md",
+      "source_sha256": "d86ea78581a34ce72d87a65caccabb391d308697813109bb47b04ac88d3607a3"
+    }
+  },
+  "format_version": 1,
+  "source_commit": "e1711e5a1bfce64823aa664fc44bf3a40936cf75",
+  "support_files": {
+    ".gitattributes": {
+      "sha256": "705fd4d6451a31d36b3df7de96f83f30ac976c9b4a6d1e51671d8e2f33e2d0da"
+    }
+  }
+}

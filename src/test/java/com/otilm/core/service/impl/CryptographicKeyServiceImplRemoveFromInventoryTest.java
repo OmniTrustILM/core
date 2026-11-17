@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -41,7 +42,6 @@ import org.springframework.security.access.AccessDeniedException;
 import static com.otilm.core.service.handler.KeyRemovalGates.COMPROMISED;
 import static com.otilm.core.service.handler.KeyRemovalGates.NO_PRIVATE_KEY_IN_TOKEN;
 import static com.otilm.core.service.handler.KeyRemovalGates.TOKEN_NOT_LISTABLE;
-import static com.otilm.core.service.impl.CryptographicKeyServiceImpl.NOT_REMOVABLE;
 import static com.otilm.core.util.builders.CryptographicKeyFullModelBuilder.aKeySnapshot;
 import static com.otilm.core.util.builders.CryptographicKeyItemBasicModelBuilder.aKeyItemSnapshot;
 import static com.otilm.core.util.builders.TokenInstanceFullModelBuilder.aTokenSnapshot;
@@ -394,16 +394,21 @@ class CryptographicKeyServiceImplRemoveFromInventoryTest {
         @Test
         void refusesWithTheReason_whenAnItemIsCompromised() {
             // given
-            var compromised = aKeyPair("compromised-pair")
+            var compromisedName = "compromised-pair";
+            var compromised = aKeyPair(compromisedName)
                     .withItems(pairItems(KeyState.COMPROMISED, KeyState.ACTIVE))
                     .build();
             inventoryHolds(compromised);
             SecuredUUID compromisedUuid = SecuredUUID.fromUUID(compromised.uuid());
 
-            // when / then
-            assertThatThrownBy(() -> service.removeKeyFromInventory(compromisedUuid))
+            // when
+            ThrowingCallable removeKeyFromInventory = () -> service.removeKeyFromInventory(compromisedUuid);
+
+            // then
+            assertThatThrownBy(removeKeyFromInventory)
                     .isInstanceOf(ValidationException.class)
-                    .hasMessageContaining(NOT_REMOVABLE.formatted(compromised.name(), COMPROMISED));
+                    .hasMessageContaining("Key '%s' cannot be removed from the inventory. %s"
+                            .formatted(compromisedName, COMPROMISED));
             verifyNoInteractions(writer, cache);
         }
     }

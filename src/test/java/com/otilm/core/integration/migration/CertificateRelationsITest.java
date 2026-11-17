@@ -2,10 +2,10 @@ package com.otilm.core.integration.migration;
 
 import com.otilm.api.model.core.certificate.CertificateRelationType;
 import com.otilm.api.model.core.certificate.CertificateState;
-import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.CertificateRelation;
 import com.otilm.core.dao.entity.CertificateRelationId;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRelationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
@@ -23,6 +23,7 @@ import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -40,7 +41,7 @@ class CertificateRelationsITest extends BaseMigrationTest {
 
     @Test
     void testMigration() throws Exception {
-        Certificate hybridCertificate = new Certificate();
+        X509CertificateEntity hybridCertificate = aCertificate().build();
         String content = Base64.getEncoder().encodeToString(CertificateTestUtil.createHybridCertificate().getEncoded());
         CertificateContent certificateContent = new CertificateContent();
         certificateContent.setContent(content);
@@ -49,22 +50,23 @@ class CertificateRelationsITest extends BaseMigrationTest {
         hybridCertificate.setCertificateContent(certificateContent);
         certificateRepository.save(hybridCertificate);
 
-        Certificate sourceCertificate = new Certificate();
-        sourceCertificate.setPublicKeyFingerprint("fp");
-        sourceCertificate.setAltKeyFingerprint("akfp");
+        X509CertificateEntity sourceCertificate = aCertificate()
+                .withPublicKeyFingerprint("fp")
+                .withAltKeyFingerprint("akfp")
+                .build();
         certificateRepository.save(sourceCertificate);
-        Certificate certificate1 = new Certificate();
-        certificate1.setPublicKeyFingerprint(sourceCertificate.getPublicKeyFingerprint());
-        certificate1.setState(CertificateState.ISSUED);
-        certificate1.setAltKeyFingerprint(sourceCertificate.getAltKeyFingerprint());
-        Certificate certificate2 = new Certificate();
-        certificate2.setState(CertificateState.ISSUED);
-        certificate2.setPublicKeyFingerprint("fp2");
-        certificate2.setAltKeyFingerprint(sourceCertificate.getAltKeyFingerprint());
-        Certificate certificate3 = new Certificate();
-        certificate3.setState(CertificateState.FAILED);
-        Certificate certificate4 = new Certificate();
-        certificate4.setState(CertificateState.PENDING_APPROVAL);
+        X509CertificateEntity certificate1 = aCertificate()
+                .withPublicKeyFingerprint(sourceCertificate.getPublicKeyFingerprint())
+                .withState(CertificateState.ISSUED)
+                .withAltKeyFingerprint(sourceCertificate.getAltKeyFingerprint())
+                .build();
+        X509CertificateEntity certificate2 = aCertificate()
+                .withState(CertificateState.ISSUED)
+                .withPublicKeyFingerprint("fp2")
+                .withAltKeyFingerprint(sourceCertificate.getAltKeyFingerprint())
+                .build();
+        X509CertificateEntity certificate3 = aCertificate().withState(CertificateState.FAILED).build();
+        X509CertificateEntity certificate4 = aCertificate().withState(CertificateState.PENDING_APPROVAL).build();
         certificateRepository.saveAll(List.of(certificate1, certificate2, certificate3, certificate4));
 
         Context context = Mockito.mock(Context.class);
@@ -113,7 +115,8 @@ class CertificateRelationsITest extends BaseMigrationTest {
                 .orElseThrow();
         Assertions.assertEquals(CertificateRelationType.PENDING, relation4.getRelationType());
 
-        hybridCertificate = certificateRepository.findByUuid(hybridCertificate.getUuid()).orElseThrow();
+        hybridCertificate = X509CertificateEntity
+                .from(certificateRepository.findByUuid(hybridCertificate.getUuid()).orElseThrow());
         Assertions.assertNotNull(hybridCertificate.getAltKeyFingerprint());
     }
 }

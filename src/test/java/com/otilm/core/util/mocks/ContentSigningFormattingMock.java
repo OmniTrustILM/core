@@ -2,55 +2,76 @@ package com.otilm.core.util.mocks;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import com.otilm.api.clients.signing.contentsigning.ContentSigningFormattingPaths;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
-import com.otilm.api.model.client.connector.v2.FeatureFlag;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
+import com.otilm.api.model.common.error.ErrorCode;
+import com.otilm.api.model.common.error.ProblemDetailExtended;
+import com.otilm.api.model.common.signature.SignatureLevel;
+import com.otilm.api.model.connector.signatures.contentsigning.common.ContentSigningFormattingAttributesDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.ContentSigningFormattingOperation;
 import com.otilm.api.model.connector.signatures.contentsigning.common.SignedDocumentResponseDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.TimestampImprintResponseDto;
+import com.otilm.api.model.connector.signatures.contentsigning.declaration.ContentSigningDeclarationDto;
+import com.otilm.api.model.connector.signatures.contentsigning.declaration.SignatureFamilyDeclarationDto;
+import com.otilm.core.serialization.ObjectMapperFactory;
+import com.otilm.core.util.SignatureFamilyFixtures;
+import com.otilm.core.util.builders.SignatureFamilyDeclarationDtoBuilder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.util.unit.DataSize;
 
 /**
- * Mock of a V2 content-signing formatting connector, backing {@code CONTENT_SIGNING} workflow profiles. Advertises
- * {@link FeatureFlag#CONTENT_SIGNING} on the four AdES family interfaces, plus
- * {@link ConnectorInterface#SIGNATURE_FORMATTING} for the legacy flat attributes route and the per-operation routes.
+ * Mock of a V2 content-signing formatting connector, backing {@code CONTENT_SIGNING} workflow profiles. It serves
+ * {@link ConnectorInterface#CONTENT_SIGNING_FORMATTING} and declares the four AdES families up to {@code SIGNED}, plus
+ * {@link ConnectorInterface#SIGNATURE_FORMATTING} for the legacy flat attributes route.
  */
 public class ContentSigningFormattingMock extends BaseConnectorMock {
 
     private static final byte[] FOREIGN_DOCUMENT = "a different document".getBytes(StandardCharsets.UTF_8);
+    private static final List<String> ADES_FAMILIES = List
+            .of(SignatureFamilyFixtures.PADES, SignatureFamilyFixtures.XADES, SignatureFamilyFixtures.CADES,
+                    SignatureFamilyFixtures.JADES);
 
     ContentSigningFormattingMock() {
         super(new ComputeDtbsEchoTransformer(), new ComputeDtbsEchoTransformer(FOREIGN_DOCUMENT));
-        advertiseFamilyInterfaces(List.of(FeatureFlag.CONTENT_SIGNING));
-    }
-
-    public ContentSigningFormattingMock advertiseTimestampedRung() {
-        advertiseFamilyInterfaces(List.of(FeatureFlag.CONTENT_SIGNING, FeatureFlag.LEVEL_TIMESTAMPED));
-        return this;
-    }
-
-    public ContentSigningFormattingMock advertiseNoContentSigningFeature() {
-        advertiseFamilyInterfaces(List.of());
-        return this;
-    }
-
-    private void advertiseFamilyInterfaces(List<FeatureFlag> familyFeatures) {
         stubV2InfoDetails(List
                 .of(interfaceInfo(ConnectorInterface.INFO, List.of()),
                         interfaceInfo(ConnectorInterface.HEALTH, List.of()),
                         interfaceInfo(ConnectorInterface.METRICS, List.of()),
                         interfaceInfo(ConnectorInterface.SIGNATURE_FORMATTING, List.of()),
-                        interfaceInfo(ConnectorInterface.PADES_FORMATTING, familyFeatures),
-                        interfaceInfo(ConnectorInterface.XADES_FORMATTING, familyFeatures),
-                        interfaceInfo(ConnectorInterface.CADES_FORMATTING, familyFeatures),
-                        interfaceInfo(ConnectorInterface.JADES_FORMATTING, familyFeatures)));
+                        interfaceInfo(ConnectorInterface.CONTENT_SIGNING_FORMATTING, List.of())));
+        stubAdesFamiliesUpTo(SignatureLevel.SIGNED);
+    }
+
+    /** Stubs the declaration route with the four AdES families up to {@code highestLevel}. */
+    public ContentSigningFormattingMock stubAdesFamiliesUpTo(SignatureLevel highestLevel) {
+        List<SignatureFamilyDeclarationDto> families = ADES_FAMILIES
+                .stream()
+                .map(family -> SignatureFamilyDeclarationDtoBuilder
+                        .aFamilyDeclaration(family)
+                        .withHighestLevel(highestLevel)
+                        .build())
+                .toList();
+        return stubDeclaration(new ContentSigningDeclarationDto(new ArrayList<>(families)));
+    }
+
+    /** Stubs the declaration route Core reads when it connects or reconnects the connector. */
+    public ContentSigningFormattingMock stubDeclaration(ContentSigningDeclarationDto declaration) {
+        server
+                .stubFor(WireMock
+                        .get(WireMock.urlPathMatching(".*" + ContentSigningFormattingPaths.DECLARATION))
+                        .willReturn(WireMock.okJson(serialize(declaration, "content-signing declaration"))));
+        return this;
     }
 
     public ContentSigningFormattingMock stubBaselineAndTimestampOperations() {
@@ -65,6 +86,55 @@ public class ContentSigningFormattingMock extends BaseConnectorMock {
 
     public ContentSigningFormattingMock stubComputeDtbsEchoingForeignDigest() {
         stubComputeDtbs(ComputeDtbsEchoTransformer.FOREIGN_NAME);
+        return this;
+    }
+
+    /** Answers {@code computeDtbs} with a problem+json refusal carrying {@code errorCode}. */
+    public ContentSigningFormattingMock stubComputeDtbsRefusal(ErrorCode errorCode) {
+        ProblemDetailExtended problem = ProblemDetailExtended
+                .fromErrorCode(errorCode, "refused by the mock", null, null);
+        server
+                .stubFor(WireMock
+                        .post(WireMock
+                                .urlPathMatching(".*" + ContentSigningFormattingPaths
+                                        .operation(ContentSigningFormattingOperation.COMPUTE_DTBS)))
+                        .willReturn(WireMock
+                                .aResponse()
+                                .withStatus(problem.getStatus())
+                                .withHeader("Content-Type", "application/problem+json")
+                                .withBody(serialize(ObjectMapperFactory.wire(), problem, "problem document"))));
+        return this;
+    }
+
+    /**
+     * Answers {@code computeDtbs} with a formattingContext larger than {@code readLimit}, as from a large document.
+     */
+    public ContentSigningFormattingMock stubComputeDtbsExceeding(DataSize readLimit) {
+        String oversizedFormattingContext = "A".repeat(Math.toIntExact(readLimit.toBytes()));
+        stubOperation(ContentSigningFormattingOperation.COMPUTE_DTBS,
+                "{\"formattingContext\":\"" + oversizedFormattingContext + "\"}");
+        return this;
+    }
+
+    /**
+     * Answers {@code computeDtbs} for {@code document} alone with a digest of another document. A batch test thus
+     * breaks one document's binding while the others bind.
+     */
+    public ContentSigningFormattingMock stubComputeDtbsEchoingForeignDigestFor(byte[] document) {
+        server
+                .stubFor(WireMock
+                        .post(WireMock
+                                .urlPathMatching(".*" + ContentSigningFormattingPaths
+                                        .operation(ContentSigningFormattingOperation.COMPUTE_DTBS)))
+                        .atPriority(1)
+                        .withRequestBody(WireMock
+                                .matchingJsonPath("$.document.document",
+                                        WireMock.equalTo(Base64.getEncoder().encodeToString(document))))
+                        .willReturn(WireMock
+                                .aResponse()
+                                .withStatus(200)
+                                .withHeader("Content-Type", "application/json")
+                                .withTransformers(ComputeDtbsEchoTransformer.FOREIGN_NAME)));
         return this;
     }
 
@@ -102,8 +172,12 @@ public class ContentSigningFormattingMock extends BaseConnectorMock {
     }
 
     private static String serialize(Object response, String what) {
+        return serialize(OBJECT_MAPPER, response, what);
+    }
+
+    private static String serialize(ObjectMapper objectMapper, Object response, String what) {
         try {
-            return OBJECT_MAPPER.writeValueAsString(response);
+            return objectMapper.writeValueAsString(response);
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("Failed to serialize " + what + " for WireMock stub", e);
         }
@@ -137,24 +211,40 @@ public class ContentSigningFormattingMock extends BaseConnectorMock {
         return this;
     }
 
+    /**
+     * Lists no attributes on every operation, as profile save, formatting discovery and profile resolution fetch them.
+     */
     public ContentSigningFormattingMock stubPerOperationFormattingAttributes() {
-        for (ContentSigningFormattingOperation operation : ContentSigningFormattingOperation.values()) {
-            server
-                    .stubFor(WireMock
-                            .get(WireMock.urlPathMatching(".*" + ContentSigningFormattingPaths.attributes(operation)))
-                            .willReturn(WireMock.okJson("[]")));
+        try {
+            String body = profileListing(List.of());
+            for (ContentSigningFormattingOperation operation : ContentSigningFormattingOperation.values()) {
+                server
+                        .stubFor(WireMock
+                                .get(WireMock
+                                        .urlPathMatching(".*" + ContentSigningFormattingPaths.attributes(operation)))
+                                .willReturn(WireMock.okJson(body)));
+            }
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException("Failed to serialize the formatting attribute listing for WireMock stub", e);
         }
         return this;
     }
 
+    /**
+     * Lists one optional profile attribute on every operation, as profile save, formatting discovery and profile
+     * resolution fetch them.
+     */
     public ContentSigningFormattingMock stubPerOperationFormattingAttributeDefinition(UUID attrUuid, String attrName) {
         return stubPerOperationFormattingAttributeDefinition(attrUuid, attrName, false);
     }
 
+    /**
+     * Lists one profile attribute on every operation, which the per-operation aggregation merges into one definition.
+     */
     public ContentSigningFormattingMock stubPerOperationFormattingAttributeDefinition(UUID attrUuid, String attrName,
             boolean required) {
         try {
-            String body = OBJECT_MAPPER.writeValueAsString(List.of(attributeDefinition(attrUuid, attrName, required)));
+            String body = profileListing(List.of(attributeDefinition(attrUuid, attrName, required)));
             for (ContentSigningFormattingOperation operation : ContentSigningFormattingOperation.values()) {
                 server
                         .stubFor(WireMock
@@ -179,13 +269,48 @@ public class ContentSigningFormattingMock extends BaseConnectorMock {
                     .stubFor(WireMock
                             .get(WireMock.urlPathMatching(".*" + ContentSigningFormattingPaths.attributes(operation)))
                             .willReturn(WireMock
-                                    .okJson(OBJECT_MAPPER
-                                            .writeValueAsString(
-                                                    List.of(attributeDefinition(attrUuid, attrName, false))))));
+                                    .okJson(profileListing(List.of(attributeDefinition(attrUuid, attrName, false))))));
         } catch (JsonProcessingException e) {
             throw new RuntimeException("Failed to serialize attribute definition for WireMock stub", e);
         }
         return this;
+    }
+
+    /**
+     * Declares one request attribute on computeDtbs and nothing on the other operations. It serves the profile form's
+     * attribute discovery.
+     */
+    public ContentSigningFormattingMock stubComputeDtbsRequestAttributeDefinition(UUID attrUuid, String attrName) {
+        try {
+            String computeDtbsListing = requestListing(List.of(attributeDefinition(attrUuid, attrName, false)));
+            String emptyListing = profileListing(List.of());
+            for (ContentSigningFormattingOperation operation : ContentSigningFormattingOperation.values()) {
+                String body = operation == ContentSigningFormattingOperation.COMPUTE_DTBS
+                        ? computeDtbsListing
+                        : emptyListing;
+                server
+                        .stubFor(WireMock
+                                .get(WireMock
+                                        .urlPathMatching(".*" + ContentSigningFormattingPaths.attributes(operation)))
+                                .willReturn(WireMock.okJson(body)));
+            }
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException("Failed to serialize attribute definition for WireMock stub", e);
+        }
+        return this;
+    }
+
+    /** The number of requests Core made for attribute definitions, across every content-signing operation. */
+    public int attributeDefinitionListings() {
+        int listings = 0;
+        for (ContentSigningFormattingOperation operation : ContentSigningFormattingOperation.values()) {
+            listings += server
+                    .findAll(WireMock
+                            .getRequestedFor(WireMock
+                                    .urlPathMatching(".*" + ContentSigningFormattingPaths.attributes(operation))))
+                    .size();
+        }
+        return listings;
     }
 
     /**
@@ -200,12 +325,9 @@ public class ContentSigningFormattingMock extends BaseConnectorMock {
                 .toList();
     }
 
-    /**
-     * The {@code signatureParameters} object each request to {@code operation} carried, in call order. A request that
-     * carried none contributes a missing node.
-     */
-    public List<JsonNode> signatureParametersReceivedBy(ContentSigningFormattingOperation operation) {
-        return bodiesReceivedBy(operation).stream().map(body -> body.path("signatureParameters")).toList();
+    /** The {@code formattingAttributes} each request to {@code operation} carried, in call order. */
+    public List<JsonNode> formattingAttributesReceivedBy(ContentSigningFormattingOperation operation) {
+        return bodiesReceivedBy(operation).stream().map(body -> body.path("formattingAttributes")).toList();
     }
 
     private List<JsonNode> bodiesReceivedBy(ContentSigningFormattingOperation operation) {
@@ -224,6 +346,16 @@ public class ContentSigningFormattingMock extends BaseConnectorMock {
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("Recorded request body is not JSON", e);
         }
+    }
+
+    private static String profileListing(List<BaseAttribute> profileAttributes) throws JsonProcessingException {
+        return OBJECT_MAPPER
+                .writeValueAsString(new ContentSigningFormattingAttributesDto(profileAttributes, List.of()));
+    }
+
+    private static String requestListing(List<BaseAttribute> requestAttributes) throws JsonProcessingException {
+        return OBJECT_MAPPER
+                .writeValueAsString(new ContentSigningFormattingAttributesDto(List.of(), requestAttributes));
     }
 
     private static DataAttributeV2 attributeDefinition(UUID attrUuid, String attrName, boolean required) {

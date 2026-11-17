@@ -16,6 +16,7 @@ import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.api.model.core.v2.ClientCertificateRekeyRequestDto;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.logging.LoggingHelper;
 import com.otilm.core.security.authz.SecuredParentUUID;
@@ -120,7 +121,7 @@ public class CrmfKurMessageHandler implements MessageHandler<ClientCertificateDa
         Certificate dbCertificate = getCertificate(tid, certRequest);
         LoggingHelper
                 .putLogResourceInfo(Resource.CERTIFICATE, false, dbCertificate.getUuid().toString(),
-                        dbCertificate.getSubjectDn());
+                        X509CertificateEntity.subjectDnOrNull(dbCertificate));
         if (configuration.isProtectedByAnotherCertificate(dbCertificate)) {
             throw new CmpProcessingException(tid, PKIFailureInfo.notAuthorized,
                     "re-key operation failed: the request is not protected by the certificate it updates");

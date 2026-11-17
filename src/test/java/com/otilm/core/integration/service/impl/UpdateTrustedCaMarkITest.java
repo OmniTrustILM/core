@@ -13,6 +13,7 @@ import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
@@ -31,6 +32,7 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.event.EventListener;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -81,10 +83,11 @@ class UpdateTrustedCaMarkITest extends BaseSpringBootTest {
     }
 
     private Certificate buildCa() {
-        Certificate ca = new Certificate();
-        ca.setFingerprint(UUID.randomUUID().toString());
-        ca.setValidationStatus(CertificateValidationStatus.VALID);
-        ca.setTrustedCa(false);
+        X509CertificateEntity ca = aCertificate()
+                .withFingerprint(UUID.randomUUID().toString())
+                .withValidationStatus(CertificateValidationStatus.VALID)
+                .withTrustedCa(false)
+                .build();
         CertificateContent content = new CertificateContent();
         content.setFingerprint(UUID.randomUUID().toString());
         content.setContent("ca-content");
@@ -94,11 +97,12 @@ class UpdateTrustedCaMarkITest extends BaseSpringBootTest {
     }
 
     private Certificate buildEligibleCert(Certificate issuer) {
-        Certificate cert = new Certificate();
-        cert.setFingerprint(UUID.randomUUID().toString());
-        cert.setValidationStatus(CertificateValidationStatus.VALID);
-        cert.setArchived(false);
-        cert.setIssuerCertificateUuid(issuer.getUuid());
+        X509CertificateEntity cert = aCertificate()
+                .withFingerprint(UUID.randomUUID().toString())
+                .withValidationStatus(CertificateValidationStatus.VALID)
+                .withArchived(false)
+                .withIssuerCertificateUuid(issuer.getUuid())
+                .build();
         CertificateContent content = new CertificateContent();
         content.setFingerprint(UUID.randomUUID().toString());
         content.setContent("cert-content");
@@ -108,10 +112,11 @@ class UpdateTrustedCaMarkITest extends BaseSpringBootTest {
     }
 
     private Certificate buildCaWithStatus(CertificateValidationStatus status) {
-        Certificate ca = new Certificate();
-        ca.setFingerprint(UUID.randomUUID().toString());
-        ca.setValidationStatus(status);
-        ca.setTrustedCa(false);
+        X509CertificateEntity ca = aCertificate()
+                .withFingerprint(UUID.randomUUID().toString())
+                .withValidationStatus(status)
+                .withTrustedCa(false)
+                .build();
         CertificateContent content = new CertificateContent();
         content.setFingerprint(UUID.randomUUID().toString());
         content.setContent("ca-content");
@@ -121,11 +126,12 @@ class UpdateTrustedCaMarkITest extends BaseSpringBootTest {
     }
 
     private Certificate buildCaWithRaProfile(RaProfile raProfile) {
-        Certificate ca = new Certificate();
-        ca.setFingerprint(UUID.randomUUID().toString());
-        ca.setValidationStatus(CertificateValidationStatus.VALID);
-        ca.setTrustedCa(false);
-        ca.setRaProfileUuid(raProfile.getUuid());
+        X509CertificateEntity ca = aCertificate()
+                .withFingerprint(UUID.randomUUID().toString())
+                .withValidationStatus(CertificateValidationStatus.VALID)
+                .withTrustedCa(false)
+                .withRaProfileUuid(raProfile.getUuid())
+                .build();
         CertificateContent content = new CertificateContent();
         content.setFingerprint(UUID.randomUUID().toString());
         content.setContent("ca-content");
@@ -171,7 +177,7 @@ class UpdateTrustedCaMarkITest extends BaseSpringBootTest {
     @Test
     void caWithEligibleDescendantsPublishesCaAndAllDescendants() throws Exception {
         // given
-        Certificate ca = buildCa();
+        X509CertificateEntity ca = X509CertificateEntity.from(buildCa());
         Certificate childA = buildEligibleCert(ca);
         Certificate childB = buildEligibleCert(ca);
         Certificate grandchild = buildEligibleCert(childB);
@@ -183,14 +189,15 @@ class UpdateTrustedCaMarkITest extends BaseSpringBootTest {
         CertificateValidationEvent event = capturePublishedEvent();
         assertThat(event.certificateUuids())
                 .containsExactlyInAnyOrder(ca.getUuid(), childA.getUuid(), childB.getUuid(), grandchild.getUuid());
-        Certificate updated = certificateRepository.findByUuid(ca.getUuid()).orElseThrow();
+        X509CertificateEntity updated = X509CertificateEntity
+                .from(certificateRepository.findByUuid(ca.getUuid()).orElseThrow());
         assertThat(updated.getTrustedCa()).isTrue();
     }
 
     @Test
     void caWithNoDescendantsPublishesOnlyCa() throws Exception {
         // given
-        Certificate ca = buildCa();
+        X509CertificateEntity ca = X509CertificateEntity.from(buildCa());
         ca.setTrustedCa(true);
         certificateRepository.saveAndFlush(ca);
 
@@ -205,40 +212,44 @@ class UpdateTrustedCaMarkITest extends BaseSpringBootTest {
     @Test
     void ineligibleDescendantsExcludedFromEvent() throws Exception {
         // given
-        Certificate ca = buildCa();
+        X509CertificateEntity ca = X509CertificateEntity.from(buildCa());
         Certificate eligible = buildEligibleCert(ca);
 
-        Certificate archived = new Certificate();
-        archived.setFingerprint(UUID.randomUUID().toString());
-        archived.setValidationStatus(CertificateValidationStatus.VALID);
-        archived.setArchived(true);
-        archived.setIssuerCertificateUuid(ca.getUuid());
+        X509CertificateEntity archived = aCertificate()
+                .withFingerprint(UUID.randomUUID().toString())
+                .withValidationStatus(CertificateValidationStatus.VALID)
+                .withArchived(true)
+                .withIssuerCertificateUuid(ca.getUuid())
+                .build();
         CertificateContent c1 = new CertificateContent();
         c1.setFingerprint(UUID.randomUUID().toString());
         c1.setContent("c");
         archived.setCertificateContentId(certificateContentRepository.saveAndFlush(c1).getId());
         certificateRepository.saveAndFlush(archived);
 
-        Certificate noContent = new Certificate();
-        noContent.setFingerprint(UUID.randomUUID().toString());
-        noContent.setValidationStatus(CertificateValidationStatus.VALID);
-        noContent.setIssuerCertificateUuid(ca.getUuid());
+        X509CertificateEntity noContent = aCertificate()
+                .withFingerprint(UUID.randomUUID().toString())
+                .withValidationStatus(CertificateValidationStatus.VALID)
+                .withIssuerCertificateUuid(ca.getUuid())
+                .build();
         certificateRepository.saveAndFlush(noContent);
 
-        Certificate revoked = new Certificate();
-        revoked.setFingerprint(UUID.randomUUID().toString());
-        revoked.setValidationStatus(CertificateValidationStatus.REVOKED);
-        revoked.setIssuerCertificateUuid(ca.getUuid());
+        X509CertificateEntity revoked = aCertificate()
+                .withFingerprint(UUID.randomUUID().toString())
+                .withValidationStatus(CertificateValidationStatus.REVOKED)
+                .withIssuerCertificateUuid(ca.getUuid())
+                .build();
         CertificateContent c2 = new CertificateContent();
         c2.setFingerprint(UUID.randomUUID().toString());
         c2.setContent("c");
         revoked.setCertificateContentId(certificateContentRepository.saveAndFlush(c2).getId());
         certificateRepository.saveAndFlush(revoked);
 
-        Certificate expired = new Certificate();
-        expired.setFingerprint(UUID.randomUUID().toString());
-        expired.setValidationStatus(CertificateValidationStatus.EXPIRED);
-        expired.setIssuerCertificateUuid(ca.getUuid());
+        X509CertificateEntity expired = aCertificate()
+                .withFingerprint(UUID.randomUUID().toString())
+                .withValidationStatus(CertificateValidationStatus.EXPIRED)
+                .withIssuerCertificateUuid(ca.getUuid())
+                .build();
         CertificateContent c3 = new CertificateContent();
         c3.setFingerprint(UUID.randomUUID().toString());
         c3.setContent("c");
@@ -256,7 +267,7 @@ class UpdateTrustedCaMarkITest extends BaseSpringBootTest {
     @Test
     void unmarkingTrustTriggersRevalidation() throws Exception {
         // given
-        Certificate ca = buildCa();
+        X509CertificateEntity ca = X509CertificateEntity.from(buildCa());
         ca.setTrustedCa(true);
         certificateRepository.saveAndFlush(ca);
         Certificate child = buildEligibleCert(ca);
@@ -267,18 +278,20 @@ class UpdateTrustedCaMarkITest extends BaseSpringBootTest {
         // then
         CertificateValidationEvent event = capturePublishedEvent();
         assertThat(event.certificateUuids()).containsExactlyInAnyOrder(ca.getUuid(), child.getUuid());
-        Certificate updated = certificateRepository.findByUuid(ca.getUuid()).orElseThrow();
+        X509CertificateEntity updated = X509CertificateEntity
+                .from(certificateRepository.findByUuid(ca.getUuid()).orElseThrow());
         assertThat(updated.getTrustedCa()).isFalse();
     }
 
     @Test
     void archivedCaThrowsBeforePublishingEvent() {
         // given
-        Certificate ca = new Certificate();
-        ca.setFingerprint(UUID.randomUUID().toString());
-        ca.setValidationStatus(CertificateValidationStatus.VALID);
-        ca.setTrustedCa(false);
-        ca.setArchived(true);
+        X509CertificateEntity ca = aCertificate()
+                .withFingerprint(UUID.randomUUID().toString())
+                .withValidationStatus(CertificateValidationStatus.VALID)
+                .withTrustedCa(false)
+                .withArchived(true)
+                .build();
         certificateRepository.saveAndFlush(ca);
 
         // when / then
@@ -290,9 +303,10 @@ class UpdateTrustedCaMarkITest extends BaseSpringBootTest {
     @Test
     void nonCaCertificateThrowsBeforePublishingEvent() {
         // given
-        Certificate cert = new Certificate();
-        cert.setFingerprint(UUID.randomUUID().toString());
-        cert.setValidationStatus(CertificateValidationStatus.VALID);
+        X509CertificateEntity cert = aCertificate()
+                .withFingerprint(UUID.randomUUID().toString())
+                .withValidationStatus(CertificateValidationStatus.VALID)
+                .build();
         certificateRepository.saveAndFlush(cert);
 
         // when / then
@@ -304,10 +318,11 @@ class UpdateTrustedCaMarkITest extends BaseSpringBootTest {
     @Test
     void caWithNoContentNotQueuedEligibleDescendantsStillAre() throws Exception {
         // given
-        Certificate ca = new Certificate();
-        ca.setFingerprint(UUID.randomUUID().toString());
-        ca.setValidationStatus(CertificateValidationStatus.VALID);
-        ca.setTrustedCa(false);
+        X509CertificateEntity ca = aCertificate()
+                .withFingerprint(UUID.randomUUID().toString())
+                .withValidationStatus(CertificateValidationStatus.VALID)
+                .withTrustedCa(false)
+                .build();
         ca = certificateRepository.saveAndFlush(ca);
         Certificate child = buildEligibleCert(ca);
 
@@ -323,7 +338,7 @@ class UpdateTrustedCaMarkITest extends BaseSpringBootTest {
     @Test
     void revokedCaNotQueuedEligibleDescendantsStillAre() throws Exception {
         // given
-        Certificate ca = buildCaWithStatus(CertificateValidationStatus.REVOKED);
+        X509CertificateEntity ca = X509CertificateEntity.from(buildCaWithStatus(CertificateValidationStatus.REVOKED));
         Certificate child = buildEligibleCert(ca);
 
         // when
@@ -338,7 +353,7 @@ class UpdateTrustedCaMarkITest extends BaseSpringBootTest {
     @Test
     void expiredCaNotQueuedEligibleDescendantsStillAre() throws Exception {
         // given
-        Certificate ca = buildCaWithStatus(CertificateValidationStatus.EXPIRED);
+        X509CertificateEntity ca = X509CertificateEntity.from(buildCaWithStatus(CertificateValidationStatus.EXPIRED));
         Certificate child = buildEligibleCert(ca);
 
         // when
@@ -354,7 +369,7 @@ class UpdateTrustedCaMarkITest extends BaseSpringBootTest {
     void caWithValidationDisabledRaProfileNotQueued() throws Exception {
         // given
         RaProfile disabledRp = buildRaProfile(false);
-        Certificate ca = buildCaWithRaProfile(disabledRp);
+        X509CertificateEntity ca = X509CertificateEntity.from(buildCaWithRaProfile(disabledRp));
         Certificate child = buildEligibleCert(ca); // child has no RA profile → eligible
 
         // when
@@ -369,7 +384,7 @@ class UpdateTrustedCaMarkITest extends BaseSpringBootTest {
     @Test
     void noEventPublishedWhenCaAndAllDescendantsIneligible() throws Exception {
         // given — REVOKED CA, no descendants
-        Certificate ca = buildCaWithStatus(CertificateValidationStatus.REVOKED);
+        X509CertificateEntity ca = X509CertificateEntity.from(buildCaWithStatus(CertificateValidationStatus.REVOKED));
 
         // when
         callUpdateTrustedCa(ca.getUuid(), true);
@@ -382,7 +397,7 @@ class UpdateTrustedCaMarkITest extends BaseSpringBootTest {
     void noEventPublishedWhenPlatformValidationDisabledAndNoCertsWithExplicitOptIn() throws Exception {
         // given — platform disabled; CA and child both inherit platform (no RA profile)
         setPlatformValidationEnabled(false);
-        Certificate ca = buildCa();
+        X509CertificateEntity ca = X509CertificateEntity.from(buildCa());
         buildEligibleCert(ca); // has no RA profile → inherits platform → excluded
 
         // when
@@ -395,7 +410,7 @@ class UpdateTrustedCaMarkITest extends BaseSpringBootTest {
     @Test
     void noEventPublishedWhenTrustedCaMarkAlreadyTrue() throws Exception {
         // given — CA is already trusted; eligible descendant exists
-        Certificate ca = buildCa();
+        X509CertificateEntity ca = X509CertificateEntity.from(buildCa());
         ca.setTrustedCa(true);
         certificateRepository.saveAndFlush(ca);
         buildEligibleCert(ca);
@@ -410,7 +425,7 @@ class UpdateTrustedCaMarkITest extends BaseSpringBootTest {
     @Test
     void noEventPublishedWhenTrustedCaMarkAlreadyFalse() throws Exception {
         // given — CA already has trustedCa=false (default from buildCa()); eligible descendant exists
-        Certificate ca = buildCa();
+        X509CertificateEntity ca = X509CertificateEntity.from(buildCa());
         buildEligibleCert(ca);
 
         // when — request the same value
@@ -425,7 +440,7 @@ class UpdateTrustedCaMarkITest extends BaseSpringBootTest {
         // given — platform disabled; CA and child both have RA profile with validationEnabled=true
         setPlatformValidationEnabled(false);
         RaProfile optInRp = buildRaProfile(true);
-        Certificate ca = buildCaWithRaProfile(optInRp);
+        X509CertificateEntity ca = X509CertificateEntity.from(buildCaWithRaProfile(optInRp));
         Certificate child = buildEligibleCert(ca);
         child.setRaProfileUuid(optInRp.getUuid());
         certificateRepository.saveAndFlush(child);

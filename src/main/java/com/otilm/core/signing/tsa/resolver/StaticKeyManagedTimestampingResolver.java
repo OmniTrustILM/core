@@ -2,6 +2,7 @@ package com.otilm.core.signing.tsa.resolver;
 
 import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.resolved.ResolvedManagedScheme;
 import com.otilm.core.model.signing.resolved.ResolvedManagedTimestampingProfile;
@@ -15,6 +16,9 @@ import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
 import com.otilm.core.signing.engine.resolver.ManagedSchemeResolver;
 import com.otilm.core.signing.engine.resolver.SigningProfileResolver;
+import com.otilm.core.signing.formatting.FormattingAttributeDefinitions;
+import com.otilm.core.signing.formatting.FormattingAttributesCheck;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
 
@@ -34,13 +38,15 @@ public class StaticKeyManagedTimestampingResolver implements SigningProfileResol
     private final ManagedSchemeResolver schemeResolver;
     private final TimeQualityConfigurationInternalService timeQualityConfigurationService;
     private final ConnectorInternalService connectorService;
+    private final FormattingAttributeDefinitions formattingAttributeDefinitions;
 
     public StaticKeyManagedTimestampingResolver(ManagedSchemeResolver schemeResolver,
             TimeQualityConfigurationInternalService timeQualityConfigurationService,
-            ConnectorInternalService connectorService) {
+            ConnectorInternalService connectorService, FormattingAttributeDefinitions formattingAttributeDefinitions) {
         this.schemeResolver = schemeResolver;
         this.timeQualityConfigurationService = timeQualityConfigurationService;
         this.connectorService = connectorService;
+        this.formattingAttributeDefinitions = formattingAttributeDefinitions;
     }
 
     @Override
@@ -56,6 +62,10 @@ public class StaticKeyManagedTimestampingResolver implements SigningProfileResol
                 workflow.timeQualityConfigurationUuid());
         ApiClientConnectorInfo signatureFormattingConnector = resolveSignatureFormattingConnector(
                 workflow.signatureFormattingConnectorUuid());
+        List<BaseAttribute> formattingDefinitions = formattingAttributeDefinitions
+                .forTimestamping(signatureFormattingConnector, workflow);
+        FormattingAttributesCheck
+                .requireValid(model.name(), formattingDefinitions, workflow.signatureFormattingConnectorAttributes());
 
         return new ResolvedManagedTimestampingProfile(model.uuid(), model.name(), model.description(), model.version(),
                 model.enabled(), model.enabledProtocols(), workflow.isQualifiedTimestamp(), workflow.defaultPolicyId(),

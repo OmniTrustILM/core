@@ -13,13 +13,13 @@ import java.util.UUID;
 import static com.otilm.core.util.KeyMetaFixtures.keyIdMeta;
 
 /**
- * Builds a key pair as a connector lists it: a 2048-bit RSA pair labelled "signer", with a key ID of its own and a
+ * Builds a key pair as a connector lists it: a 2048-bit RSA pair stored as "signer", with a key ID of its own and a
  * freshly generated public key. Tests override only what their scenario turns on.
  */
 public final class ListedKeyPairV2DtoBuilder {
 
     private String keyId = UUID.randomUUID().toString();
-    private String label = "signer";
+    private String storageName = "signer";
     private KeyAlgorithm algorithm = KeyAlgorithm.RSA;
     private Integer length = 2048;
     private PublicKey publicKey = TestPublicKeys.rsaPublicKey();
@@ -33,8 +33,8 @@ public final class ListedKeyPairV2DtoBuilder {
         return this;
     }
 
-    public ListedKeyPairV2DtoBuilder withLabel(String label) {
-        this.label = label;
+    public ListedKeyPairV2DtoBuilder withStorageName(String storageName) {
+        this.storageName = storageName;
         return this;
     }
 
@@ -62,7 +62,7 @@ public final class ListedKeyPairV2DtoBuilder {
     public ListedKeyPairV2Dto build() {
         ListedKeyPairV2Dto listed = new ListedKeyPairV2Dto();
         listed.setKeyPairMeta(keyIdMeta(keyId));
-        listed.setLabel(label);
+        listed.setStorageName(storageName);
         listed.setPrivateKeyData(privateKeyData());
         if (publicKey != null) {
             listed.setPublicKeyData(publicKeyData());

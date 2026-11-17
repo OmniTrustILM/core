@@ -20,6 +20,8 @@ import com.otilm.api.model.common.attribute.v3.content.ResourceObjectContent;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceObjectContentData;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceSimpleContentData;
 import com.otilm.api.model.core.auth.AttributeResource;
+import com.otilm.api.model.core.auth.ObjectAllowedActionsRequestDto;
+import com.otilm.api.model.core.auth.ObjectAllowedActionsResponseDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.other.ResourceDto;
 import com.otilm.api.model.core.other.ResourceEvent;
@@ -36,6 +38,7 @@ import com.otilm.core.exception.DanglingReferenceException;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.AnyPrincipalEndpoint;
 import com.otilm.core.security.authz.ExternalAuthorizationDynamic;
+import com.otilm.core.security.authz.ObjectActionResolver;
 import com.otilm.core.security.authz.ObjectFilterAspect;
 import com.otilm.core.security.authz.SecuredResource;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -57,6 +60,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
@@ -101,6 +105,21 @@ public class ResourceServiceImpl implements ResourceExternalService, ResourceInt
     @Autowired
     public void setObjectFilterAspect(ObjectFilterAspect objectFilterAspect) {
         this.objectFilterAspect = objectFilterAspect;
+    }
+
+    private ObjectActionResolver objectActionResolver;
+
+    @Autowired
+    public void setObjectActionResolver(ObjectActionResolver objectActionResolver) {
+        this.objectActionResolver = objectActionResolver;
+    }
+
+    @Override
+    @AnyPrincipalEndpoint
+    @Transactional(Transactional.TxType.NOT_SUPPORTED)
+    public ObjectAllowedActionsResponseDto listObjectAllowedActions(Resource resource,
+            ObjectAllowedActionsRequestDto request) {
+        return new ObjectAllowedActionsResponseDto(objectActionResolver.resolve(resource, request.getUuids()));
     }
 
     @Override
@@ -389,6 +408,26 @@ public class ResourceServiceImpl implements ResourceExternalService, ResourceInt
                     "Attribute '%s' refers to %s '%s', which does not exist. Select another one."
                             .formatted(attribute.getProperties().getLabel(), resource.getLabel(), nameOrUuid));
         }
+    }
+
+    @Override
+    public ResourceObjectContentData loadReferencedObjectContent(AttributeResource resource, UUID uuid)
+            throws NotFoundException, AttributeException, ConnectorException {
+        return getResourceObjectContentData(resource, uuid, storedNameOf(resource, uuid));
+    }
+
+    /**
+     * The object's own name, which a reference stored without one cannot supply and the connector's schema requires.
+     */
+    private String storedNameOf(AttributeResource resource, UUID uuid) throws NotFoundException {
+        ResourceExtensionService extensionService = resourceExtensionServices.get(resource.getCode());
+        return extensionService == null ? null : extensionService.getResourceObjectInternal(uuid).getName();
+    }
+
+    @Override
+    public Optional<UUID> findOwningConnector(AttributeResource resource, UUID uuid) {
+        ResourceExtensionService extensionService = resourceExtensionServices.get(resource.getCode());
+        return extensionService == null ? Optional.empty() : extensionService.findOwningConnector(uuid);
     }
 
     private ResourceObjectContentData getResourceObjectContentData(AttributeResource resource, UUID uuid, String name)

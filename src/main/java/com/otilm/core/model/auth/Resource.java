@@ -35,6 +35,9 @@ public enum Resource {
     // CMP
     CMP_PROFILE("cmpProfiles"),
 
+    // EST
+    EST_PROFILE("estProfiles"),
+
     // CERTIFICATES
     AUTHORITY("authorities"),
     RA_PROFILE("raProfiles"),

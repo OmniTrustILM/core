@@ -5,6 +5,7 @@ import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.oid.OidHandler;
 import com.otilm.core.oid.OidRecord;
 import com.otilm.core.service.CertificateEventHistoryInternalService;
@@ -26,6 +27,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.eq;
@@ -85,9 +87,7 @@ class CmpRegistrationIdentityVerifierTest {
     }
 
     private static Certificate matched(String subjectDn, List<String> dnsSans) {
-        Certificate certificate = new Certificate();
-        certificate.setUuid(MATCHED_UUID);
-        certificate.setSubjectDn(subjectDn);
+        X509CertificateEntity certificate = aCertificate().withUuid(MATCHED_UUID).withSubjectDn(subjectDn).build();
         if (dnsSans != null) {
             certificate.setSubjectAlternativeNames(CertificateUtil.serializeSans(Map.of("dNSName", dnsSans)));
         }

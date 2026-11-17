@@ -25,10 +25,10 @@ import com.otilm.api.model.core.cmp.ProtectionMethod;
 import com.otilm.api.model.core.protocol.ProtocolCertificateAssociationsRequestDto;
 import com.otilm.api.model.core.protocol.ProtocolChallengeSource;
 import com.otilm.core.attribute.engine.AttributeEngine;
-import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.ProtocolCertificateAssociations;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.cmp.CmpProfile;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
@@ -52,6 +52,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.junit.jupiter.params.provider.Arguments.arguments;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
@@ -128,14 +129,15 @@ class CmpProfileServiceITest extends BaseSpringBootTest {
         certificateContent.setContent("123456");
         certificateContent = certificateContentRepository.save(certificateContent);
 
-        Certificate certificate = new Certificate();
-        certificate.setSubjectDn("testCertificate");
-        certificate.setIssuerDn("testCertificate");
-        certificate.setSerialNumber("123456789");
-        certificate.setCertificateContent(certificateContent);
-        certificate.setCertificateContentId(certificateContent.getId());
-        certificate.setState(CertificateState.ISSUED);
-        certificate.setValidationStatus(CertificateValidationStatus.VALID);
+        X509CertificateEntity certificate = aCertificate()
+                .withSubjectDn("testCertificate")
+                .withIssuerDn("testCertificate")
+                .withSerialNumber("123456789")
+                .withCertificateContent(certificateContent)
+                .withCertificateContentId(certificateContent.getId())
+                .withState(CertificateState.ISSUED)
+                .withValidationStatus(CertificateValidationStatus.VALID)
+                .build();
         certificateRepository.save(certificate);
 
         cmpProfile.setEnabled(true);

@@ -38,7 +38,6 @@ import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.config.cache.ReadThroughCache;
-import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
@@ -50,6 +49,7 @@ import com.otilm.core.dao.entity.KeyImport;
 import com.otilm.core.dao.entity.KeyImportState;
 import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
@@ -126,6 +126,7 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -1837,15 +1838,16 @@ class KeyImportWriterITest extends BaseSpringBootTest {
         CertificateContent content = new CertificateContent();
         content.setContent("certificate-" + UUID.randomUUID());
         content = certificateContentRepository.saveAndFlush(content);
-        Certificate certificate = new Certificate();
-        certificate.setCommonName("imported");
-        certificate.setSubjectDn("CN=imported");
-        certificate.setIssuerDn("CN=issuer");
-        certificate.setSerialNumber(UUID.randomUUID().toString());
-        certificate.setState(CertificateState.ISSUED);
-        certificate.setValidationStatus(CertificateValidationStatus.VALID);
-        certificate.setCertificateContentId(content.getId());
-        certificate.setKeyUuid(keyUuid);
+        X509CertificateEntity certificate = aCertificate()
+                .withCommonName("imported")
+                .withSubjectDn("CN=imported")
+                .withIssuerDn("CN=issuer")
+                .withSerialNumber(UUID.randomUUID().toString())
+                .withState(CertificateState.ISSUED)
+                .withValidationStatus(CertificateValidationStatus.VALID)
+                .withCertificateContentId(content.getId())
+                .withKeyUuid(keyUuid)
+                .build();
         return certificateRepository.saveAndFlush(certificate).getUuid();
     }
 

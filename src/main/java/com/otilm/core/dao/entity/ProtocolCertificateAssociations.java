@@ -4,6 +4,7 @@ import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.ResponseAttribute;
 import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.core.protocol.ProtocolCertificateAssociationsDto;
+import com.otilm.core.dao.converter.ReplaceOnlyMutability;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import java.util.List;
@@ -13,6 +14,7 @@ import lombok.Getter;
 import lombok.Setter;
 import org.apache.commons.lang3.function.TriFunction;
 import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.annotations.Mutability;
 import org.hibernate.type.SqlTypes;
 
 @Entity
@@ -30,6 +32,7 @@ public class ProtocolCertificateAssociations extends UniquelyIdentified {
 
     @Column(columnDefinition = "jsonb")
     @JdbcTypeCode(SqlTypes.JSON)
+    @Mutability(ReplaceOnlyMutability.class)
     private List<RequestAttribute> customAttributes;
 
     public ProtocolCertificateAssociationsDto mapToDto(

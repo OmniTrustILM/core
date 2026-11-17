@@ -2,6 +2,7 @@ package db.migration;
 
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
+import com.otilm.core.dao.entity.X509CertificateRequestEntity;
 import com.otilm.core.util.CertificateUtil;
 import org.flywaydb.core.api.migration.BaseJavaMigration;
 import org.flywaydb.core.api.migration.Context;
@@ -97,7 +98,7 @@ public class V202306141503__CertificateRequest extends BaseJavaMigration {
                     logger.info(sqlCommand);
                     sqlCommands.add(sqlCommand);
 
-                    final CertificateRequestEntity certRequest = new CertificateRequestEntity();
+                    final CertificateRequestEntity certRequest = new X509CertificateRequestEntity();
                     certRequest.setUuid(certificateRequestUuid);
                     certRequest.setContent(csrContent);
                     certificateRequestEntities.add(certRequest);

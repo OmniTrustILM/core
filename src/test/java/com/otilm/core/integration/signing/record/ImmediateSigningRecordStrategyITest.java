@@ -9,27 +9,40 @@ import com.otilm.api.model.core.signing.signingrecord.SigningRecordDto;
 import com.otilm.api.model.core.signing.signingrecord.SigningRecordListDto;
 import com.otilm.core.dao.entity.signing.SigningProfile;
 import com.otilm.core.dao.entity.signing.SigningProfileVersion;
+import com.otilm.core.dao.entity.signing.SigningRecord;
 import com.otilm.core.dao.repository.signing.SigningProfileRepository;
 import com.otilm.core.dao.repository.signing.SigningProfileVersionRepository;
+import com.otilm.core.dao.repository.signing.SigningRecordRepository;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.SigningRecordExternalService;
 import com.otilm.core.signing.record.ImmediateSigningRecordStrategy;
 import com.otilm.core.signing.record.SigningRecordInput;
+import com.otilm.core.signing.record.SigningRecordInputSource;
 import com.otilm.core.signing.record.SigningRecordInputSources;
 import com.otilm.core.util.BaseSpringBootTest;
+import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
+import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.Test;
+import org.postgresql.util.PSQLException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.notRecording;
 import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.recordingDisabled;
 import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.recordingEverything;
 import static com.otilm.core.signing.record.SigningRecordInputBuilder.aSigningRecordInput;
+import static com.otilm.core.signing.record.SigningRecordInputSources.recordOne;
 import static com.otilm.core.util.builders.SearchRequestDtoBuilder.aSearchRequest;
 import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningProfile;
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -54,6 +67,12 @@ class ImmediateSigningRecordStrategyITest extends BaseSpringBootTest {
     @Autowired
     private SigningProfileVersionRepository versionRepo;
 
+    @Autowired
+    private SigningRecordRepository recordRepo;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+
     @Test
     void persistsAllRecordableContent_whenEveryToggleEnabled() throws NotFoundException, JsonProcessingException {
         // given
@@ -71,7 +90,7 @@ class ImmediateSigningRecordStrategyITest extends BaseSpringBootTest {
                 .build();
 
         // when
-        strategy.recordSigning(SigningRecordInputSources.of(input));
+        recordOne(strategy, input);
 
         // then
         List<SigningRecordListDto> all = signingRecordService
@@ -96,7 +115,7 @@ class ImmediateSigningRecordStrategyITest extends BaseSpringBootTest {
         SigningRecordInput input = aSigningRecordInput().signingProfile(signingProfile).build();
 
         // when
-        strategy.recordSigning(SigningRecordInputSources.of(input));
+        recordOne(strategy, input);
 
         // then
         List<SigningRecordListDto> all = signingRecordService
@@ -116,7 +135,7 @@ class ImmediateSigningRecordStrategyITest extends BaseSpringBootTest {
         SigningRecordInput input = aSigningRecordInput().signingProfile(signingProfile).build();
 
         // when
-        strategy.recordSigning(SigningRecordInputSources.of(input));
+        recordOne(strategy, input);
 
         // then
         List<SigningRecordListDto> all = signingRecordService
@@ -133,6 +152,63 @@ class ImmediateSigningRecordStrategyITest extends BaseSpringBootTest {
         assertNull(signingRecord.getSignedDocument());
         assertNull(signingRecord.getDtbs());
     }
+
+    @Test
+    void insertsEveryRecordUnderItsReference_whenRecordingABatch() {
+        // given
+        SigningProfileModel<?, ?> recordingProfile = persistRecordingProfile("immediate-batch-profile");
+        List<SigningRecordInputSource> batch = List
+                .of(createRecordableSource(recordingProfile), createRecordableSource(recordingProfile),
+                        createRecordableSource(recordingProfile));
+
+        // when
+        List<UUID> references = strategy.recordSigning(recordingProfile, batch);
+
+        // then
+        assertThat(recordRepo.findAll())
+                .extracting(SigningRecord::getUuid)
+                .containsExactlyInAnyOrderElementsOf(references);
+    }
+
+    @Test
+    void insertsNothing_whenOneRecordOfTheBatchViolatesAConstraint() {
+        // given
+        SigningProfileModel<?, ?> recordingProfile = persistRecordingProfile("immediate-violation-profile");
+        List<SigningRecordInputSource> batch = List
+                .of(createRecordableSource(recordingProfile), createRecordableSource(recordingProfile),
+                        createSourceWithoutSigningTime(recordingProfile));
+
+        // when
+        ThrowingCallable recordBatch = () -> strategy.recordSigning(recordingProfile, batch);
+
+        // then
+        assertThatThrownBy(recordBatch)
+                .isInstanceOf(ConstraintViolationException.class)
+                .hasRootCauseInstanceOf(PSQLException.class);
+        assertThat(recordRepo.count()).isZero();
+    }
+
+    @Test
+    void raisesTheViolationBeforeTheCallerCommits_whenRecordingABatchInsideTheCallersTransaction() {
+        // given
+        SigningProfileModel<?, ?> recordingProfile = persistRecordingProfile("immediate-caller-tx-profile");
+        List<SigningRecordInputSource> batch = List
+                .of(createRecordableSource(recordingProfile), createSourceWithoutSigningTime(recordingProfile));
+
+        // when
+        ThrowingCallable recordBatchInCallersTransaction = () -> new TransactionTemplate(transactionManager)
+                .executeWithoutResult(callersTransaction -> {
+                    callersTransaction.setRollbackOnly();
+                    strategy.recordSigning(recordingProfile, batch);
+                });
+
+        // then
+        assertThatThrownBy(recordBatchInCallersTransaction)
+                .isInstanceOf(ConstraintViolationException.class)
+                .hasRootCauseInstanceOf(PSQLException.class);
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     /**
      * Persists the {@code signing_profile} row referenced by a record's {@code signing_profile_uuid}. The profile's
@@ -155,6 +231,24 @@ class ImmediateSigningRecordStrategyITest extends BaseSpringBootTest {
         versionRepo.saveAndFlush(version);
 
         return profile;
+    }
+
+    private SigningProfileModel<?, ?> persistRecordingProfile(String name) {
+        SigningProfile persistedProfile = insertSigningProfile(name);
+        return aSigningProfile()
+                .withUuid(persistedProfile.getUuid())
+                .withRecordPolicy(recordingEverything().build())
+                .build();
+    }
+
+    private static SigningRecordInputSource createRecordableSource(SigningProfileModel<?, ?> signingProfile) {
+        return SigningRecordInputSources.of(aSigningRecordInput().signingProfile(signingProfile).build());
+    }
+
+    private static SigningRecordInputSource createSourceWithoutSigningTime(SigningProfileModel<?, ?> signingProfile) {
+        Instant missingSigningTime = null;
+        return SigningRecordInputSources
+                .of(aSigningRecordInput().signingProfile(signingProfile).signingTime(missingSigningTime).build());
     }
 
     private void assertSameJson(String expected, String actual) throws JsonProcessingException {

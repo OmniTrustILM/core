@@ -2,6 +2,7 @@ package com.otilm.core.service.handler.authority;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.api.clients.ApiClientConnectorInfo;
+import com.otilm.api.exception.ConnectionServiceException;
 import com.otilm.api.exception.ConnectorCommunicationException;
 import com.otilm.api.exception.ConnectorEntityNotFoundException;
 import com.otilm.api.exception.ConnectorException;
@@ -62,8 +63,8 @@ import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
-import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateRequestEntity;
 import com.otilm.core.exception.ConnectorAcceptedButLocalFailureException;
 import com.otilm.core.oid.OidHandler;
 import com.otilm.core.oid.OidRecord;
@@ -79,6 +80,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.GeneralName;
 import org.bouncycastle.operator.ContentSigner;
@@ -90,6 +92,8 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -98,6 +102,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+import static com.otilm.core.util.builders.CertificateRequestEntityBuilder.aCertificateRequest;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -187,13 +195,13 @@ class AuthorityProviderV3AdapterTest {
         raProfile.setUuid(UUID.randomUUID());
         raProfile.setAuthorityInstanceReference(authority);
 
-        CertificateRequestEntity certRequest = new CertificateRequestEntity();
+        X509CertificateRequestEntity certRequest = aCertificateRequest().build();
         certRequest.setContent("dGVzdGNzcg=="); // "testcsr" Base64
 
         CertificateContent certContent = new CertificateContent();
         certContent.setContent("dGVzdGNlcnQ="); // "testcert" Base64
 
-        cert = new Certificate();
+        cert = aCertificate().build();
         cert.setUuid(UUID.randomUUID());
         cert.setRaProfile(raProfile);
         cert.setCertificateRequest(certRequest);
@@ -202,7 +210,7 @@ class AuthorityProviderV3AdapterTest {
         CertificateContent oldCertContent = new CertificateContent();
         oldCertContent.setContent("b2xkY2VydA=="); // "oldcert" Base64
 
-        oldCert = new Certificate();
+        oldCert = aCertificate().build();
         oldCert.setUuid(UUID.randomUUID());
         oldCert.setRaProfile(raProfile);
         oldCert.setCertificateContent(oldCertContent);
@@ -844,6 +852,115 @@ class AuthorityProviderV3AdapterTest {
         CancelResult result = adapter.cancel(cert, CertificateOperation.REGISTER);
 
         assertEquals(CancelOutcome.NOT_TRACKED, result.outcome());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"OPERATION_NOT_TRACKED, 404", "OPERATION_NOT_TRACKED, 422", "REGISTRATION_NOT_FOUND, 422"})
+    void returnsNotTracked_whenNotTrackedCodeCarriesASupportedStatus(ErrorCode code, int status)
+            throws ConnectorException {
+        // given
+        var problem = new ConnectorProblemException(problemWithStatus(code, status));
+        when(certClientV3.cancelIssue(eq(connectorInfo), any())).thenThrow(problem);
+
+        // when
+        CancelResult result = adapter.cancel(cert, CertificateOperation.ISSUE);
+
+        // then
+        assertThat(result.outcome()).isEqualTo(CancelOutcome.NOT_TRACKED);
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "OPERATION_NOT_TRACKED, 500",
+            "OPERATION_NOT_TRACKED, 503",
+            "OPERATION_NOT_TRACKED, 400",
+            "REGISTRATION_NOT_FOUND, 503",
+            "OPERATION_PAST_POINT_OF_NO_RETURN, 500",
+            "OPERATION_PAST_POINT_OF_NO_RETURN, 503",
+            "OPERATION_PAST_POINT_OF_NO_RETURN, 404"})
+    void propagatesProblem_whenCancelStatusIsNotOneTheContractDefinesForTheCode(ErrorCode code, int status)
+            throws ConnectorException {
+        // given
+        var problem = new ConnectorProblemException(problemWithStatus(code, status));
+        when(certClientV3.cancelIssue(eq(connectorInfo), any())).thenThrow(problem);
+
+        // when
+        ThrowingCallable cancel = () -> adapter.cancel(cert, CertificateOperation.ISSUE);
+
+        // then
+        assertThatThrownBy(cancel).isSameAs(problem);
+    }
+
+    private static ProblemDetailExtended problemWithStatus(ErrorCode code, int status) {
+        ProblemDetailExtended problem = ProblemDetailExtended
+                .fromErrorCode(code, "connector answer", URI.create("https://example.com"), null);
+        problem.setStatus(status);
+        return problem;
+    }
+
+    @Test
+    void throwsNotSentWithoutCallingTheConnector_whenASecretOfTheCancelRequestIsNotFound() throws ConnectorException {
+        // given
+        var secretNotFound = new ConnectorEntityNotFoundException("Secret content not found");
+        when(operationAttributeResolver.resolveForConnectorRequestAsSystem(eq(authority.getConnectorUuid()), any()))
+                .thenThrow(secretNotFound);
+
+        // when
+        ThrowingCallable cancel = () -> adapter.cancel(cert, CertificateOperation.ISSUE);
+
+        // then
+        assertThatThrownBy(cancel)
+                .isInstanceOfSatisfying(CancelNotSentException.class,
+                        e -> assertThat(e.reason()).isSameAs(secretNotFound));
+        verifyNoInteractions(certClientV3);
+    }
+
+    @Test
+    void throwsNotSentWithoutCallingTheConnector_whenAReferenceOfTheCancelRequestIsInvalid() throws ConnectorException {
+        // given
+        var disabledSecret = new ValidationException("Secret is disabled");
+        when(operationAttributeResolver.resolveForConnectorRequestAsSystem(eq(authority.getConnectorUuid()), any()))
+                .thenThrow(disabledSecret);
+
+        // when
+        ThrowingCallable cancel = () -> adapter.cancel(cert, CertificateOperation.ISSUE);
+
+        // then
+        assertThatThrownBy(cancel)
+                .isInstanceOfSatisfying(CancelNotSentException.class,
+                        e -> assertThat(e.reason()).isSameAs(disabledSecret));
+        verifyNoInteractions(certClientV3);
+    }
+
+    @Test
+    void throwsNotSentWithoutCallingTheConnector_whenTheConnectorIsNotFound() throws Exception {
+        // given
+        when(connectorService.getConnectorForApiClient(authority.getConnectorUuid()))
+                .thenThrow(new NotFoundException("connector missing"));
+
+        // when
+        ThrowingCallable cancel = () -> adapter.cancel(cert, CertificateOperation.ISSUE);
+
+        // then
+        assertThatThrownBy(cancel)
+                .isInstanceOfSatisfying(CancelNotSentException.class,
+                        e -> assertThat(e.reason()).isInstanceOf(ConnectorException.class));
+        verifyNoInteractions(certClientV3);
+    }
+
+    @Test
+    void throwsConnectionServiceException_whenCancelAnswersRedirect() throws ConnectorException {
+        // given
+        ResponseEntity<Void> redirect = ResponseEntity.status(HttpStatus.FOUND).build();
+        when(certClientV3.cancelIssue(eq(connectorInfo), any())).thenReturn(redirect);
+
+        // when
+        ThrowingCallable cancel = () -> adapter.cancel(cert, CertificateOperation.ISSUE);
+
+        // then
+        assertThatThrownBy(cancel)
+                .isInstanceOfSatisfying(ConnectionServiceException.class,
+                        e -> assertThat(e.getHttpStatus()).isEqualTo(HttpStatus.FOUND));
     }
 
     // ---- connector not found -> ConnectorException ----

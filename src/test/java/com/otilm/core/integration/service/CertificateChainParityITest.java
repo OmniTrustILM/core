@@ -2,11 +2,11 @@ package com.otilm.core.integration.service;
 
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.core.certificate.CertificateState;
-import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
@@ -32,6 +32,7 @@ import org.springframework.cache.CacheManager;
 import org.springframework.test.annotation.Rollback;
 import org.springframework.transaction.annotation.Transactional;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -229,12 +230,12 @@ class CertificateChainParityITest extends BaseSpringBootTest {
         content.setContent(Base64.getEncoder().encodeToString(x509.getEncoded()));
         content = certificateContentRepository.save(content);
 
-        Certificate cert = new Certificate();
-        cert.setCommonName(x509.getSubjectX500Principal().getName());
-        cert.setSubjectDn(x509.getSubjectX500Principal().getName());
-        cert.setIssuerDn(x509.getIssuerX500Principal().getName());
-        cert.setSerialNumber(x509.getSerialNumber().toString(16));
-        cert.setCertificateType(CertificateType.X509);
+        X509CertificateEntity cert = aCertificate()
+                .withCommonName(x509.getSubjectX500Principal().getName())
+                .withSubjectDn(x509.getSubjectX500Principal().getName())
+                .withIssuerDn(x509.getIssuerX500Principal().getName())
+                .withSerialNumber(x509.getSerialNumber().toString(16))
+                .build();
         cert.setState(CertificateState.ISSUED);
         cert.setValidationStatus(CertificateValidationStatus.VALID);
         cert.setNotBefore(new Date(x509.getNotBefore().getTime()));
@@ -245,12 +246,12 @@ class CertificateChainParityITest extends BaseSpringBootTest {
     }
 
     private Certificate persistCertificateWithoutContent() {
-        Certificate cert = new Certificate();
-        cert.setCommonName("CN=No-Content");
-        cert.setSubjectDn("CN=No-Content");
-        cert.setIssuerDn("CN=No-Content");
-        cert.setSerialNumber("deadbeef");
-        cert.setCertificateType(CertificateType.X509);
+        X509CertificateEntity cert = aCertificate()
+                .withCommonName("CN=No-Content")
+                .withSubjectDn("CN=No-Content")
+                .withIssuerDn("CN=No-Content")
+                .withSerialNumber("deadbeef")
+                .build();
         cert.setState(CertificateState.REQUESTED);
         cert.setValidationStatus(CertificateValidationStatus.NOT_CHECKED);
         cert.setNotBefore(new Date());

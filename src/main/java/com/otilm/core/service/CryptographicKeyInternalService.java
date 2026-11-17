@@ -1,6 +1,8 @@
 package com.otilm.core.service;
 
+import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
@@ -49,6 +51,14 @@ public interface CryptographicKeyInternalService extends ResourceExtensionServic
      * a null or unknown key
      */
     UUID getSignAttributeOwner(UUID keyUuid);
+
+    /**
+     * Destroys the key that the caller created for its own use, items in any usable state, the active ones as well,
+     * unless a certificate uses the key. No permission is checked: the caller owns the key.
+     *
+     * @throws ValidationException when a key item cannot be destroyed, as when a certificate uses the key
+     */
+    void destroyUnusedKey(UUID keyUuid) throws ConnectorException, NotFoundException;
 
     /**
      * Upload public key of existing certificate

@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -206,6 +207,30 @@ class AuthHelperTest {
         assertNotNull(actingUser);
         assertEquals(mappedUser.toString(), actingUser.getUuid());
         assertEquals("mapped-user", actingUser.getName());
+    }
+
+    /**
+     * The {@code est} identity is a protocol user: its requests are audited as a protocol actor, and the rules for
+     * protocol requests on custom attributes apply to it ({@link AuthHelper#isLoggedProtocolUser()}).
+     */
+    @Test
+    void recordsProtocolActor_whenAuthenticatedAsTheEstUser() {
+        // given
+        PlatformAuthenticationClient authenticationClient = mock(PlatformAuthenticationClient.class);
+        when(authenticationClient.authenticateSystemUser(AuthHelper.EST_USERNAME))
+                .thenReturn(new AuthenticationInfo(AuthMethod.USER_PROXY, UUID.randomUUID().toString(),
+                        AuthHelper.EST_USERNAME, List.of()));
+        AuthHelper unstubbedAuthHelper = new AuthHelper();
+        unstubbedAuthHelper.setAuthenticationClient(authenticationClient);
+
+        // when
+        unstubbedAuthHelper.authenticateAsSystemUser(AuthHelper.EST_USERNAME);
+
+        // then
+        ActorRecord actor = LoggingHelper.getActorInfo();
+        assertThat(actor.type()).isEqualTo(ActorType.PROTOCOL);
+        assertThat(actor.name()).isEqualTo(AuthHelper.EST_USERNAME);
+        assertThat(AuthHelper.isLoggedProtocolUser()).isTrue();
     }
 
     @Test

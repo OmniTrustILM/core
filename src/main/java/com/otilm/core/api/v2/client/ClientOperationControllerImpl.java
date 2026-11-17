@@ -187,7 +187,7 @@ public class ClientOperationControllerImpl implements ClientOperationController 
     @Override
     @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE,
             affiliatedResource = Resource.RA_PROFILE, operation = Operation.FINALIZE_ISSUE)
-    public com.otilm.api.model.core.certificate.CertificateDetailDto manuallyIssueCertificate(String authorityUuid,
+    public com.otilm.api.model.core.certificate.CertificateDetail manuallyIssueCertificate(String authorityUuid,
             @LogResource(uuid = true, affiliated = true) String raProfileUuid,
             @LogResource(uuid = true) String certificateUuid, ManuallyIssueCertificateRequestDto request)
             throws NotFoundException, CertificateException, AlreadyExistException, ConnectorException,
@@ -211,7 +211,7 @@ public class ClientOperationControllerImpl implements ClientOperationController 
     @Override
     @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE,
             affiliatedResource = Resource.RA_PROFILE, operation = Operation.CANCEL)
-    public com.otilm.api.model.core.certificate.CertificateDetailDto cancelPendingCertificateOperation(
+    public com.otilm.api.model.core.certificate.CertificateDetail cancelPendingCertificateOperation(
             String authorityUuid, @LogResource(uuid = true, affiliated = true) String raProfileUuid,
             @LogResource(uuid = true) String certificateUuid,
             com.otilm.api.model.client.certificate.CancelPendingCertificateRequestDto request)

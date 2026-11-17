@@ -12,6 +12,7 @@ import com.otilm.core.dao.entity.Group;
 import com.otilm.core.dao.entity.OwnerAssociation;
 import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.model.crypto.CryptographicKeyFullModel;
 import com.otilm.core.model.crypto.CryptographicKeyItemBasicModel;
 import com.otilm.core.model.crypto.ImmutableCryptographicKeyFullModel;
@@ -29,6 +30,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static com.otilm.core.util.builders.CryptographicKeyFullModelBuilder.aKeySnapshot;
 import static com.otilm.core.util.builders.CryptographicKeyItemBasicModelBuilder.aKeyItemSnapshot;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -325,9 +327,10 @@ class CryptographicKeyDtoMapperTest {
         CryptographicKey key = key();
         UUID certificateUuid = UUID.randomUUID();
         String certificateName = "signing.example.test";
-        Certificate certificate = new Certificate();
-        certificate.setUuid(certificateUuid);
-        certificate.setCommonName(certificateName);
+        X509CertificateEntity certificate = aCertificate()
+                .withUuid(certificateUuid)
+                .withCommonName(certificateName)
+                .build();
         key.setCertificates(Set.of(certificate));
         CryptographicKeyFullModel model = ImmutableCryptographicKeyFullModel.from(key);
 
@@ -468,10 +471,7 @@ class CryptographicKeyDtoMapperTest {
     }
 
     private static Certificate certificate(String commonName) {
-        Certificate certificate = new Certificate();
-        certificate.setUuid(UUID.randomUUID());
-        certificate.setCommonName(commonName);
-        return certificate;
+        return aCertificate().withUuid(UUID.randomUUID()).withCommonName(commonName).build();
     }
 
     private static CryptographicKey keyWithOwnerAndToken() {

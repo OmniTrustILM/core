@@ -6,7 +6,9 @@ import com.otilm.api.model.client.certificate.RemoveCertificateDto;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateRepository;
+import com.otilm.core.dao.repository.X509CertificateRepository;
 import com.otilm.core.events.handlers.CertificateUploadedEventHandler;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.messaging.model.CertificateUploadEventMessageData;
@@ -30,6 +32,7 @@ import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -47,6 +50,9 @@ class CertificateChainCacheITest extends BaseSpringBootTest {
 
     @MockitoSpyBean
     private CertificateRepository certificateRepository;
+
+    @Autowired
+    private X509CertificateRepository x509CertificateRepository;
 
     @Autowired
     private CertificateUploadedEventHandler certificateUploadedEventHandler;
@@ -156,6 +162,26 @@ class CertificateChainCacheITest extends BaseSpringBootTest {
         boolean certDeleted = certificateRepository.findByUuid(uuid).isEmpty();
         Assertions.assertTrue(certDeleted, "cert should be deleted from DB after bulkDeleteCertificate");
         Assertions.assertNull(cache.get(key), "bulkDeleteCertificate must evict the cert-chain cache");
+    }
+
+    @Test
+    void evictsCache_whenSavingThroughTheX509Repository() throws Exception {
+        // given
+        KeyPair rootKp = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+        X509Certificate rootX509 = CertificateGeneratorHelper
+                .generateCACertificate(rootKp, "CN=CacheTest-Root-X509Repo");
+        X509CertificateEntity root = X509CertificateEntity.from(certificateService.createCertificateEntity(rootX509));
+        certificateRepository.saveAndFlush(root);
+        String key = cacheKey(root.getUuid(), true);
+        certificateService.getCertificateChainForSigning(root.getUuid(), true);
+        assertThat(cache.get(key)).as("cache should be warm before the save").isNotNull();
+
+        // when
+        root.setCommonName("CacheTest-Root-X509Repo-renamed");
+        x509CertificateRepository.saveAndFlush(root);
+
+        // then
+        assertThat(cache.get(key)).as("a save through the X.509 repository must evict the cert-chain cache").isNull();
     }
 
     @Test

@@ -6,13 +6,13 @@ import com.otilm.api.model.connector.secrets.SecretType;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.secret.SecretState;
-import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.Group;
 import com.otilm.core.dao.entity.OwnerAssociation;
 import com.otilm.core.dao.entity.Secret;
 import com.otilm.core.dao.entity.SecretVersion;
 import com.otilm.core.dao.entity.VaultInstance;
 import com.otilm.core.dao.entity.VaultProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.GroupRepository;
 import com.otilm.core.dao.repository.OwnerAssociationRepository;
@@ -39,6 +39,7 @@ import org.springframework.test.context.transaction.TestTransaction;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.SerializationUtils;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
@@ -88,11 +89,13 @@ class StatisticsServiceITest extends BaseSpringBootTest {
 
     @Test
     void testGetStatistics_withLowPrivilegesCertificates() {
-        Certificate certificateNotOwned = new Certificate();
-        certificateNotOwned.setValidationStatus(CertificateValidationStatus.VALID);
+        X509CertificateEntity certificateNotOwned = aCertificate()
+                .withValidationStatus(CertificateValidationStatus.VALID)
+                .build();
         certificateRepository.save(certificateNotOwned);
-        Certificate certificateOwned = new Certificate();
-        certificateOwned.setValidationStatus(CertificateValidationStatus.FAILED);
+        X509CertificateEntity certificateOwned = aCertificate()
+                .withValidationStatus(CertificateValidationStatus.FAILED)
+                .build();
         certificateRepository.save(certificateOwned);
         OwnerAssociation ownerAssociation = getOwnerAssociation(certificateOwned.getUuid(), Resource.CERTIFICATE);
         certificateOwned.setOwner(ownerAssociation);

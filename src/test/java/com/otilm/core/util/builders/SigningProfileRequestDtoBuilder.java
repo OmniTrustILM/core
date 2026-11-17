@@ -29,8 +29,8 @@ import com.otilm.api.model.client.signing.profile.workflow.timestamp.InternalTim
 import com.otilm.api.model.client.signing.profile.workflow.timestamp.InternalTimestampSourceRequestDto;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.RsaSignatureScheme;
-import com.otilm.api.model.common.signature.SignatureFamily;
 import com.otilm.api.model.common.signature.SignatureLevel;
+import com.otilm.core.util.SignatureFamilyFixtures;
 import java.util.List;
 import java.util.UUID;
 
@@ -134,7 +134,7 @@ public class SigningProfileRequestDtoBuilder {
     public SigningProfileRequestDtoBuilder withManagedContentSigning(UUID signatureFormattingConnectorUuid) {
         ContentSigningWorkflowRequestDto contentSigningWorkflow = new ContentSigningWorkflowRequestDto();
         contentSigningWorkflow.setSignatureFormattingConnectorUuid(signatureFormattingConnectorUuid);
-        contentSigningWorkflow.setFamily(SignatureFamily.PADES);
+        contentSigningWorkflow.setFamily(SignatureFamilyFixtures.PADES);
         contentSigningWorkflow.setMaxLevel(SignatureLevel.SIGNED);
         return withWorkflow(contentSigningWorkflow);
     }
@@ -205,7 +205,6 @@ public class SigningProfileRequestDtoBuilder {
                                 requestAttributesFromResponse(c.getSignatureFormattingConnectorAttributes()));
                 req.setFamily(c.getFamily());
                 req.setMaxLevel(c.getMaxLevel());
-                req.setDocumentSizeCap(c.getDocumentSizeCap());
                 if (c.isRequireNonRepudiation()) {
                     req.setRequireNonRepudiation(true);
                 }

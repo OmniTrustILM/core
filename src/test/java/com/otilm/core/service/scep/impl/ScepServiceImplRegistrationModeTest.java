@@ -12,10 +12,11 @@ import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateRegistrationAuthorization;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.scep.ScepProfile;
 import com.otilm.core.dao.entity.scep.ScepTransaction;
 import com.otilm.core.dao.repository.CertificateRegistrationAuthorizationRepository;
-import com.otilm.core.dao.repository.CertificateRepository;
+import com.otilm.core.dao.repository.X509CertificateRepository;
 import com.otilm.core.dao.repository.scep.ScepTransactionRepository;
 import com.otilm.core.oid.OidHandler;
 import com.otilm.core.oid.OidRecord;
@@ -57,6 +58,7 @@ import org.junit.jupiter.api.function.Executable;
 import org.mockito.Mockito;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -78,7 +80,7 @@ class ScepServiceImplRegistrationModeTest {
 
     private ScepServiceImpl service;
     private ScepProfile profile;
-    private CertificateRepository certificateRepository;
+    private X509CertificateRepository x509CertificateRepository;
     private CertificateEventHistoryInternalService eventHistoryService;
     private ScepTransactionRepository scepTransactionRepository;
     private CertificateRegistrationAuthorizationRepository registrationAuthorizationRepository;
@@ -115,7 +117,7 @@ class ScepServiceImplRegistrationModeTest {
         service = new ScepServiceImpl();
         profile = mock(ScepProfile.class);
         when(profile.getChallengeSource()).thenReturn(ProtocolChallengeSource.CERTIFICATE_REGISTRATION);
-        certificateRepository = mock(CertificateRepository.class);
+        x509CertificateRepository = mock(X509CertificateRepository.class);
         eventHistoryService = mock(CertificateEventHistoryInternalService.class);
         scepTransactionRepository = mock(ScepTransactionRepository.class);
         registrationAuthorizationRepository = mock(CertificateRegistrationAuthorizationRepository.class);
@@ -132,7 +134,7 @@ class ScepServiceImplRegistrationModeTest {
 
         ReflectionTestUtils.setField(service, "scepProfile", profile);
         ReflectionTestUtils.setField(service, "raProfile", raProfile);
-        ReflectionTestUtils.setField(service, "certificateRepository", certificateRepository);
+        ReflectionTestUtils.setField(service, "x509CertificateRepository", x509CertificateRepository);
         ReflectionTestUtils.setField(service, "certificateEventHistoryService", eventHistoryService);
         ReflectionTestUtils.setField(service, "scepTransactionRepository", scepTransactionRepository);
         ReflectionTestUtils
@@ -299,22 +301,22 @@ class ScepServiceImplRegistrationModeTest {
         return Assertions.assertInstanceOf(ScepException.class, wrapped.getUndeclaredThrowable());
     }
 
-    private void stubCandidates(Certificate... candidates) {
+    private void stubCandidates(X509CertificateEntity... candidates) {
         // Match the exact normalized subject the caller must derive from the CSR — every test enrols
         // CN=device-1 — so a caller that stops normalizing (or passes the wrong value) misses the stub,
         // yields no candidates, and fails the test rather than passing on an over-broad matcher.
-        when(certificateRepository
+        when(x509CertificateRepository
                 .findRegisteredWithActiveRegistrationAuthorizationByRaProfileUuidAndSubjectDnNormalized(RA_PROFILE_UUID,
                         CertificateUtil.normalizeSubjectDn(new X500Name("CN=device-1"))))
                 .thenReturn(Arrays.asList(candidates));
     }
 
-    private Certificate registeredCertificate(String subjectDn, String serializedSans) {
-        Certificate certificate = new Certificate();
-        certificate.setUuid(CANDIDATE_UUID);
-        certificate.setSubjectDn(subjectDn);
-        certificate.setSubjectAlternativeNames(serializedSans);
-        return certificate;
+    private X509CertificateEntity registeredCertificate(String subjectDn, String serializedSans) {
+        return aCertificate()
+                .withUuid(CANDIDATE_UUID)
+                .withSubjectDn(subjectDn)
+                .withSubjectAlternativeNames(serializedSans)
+                .build();
     }
 
     /**

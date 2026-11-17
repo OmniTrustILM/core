@@ -2,6 +2,7 @@ package com.otilm.core.integration.migration;
 
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.util.CertificateTestUtil;
@@ -17,6 +18,7 @@ import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
@@ -34,9 +36,12 @@ class BackfillExtendedKeyUsageCriticalITest extends BaseMigrationTest {
     void migrate_setsCorrectCriticalityForCertsWithEku() throws Exception {
         // Certificates inserted with extended_key_usage_critical = NULL, simulating rows that
         // existed before V202604011901 ran (V202604011900 added the column with no default).
-        Certificate tsaCritical = persist(CertificateTestUtil.createTimestampingCertificate());
-        Certificate tsaNonCritical = persist(CertificateTestUtil.createTimestampingCertificate(false));
-        Certificate noEku = persist(CertificateTestUtil.createCertificateWithoutEku());
+        X509CertificateEntity tsaCritical = X509CertificateEntity
+                .from(persist(CertificateTestUtil.createTimestampingCertificate()));
+        X509CertificateEntity tsaNonCritical = X509CertificateEntity
+                .from(persist(CertificateTestUtil.createTimestampingCertificate(false)));
+        X509CertificateEntity noEku = X509CertificateEntity
+                .from(persist(CertificateTestUtil.createCertificateWithoutEku()));
 
         try (Connection conn = dataSource.getConnection()) {
             Context context = Mockito.mock(Context.class);
@@ -44,9 +49,10 @@ class BackfillExtendedKeyUsageCriticalITest extends BaseMigrationTest {
             new V202604011901__BackfillExtendedKeyUsageCritical().migrate(context);
         }
 
-        tsaCritical = certificateRepository.findByUuid(tsaCritical.getUuid()).orElseThrow();
-        tsaNonCritical = certificateRepository.findByUuid(tsaNonCritical.getUuid()).orElseThrow();
-        noEku = certificateRepository.findByUuid(noEku.getUuid()).orElseThrow();
+        tsaCritical = X509CertificateEntity.from(certificateRepository.findByUuid(tsaCritical.getUuid()).orElseThrow());
+        tsaNonCritical = X509CertificateEntity
+                .from(certificateRepository.findByUuid(tsaNonCritical.getUuid()).orElseThrow());
+        noEku = X509CertificateEntity.from(certificateRepository.findByUuid(noEku.getUuid()).orElseThrow());
 
         assertThat(tsaCritical.getExtendedKeyUsageCritical())
                 .as("TSA cert with critical EKU must be backfilled to true")
@@ -61,9 +67,12 @@ class BackfillExtendedKeyUsageCriticalITest extends BaseMigrationTest {
 
     @Test
     void migrate_isIdempotent() throws Exception {
-        Certificate tsaCritical = persist(CertificateTestUtil.createTimestampingCertificate());
-        Certificate tsaNonCritical = persist(CertificateTestUtil.createTimestampingCertificate(false));
-        Certificate noEku = persist(CertificateTestUtil.createCertificateWithoutEku());
+        X509CertificateEntity tsaCritical = X509CertificateEntity
+                .from(persist(CertificateTestUtil.createTimestampingCertificate()));
+        X509CertificateEntity tsaNonCritical = X509CertificateEntity
+                .from(persist(CertificateTestUtil.createTimestampingCertificate(false)));
+        X509CertificateEntity noEku = X509CertificateEntity
+                .from(persist(CertificateTestUtil.createCertificateWithoutEku()));
 
         V202604011901__BackfillExtendedKeyUsageCritical migration = new V202604011901__BackfillExtendedKeyUsageCritical();
         try (Connection conn = dataSource.getConnection()) {
@@ -73,14 +82,9 @@ class BackfillExtendedKeyUsageCriticalITest extends BaseMigrationTest {
             migration.migrate(context); // second run must leave already-set values untouched
         }
 
-        assertThat(certificateRepository.findByUuid(tsaCritical.getUuid()).orElseThrow().getExtendedKeyUsageCritical())
-                .as("second run must not overwrite true")
-                .isTrue();
-        assertThat(
-                certificateRepository.findByUuid(tsaNonCritical.getUuid()).orElseThrow().getExtendedKeyUsageCritical())
-                .as("second run must not overwrite false")
-                .isFalse();
-        assertThat(certificateRepository.findByUuid(noEku.getUuid()).orElseThrow().getExtendedKeyUsageCritical())
+        assertThat(reloadExtendedKeyUsageCritical(tsaCritical)).as("second run must not overwrite true").isTrue();
+        assertThat(reloadExtendedKeyUsageCritical(tsaNonCritical)).as("second run must not overwrite false").isFalse();
+        assertThat(reloadExtendedKeyUsageCritical(noEku))
                 .as("second run must not set criticality on certs without EKU")
                 .isNull();
     }
@@ -95,10 +99,16 @@ class BackfillExtendedKeyUsageCriticalITest extends BaseMigrationTest {
         content.setContent(pem);
         certificateContentRepository.save(content);
 
-        Certificate cert = new Certificate();
+        X509CertificateEntity cert = aCertificate().build();
         CertificateUtil.prepareIssuedCertificate(cert, x509);
         cert.setExtendedKeyUsageCritical(null); // simulate pre-migration state
         cert.setCertificateContent(content);
         return certificateRepository.save(cert);
+    }
+
+    private Boolean reloadExtendedKeyUsageCritical(Certificate certificate) {
+        return X509CertificateEntity
+                .from(certificateRepository.findByUuid(certificate.getUuid()).orElseThrow())
+                .getExtendedKeyUsageCritical();
     }
 }

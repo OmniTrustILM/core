@@ -244,9 +244,6 @@ class CertificateStateMachineTest {
     }
 
     private Certificate certWithState(CertificateState state) {
-        Certificate cert = new Certificate();
-        cert.setUuid(UUID.randomUUID());
-        cert.setState(state);
-        return cert;
+        return aCertificate().withUuid(UUID.randomUUID()).withState(state).build();
     }
 }

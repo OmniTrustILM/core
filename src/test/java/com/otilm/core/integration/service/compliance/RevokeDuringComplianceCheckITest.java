@@ -7,6 +7,7 @@ import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.service.compliance.BaseComplianceTest;
 import com.otilm.core.service.handler.CertificateHandler;
@@ -28,6 +29,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.context.SecurityContextHolder;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.awaitility.Awaitility.await;
 
 /**
@@ -88,7 +90,7 @@ class RevokeDuringComplianceCheckITest extends BaseComplianceTest {
         content.setContent(Base64.getEncoder().encodeToString(x509.getEncoded()));
         content = certificateContentRepository.save(content);
 
-        Certificate cert = new Certificate();
+        X509CertificateEntity cert = aCertificate().build();
         CertificateUtil.prepareIssuedCertificate(cert, x509);
         cert.setCertificateContent(content);
         cert.setCertificateContentId(content.getId());

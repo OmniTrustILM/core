@@ -2,19 +2,25 @@ package com.otilm.core.mapper.certificate;
 
 import com.otilm.api.model.client.raprofile.SimplifiedRaProfileDto;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateDto;
 import com.otilm.api.model.core.certificate.CertificateProtocolDto;
 import com.otilm.api.model.core.certificate.CertificateQcStatementsDto;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
-import com.otilm.api.model.core.certificate.CertificateRequestDto;
+import com.otilm.api.model.core.certificate.CertificateRequestDetail;
 import com.otilm.api.model.core.certificate.CertificateSimpleDto;
 import com.otilm.api.model.core.certificate.QcType;
+import com.otilm.api.model.core.certificate.X509CertificateDetail;
+import com.otilm.api.model.core.certificate.X509CertificateRequestDetail;
 import com.otilm.api.model.core.cryptography.key.KeyDto;
 import com.otilm.api.model.core.cryptography.key.KeyState;
+import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.Group;
+import com.otilm.core.dao.entity.X509CertificateEntity;
+import com.otilm.core.dao.entity.X509CertificateRequestEntity;
 import com.otilm.core.mapper.crypto.CryptographicKeyDtoMapper;
 import com.otilm.core.model.crypto.ImmutableCryptographicKeyFullModel;
 import com.otilm.core.model.crypto.ImmutableCryptographicKeyListModel;
@@ -26,11 +32,11 @@ public class CertificateDetailDtoMapper {
     private CertificateDetailDtoMapper() {
     }
 
-    public static CertificateDetailDto toDetailDto(Certificate certificate) {
+    public static CertificateDetail toDetailDto(Certificate certificate) {
         return buildDetailDto(certificate, false);
     }
 
-    public static CertificateDetailDto toChainDto(Certificate certificate) {
+    public static CertificateDetail toChainDto(Certificate certificate) {
         return buildDetailDto(certificate, true);
     }
 
@@ -47,61 +53,31 @@ public class CertificateDetailDtoMapper {
     /**
      * @param chainContext whether to omit key association counts and avoid loading their certificate collections
      */
-    private static CertificateDetailDto buildDetailDto(Certificate certificate, boolean chainContext) {
-        final CertificateDetailDto dto = new CertificateDetailDto();
-        dto.setCommonName(CertificateUtil.formatCommonName(certificate.getCommonName()));
+    @SuppressWarnings("deprecation")
+    private static CertificateDetail buildDetailDto(Certificate certificate, boolean chainContext) {
+        final CertificateDetail dto = newDetail(certificate);
+        String commonName = CertificateUtil.formatCommonName(certificate.getCommonName());
+        dto.setCommonName(commonName);
+        dto.setDisplayName(commonName);
         dto.setIssuerCommonName(resolveIssuerCommonName(certificate));
-        if (certificate.getSubjectAlternativeNames() != null) {
-            dto.setSubjectAlternativeNames(CertificateUtil.deserializeSans(certificate.getSubjectAlternativeNames()));
-        }
         if (certificate.getCertificateContent() != null) {
             dto.setCertificateContent(certificate.getCertificateContent().getContent());
-            dto.setIssuerDn(certificate.getIssuerDn());
             dto.setNotBefore(certificate.getNotBefore());
             dto.setNotAfter(certificate.getNotAfter());
-            dto.setSubjectType(certificate.getSubjectType());
-            dto.setExtendedKeyUsage(MetaDefinitions.deserializeArrayString(certificate.getExtendedKeyUsage()));
-            dto.setKeyUsage(certificate.getKeyUsage().stream().toList());
             dto.setFingerprint(certificate.getFingerprint());
-            dto.setIssuerSerialNumber(certificate.getIssuerSerialNumber());
             dto.setSerialNumber(certificate.getSerialNumber());
-
-            boolean hasAnyQc = certificate.getQcCompliance() != null || certificate.getQcSscd() != null
-                    || certificate.getQcType() != null || certificate.getQcCcLegislation() != null;
-            if (hasAnyQc) {
-                CertificateQcStatementsDto qcDto = new CertificateQcStatementsDto();
-                qcDto.setQcCompliance(certificate.getQcCompliance());
-                qcDto.setQcSscd(certificate.getQcSscd());
-                if (certificate.getQcType() != null) {
-                    qcDto
-                            .setQcType(MetaDefinitions
-                                    .deserializeArrayString(certificate.getQcType())
-                                    .stream()
-                                    .map(QcType::valueOf)
-                                    .toList());
-                }
-                if (certificate.getQcCcLegislation() != null) {
-                    qcDto.setQcCcLegislation(MetaDefinitions.deserializeArrayString(certificate.getQcCcLegislation()));
-                }
-                dto.setQcStatements(qcDto);
-            }
         }
-        dto.setSubjectDn(certificate.getSubjectDn());
         dto.setPublicKeyAlgorithm(certificate.getPublicKeyAlgorithm());
-        dto.setAltPublicKeyAlgorithm(certificate.getAltPublicKeyAlgorithm());
         dto.setSignatureAlgorithm(certificate.getSignatureAlgorithm());
-        if (certificate.getAltSignatureAlgorithm() != null) {
-            dto.setAltSignatureAlgorithm(certificate.getAltSignatureAlgorithm());
-        }
         dto.setKeySize(certificate.getKeySize());
-        dto.setAltKeySize(certificate.getAltKeySize());
         dto.setUuid(certificate.getUuid().toString());
         dto.setState(certificate.getState());
         dto.setValidationStatus(certificate.getValidationStatus());
         dto.setCertificateType(certificate.getCertificateType());
-        dto.setTrustedCa(certificate.getTrustedCa());
-        dto.setHybridCertificate(certificate.isHybridCertificate());
         dto.setArchived(certificate.isArchived());
+        if (dto instanceof X509CertificateDetail x509Dto) {
+            applyX509Details(x509Dto, X509CertificateEntity.from(certificate));
+        }
         if (!certificate.getPredecessorRelations().isEmpty()) {
             dto
                     .setSourceCertificateUuid(certificate
@@ -138,36 +114,7 @@ public class CertificateDetailDtoMapper {
         dto.setPrivateKeyAvailability(false);
 
         if (certificate.getCertificateRequestEntity() != null) {
-            final CertificateRequestDto certificateRequestDto = new CertificateRequestDto();
-            certificateRequestDto.setUuid(certificate.getCertificateRequestEntity().getUuid());
-            certificateRequestDto.setContent(certificate.getCertificateRequestEntity().getContent());
-            certificateRequestDto.setCertificateType(certificate.getCertificateRequestEntity().getCertificateType());
-            certificateRequestDto
-                    .setCommonName(CertificateUtil
-                            .formatCommonName(certificate.getCertificateRequestEntity().getCommonName()));
-            certificateRequestDto.setSubjectDn(certificate.getCertificateRequestEntity().getSubjectDn());
-            certificateRequestDto
-                    .setSignatureAlgorithm(certificate.getCertificateRequestEntity().getSignatureAlgorithm());
-            certificateRequestDto
-                    .setAltSignatureAlgorithm(certificate.getCertificateRequestEntity().getAltSignatureAlgorithm());
-            certificateRequestDto
-                    .setPublicKeyAlgorithm(certificate.getCertificateRequestEntity().getPublicKeyAlgorithm());
-            certificateRequestDto
-                    .setCertificateRequestFormat(
-                            certificate.getCertificateRequestEntity().getCertificateRequestFormat());
-            certificateRequestDto
-                    .setSubjectAlternativeNames(CertificateUtil
-                            .deserializeSans(certificate.getCertificateRequestEntity().getSubjectAlternativeNames()));
-            certificateRequestDto
-                    .setKeyUuid(certificate.getCertificateRequestEntity().getKeyUuid() != null
-                            ? certificate.getCertificateRequestEntity().getKeyUuid().toString()
-                            : null);
-            certificateRequestDto
-                    .setAltKeyUuid(certificate.getCertificateRequestEntity().getAltKeyUuid() != null
-                            ? certificate.getCertificateRequestEntity().getAltKeyUuid().toString()
-                            : null);
-            certificateRequestDto.setComplianceStatus(certificate.getCertificateRequestEntity().getComplianceStatus());
-            dto.setCertificateRequest(certificateRequestDto);
+            dto.setCertificateRequest(mapCertificateRequest(certificate));
         }
         if (certificate.getKey() != null && !certificate.getKey().getItems().isEmpty() && !certificate
                 .getKey()
@@ -183,8 +130,8 @@ public class CertificateDetailDtoMapper {
             dto.setKey(mapKey(certificate.getKey(), chainContext));
         }
 
-        if (certificate.getAltKey() != null) {
-            dto.setAltKey(mapKey(certificate.getAltKey(), chainContext));
+        if (certificate.getAltKey() != null && dto instanceof X509CertificateDetail x509Dto) {
+            x509Dto.setAltKey(mapKey(certificate.getAltKey(), chainContext));
         }
 
         if (certificate.getProtocolAssociation() != null) {
@@ -198,6 +145,92 @@ public class CertificateDetailDtoMapper {
         return dto;
     }
 
+    private static CertificateRequestDetail mapCertificateRequest(Certificate certificate) {
+        CertificateRequestEntity request = certificate.getCertificateRequestEntity();
+        final CertificateRequestDetail dto = newRequestDetail(request);
+        dto.setUuid(request.getUuid());
+        dto.setContent(request.getContent());
+        dto.setCertificateType(request.getCertificateType());
+        String requestCommonName = CertificateUtil.formatCommonName(request.getCommonName());
+        dto.setCommonName(requestCommonName);
+        dto.setDisplayName(requestCommonName);
+        dto.setSignatureAlgorithm(request.getSignatureAlgorithm());
+        dto.setPublicKeyAlgorithm(request.getPublicKeyAlgorithm());
+        dto.setCertificateRequestFormat(request.getCertificateRequestFormat());
+        dto.setKeyUuid(request.getKeyUuid() != null ? request.getKeyUuid().toString() : null);
+        dto.setComplianceStatus(request.getComplianceStatus());
+        if (dto instanceof X509CertificateRequestDetail x509Dto) {
+            applyX509RequestDetails(x509Dto, X509CertificateRequestEntity.fromOrNull(request));
+        }
+        return dto;
+    }
+
+    private static void applyX509RequestDetails(X509CertificateRequestDetail dto,
+            X509CertificateRequestEntity request) {
+        dto.setSubjectDn(request.getSubjectDn());
+        dto.setSubjectAlternativeNames(CertificateUtil.deserializeSans(request.getSubjectAlternativeNames()));
+        dto.setAltSignatureAlgorithm(request.getAltSignatureAlgorithm());
+        dto.setAltPublicKeyAlgorithm(request.getAltPublicKeyAlgorithm());
+        dto.setAltKeyUuid(request.getAltKeyUuid() != null ? request.getAltKeyUuid().toString() : null);
+    }
+
+    private static CertificateDetail newDetail(Certificate certificate) {
+        if (X509CertificateEntity.fromOrNull(certificate) != null) {
+            return new X509CertificateDetail();
+        }
+        throw UnsupportedCertificateTypeException.unknownType(certificate.getCertificateType().getCode());
+    }
+
+    private static CertificateRequestDetail newRequestDetail(CertificateRequestEntity request) {
+        if (X509CertificateRequestEntity.fromOrNull(request) != null) {
+            return new X509CertificateRequestDetail();
+        }
+        throw UnsupportedCertificateTypeException.unknownType(request.getCertificateType().getCode());
+    }
+
+    private static void applyX509Details(X509CertificateDetail dto, X509CertificateEntity certificate) {
+        if (certificate.getSubjectAlternativeNames() != null) {
+            dto.setSubjectAlternativeNames(CertificateUtil.deserializeSans(certificate.getSubjectAlternativeNames()));
+        }
+        if (certificate.getCertificateContent() != null) {
+            dto.setIssuerDn(certificate.getIssuerDn());
+            dto.setIssuerSerialNumber(certificate.getIssuerSerialNumber());
+            dto.setSubjectType(certificate.getSubjectType());
+            dto.setExtendedKeyUsage(MetaDefinitions.deserializeArrayString(certificate.getExtendedKeyUsage()));
+            dto.setKeyUsage(certificate.getKeyUsage().stream().toList());
+            dto.setQcStatements(toQcStatements(certificate));
+        }
+        dto.setSubjectDn(certificate.getSubjectDn());
+        dto.setHybridCertificate(certificate.isHybridCertificate());
+        dto.setAltPublicKeyAlgorithm(certificate.getAltPublicKeyAlgorithm());
+        dto.setAltSignatureAlgorithm(certificate.getAltSignatureAlgorithm());
+        dto.setAltKeySize(certificate.getAltKeySize());
+        dto.setTrustedCa(certificate.getTrustedCa());
+    }
+
+    private static CertificateQcStatementsDto toQcStatements(X509CertificateEntity certificate) {
+        boolean hasAnyQc = certificate.getQcCompliance() != null || certificate.getQcSscd() != null
+                || certificate.getQcType() != null || certificate.getQcCcLegislation() != null;
+        if (!hasAnyQc) {
+            return null;
+        }
+        CertificateQcStatementsDto qcDto = new CertificateQcStatementsDto();
+        qcDto.setQcCompliance(certificate.getQcCompliance());
+        qcDto.setQcSscd(certificate.getQcSscd());
+        if (certificate.getQcType() != null) {
+            qcDto
+                    .setQcType(MetaDefinitions
+                            .deserializeArrayString(certificate.getQcType())
+                            .stream()
+                            .map(QcType::valueOf)
+                            .toList());
+        }
+        if (certificate.getQcCcLegislation() != null) {
+            qcDto.setQcCcLegislation(MetaDefinitions.deserializeArrayString(certificate.getQcCcLegislation()));
+        }
+        return qcDto;
+    }
+
     public static CertificateSimpleDto toSimpleDto(Certificate certificate, CertificateRelationType relationType) {
         CertificateSimpleDto dto = new CertificateSimpleDto();
         dto.setUuid(certificate.getUuid());
@@ -205,42 +238,50 @@ public class CertificateDetailDtoMapper {
         dto.setState(certificate.getState());
         dto.setRelationType(relationType);
         dto.setCommonName(certificate.getCommonName());
-        dto.setSubjectDn(certificate.getSubjectDn());
+        dto.setDisplayName(CertificateUtil.formatCommonName(certificate.getCommonName()));
         dto.setIssuerCommonName(certificate.getIssuerCommonName());
-        dto.setIssuerDn(certificate.getIssuerDn());
         dto.setSerialNumber(certificate.getSerialNumber());
         dto.setFingerprint(certificate.getFingerprint());
         dto.setPublicKeyAlgorithm(certificate.getPublicKeyAlgorithm());
-        dto.setAltPublicKeyAlgorithm(certificate.getAltPublicKeyAlgorithm());
         dto.setSignatureAlgorithm(certificate.getSignatureAlgorithm());
-        dto.setAltSignatureAlgorithm(certificate.getAltSignatureAlgorithm());
         dto.setNotBefore(certificate.getNotBefore());
         dto.setNotAfter(certificate.getNotAfter());
+        if (X509CertificateEntity.fromOrNull(certificate) instanceof X509CertificateEntity x509Certificate) {
+            dto.setSubjectDn(x509Certificate.getSubjectDn());
+            dto.setIssuerDn(x509Certificate.getIssuerDn());
+            dto.setAltPublicKeyAlgorithm(x509Certificate.getAltPublicKeyAlgorithm());
+            dto.setAltSignatureAlgorithm(x509Certificate.getAltSignatureAlgorithm());
+        }
         return dto;
     }
 
     public static CertificateDto toListDto(Certificate certificate) {
         CertificateDto dto = new CertificateDto();
-        dto.setCommonName(CertificateUtil.formatCommonName(certificate.getCommonName()));
+        String commonName = CertificateUtil.formatCommonName(certificate.getCommonName());
+        dto.setCommonName(commonName);
+        dto.setDisplayName(commonName);
         dto.setSerialNumber(certificate.getSerialNumber());
         dto.setIssuerCommonName(certificate.getIssuerCommonName());
-        dto.setIssuerDn(certificate.getIssuerDn());
-        dto.setSubjectDn(certificate.getSubjectDn());
         dto.setNotBefore(certificate.getNotBefore());
         dto.setNotAfter(certificate.getNotAfter());
         dto.setPublicKeyAlgorithm(certificate.getPublicKeyAlgorithm());
-        dto.setAltPublicKeyAlgorithm(certificate.getAltPublicKeyAlgorithm());
         dto.setSignatureAlgorithm(certificate.getSignatureAlgorithm());
-        dto.setAltSignatureAlgorithm(certificate.getAltSignatureAlgorithm());
         dto.setKeySize(certificate.getKeySize());
-        dto.setAltKeySize(certificate.getAltKeySize());
         dto.setUuid(certificate.getUuid().toString());
         dto.setState(certificate.getState());
         dto.setValidationStatus(certificate.getValidationStatus());
         dto.setFingerprint(certificate.getFingerprint());
-        dto.setTrustedCa(certificate.getTrustedCa());
-        dto.setHybridCertificate(certificate.isHybridCertificate());
         dto.setArchived(certificate.isArchived());
+        if (X509CertificateEntity.fromOrNull(certificate) instanceof X509CertificateEntity x509Certificate) {
+            dto.setIssuerDn(x509Certificate.getIssuerDn());
+            dto.setSubjectDn(x509Certificate.getSubjectDn());
+            dto.setAltPublicKeyAlgorithm(x509Certificate.getAltPublicKeyAlgorithm());
+            dto.setAltSignatureAlgorithm(x509Certificate.getAltSignatureAlgorithm());
+            dto.setAltKeySize(x509Certificate.getAltKeySize());
+            dto.setTrustedCa(x509Certificate.getTrustedCa());
+            dto.setHybridCertificate(x509Certificate.isHybridCertificate());
+            dto.setIssuerSerialNumber(x509Certificate.getIssuerSerialNumber());
+        }
         if (certificate.getIssuerCertificateUuid() != null) {
             dto.setIssuerCertificateUuid(certificate.getIssuerCertificateUuid().toString());
         }
@@ -249,7 +290,6 @@ public class CertificateDetailDtoMapper {
             dto.setOwner(certificate.getOwner().getOwnerUsername());
         }
         dto.setCertificateType(certificate.getCertificateType());
-        dto.setIssuerSerialNumber(certificate.getIssuerSerialNumber());
         /*
          * Result for the compliance check of a certificate is stored in the database in the form of List of Rule IDs.
          * When the details of the certificate is requested, the Service will transform the result into the user

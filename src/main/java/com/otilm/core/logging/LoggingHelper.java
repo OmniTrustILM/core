@@ -4,7 +4,6 @@ import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.logging.enums.ActorType;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.otilm.api.model.core.logging.enums.Module;
-import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.logging.records.ActorRecord;
 import com.otilm.api.model.core.logging.records.DelegateRecord;
 import com.otilm.api.model.core.logging.records.ResourceObjectIdentity;
@@ -24,7 +23,6 @@ import org.slf4j.MDC;
 
 public class LoggingHelper {
 
-    private static final String LOG_AUDIT_OPERATION = "log_audit_operation";
     private static final String LOG_AUDIT_RESOURCE = "log_audit_resource";
     private static final String LOG_AUDIT_RESOURCE_UUID = "log_audit_resource_uuid";
     private static final String LOG_AUDIT_RESOURCE_NAME = "log_audit_resource_name";
@@ -54,11 +52,6 @@ public class LoggingHelper {
 
     private LoggingHelper() {
 
-    }
-
-    public static Operation getAuditLogOperation() {
-        String operation = MDC.get(LoggingHelper.LOG_AUDIT_OPERATION);
-        return operation == null ? Operation.UNKNOWN : Operation.valueOf(operation);
     }
 
     public static ActorRecord getActorInfo() {
@@ -139,10 +132,6 @@ public class LoggingHelper {
         }
 
         return resourceRecord;
-    }
-
-    public static void putAuditLogOperation(Operation operation) {
-        MDC.put(LoggingHelper.LOG_AUDIT_OPERATION, operation.toString());
     }
 
     public static void putSourceInfo(HttpServletRequest request) {

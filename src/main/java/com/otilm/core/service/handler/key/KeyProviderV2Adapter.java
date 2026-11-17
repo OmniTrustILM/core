@@ -34,6 +34,7 @@ import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.SignatureInputMode;
 import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.api.model.connector.common.v2.OperationExecutionMode;
@@ -202,12 +203,12 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
             if (response.getStatusCode().value() != 200 || body == null || body.getOperationMeta() != null) {
                 throw new ConnectorException("Connector did not confirm synchronous key destruction.");
             }
-        } catch (ConnectorEntityNotFoundException e) {
-            log
-                    .info("Key item '{}' for key {} was not found on the remote token; treating destruction as successful",
-                            reference.toIdentifierString(), cryptographicKey.toIdentifierString());
         } catch (ConnectorException e) {
-            if (TokenInstanceStatus.DEACTIVATED.equals(cryptographicKey.tokenInstance().status())) {
+            if (isAlreadyGone(e)) {
+                log
+                        .info("Key item '{}' for key {} was not found on the remote token; treating destruction as successful",
+                                reference.toIdentifierString(), cryptographicKey.toIdentifierString());
+            } else if (TokenInstanceStatus.DEACTIVATED.equals(cryptographicKey.tokenInstance().status())) {
                 log
                         .warn("Key item '{}' destruction failed; allowing local cleanup because Token '{}' is DEACTIVATED.",
                                 reference.toIdentifierString(), cryptographicKey.tokenInstance().toIdentifierString());
@@ -354,9 +355,9 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
     private static ProviderUnusableKey toUnusableKey(UnusableKeyV2Dto listed) {
         KeyDataV2Dto keyData = listed.getKeyData();
         if (keyData == null) {
-            return new ProviderUnusableKey(listed.getLabel(), listed.getReason(), null, null);
+            return new ProviderUnusableKey(listed.getStorageName(), listed.getReason(), null, null);
         }
-        return new ProviderUnusableKey(listed.getLabel(), listed.getReason(), keyData.getAlgorithm(),
+        return new ProviderUnusableKey(listed.getStorageName(), listed.getReason(), keyData.getAlgorithm(),
                 keyData.getLength());
     }
 
@@ -386,7 +387,7 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
                 ? null
                 : toKeyItem(NAMED_ON_ONBOARDING, publicKey.getKeyData(), publicKey.getKeyMeta(),
                         spkiMaterial(publicKey));
-        return new ProviderKeyPair(listed.getKeyPairMeta(), listed.getLabel(), privateKeyItem, publicKeyItem);
+        return new ProviderKeyPair(listed.getKeyPairMeta(), listed.getStorageName(), privateKeyItem, publicKeyItem);
     }
 
     @Override
@@ -637,6 +638,12 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
     @Override
     public SignDataResponseDto signData(CryptographicKeyItemOperationModel keyItem, SignDataRequestDto request)
             throws ConnectorException, NotFoundException {
+        return signData(keyItem, request, SignatureInputMode.DATA);
+    }
+
+    @Override
+    public SignDataResponseDto signData(CryptographicKeyItemOperationModel keyItem, SignDataRequestDto request,
+            SignatureInputMode inputMode) throws ConnectorException, NotFoundException {
         List<RequestAttribute> submittedAttributes = orEmpty(request.getSignatureAttributes());
         List<RequestAttribute> connectorAttributes = SignatureOperationAttributes.toConnector(submittedAttributes);
         TokenProfileScopedRequestV2Dto scope = validatedSignScope(keyItem, connectorAttributes);
@@ -645,6 +652,7 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         body.setExecutionMode(OperationExecutionMode.SYNCHRONOUS);
         body.setSignatureAttributes(connectorAttributes);
         body.setData(batch.items());
+        body.setSignatureInputMode(inputMode);
         ResponseEntity<SignDataResponseV2Dto> response = operationsApiClient.signData(connectorInfo, body);
         SignDataResponseV2Dto responseBody = response.getBody();
         if (response.getStatusCode().value() != 200 || responseBody == null || responseBody.getSignatures() == null
@@ -982,6 +990,16 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
     private static boolean isNotTracked(Exception e) {
         return e instanceof ConnectorEntityNotFoundException || e instanceof ConnectorProblemException problem
                 && problem.getProblemDetail().getErrorCode() == ErrorCode.OPERATION_NOT_TRACKED;
+    }
+
+    /**
+     * The connector answered 404, with or without the code of a missing resource: another status with that code, as a
+     * gateway's problem document on a 503, says nothing about the key.
+     */
+    private static boolean isAlreadyGone(ConnectorException e) {
+        return e instanceof ConnectorEntityNotFoundException || e instanceof ConnectorProblemException problem
+                && problem.getProblemDetail().getStatus() == HttpStatus.NOT_FOUND.value()
+                && problem.getProblemDetail().getErrorCode() == ErrorCode.RESOURCE_NOT_FOUND;
     }
 
     private ImportAnswer answerOf(KeyCreationStatusResponseV2Dto status, List<MetadataAttribute> operationMeta,

@@ -427,7 +427,7 @@ class SigningRecordServiceITest extends BaseSpringBootTest {
                     .withRequestedByUsername(requestedByUsername)
                     .withSignedDocumentRetrievedAt(retrievedAt)
                     .build();
-            signingRecordWriter.insert(signingRecord);
+            signingRecordWriter.insertBatch(List.of(signingRecord));
 
             // when
             SigningRecordDto dto = signingRecordService.getSigningRecord(SecuredUUID.fromUUID(signingRecord.getUuid()));
@@ -470,8 +470,8 @@ class SigningRecordServiceITest extends BaseSpringBootTest {
             // given
             SigningRecord keep = aSigningRecord().withSigningProfile(defaultProfile).withName("keep").build();
             SigningRecord remove = aSigningRecord().withSigningProfile(defaultProfile).withName("remove").build();
-            signingRecordWriter.insert(keep);
-            signingRecordWriter.insert(remove);
+            signingRecordWriter.insertBatch(List.of(keep));
+            signingRecordWriter.insertBatch(List.of(remove));
 
             // when
             signingRecordService.deleteSigningRecord(SecuredUUID.fromUUID(remove.getUuid()));
@@ -504,8 +504,8 @@ class SigningRecordServiceITest extends BaseSpringBootTest {
             // given
             SigningRecord first = aSigningRecord().withSigningProfile(defaultProfile).withName("first").build();
             SigningRecord second = aSigningRecord().withSigningProfile(defaultProfile).withName("second").build();
-            signingRecordWriter.insert(first);
-            signingRecordWriter.insert(second);
+            signingRecordWriter.insertBatch(List.of(first));
+            signingRecordWriter.insertBatch(List.of(second));
             List<SecuredUUID> allRecords = List
                     .of(SecuredUUID.fromUUID(first.getUuid()), SecuredUUID.fromUUID(second.getUuid()));
 
@@ -524,7 +524,7 @@ class SigningRecordServiceITest extends BaseSpringBootTest {
         void reportsFailureForMissingRecordButDeletesExisting() {
             // given
             SigningRecord existing = aSigningRecord().withSigningProfile(defaultProfile).withName("existing").build();
-            signingRecordWriter.insert(existing);
+            signingRecordWriter.insertBatch(List.of(existing));
             SecuredUUID existingUuid = SecuredUUID.fromUUID(existing.getUuid());
             SecuredUUID missingUuid = SecuredUUID.fromUUID(UUID.randomUUID());
 
@@ -692,7 +692,7 @@ class SigningRecordServiceITest extends BaseSpringBootTest {
                     .withSigningProfile(profile)
                     .withSigningTime(signingTime)
                     .build();
-            signingRecordWriter.insert(signingRecord);
+            signingRecordWriter.insertBatch(List.of(signingRecord));
             return signingRecord;
         }
 
@@ -835,6 +835,7 @@ class SigningRecordServiceITest extends BaseSpringBootTest {
 
     private void insertRecord(SigningProfileDto profile, int version, String name) {
         signingRecordWriter
-                .insert(aSigningRecord().withSigningProfile(profile).withVersion(version).withName(name).build());
+                .insertBatch(List
+                        .of(aSigningRecord().withSigningProfile(profile).withVersion(version).withName(name).build()));
     }
 }

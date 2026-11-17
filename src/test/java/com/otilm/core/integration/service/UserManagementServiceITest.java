@@ -24,6 +24,7 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.Group;
 import com.otilm.core.dao.entity.ListView;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.GroupRepository;
@@ -53,6 +54,7 @@ import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.session.Session;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -100,8 +102,7 @@ class UserManagementServiceITest extends BaseSpringBootTest {
 
     @Test
     void testDoNotUseArchivedCertificates() {
-        Certificate archivedCertificate = new Certificate();
-        archivedCertificate.setArchived(true);
+        X509CertificateEntity archivedCertificate = aCertificate().withArchived(true).build();
         CertificateContent certificateContent = new CertificateContent();
         certificateContent.setContent("content");
         certificateContentRepository.save(certificateContent);
@@ -519,10 +520,11 @@ class UserManagementServiceITest extends BaseSpringBootTest {
         CertificateContent certificateContent = new CertificateContent();
         certificateContent.setContent("content-" + fingerprint);
         certificateContentRepository.save(certificateContent);
-        Certificate certificate = new Certificate();
-        certificate.setState(CertificateState.ISSUED);
-        certificate.setFingerprint(fingerprint);
-        certificate.setCertificateContent(certificateContent);
+        X509CertificateEntity certificate = aCertificate()
+                .withState(CertificateState.ISSUED)
+                .withFingerprint(fingerprint)
+                .withCertificateContent(certificateContent)
+                .build();
         certificateRepository.save(certificate);
         return certificate;
     }

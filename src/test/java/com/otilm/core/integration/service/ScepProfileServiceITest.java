@@ -40,6 +40,7 @@ import com.otilm.core.dao.entity.ProtocolCertificateAssociations;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.scep.ScepProfile;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
@@ -75,6 +76,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.junit.jupiter.params.provider.Arguments.arguments;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
@@ -124,7 +126,7 @@ class ScepProfileServiceITest extends BaseSpringBootTest {
     private ScepProfileRepository scepProfileRepositorySpy;
 
     private ScepProfile scepProfile;
-    private Certificate certificate;
+    private X509CertificateEntity certificate;
     private RequestAttributeV3 domainAttrRequestAttribute;
     private TokenInstanceReference tokenInstanceReference;
     private TokenProfile tokenProfile;
@@ -215,7 +217,7 @@ class ScepProfileServiceITest extends BaseSpringBootTest {
         certificateContent.setContent("123456");
         certificateContent = certificateContentRepository.save(certificateContent);
 
-        certificate = new Certificate();
+        certificate = aCertificate().build();
         certificate.setSubjectDn("testCertificate");
         certificate.setIssuerDn("testCertificate");
         certificate.setSerialNumber("123456789");
@@ -682,7 +684,7 @@ class ScepProfileServiceITest extends BaseSpringBootTest {
         caContent.setContent("ca-content-" + keyAlgorithm);
         certificateContentRepository.save(caContent);
 
-        Certificate caCertificate = new Certificate();
+        X509CertificateEntity caCertificate = aCertificate().build();
         caCertificate.setSubjectDn("caCertificate-" + keyAlgorithm);
         caCertificate.setIssuerDn("caCertificate-" + keyAlgorithm);
         caCertificate.setSerialNumber("98765-" + keyAlgorithm);

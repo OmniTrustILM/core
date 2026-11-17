@@ -3,6 +3,7 @@ package com.otilm.core.mapper.certificate;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.model.signing.SigningCertificate;
 import com.otilm.core.util.MetaDefinitions;
 
@@ -27,10 +28,11 @@ public class SigningCertificateMapper {
                         .sorted(SigningCertificate.KEY_ITEM_ORDER)
                         .toList()
                 : List.of();
+        X509CertificateEntity x509Cert = X509CertificateEntity.from(cert);
         return new SigningCertificate(cert.getUuid(), cert.getCommonName(), cert.isArchived(), cert.getState(),
                 cert.getValidationStatus(),
-                List.copyOf(MetaDefinitions.deserializeArrayString(cert.getExtendedKeyUsage())),
-                cert.getExtendedKeyUsageCritical(), cert.getQcCompliance(), keyUuid, tokenInstanceReferenceUuid,
-                tokenProfileUuid, keyItemUuids, cert.getKeyUsageBitMask(), cert.getSubjectType());
+                List.copyOf(MetaDefinitions.deserializeArrayString(x509Cert.getExtendedKeyUsage())),
+                x509Cert.getExtendedKeyUsageCritical(), x509Cert.getQcCompliance(), keyUuid, tokenInstanceReferenceUuid,
+                tokenProfileUuid, keyItemUuids, x509Cert.getKeyUsageBitMask(), cert.getSubjectType());
     }
 }

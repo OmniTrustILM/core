@@ -63,8 +63,8 @@ public interface ComplianceInternalService {
     /**
      * Validate that the specified resource objects exist and support compliance checking, for internal/system use
      * without authorization. Warning: This method should be used only when running compliance validation as part of
-     * system operations (e.g. ACME/SCEP/CMP protocol flows) since it bypasses the COMPLIANCE_PROFILE/CHECK_COMPLIANCE
-     * permission check.
+     * system operations (e.g. ACME/SCEP/CMP/EST protocol flows) since it bypasses the
+     * COMPLIANCE_PROFILE/CHECK_COMPLIANCE permission check.
      *
      * @param resource Resource of the objects
      * @param objectUuids List of UUIDs of the objects to validate

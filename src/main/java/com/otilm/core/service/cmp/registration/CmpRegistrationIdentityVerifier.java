@@ -6,6 +6,7 @@ import com.otilm.api.interfaces.core.cmp.error.CmpProcessingException;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.model.request.CrmfCertificateRequest;
 import com.otilm.core.service.CertificateEventHistoryInternalService;
 import com.otilm.core.service.registration.RegistrationIdentityMatcher;
@@ -45,11 +46,12 @@ public class CmpRegistrationIdentityVerifier {
             throws CmpBaseException {
         try {
             CrmfCertificateRequest parsed = new CrmfCertificateRequest(crmf.getEncoded());
+            X509CertificateEntity x509Matched = X509CertificateEntity.from(matched);
             RegistrationIdentityMatcher.MatchResult result = RegistrationIdentityMatcher
                     .match(parsed.getSubject(), CertificateUtil.getSAN(parsed),
                             List
                                     .of(new RegistrationIdentityMatcher.Candidate(matched.getUuid(),
-                                            matched.getSubjectDn(), matched.getSubjectAlternativeNames())));
+                                            x509Matched.getSubjectDn(), x509Matched.getSubjectAlternativeNames())));
             if (result.outcome() != RegistrationIdentityMatcher.Outcome.MATCHED) {
                 // A single candidate can only yield SAN_MISMATCH (subject matched, SANs differ) or NO_MATCH
                 // (subject differs); AMBIGUOUS cannot occur. Attribute the failure to the resolved certificate.

@@ -3,10 +3,16 @@ package com.otilm.core.integration.signing.tsa;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.interfaces.core.tsp.error.TspException;
 import com.otilm.api.interfaces.core.tsp.error.TspFailureInfo;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.attribute.RequestAttributeV2;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.client.signing.profile.SigningProfileDto;
+import com.otilm.api.model.client.signing.profile.SigningProfileRequestDto;
 import com.otilm.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
 import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.common.attribute.common.DataAttribute;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.core.connector.v2.ConnectorDetailDto;
@@ -14,6 +20,7 @@ import com.otilm.api.model.core.cryptography.token.TokenInstanceDetailDto;
 import com.otilm.api.model.core.cryptography.tokenprofile.TokenProfileDetailDto;
 import com.otilm.api.model.core.signing.signingrecord.SigningRecordDto;
 import com.otilm.api.model.core.signing.signingrecord.SigningRecordListDto;
+import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.repository.signing.TspProfileRepository;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
@@ -44,6 +51,7 @@ import java.security.KeyPair;
 import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
@@ -108,6 +116,9 @@ class TsaServiceImplITest extends BaseSpringBootTest {
 
     @Autowired
     private ConnectorMockFactory connectorMockFactory;
+
+    @Autowired
+    private AttributeEngine attributeEngine;
 
     @Autowired
     private TestCertificateAuthority testCertificateAuthority;
@@ -193,26 +204,21 @@ class TsaServiceImplITest extends BaseSpringBootTest {
     private SigningProfileDto createTimestampingSigningProfile(String name,
             List<DigestAlgorithm> allowedDigestAlgorithms, List<String> allowedPolicyIds, String defaultPolicyId)
             throws Exception {
+        return createTimestampingSigningProfile(name, allowedDigestAlgorithms, allowedPolicyIds, defaultPolicyId,
+                List.of());
+    }
+
+    private SigningProfileDto createTimestampingSigningProfile(String name, List<RequestAttribute> formattingAttributes)
+            throws Exception {
+        return createTimestampingSigningProfile(name, List.of(), List.of(), DEFAULT_POLICY_ID, formattingAttributes);
+    }
+
+    private SigningProfileDto createTimestampingSigningProfile(String name,
+            List<DigestAlgorithm> allowedDigestAlgorithms, List<String> allowedPolicyIds, String defaultPolicyId,
+            List<RequestAttribute> formattingAttributes) throws Exception {
         SigningProfileDto signingProfile = signingProfileService
-                .createSigningProfile(aSigningProfileRequest()
-                        .withName(name)
-                        .withStaticKeyManagedSigning(signingCertificate.getUuid())
-                        .withTimestamping(aTimestampingWorkflow()
-                                .withSignatureFormattingConnector(
-                                        UUID.fromString(timestampingFormattingConnector.getUuid()))
-                                .withDefaultPolicyId(defaultPolicyId)
-                                .withValidateTokenSignature(false)
-                                .withQualifiedTimestamp(false)
-                                .withAllowedDigestAlgorithms(allowedDigestAlgorithms)
-                                .withAllowedPolicyIds(allowedPolicyIds)
-                                .build())
-                        .withRecordPolicy(aSigningRecordPolicyRequest()
-                                .withRecordingEnabled(true)
-                                .withRecordRequestMetadata(true)
-                                .withRecordSignedDocument(true)
-                                .withPersistenceMode(SigningRecordPersistenceMode.IMMEDIATE)
-                                .build())
-                        .build());
+                .createSigningProfile(timestampingSigningProfileRequest(name, allowedDigestAlgorithms, allowedPolicyIds,
+                        defaultPolicyId, formattingAttributes));
 
         SecuredUUID signingProfileUuid = SecuredUUID.fromString(signingProfile.getUuid());
         signingProfileService.enableSigningProfile(signingProfileUuid);
@@ -225,6 +231,30 @@ class TsaServiceImplITest extends BaseSpringBootTest {
         signingProfileService.activateTsp(signingProfileUuid, tspProfileUuid, "http://localhost");
 
         return signingProfile;
+    }
+
+    private SigningProfileRequestDto timestampingSigningProfileRequest(String name,
+            List<DigestAlgorithm> allowedDigestAlgorithms, List<String> allowedPolicyIds, String defaultPolicyId,
+            List<RequestAttribute> formattingAttributes) {
+        return aSigningProfileRequest()
+                .withName(name)
+                .withStaticKeyManagedSigning(signingCertificate.getUuid())
+                .withTimestamping(aTimestampingWorkflow()
+                        .withSignatureFormattingConnector(UUID.fromString(timestampingFormattingConnector.getUuid()))
+                        .withDefaultPolicyId(defaultPolicyId)
+                        .withValidateTokenSignature(false)
+                        .withQualifiedTimestamp(false)
+                        .withAllowedDigestAlgorithms(allowedDigestAlgorithms)
+                        .withAllowedPolicyIds(allowedPolicyIds)
+                        .withSignatureFormattingConnectorAttributes(formattingAttributes)
+                        .build())
+                .withRecordPolicy(aSigningRecordPolicyRequest()
+                        .withRecordingEnabled(true)
+                        .withRecordRequestMetadata(true)
+                        .withRecordSignedDocument(true)
+                        .withPersistenceMode(SigningRecordPersistenceMode.IMMEDIATE)
+                        .build())
+                .build();
     }
 
     private SigningRecordDto theOnlySigningRecord() throws Exception {
@@ -468,6 +498,193 @@ class TsaServiceImplITest extends BaseSpringBootTest {
             assertThat(signingRecordService
                     .listSigningRecords(aSearchRequest().build(), SecurityFilter.create())
                     .getItems()).isEmpty();
+        }
+    }
+
+    // ── FormattingAttributes ──────────────────────────────────────────────────
+
+    @Nested
+    class FormattingAttributes {
+
+        private static final UUID POLICY_ATTRIBUTE_UUID = UUID.fromString("0000bbbb-1111-2222-3333-444444444444");
+        private static final String POLICY_ATTRIBUTE_NAME = "data_formattingPolicy";
+
+        @Test
+        void rejectsWithSystemFailure_whenTheFormatterRequiresAnAttributeTheProfileLacks() throws Exception {
+            // given
+            SigningProfileDto profile = createTimestampingSigningProfile("sp-lacks-required-attribute");
+            timestampingFormattingMock
+                    .stubFormattingAttributeDefinition(POLICY_ATTRIBUTE_UUID, POLICY_ATTRIBUTE_NAME, true);
+
+            // when
+            ThrowingCallable timestamp = () -> tsaService
+                    .processTspRequestForSigningProfile(profile.getName(), aTspRequest().build());
+
+            // then
+            assertRejectedAsMisconfigured(timestamp);
+        }
+
+        @Test
+        void rejectsWithSystemFailure_whenTheProfileCarriesAnAttributeTheFormatterDoesNotDefine() throws Exception {
+            // given
+            timestampingFormattingMock
+                    .stubFormattingAttributeDefinition(POLICY_ATTRIBUTE_UUID, POLICY_ATTRIBUTE_NAME, false);
+            SigningProfileDto profile = createTimestampingSigningProfile("sp-carries-undefined-attribute",
+                    List.of(policyAttribute("policy-the-formatter-dropped")));
+            timestampingFormattingMock.stubFormattingAttributes();
+
+            // when
+            ThrowingCallable timestamp = () -> tsaService
+                    .processTspRequestForSigningProfile(profile.getName(), aTspRequest().build());
+
+            // then
+            assertRejectedAsMisconfigured(timestamp);
+        }
+
+        @Test
+        void asksTheFormatterForItsAttributesOnce_whenTwoTimestampsUseTheSameFormatter() throws Exception {
+            // given
+            SigningProfileDto profile = createTimestampingSigningProfile("sp-asks-once");
+            int listingsBeforeSigning = timestampingFormattingMock.attributeDefinitionListings();
+
+            // when
+            tsaService.processTspRequestForSigningProfile(profile.getName(), aTspRequest().build());
+            tsaService.processTspRequestForSigningProfile(profile.getName(), aTspRequest().build());
+
+            // then
+            assertThat(timestampingFormattingMock.attributeDefinitionListings()).isEqualTo(listingsBeforeSigning + 1);
+        }
+
+        @Test
+        void asksTheFormatterAgain_whenTheConnectorIsReconnected() throws Exception {
+            // given — the first timestamp has cached the formatter's definitions
+            SigningProfileDto profile = createTimestampingSigningProfile("sp-asks-after-reconnect");
+            tsaService.processTspRequestForSigningProfile(profile.getName(), aTspRequest().build());
+            connectorService.reconnect(SecuredUUID.fromString(timestampingFormattingConnector.getUuid()));
+            int listingsAfterReconnect = timestampingFormattingMock.attributeDefinitionListings();
+
+            // when
+            tsaService.processTspRequestForSigningProfile(profile.getName(), aTspRequest().build());
+
+            // then
+            assertThat(timestampingFormattingMock.attributeDefinitionListings()).isEqualTo(listingsAfterReconnect + 1);
+        }
+
+        @Test
+        void grantsTheTimestamp_whenTheProfileIsUpdatedWithAnAttributeTheFormatterStartedPublishing() throws Exception {
+            // given — a timestamp has cached the formatter's definitions from before it published the attribute
+            SigningProfileDto profile = createTimestampingSigningProfile("sp-updated-with-new-attribute");
+            tsaService.processTspRequestForSigningProfile(profile.getName(), aTspRequest().build());
+            timestampingFormattingMock
+                    .stubFormattingAttributeDefinition(POLICY_ATTRIBUTE_UUID, POLICY_ATTRIBUTE_NAME, false);
+            updateFormattingAttributes(profile, List.of(policyAttribute("policy-just-published")));
+
+            // when
+            TspResponse response = tsaService
+                    .processTspRequestForSigningProfile(profile.getName(), aTspRequest().build());
+
+            // then
+            assertThat(response).isInstanceOf(TspResponse.Granted.class);
+        }
+
+        @Test
+        void storesTheFormattersCurrentDefinition_whenATimestampFetchesIt() throws Exception {
+            // given — the formatter has made an attribute required since the profile was saved
+            timestampingFormattingMock
+                    .stubFormattingAttributeDefinition(POLICY_ATTRIBUTE_UUID, POLICY_ATTRIBUTE_NAME, false);
+            SigningProfileDto profile = createTimestampingSigningProfile("sp-stores-current-definition",
+                    List.of(policyAttribute("policy-still-set")));
+            timestampingFormattingMock
+                    .stubFormattingAttributeDefinition(POLICY_ATTRIBUTE_UUID, POLICY_ATTRIBUTE_NAME, true);
+
+            // when
+            tsaService.processTspRequestForSigningProfile(profile.getName(), aTspRequest().build());
+
+            // then
+            DataAttribute stored = attributeEngine
+                    .getDataAttributeDefinitionStrict(UUID.fromString(timestampingFormattingConnector.getUuid()),
+                            POLICY_ATTRIBUTE_UUID, POLICY_ATTRIBUTE_NAME);
+            assertThat(stored.getProperties().isRequired()).isTrue();
+        }
+
+        @Test
+        void grantsTheTimestamp_whenTheFormatterFixesTheProfilesValueAsAnEncryptedReadOnlyDefault() throws Exception {
+            // given — the formatter has made the attribute encrypted and read-only since the profile was saved
+            var savedValue = "policy-the-formatter-now-fixes";
+            timestampingFormattingMock
+                    .stubFormattingAttributeDefinition(POLICY_ATTRIBUTE_UUID, POLICY_ATTRIBUTE_NAME, false);
+            SigningProfileDto profile = createTimestampingSigningProfile("sp-encrypted-read-only-default",
+                    List.of(policyAttribute(savedValue)));
+            timestampingFormattingMock
+                    .stubEncryptedReadOnlyAttributeDefinition(POLICY_ATTRIBUTE_UUID, POLICY_ATTRIBUTE_NAME, savedValue);
+
+            // when
+            TspResponse response = tsaService
+                    .processTspRequestForSigningProfile(profile.getName(), aTspRequest().build());
+
+            // then
+            assertThat(response).isInstanceOf(TspResponse.Granted.class);
+        }
+
+        @Test
+        void grantsTheTimestamp_whenTheStoreRefusesTheFormattersCurrentDefinition() throws Exception {
+            // given — the formatter has changed an attribute's content type since Core stored it
+            timestampingFormattingMock
+                    .stubFormattingAttributeDefinition(POLICY_ATTRIBUTE_UUID, POLICY_ATTRIBUTE_NAME,
+                            AttributeContentType.STRING);
+            SigningProfileDto profile = createTimestampingSigningProfile("sp-store-refuses-definition");
+            timestampingFormattingMock
+                    .stubFormattingAttributeDefinition(POLICY_ATTRIBUTE_UUID, POLICY_ATTRIBUTE_NAME,
+                            AttributeContentType.INTEGER);
+
+            // when
+            TspResponse response = tsaService
+                    .processTspRequestForSigningProfile(profile.getName(), aTspRequest().build());
+
+            // then
+            assertThat(response).isInstanceOf(TspResponse.Granted.class);
+        }
+
+        @Test
+        void rejectsWithSystemFailure_whenTheFormatterAnswersWithoutABody() throws Exception {
+            // given
+            SigningProfileDto profile = createTimestampingSigningProfile("sp-formatter-answers-without-body");
+            timestampingFormattingMock.stubFormattingAttributesWithoutBody();
+
+            // when
+            ThrowingCallable timestamp = () -> tsaService
+                    .processTspRequestForSigningProfile(profile.getName(), aTspRequest().build());
+
+            // then
+            assertThatThrownBy(timestamp).isInstanceOfSatisfying(TspException.class, rejection -> {
+                assertThat(rejection.getFailureInfo()).isEqualTo(TspFailureInfo.SYSTEM_FAILURE);
+                assertThat(rejection.getClientMessage()).isEqualTo("Internal error during signature formatting");
+            });
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private static RequestAttribute policyAttribute(String value) {
+            RequestAttributeV2 attribute = new RequestAttributeV2();
+            attribute.setUuid(POLICY_ATTRIBUTE_UUID);
+            attribute.setName(POLICY_ATTRIBUTE_NAME);
+            attribute.setContentType(AttributeContentType.STRING);
+            attribute.setContent(List.of(new StringAttributeContentV2(value, value)));
+            return attribute;
+        }
+
+        private void updateFormattingAttributes(SigningProfileDto profile, List<RequestAttribute> formattingAttributes)
+                throws Exception {
+            signingProfileService
+                    .updateSigningProfile(SecuredUUID.fromString(profile.getUuid()), timestampingSigningProfileRequest(
+                            profile.getName(), List.of(), List.of(), DEFAULT_POLICY_ID, formattingAttributes));
+        }
+
+        private static void assertRejectedAsMisconfigured(ThrowingCallable timestamp) {
+            assertThatThrownBy(timestamp).isInstanceOfSatisfying(TspException.class, rejection -> {
+                assertThat(rejection.getFailureInfo()).isEqualTo(TspFailureInfo.SYSTEM_FAILURE);
+                assertThat(rejection.getClientMessage()).isEqualTo("Internal error: signing configuration is invalid");
+            });
         }
     }
 }

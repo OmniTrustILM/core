@@ -5,7 +5,7 @@ com.otilm.core.attribute.engine.AttributeEngine calls @Modifying AttributeConten
 com.otilm.core.attribute.engine.AttributeEngine calls @Modifying AttributeDefinitionRepository.removeConnectorByTypeAndConnectorUuid() from outside ..service.writer..
 com.otilm.core.events.handlers.CertificateUploadedEventHandler calls @Modifying TriggerHistoryRepository.updateObjectUuidAndObjectResource() from outside ..service.writer..
 com.otilm.core.service.acme.impl.AcmeServiceImpl calls @Modifying AcmeOrderRepository.invalidateExpiredOrders() from outside ..service.writer..
-com.otilm.core.service.handler.CertificateHandler calls @Modifying CertificateRepository.setAltKeyUuidAndHybridCertificate() from outside ..service.writer..
+com.otilm.core.service.handler.CertificateHandler calls @Modifying X509CertificateRepository.setAltKeyUuidAndHybridCertificate() from outside ..service.writer..
 com.otilm.core.service.handler.CertificateHandler calls @Modifying CertificateRepository.setKeyUuid() from outside ..service.writer..
 com.otilm.core.service.impl.AcmeAccountServiceImpl calls @Modifying AcmeOrderRepository.invalidateExpiredOrders() from outside ..service.writer..
 com.otilm.core.service.impl.AcmeProfileServiceImpl calls @Modifying AcmeAccountRepository.updateRaProfileForDefaultAccounts() from outside ..service.writer..
@@ -19,7 +19,7 @@ com.otilm.core.service.impl.CertificateServiceImpl calls @Modifying CertificateR
 com.otilm.core.service.impl.CertificateServiceImpl calls @Modifying CertificateRepository.clearAltKeyAssociationsIn() from outside ..service.writer..
 com.otilm.core.service.impl.CertificateServiceImpl calls @Modifying CertificateRepository.clearKeyAssociations() from outside ..service.writer..
 com.otilm.core.service.impl.CertificateServiceImpl calls @Modifying CertificateRepository.clearKeyAssociationsIn() from outside ..service.writer..
-com.otilm.core.service.impl.CertificateServiceImpl calls @Modifying CertificateRepository.insertWithFingerprintConflictResolve() from outside ..service.writer..
+com.otilm.core.service.impl.CertificateServiceImpl calls @Modifying X509CertificateRepository.insertWithFingerprintConflictResolve() from outside ..service.writer..
 com.otilm.core.service.impl.CertificateServiceImpl calls @Modifying CertificateRepository.updateCertificateIssuerDN() from outside ..service.writer..
 com.otilm.core.service.impl.CertificateServiceImpl calls @Modifying CertificateRepository.updateCertificateSubjectDN() from outside ..service.writer..
 com.otilm.core.service.impl.CertificateServiceImpl calls @Modifying CmpProfileRepository.clearSigningCertificateReference() from outside ..service.writer..

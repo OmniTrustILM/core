@@ -9,6 +9,7 @@ import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
@@ -34,6 +35,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -195,7 +197,7 @@ class CertificateChainWriteVsRevokeITest extends BaseSpringBootTest {
         content.setContent(Base64.getEncoder().encodeToString(x509.getEncoded()));
         content = certificateContentRepository.save(content);
 
-        Certificate cert = new Certificate();
+        X509CertificateEntity cert = aCertificate().build();
         CertificateUtil.prepareIssuedCertificate(cert, x509);
         cert.setCertificateContent(content);
         cert.setCertificateContentId(content.getId());

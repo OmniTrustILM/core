@@ -1,13 +1,12 @@
 package com.otilm.core.dao.repository;
 
+import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.core.certificate.CertificateDto;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.core.aop.CertificateRepositoryCacheEvictionAspect;
 import com.otilm.core.dao.entity.Certificate;
-import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.repository.custom.CustomCertificateRepository;
-import jakarta.persistence.LockModeType;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -15,7 +14,6 @@ import java.util.Set;
 import java.util.UUID;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
-import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -35,93 +33,126 @@ import org.springframework.stereotype.Repository;
  * cached for up to the TTL.
  */
 @Repository
-public interface CertificateRepository extends ComplianceSubjectRepository<Certificate>, CustomCertificateRepository {
+public interface CertificateRepository extends CertificateBaseRepository<Certificate>, CustomCertificateRepository {
 
     List<String> FETCH_GROUPS_AND_OWNER = List.of("groups", "owner");
 
-    @EntityGraph(attributePaths = {"certificateContent"})
-    Optional<Certificate> findByUuid(UUID uuid);
+    /**
+     * Finds the newest certificate, not archived, that the EST Profile requested through the RA Profile with the
+     * request of the given fingerprint, which is how a retry of an EST request is recognised.
+     *
+     * @param requestFingerprint SHA-256 of the encoded request in lower-case hexadecimal
+     */
+    @Query("""
+            SELECT c.uuid AS uuid, c.state AS state, c.notAfter AS notAfter, r.fingerprint AS requestFingerprint
+              FROM Certificate c
+              JOIN c.certificateRequestEntity r
+              JOIN c.protocolAssociation a
+             WHERE c.raProfileUuid = :raProfileUuid
+               AND c.archived = false
+               AND a.protocol = com.otilm.api.model.core.enums.CertificateProtocol.EST
+               AND a.protocolProfileUuid = :estProfileUuid
+               AND r.fingerprint = :requestFingerprint
+             ORDER BY c.created DESC, c.uuid DESC
+             LIMIT 1
+            """)
+    Optional<EstRequestedCertificate> findLatestRequestedThroughEst(@Param("raProfileUuid") UUID raProfileUuid,
+            @Param("estProfileUuid") UUID estProfileUuid, @Param("requestFingerprint") String requestFingerprint);
 
     /**
-     * Loads the certificate with its RA profile fetched eagerly, for callers that run without an ambient transaction
-     * and would otherwise hit the lazy association detached.
+     * Finds the newest certificate on the RA Profile that the source was renewed or rekeyed into with the request,
+     * whatever the type of the relation, so that a retry of the request through that RA Profile finds it. The request
+     * fingerprint is that of the request the successor carries.
      */
-    @EntityGraph(attributePaths = "raProfile")
-    Optional<Certificate> findWithRaProfileByUuid(UUID uuid);
-
-    @EntityGraph(attributePaths = {"certificateContent", "raProfile"})
-    List<Certificate> findAllWithAssociationsByUuidIn(List<UUID> uuids);
-
-    Certificate findFirstByUuidIn(List<UUID> uuids);
-
-    @EntityGraph(attributePaths = {
-            "certificateContent",
-            "key",
-            "key.items",
-            "groups",
-            "owner",
-            "altKey",
-            "altKey.items",
-            "raProfile"})
-    Optional<Certificate> findWithAssociationsByUuid(UUID uuid);
-
-    @EntityGraph(attributePaths = {
-            "certificateContent",
-            "key",
-            "key.items",
-            "groups",
-            "owner",
-            "altKey",
-            "altKey.items",
-            "raProfile",
-            "raProfile.authorityInstanceReference",
-            "raProfile.authorityInstanceReference.connectorInterface",
-            "raProfile.authorityInstanceReference.connector"})
-    Optional<Certificate> findWithAuthorityAssociationsByUuid(UUID uuid);
+    @Query("""
+            SELECT s.uuid AS uuid, s.state AS state, s.notAfter AS notAfter, r.fingerprint AS requestFingerprint
+              FROM CertificateRelation cr
+              JOIN cr.successorCertificate s
+              JOIN s.certificateRequestEntity r
+             WHERE cr.id.predecessorCertificateUuid = :sourceUuid
+               AND s.raProfileUuid = :raProfileUuid
+               AND r.fingerprint = :requestFingerprint
+               AND s.archived = false
+             ORDER BY s.created DESC, s.uuid DESC
+             LIMIT 1
+            """)
+    Optional<EstRequestedCertificate> findSuccessorRequestedWith(@Param("sourceUuid") UUID sourceUuid,
+            @Param("raProfileUuid") UUID raProfileUuid, @Param("requestFingerprint") String requestFingerprint);
 
     /**
-     * Polling-listener finder. The listener runs outside any transaction (deliberate — no tx held across the HTTP call
-     * to the connector), so every association the listener touches must be eagerly loaded here to avoid
-     * {@link org.hibernate.LazyInitializationException}.
+     * Whether a certificate uses the key, as its key or alternative key, by itself or through its request, unless it
+     * ended without being issued: one that failed or was rejected never used the key. A certificate without a state
+     * counts as using it. Each half is answered by the key indexes of one table.
      */
-    @EntityGraph(attributePaths = {
-            "certificateContent",
-            "raProfile",
-            "raProfile.authorityInstanceReference",
-            "raProfile.authorityInstanceReference.connectorInterface",
-            "raProfile.authorityInstanceReference.connector"})
-    Optional<Certificate> findForPollingByUuid(UUID uuid);
+    default boolean existsUsingKey(UUID keyUuid) {
+        return existsUsingKeyItself(keyUuid) || existsUsingKeyThroughRequest(keyUuid);
+    }
+
+    @Query("""
+            SELECT COUNT(c) > 0
+              FROM Certificate c
+             WHERE (c.keyUuid = :keyUuid OR c.altKeyUuid = :keyUuid)
+               AND (c.state IS NULL
+                    OR c.state NOT IN (com.otilm.api.model.core.certificate.CertificateState.FAILED,
+                                       com.otilm.api.model.core.certificate.CertificateState.REJECTED))
+            """)
+    boolean existsUsingKeyItself(@Param("keyUuid") UUID keyUuid);
+
+    @Query("""
+            SELECT COUNT(c) > 0
+              FROM CertificateRequestEntity r
+              JOIN Certificate c ON c.certificateRequestUuid = r.uuid
+             WHERE (r.keyUuid = :keyUuid OR r.altKeyUuid = :keyUuid)
+               AND (c.state IS NULL
+                    OR c.state NOT IN (com.otilm.api.model.core.certificate.CertificateState.FAILED,
+                                       com.otilm.api.model.core.certificate.CertificateState.REJECTED))
+            """)
+    boolean existsUsingKeyThroughRequest(@Param("keyUuid") UUID keyUuid);
+
+    /** Whether the source has a successor that is still waiting to be issued. */
+    @Query("""
+            SELECT COUNT(cr) > 0
+              FROM CertificateRelation cr
+              JOIN cr.successorCertificate s
+             WHERE cr.id.predecessorCertificateUuid = :sourceUuid
+               AND s.archived = false
+               AND s.state IN (com.otilm.api.model.core.certificate.CertificateState.REQUESTED,
+                               com.otilm.api.model.core.certificate.CertificateState.PENDING_APPROVAL,
+                               com.otilm.api.model.core.certificate.CertificateState.PENDING_ISSUE)
+            """)
+    boolean existsPendingSuccessor(@Param("sourceUuid") UUID sourceUuid);
 
     /**
-     * Pessimistic-write variant of {@link #findWithAssociationsByUuid} for the operator-driven pending-state endpoints
-     * and for {@code issuePlainCertificateAction}. Issues {@code SELECT ... FOR UPDATE} on the certificate row. Must be
-     * called inside an active transaction, otherwise the lock is released immediately on query completion.
+     * Finds the registrations of the RA Profile whose request has the given fingerprint, newest first: certificates
+     * that are not archived and carry a registration authorization in any state. A request that completed a
+     * registration is recognised by this whatever state its certificate has reached since.
+     *
+     * @param requestFingerprint SHA-256 of the encoded request in lower-case hexadecimal
      */
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @EntityGraph(attributePaths = {
-            "certificateContent",
-            "key",
-            "key.items",
-            "groups",
-            "owner",
-            "altKey",
-            "altKey.items",
-            "raProfile",
-            "raProfile.authorityInstanceReference",
-            "raProfile.authorityInstanceReference.connectorInterface",
-            "raProfile.authorityInstanceReference.connector"})
-    Optional<Certificate> findAndLockWithAssociationsByUuid(UUID uuid);
+    @Query("""
+            SELECT c.uuid
+              FROM Certificate c
+              JOIN c.certificateRequestEntity r
+             WHERE c.raProfileUuid = :raProfileUuid
+               AND c.archived = false
+               AND r.fingerprint = :requestFingerprint
+               AND EXISTS (SELECT 1 FROM CertificateRegistrationAuthorization a WHERE a.certificateUuid = c.uuid)
+             ORDER BY c.created DESC, c.uuid DESC
+            """)
+    List<UUID> findRegistrationsRequestedWith(@Param("raProfileUuid") UUID raProfileUuid,
+            @Param("requestFingerprint") String requestFingerprint);
 
-    @EntityGraph(attributePaths = {
-            "certificateContent",
-            "key",
-            "key.items",
-            "groups",
-            "owner",
-            "altKey",
-            "altKey.items",
-            "raProfile"})
-    List<Certificate> findWithAssociationsByUuidInOrderByCreatedDesc(List<UUID> uuids);
+    /**
+     * Reads a certificate as {@link EstRequestedCertificate}; the request fingerprint is {@code null} while no request
+     * is attached.
+     */
+    @Query("""
+            SELECT c.uuid AS uuid, c.state AS state, c.notAfter AS notAfter, r.fingerprint AS requestFingerprint
+              FROM Certificate c
+              LEFT JOIN c.certificateRequestEntity r
+             WHERE c.uuid = :uuid
+            """)
+    Optional<EstRequestedCertificate> findEstRequestedCertificateByUuid(@Param("uuid") UUID uuid);
 
     /** Fetches a single certificate with all associations required by {@link Certificate#mapToChainDto()}. */
     @EntityGraph("Certificate.chainAssociations")
@@ -134,62 +165,17 @@ public interface CertificateRepository extends ComplianceSubjectRepository<Certi
     @EntityGraph("Certificate.chainAssociations")
     List<Certificate> findChainWithAssociationsByUuidIn(List<UUID> uuids);
 
-    @EntityGraph(attributePaths = {"key", "key.items"})
-    Optional<Certificate> findForSigningByUuid(UUID uuid);
-
-    Optional<Certificate> findBySerialNumberIgnoreCase(String serialNumber);
-
-    Optional<Certificate> findByFingerprint(String fingerprint);
-
-    boolean existsByCertificateRequestUuid(UUID certificateRequestUuid);
-
     @Query("SELECT c.uuid FROM Certificate c WHERE c.certificateRequestUuid = :certificateRequestUuid")
     List<UUID> findUuidsByCertificateRequestUuid(@Param("certificateRequestUuid") UUID certificateRequestUuid);
-
-    List<Certificate> findByRaProfile(RaProfile raProfile);
-
-    @EntityGraph(attributePaths = {"certificateContent", "certificateRequestEntity"})
-    List<Certificate> findByUuidInAndArchivedFalse(List<UUID> uuids);
-
-    @EntityGraph(attributePaths = {"certificateContent"})
-    List<Certificate> findByUuidInAndCertificateContentIdNotNullAndArchivedFalse(List<UUID> uuids);
-
-    @EntityGraph(attributePaths = {"certificateContent"})
-    List<Certificate> findByRaProfileUuidAndCertificateContentIdNotNullAndArchivedFalse(UUID raProfileUuid);
-
-    /**
-     * Whether a certificate for this content is already committed. Discovery post-processing uses it to tell a group
-     * that never ran from one whose import committed but whose result never reached the orchestrator — the two need
-     * opposite records, and only the database can distinguish them.
-     */
-    boolean existsByCertificateContentId(Long certificateContentId);
-
-    List<Certificate> findByKeyUuid(UUID keyUuid);
-
-    List<Certificate> findByAltKeyUuid(UUID altKeyUuid);
 
     @Query("SELECT DISTINCT signatureAlgorithm FROM Certificate")
     List<String> findDistinctSignatureAlgorithm();
 
-    @Query("SELECT DISTINCT altSignatureAlgorithm FROM Certificate")
-    List<String> findDistinctAltSignatureAlgorithm();
-
     @Query("SELECT DISTINCT keySize FROM Certificate")
     List<Integer> findDistinctKeySize();
 
-    @Query("SELECT DISTINCT altKeySize FROM Certificate")
-    List<Integer> findDistinctAltKeySize();
-
     @Query("SELECT DISTINCT publicKeyAlgorithm FROM Certificate")
     List<String> findDistinctPublicKeyAlgorithm();
-
-    @Query("SELECT DISTINCT altPublicKeyAlgorithm FROM Certificate")
-    List<String> findDistinctAltPublicKeyAlgorithm();
-
-    Optional<Certificate> findByUserUuid(UUID userUuid);
-
-    List<Certificate> findByPublicKeyFingerprintOrAltKeyFingerprint(String publicKeyFingerprint,
-            String altKeyFingerprint);
 
     @Query("""
              SELECT COUNT(*) FROM Certificate c LEFT JOIN c.raProfile rp
@@ -220,6 +206,9 @@ public interface CertificateRepository extends ComplianceSubjectRepository<Certi
             @Param("skipStatuses") List<CertificateValidationStatus> skipStatuses,
             @Param("platformEnabled") boolean platformEnabled, Pageable pageable);
 
+    /** Whether the certificate carries a pending-issue claim: its synchronous connector call is still running. */
+    boolean existsByUuidAndPendingIssueClaimedAtIsNotNull(UUID uuid);
+
     // Pending-issue reaper: stale claims, i.e. synchronous connector calls that never returned. The poll-row condition
     // leaves a pollable 202 whose claim clear failed to the poller.
     @Query("""
@@ -245,48 +234,6 @@ public interface CertificateRepository extends ComplianceSubjectRepository<Certi
             """)
     int clearPendingIssueClaim(@Param("uuid") UUID uuid);
 
-    /**
-     * The pre-registrations a protocol enrolment presenting the given normalized subject can complete under the RA
-     * profile: REGISTERED placeholders whose registration authorization is ACTIVE, prefiltered by the stored normalized
-     * subject so the identity match receives only same-subject candidates. Registrations without a challenge have no
-     * authorization row and are excluded — they cannot authenticate an enrolment.
-     *
-     * <p>
-     * Rows whose normalized subject is NULL are always included and left for the caller's identity match to resolve: a
-     * placeholder written by an old instance during a rolling upgrade — after the one-shot backfill has already run —
-     * carries no normalized subject, and an equality-only prefilter would make it permanently unmatchable. NULL rows
-     * are only ever produced transiently by such writers, so the prefilter's narrowing still holds in steady state.
-     */
-    @Query("""
-            SELECT c FROM Certificate c
-                WHERE c.raProfileUuid = :raProfileUuid
-                    AND (c.subjectDnNormalized = :subjectDnNormalized OR c.subjectDnNormalized IS NULL)
-                    AND c.state = ?#{T(com.otilm.api.model.core.certificate.CertificateState).REGISTERED}
-                    AND c.archived = false
-                    AND EXISTS (SELECT 1 FROM CertificateRegistrationAuthorization a
-                        WHERE a.certificateUuid = c.uuid
-                            AND a.state = ?#{T(com.otilm.core.dao.entity.RegistrationState).ACTIVE})
-            """)
-    List<Certificate> findRegisteredWithActiveRegistrationAuthorizationByRaProfileUuidAndSubjectDnNormalized(
-            @Param("raProfileUuid") UUID raProfileUuid, @Param("subjectDnNormalized") String subjectDnNormalized);
-
-    List<Certificate> findByRaProfileAndComplianceStatusIsNotNullAndArchivedIsFalse(RaProfile raProfile);
-
-    Optional<Certificate> findBySubjectDnNormalizedAndSerialNumber(String subjectDnNormalized, String serialNumber);
-
-    Optional<Certificate> findByIssuerDnNormalizedAndSerialNumber(String issuerDnNormalized, String serialNumber);
-
-    @EntityGraph(attributePaths = {"certificateContent"})
-    List<Certificate> findBySubjectDnNormalized(String issuerDnNormalized);
-
-    @EntityGraph(attributePaths = {"certificateContent", "raProfile"})
-    List<Certificate> findByValidationStatusAndCertificateContentDiscoveryCertificatesDiscoveryUuid(
-            CertificateValidationStatus validationStatus, UUID discoveryUuid);
-
-    @EntityGraph(attributePaths = {"certificateContent", "raProfile"})
-    List<Certificate> findByValidationStatusAndLocationsLocationUuid(CertificateValidationStatus validationStatus,
-            UUID locationUuid);
-
     @Modifying
     @Query("UPDATE Certificate c SET c.keyUuid = ?1 WHERE c.uuid IN ?2")
     void setKeyUuid(UUID keyUuid, List<UUID> uuids);
@@ -311,27 +258,16 @@ public interface CertificateRepository extends ComplianceSubjectRepository<Certi
     @Query("UPDATE Certificate c SET c.archived = ?1 WHERE c.uuid IN ?2")
     void archiveCertificates(boolean archive, List<UUID> uuids);
 
-    @Modifying
-    @Query("UPDATE Certificate c SET c.altKeyUuid = ?1, c.hybridCertificate = true WHERE c.uuid IN ?2")
-    void setAltKeyUuidAndHybridCertificate(UUID keyUuid, List<UUID> uuids);
-
     /**
-     * Sets {@code issuer_serial_number} and {@code issuer_certificate_uuid} on a single certificate row by UUID,
-     * refreshing {@code i_upd} explicitly.
+     * Sets or clears {@code pending_revoke_attributes} on a single certificate row by UUID, refreshing {@code i_upd}
+     * explicitly. The column is written here and not through the entity: it is not updatable through
+     * {@link Certificate}.
      */
     @Modifying
-    @Query("UPDATE Certificate c " + "SET c.issuerSerialNumber = :serial, c.issuerCertificateUuid = :issuerUuid, "
-            + "    c.updated = CURRENT_TIMESTAMP " + "WHERE c.uuid = :uuid")
-    void updateIssuerReference(@Param("uuid") UUID uuid, @Param("serial") String serial,
-            @Param("issuerUuid") UUID issuerUuid);
-
-    /**
-     * Clears both {@code issuer_serial_number} and {@code issuer_certificate_uuid} on a single certificate row.
-     */
-    @Modifying
-    @Query("UPDATE Certificate c " + "SET c.issuerSerialNumber = NULL, c.issuerCertificateUuid = NULL, "
-            + "    c.updated = CURRENT_TIMESTAMP " + "WHERE c.uuid = :uuid")
-    void clearIssuerReference(@Param("uuid") UUID uuid);
+    @Query("UPDATE Certificate c SET c.pendingRevokeAttributes = :attributes, c.updated = CURRENT_TIMESTAMP "
+            + "WHERE c.uuid = :uuid")
+    void updatePendingRevokeAttributes(@Param("uuid") UUID uuid,
+            @Param("attributes") List<RequestAttribute> attributes);
 
     /**
      * Writes the three validation-result columns on a single certificate row, refreshing {@code i_upd} explicitly.
@@ -375,41 +311,35 @@ public interface CertificateRepository extends ComplianceSubjectRepository<Certi
     Optional<CertificateState> findStateByUuid(@Param("uuid") UUID uuid);
 
     /**
+     * Reads the current {@code validationStatus} of a certificate row by UUID. A scalar projection, so it reads the
+     * database even when the caller's persistence context already holds the certificate.
+     */
+    @Query("SELECT c.validationStatus FROM Certificate c WHERE c.uuid = :uuid")
+    Optional<CertificateValidationStatus> findValidationStatusByUuid(@Param("uuid") UUID uuid);
+
+    /**
+     * Reads the base64 content of the certificate by UUID while its request has the given fingerprint, without loading
+     * the entity; empty while the certificate has no content or carries another request.
+     *
+     * @param requestFingerprint SHA-256 of the encoded request in lower-case hexadecimal
+     */
+    @Query("""
+            SELECT cc.content
+              FROM Certificate c
+              JOIN c.certificateContent cc
+              JOIN c.certificateRequestEntity r
+             WHERE c.uuid = :uuid
+               AND r.fingerprint = :requestFingerprint
+            """)
+    Optional<String> findContentByUuidAndRequestFingerprint(@Param("uuid") UUID uuid,
+            @Param("requestFingerprint") String requestFingerprint);
+
+    /**
      * Scalar projection of the RA-profile UUID — authorize without managing the full entity (so a later locking read
      * returns fresh state, not an already-managed stale instance).
      */
     @Query("SELECT c.raProfileUuid FROM Certificate c WHERE c.uuid = :uuid")
     Optional<UUID> findRaProfileUuidByUuid(@Param("uuid") UUID uuid);
-
-    @Modifying
-    @Query(value = """
-            INSERT INTO {h-schema}certificate (
-            uuid, i_author, i_cre, i_upd, ra_profile_uuid,certificate_content_id,
-            certificate_request_uuid,issuer_certificate_uuid,certificate_type,
-            state,validation_status,certificate_validation_result,status_validation_timestamp,
-            compliance_status,compliance_result,common_name,not_after,not_before,
-            extended_key_usage,fingerprint,issuer_common_name,issuer_dn,issuer_dn_normalized,
-            issuer_serial_number,key_size,key_usage,key_uuid,public_key_algorithm,
-            public_key_fingerprint,serial_number,signature_algorithm,subject_alternative_names,
-            subject_dn,subject_dn_normalized,subject_type,trusted_ca,user_uuid,hybrid_certificate,alt_signature_algorithm,archived,alt_key_fingerprint,
-            qc_compliance,extended_key_usage_critical,qc_sscd,qc_type,qc_cc_legislation)
-            VALUES (
-            :#{#cert.uuid}, :#{#cert.author}, :#{#cert.created}, :#{#cert.updated}, :#{#cert.raProfileUuid}, :#{#cert.certificateContentId},
-            :#{#cert.certificateRequestUuid}, :#{#cert.issuerCertificateUuid}, :#{#cert.certificateType.name()},
-            :#{#cert.state.name()}, :#{#cert.validationStatus.name()}, :#{#cert.certificateValidationResult}, :#{#cert.statusValidationTimestamp},
-            :#{#cert.complianceStatus.name()}, :#{#cert.complianceResult}, :#{#cert.commonName}, :#{#cert.notAfter}, :#{#cert.notBefore},
-            :#{#cert.extendedKeyUsage}, :#{#cert.fingerprint}, :#{#cert.issuerCommonName}, :#{#cert.issuerDn}, :#{#cert.issuerDnNormalized},
-            :#{#cert.issuerSerialNumber}, :#{#cert.keySize}, :#{#cert.keyUsageBitMask}, :#{#cert.keyUuid}, :#{#cert.publicKeyAlgorithm},
-            :#{#cert.publicKeyFingerprint}, :#{#cert.serialNumber}, :#{#cert.signatureAlgorithm}, :#{#cert.subjectAlternativeNames},
-            :#{#cert.subjectDn}, :#{#cert.subjectDnNormalized}, :#{#cert.subjectType.name()}, :#{#cert.trustedCa}, :#{#cert.userUuid},
-            :#{#cert.hybridCertificate}, :#{#cert.altSignatureAlgorithm}, :#{#cert.archived}, :#{#cert.altKeyFingerprint},
-            :#{#cert.qcCompliance}, :#{#cert.extendedKeyUsageCritical}, :#{#cert.qcSscd}, :#{#cert.qcType}, :#{#cert.qcCcLegislation}
-            )
-            ON CONFLICT (fingerprint)
-            DO NOTHING
-            """,
-            nativeQuery = true)
-    Integer insertWithFingerprintConflictResolve(@Param("cert") Certificate certificate);
 
     @Query("""
              SELECT c.uuid
@@ -644,4 +574,5 @@ public interface CertificateRepository extends ComplianceSubjectRepository<Certi
             WHERE c.uuid IN ?1
             """)
     List<CertificateDto> findCertificateDtosByUuidsIn(List<UUID> uuids);
+
 }

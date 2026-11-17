@@ -17,7 +17,7 @@ import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.core.certificate.CertificateChainDownloadResponseDto;
 import com.otilm.api.model.core.certificate.CertificateChainResponseDto;
 import com.otilm.api.model.core.certificate.CertificateContentDto;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateDownloadResponseDto;
 import com.otilm.api.model.core.certificate.CertificateFormat;
 import com.otilm.api.model.core.certificate.CertificateFormatEncoding;
@@ -36,7 +36,7 @@ public interface CertificateExternalService {
 
     CertificateResponseDto listCertificates(SecurityFilter filter, CertificateSearchRequestDto request);
 
-    CertificateDetailDto getCertificate(SecuredUUID uuid) throws NotFoundException, CertificateException, IOException;
+    CertificateDetail getCertificate(SecuredUUID uuid) throws NotFoundException, CertificateException, IOException;
 
     void deleteCertificate(SecuredUUID uuid) throws NotFoundException;
 

@@ -6,6 +6,7 @@ import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.service.CryptographicKeyExternalService;
+import com.otilm.core.service.writer.CertificatePendingRevokeWriter;
 import java.util.List;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -33,10 +34,13 @@ public class CertificateRevocationFinalizer {
 
     private final AttributeEngine attributeEngine;
     private final CryptographicKeyExternalService keyService;
+    private final CertificatePendingRevokeWriter pendingRevokeWriter;
 
-    public CertificateRevocationFinalizer(AttributeEngine attributeEngine, CryptographicKeyExternalService keyService) {
+    public CertificateRevocationFinalizer(AttributeEngine attributeEngine, CryptographicKeyExternalService keyService,
+            CertificatePendingRevokeWriter pendingRevokeWriter) {
         this.attributeEngine = attributeEngine;
         this.keyService = keyService;
+        this.pendingRevokeWriter = pendingRevokeWriter;
     }
 
     /** Captured decision about whether to destroy the cert's key after the revoke commits. */
@@ -67,7 +71,7 @@ public class CertificateRevocationFinalizer {
      */
     public void clearPendingRevokeFields(Certificate cert) {
         cert.setPendingRevokeDestroyKey(null);
-        cert.setPendingRevokeAttributes(null);
+        pendingRevokeWriter.clear(cert.getUuid());
     }
 
     /**

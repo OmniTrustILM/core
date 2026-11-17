@@ -18,7 +18,6 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.SigningRecordExternalService;
 import com.otilm.core.signing.record.SigningRecordBestEffortFlusher;
-import com.otilm.core.signing.record.SigningRecordInputSources;
 import com.otilm.core.signing.record.SigningRecordOutboxDrainer;
 import com.otilm.core.signing.record.SigningRecordStrategyFactory;
 import com.otilm.core.util.BaseSpringBootTest;
@@ -32,6 +31,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.recordingEverything;
 import static com.otilm.core.signing.record.SigningRecordInputBuilder.aSigningRecordInput;
+import static com.otilm.core.signing.record.SigningRecordInputSources.recordOne;
 import static com.otilm.core.util.builders.SearchRequestDtoBuilder.aSearchRequest;
 import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningProfile;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -88,10 +88,8 @@ class SigningRecordEndToEndITest extends BaseSpringBootTest {
         double persistBefore = counterValue("signing_record.persist", "mode", deferredDurable.name());
 
         // when the record is written through the factory-selected writer
-        factory
-                .strategyFor(version.getPersistenceMode())
-                .recordSigning(
-                        SigningRecordInputSources.of(aSigningRecordInput().signingProfile(recordingProfile).build()));
+        recordOne(factory.strategyFor(version.getPersistenceMode()),
+                aSigningRecordInput().signingProfile(recordingProfile).build());
 
         // then it is accepted at intake and staged in the outbox, not yet persisted into signing_record
         assertRecordInOutbox();
@@ -121,10 +119,8 @@ class SigningRecordEndToEndITest extends BaseSpringBootTest {
         double persistBefore = counterValue("signing_record.persist", "mode", immediate.name());
 
         // when the record is written through the factory-selected writer
-        factory
-                .strategyFor(version.getPersistenceMode())
-                .recordSigning(
-                        SigningRecordInputSources.of(aSigningRecordInput().signingProfile(recordingProfile).build()));
+        recordOne(factory.strategyFor(version.getPersistenceMode()),
+                aSigningRecordInput().signingProfile(recordingProfile).build());
 
         // then it is selectable through the service straight away, never staged in the outbox, and the counter advanced
         assertRecordExists();
@@ -146,10 +142,8 @@ class SigningRecordEndToEndITest extends BaseSpringBootTest {
         double persistBefore = counterValue("signing_record.persist", "mode", bestEffort.name());
 
         // when the record is written through the factory-selected writer
-        factory
-                .strategyFor(version.getPersistenceMode())
-                .recordSigning(
-                        SigningRecordInputSources.of(aSigningRecordInput().signingProfile(recordingProfile).build()));
+        recordOne(factory.strategyFor(version.getPersistenceMode()),
+                aSigningRecordInput().signingProfile(recordingProfile).build());
 
         // then it is admitted at intake straight away, before any persistence
         assertEquals(intakeBefore + 1, counterValue("signing_record.intake", "mode", bestEffort.name()));

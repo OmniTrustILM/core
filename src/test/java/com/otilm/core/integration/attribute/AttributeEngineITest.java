@@ -60,7 +60,7 @@ import com.otilm.api.model.common.attribute.v3.mapping.ValueSource;
 import com.otilm.api.model.common.attribute.v3.mapping.ValueSourceType;
 import com.otilm.api.model.core.auth.AttributeResource;
 import com.otilm.api.model.core.auth.Resource;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.certificate.GeneralNameType;
@@ -77,11 +77,11 @@ import com.otilm.core.dao.entity.AttributeContentItem;
 import com.otilm.core.dao.entity.AttributeDefinition;
 import com.otilm.core.dao.entity.AttributeRelation;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
-import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.OwnerAssociation;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.AttributeContent2ObjectRepository;
 import com.otilm.core.dao.repository.AttributeContentItemRepository;
 import com.otilm.core.dao.repository.AttributeDefinitionRepository;
@@ -98,6 +98,7 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityResourceFilter;
 import com.otilm.core.service.CertificateExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.SqlCapture;
 import com.otilm.core.util.builders.DataAttributeV3Builder;
 import com.otilm.core.util.builders.RequestAttributeV3Builder;
 import jakarta.persistence.EntityManager;
@@ -121,6 +122,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.hibernate.SessionFactory;
 import org.hibernate.stat.Statistics;
 import org.jetbrains.annotations.NotNull;
@@ -131,13 +133,19 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+import static com.otilm.core.util.builders.DataAttributeV3Builder.aDataAttribute;
+import static com.otilm.core.util.builders.RequestAttributeV3Builder.aCustomAttribute;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 
@@ -178,7 +186,7 @@ class AttributeEngineITest extends BaseSpringBootTest {
 
     private Connector connectorAuthority;
     private Connector connectorDiscovery;
-    private Certificate certificate;
+    private X509CertificateEntity certificate;
     private UUID authorityDiscoveryUuid;
     private UUID networkDiscoveryUuid;
 
@@ -220,7 +228,7 @@ class AttributeEngineITest extends BaseSpringBootTest {
         raProfile.setAuthorityInstanceReference(authorityInstance);
         raProfile = raProfileRepository.save(raProfile);
 
-        certificate = new Certificate();
+        certificate = aCertificate().build();
         certificate.setSubjectDn("testCertificate");
         certificate.setIssuerDn("testCercertificatetificate");
         certificate.setSerialNumber("123456789");
@@ -631,6 +639,68 @@ class AttributeEngineITest extends BaseSpringBootTest {
     }
 
     @Test
+    void sendsNoDelete_whenCreatingDataAttributeContent() throws Exception {
+        // given
+        RequestAttributeV3 requestAttribute = registerDataAttributeWithValue("createOnlyAttribute");
+        var info = ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).build();
+
+        // when
+        List<String> statements = SqlCapture
+                .during(() -> attributeEngine.createObjectDataAttributesContent(info, List.of(requestAttribute)))
+                .statements();
+
+        // then
+        assertThat(statements).isNotEmpty().noneMatch(sql -> sql.startsWith("delete"));
+    }
+
+    @Test
+    void returnsTheStoredContent_whenCreatingDataAttributeContent() throws Exception {
+        // given
+        RequestAttributeV3 requestAttribute = registerDataAttributeWithValue("createdAttribute");
+        var info = ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).build();
+
+        // when
+        List<ResponseAttribute> created = attributeEngine
+                .createObjectDataAttributesContent(info, List.of(requestAttribute));
+
+        // then
+        assertThat(created).extracting(ResponseAttribute::getName).containsExactly(requestAttribute.getName());
+        assertThat(attributeEngine.getObjectDataAttributesContent(info))
+                .extracting(ResponseAttribute::getName)
+                .containsExactly(requestAttribute.getName());
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    void sendsNoSql_whenCreatingDataAttributeContentFromNoAttributes(List<RequestAttribute> noAttributes)
+            throws Exception {
+        // given
+        var info = ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).build();
+
+        // when
+        SqlCapture.Captured<List<ResponseAttribute>> captured = SqlCapture
+                .during(() -> attributeEngine.createObjectDataAttributesContent(info, noAttributes));
+
+        // then
+        assertThat(captured.statements()).isEmpty();
+        assertThat(captured.result()).isEmpty();
+    }
+
+    @Test
+    void clearsTheStoredContent_whenUpdatingDataAttributeContentWithNoAttributes() throws Exception {
+        // given
+        RequestAttributeV3 requestAttribute = registerDataAttributeWithValue("clearedAttribute");
+        var info = ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).build();
+        attributeEngine.updateObjectDataAttributesContent(info, List.of(requestAttribute));
+
+        // when
+        attributeEngine.updateObjectDataAttributesContent(info, List.of());
+
+        // then
+        assertThat(attributeEngine.getObjectDataAttributesContent(info)).isEmpty();
+    }
+
+    @Test
     void testGetDataAttributesByContent() throws AttributeException {
         DataAttributeV2 dataAttributeV2 = new DataAttributeV2();
         dataAttributeV2.setUuid(UUID.randomUUID().toString());
@@ -788,7 +858,7 @@ class AttributeEngineITest extends BaseSpringBootTest {
     @Test
     void testDeleteAllObjectAttributeContent() throws NotFoundException, CertificateException, IOException {
         attributeEngine.deleteObjectAttributeContent(Resource.CERTIFICATE, certificate.getUuid());
-        CertificateDetailDto certificateDetailDto = certificateService
+        CertificateDetail certificateDetailDto = certificateService
                 .getCertificate(SecuredUUID.fromUUID(certificate.getUuid()));
 
         Assertions.assertTrue(certificateDetailDto.getMetadata().isEmpty());
@@ -814,7 +884,7 @@ class AttributeEngineITest extends BaseSpringBootTest {
         SecurityResourceFilter filter = new SecurityResourceFilter(List.of(departmentCustomAttribute.getUuid()),
                 List.of(), true);
         attributeEngine.deleteObjectAllowedCustomAttributeContent(filter, Resource.CERTIFICATE, certificate.getUuid());
-        CertificateDetailDto certificateDetailDto = certificateService
+        CertificateDetail certificateDetailDto = certificateService
                 .getCertificate(SecuredUUID.fromUUID(certificate.getUuid()));
         Assertions.assertEquals(1, certificateDetailDto.getCustomAttributes().size());
         Assertions
@@ -905,7 +975,7 @@ class AttributeEngineITest extends BaseSpringBootTest {
     void testDeleteDefinitionAttributeContent() throws NotFoundException, CertificateException, IOException {
         attributeEngine
                 .deleteAttributeDefinition(AttributeType.CUSTOM, UUID.fromString(departmentCustomAttribute.getUuid()));
-        CertificateDetailDto certificateDetailDto = certificateService
+        CertificateDetail certificateDetailDto = certificateService
                 .getCertificate(SecuredUUID.fromUUID(certificate.getUuid()));
 
         Assertions.assertEquals(3, certificateDetailDto.getMetadata().size());
@@ -1061,11 +1131,12 @@ class AttributeEngineITest extends BaseSpringBootTest {
     @Test
     void testBulkDeleteObjectAttributeContent() throws AttributeException, NotFoundException {
         // Use existing certificate and create another one
-        Certificate certificate2 = new Certificate();
-        certificate2.setFingerprint("fingerprint2");
-        certificate2.setSubjectDn("CN=test2");
-        certificate2.setIssuerDn("CN=test2");
-        certificate2.setSerialNumber("2");
+        X509CertificateEntity certificate2 = aCertificate()
+                .withFingerprint("fingerprint2")
+                .withSubjectDn("CN=test2")
+                .withIssuerDn("CN=test2")
+                .withSerialNumber("2")
+                .build();
         certificate2 = certificateRepository.save(certificate2);
 
         // Add some attributes to both
@@ -1926,7 +1997,7 @@ class AttributeEngineITest extends BaseSpringBootTest {
     }
 
     @Test
-    void testAttributeEncryption() throws AttributeException, NotFoundException {
+    void testAttributeEncryption() throws AttributeException {
         testAttributeEncryption(AttributeContentType.STRING, new StringAttributeContentV3("sensitiveData"),
                 "sensitiveData");
         testAttributeEncryption(AttributeContentType.INTEGER, new IntegerAttributeContentV3(1), 1);
@@ -1955,7 +2026,7 @@ class AttributeEngineITest extends BaseSpringBootTest {
     }
 
     private void testAttributeEncryption(AttributeContentType contentType, BaseAttributeContentV3<?> contentV3,
-            Object data) throws AttributeException, NotFoundException {
+            Object data) throws AttributeException {
         DataAttributeV3 secretAttribute = new DataAttributeV3();
         secretAttribute.setUuid(UUID.randomUUID().toString());
         secretAttribute.setName("secretAttribute");
@@ -2972,6 +3043,151 @@ class AttributeEngineITest extends BaseSpringBootTest {
         Assertions.assertTrue(claimed.getUpdatedAt().isAfter(published), "updated_at: " + claimed.getUpdatedAt());
     }
 
+    // ── DataAttributeIdentity ─────────────────────────────────────────────────
+
+    @Nested
+    class DataAttributeIdentity {
+
+        @Test
+        void rejectsDataAttribute_whenUuidIdentifiesAReplacedDefinition() {
+            // given
+            var replacedUuid = UUID.randomUUID();
+            DataAttributeV3 replaced = aDataAttribute().withUuid(replacedUuid).withName("identifiedAttribute").build();
+            DataAttributeV3 current = aDataAttribute().withName(replaced.getName()).build();
+            var request = aCustomAttribute()
+                    .withUuid(replacedUuid)
+                    .withName(replaced.getName())
+                    .withStringContent("value")
+                    .build();
+            publish(null, null, replaced);
+            publish(null, null, current);
+
+            // when
+            ThrowingCallable validate = () -> attributeEngine
+                    .validateUpdateDataAttributes(null, null, List.of(current), List.of(request));
+
+            // then
+            assertThatThrownBy(validate)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("identifiedAttribute")
+                    .hasMessageContaining(replacedUuid.toString());
+        }
+
+        @Test
+        void reportsOnlyTheUuidMismatch_whenRequiredAttributeHasAnotherUuid() {
+            // given
+            DataAttributeV3 requiredDefinition = aDataAttribute().withName("identifiedAttribute").build();
+            requiredDefinition.getProperties().setRequired(true);
+            var mismatchedUuid = UUID.randomUUID();
+            var request = aCustomAttribute()
+                    .withUuid(mismatchedUuid)
+                    .withName(requiredDefinition.getName())
+                    .withStringContent("value")
+                    .build();
+            publish(null, null, requiredDefinition);
+
+            // when
+            ThrowingCallable validate = () -> attributeEngine
+                    .validateUpdateDataAttributes(null, null, List.of(requiredDefinition), List.of(request));
+
+            // then
+            assertThatThrownBy(validate)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining(mismatchedUuid.toString())
+                    .hasMessageNotContaining("is not provided");
+        }
+
+        @Test
+        void rejectsDataAttribute_whenUuidIsNotTheDefinitionsUuid() {
+            // given
+            DataAttributeV3 definition = aDataAttribute().withName("identifiedAttribute").build();
+            var staleUuid = UUID.randomUUID();
+            var request = aCustomAttribute()
+                    .withUuid(staleUuid)
+                    .withName(definition.getName())
+                    .withStringContent("value")
+                    .build();
+            publish(null, null, definition);
+
+            // when
+            ThrowingCallable validate = () -> attributeEngine
+                    .validateUpdateDataAttributes(null, null, List.of(definition), List.of(request));
+
+            // then
+            assertThatThrownBy(validate)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("identifiedAttribute")
+                    .hasMessageContaining(staleUuid.toString());
+        }
+
+        @Test
+        void rejectsDataAttribute_whenUuidIsMissing() {
+            // given
+            DataAttributeV3 definition = aDataAttribute().withName("identifiedAttribute").build();
+            var requestWithoutUuid = aCustomAttribute()
+                    .withName(definition.getName())
+                    .withStringContent("value")
+                    .build();
+            publish(null, null, definition);
+
+            // when
+            ThrowingCallable validate = () -> attributeEngine
+                    .validateUpdateDataAttributes(null, null, List.of(definition), List.of(requestWithoutUuid));
+
+            // then
+            assertThatThrownBy(validate)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("identifiedAttribute")
+                    .hasMessageContaining("no uuid");
+        }
+
+        @Test
+        void throwsValidationException_whenCreatingContentWithAnotherUuid() {
+            // given
+            DataAttributeV3 definition = aDataAttribute().withName("identifiedAttribute").build();
+            var mismatchedUuid = UUID.randomUUID();
+            var request = aCustomAttribute()
+                    .withUuid(mismatchedUuid)
+                    .withName(definition.getName())
+                    .withStringContent("value")
+                    .build();
+            publish(null, null, definition);
+            var info = ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).build();
+
+            // when
+            ThrowingCallable create = () -> attributeEngine.createObjectDataAttributesContent(info, List.of(request));
+
+            // then
+            assertThatThrownBy(create)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("identifiedAttribute")
+                    .hasMessageContaining(mismatchedUuid.toString());
+        }
+
+        @Test
+        void throwsValidationException_whenUpdatingContentWithAnotherUuid() {
+            // given
+            DataAttributeV3 definition = aDataAttribute().withName("identifiedAttribute").build();
+            var mismatchedUuid = UUID.randomUUID();
+            var request = aCustomAttribute()
+                    .withUuid(mismatchedUuid)
+                    .withName(definition.getName())
+                    .withStringContent("value")
+                    .build();
+            publish(null, null, definition);
+            var info = ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).build();
+
+            // when
+            ThrowingCallable update = () -> attributeEngine.updateObjectDataAttributesContent(info, List.of(request));
+
+            // then
+            assertThatThrownBy(update)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("identifiedAttribute")
+                    .hasMessageContaining(mismatchedUuid.toString());
+        }
+    }
+
     private void publish(UUID connectorUuid, String operation, DataAttributeV3 definition) {
         try {
             attributeEngine.updateDataAttributeDefinitions(connectorUuid, operation, List.of(definition));
@@ -2989,5 +3205,15 @@ class AttributeEngineITest extends BaseSpringBootTest {
                 .findByTypeAndConnectorUuidAndAttributeUuidAndName(AttributeType.DATA, connectorUuid,
                         UUID.fromString(definition.getUuid()), definition.getName())
                 .orElseThrow();
+    }
+
+    private RequestAttributeV3 registerDataAttributeWithValue(String name) throws AttributeException {
+        DataAttributeV3 attribute = aDataAttribute().withName(name).build();
+        attributeEngine.updateDataAttributeDefinitions(null, null, List.of(attribute));
+        return aCustomAttribute()
+                .withUuid(attribute.getUuid())
+                .withName(name)
+                .withStringContent(name + "-value")
+                .build();
     }
 }

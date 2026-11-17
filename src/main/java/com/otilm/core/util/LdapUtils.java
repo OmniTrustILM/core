@@ -4,7 +4,9 @@ import java.util.Hashtable;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.naming.Context;
+import javax.naming.NameNotFoundException;
 import javax.naming.NamingEnumeration;
+import javax.naming.NamingException;
 import javax.naming.directory.Attributes;
 import javax.naming.directory.SearchControls;
 import javax.naming.directory.SearchResult;
@@ -53,6 +55,15 @@ public class LdapUtils {
     }
 
     public static byte[] downloadFromLdap(String ldapUrl) throws Exception {
+        return downloadFromLdap(ldapUrl, 0, 0);
+    }
+
+    /**
+     * Reads the attribute the LDAP URL names. A timeout of zero or less waits as long as the network allows; the read
+     * timeout bounds the wait for each LDAP response.
+     */
+    public static byte[] downloadFromLdap(String ldapUrl, int connectTimeoutMillis, int readTimeoutMillis)
+            throws NamingException {
         // Compile the regex pattern
         Pattern pattern = Pattern.compile(LDAP_URL_REGEX);
 
@@ -88,13 +99,18 @@ public class LdapUtils {
         Hashtable<String, String> env = new Hashtable<>();
         env.put(Context.INITIAL_CONTEXT_FACTORY, "com.sun.jndi.ldap.LdapCtxFactory");
         env.put(Context.PROVIDER_URL, ldapUrl);
+        if (connectTimeoutMillis > 0) {
+            env.put("com.sun.jndi.ldap.connect.timeout", Integer.toString(connectTimeoutMillis));
+        }
+        if (readTimeoutMillis > 0) {
+            env.put("com.sun.jndi.ldap.read.timeout", Integer.toString(readTimeoutMillis));
+        }
 
         // Set security properties for LDAPS
         if (ldapUrl.startsWith("ldaps://")) {
             env.put(Context.SECURITY_PROTOCOL, "ssl");
         }
 
-        LdapContext ctx = new InitialLdapContext(env, null);
         String[] attrIDs = {attributeName};
         SearchControls ctls = new SearchControls();
         ctls.setReturningAttributes(attrIDs);
@@ -110,15 +126,21 @@ public class LdapUtils {
             throw new IllegalArgumentException("Invalid LDAP URL search scope: " + ldapUrl);
         }
 
-        NamingEnumeration<SearchResult> answer = ctx.search(baseDn, filter, ctls);
-        if (answer.hasMore()) {
-            Attributes attrs = answer.next().getAttributes();
-            byte[] data = (byte[]) attrs.get(attributeName).get();
+        LdapContext ctx = new InitialLdapContext(env, null);
+        try {
+            NamingEnumeration<SearchResult> answer = ctx.search(baseDn, filter, ctls);
+            try {
+                if (!answer.hasMore()) {
+                    throw new NameNotFoundException("No data found for attribute in LDAP URL: " + ldapUrl);
+                }
+                Attributes attrs = answer.next().getAttributes();
+                return (byte[]) attrs.get(attributeName).get();
+            } finally {
+                // while an enumeration is open, closing the context only marks the connection for closing
+                answer.close();
+            }
+        } finally {
             ctx.close();
-            return data;
-        } else {
-            ctx.close();
-            throw new Exception("No data found for attribute in LDAP URL: " + ldapUrl);
         }
     }
 

@@ -6,6 +6,7 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.PlatformException;
 import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
+import com.otilm.api.model.connector.discovery.v2.DiscoveryDeliveryMode;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryProgressDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryResourceProgressDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryRunState;
@@ -19,12 +20,12 @@ import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.repository.DiscoveryMessageRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.events.transaction.TransactionHandler;
-import com.otilm.core.messaging.jms.configuration.DiscoveryWorkProperties;
 import com.otilm.core.model.discovery.DiscoveryMessageCode;
 import com.otilm.core.model.discovery.DiscoveryProgressSnapshot;
 import com.otilm.core.model.discovery.DiscoveryRunLifecycle;
 import com.otilm.core.model.discovery.DiscoveryWorkType;
 import com.otilm.core.service.writer.discovery.DiscoveryMessageWriter;
+import com.otilm.core.service.writer.discovery.DiscoveryWorkTick;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import java.time.Duration;
 import java.time.OffsetDateTime;
@@ -55,7 +56,6 @@ public class DiscoveryStatusTickWorker {
     private final DiscoveryWorkWriter workWriter;
     private final DiscoveryRunTerminator terminator;
     private final DiscoveryTickBudget budget;
-    private final DiscoveryWorkProperties workProperties;
     private final TransactionHandler transactionHandler;
     private final AttributeEngine attributeEngine;
     private final DiscoveryMessageWriter messageWriter;
@@ -64,9 +64,8 @@ public class DiscoveryStatusTickWorker {
 
     public DiscoveryStatusTickWorker(DiscoveryRepository discoveryRepository, DiscoveryV2Client client,
             DiscoveryWorkWriter workWriter, DiscoveryRunTerminator terminator, DiscoveryTickBudget budget,
-            DiscoveryWorkProperties workProperties, TransactionHandler transactionHandler,
-            AttributeEngine attributeEngine, DiscoveryMessageWriter messageWriter,
-            DiscoveryMessageRepository messageRepository,
+            TransactionHandler transactionHandler, AttributeEngine attributeEngine,
+            DiscoveryMessageWriter messageWriter, DiscoveryMessageRepository messageRepository,
             @Value("${discovery.work.stopped-poll-interval:PT5M}") Duration stoppedPollInterval) {
         this.attributeEngine = attributeEngine;
         this.messageWriter = messageWriter;
@@ -77,11 +76,12 @@ public class DiscoveryStatusTickWorker {
         this.workWriter = workWriter;
         this.terminator = terminator;
         this.budget = budget;
-        this.workProperties = workProperties;
         this.transactionHandler = transactionHandler;
     }
 
-    public void tick(UUID discoveryUuid, int attempt) {
+    public void tick(DiscoveryWorkTick tick) {
+        UUID discoveryUuid = tick.discoveryUuid();
+        int attempt = tick.attempt();
         Discovery run = discoveryRepository.findByUuid(discoveryUuid).orElse(null);
         if (run == null) {
             // The agenda cascaded away with the run; this is a redelivery of an obsolete tick.
@@ -95,14 +95,22 @@ public class DiscoveryStatusTickWorker {
             workWriter.deleteForRun(discoveryUuid, DiscoveryWorkType.STATUS);
             return;
         }
+        if (run.getStatus() == DiscoveryStatus.STOPPED && run.getDeliveryMode() == DiscoveryDeliveryMode.CHECKPOINTED) {
+            // A checkpoint does not record the stop, so the connector would answer RUNNING and show a divergence that
+            // is not there. A resume's expedite frees the row and this park applies only while the tick holds it, so
+            // it cannot land over the resume.
+            tick.reschedule(attempt, OffsetDateTime.now(ZoneOffset.UTC).plus(stoppedPollInterval));
+            return;
+        }
 
+        DiscoveryTickFence fence = stillCurrent(tick, run);
         DiscoveryStatusResponseDto status;
         try {
             // Outside any transaction, by the platform's connector-call rule.
             status = client.status(run);
         } catch (ConnectorException | RuntimeException e) {
-            // RuntimeException too: see DiscoveryWorkListener for why an escape costs no budget.
-            handleUnanswered(discoveryUuid, attempt, e);
+            // RuntimeException too: one that escapes to the listener moves the row up a rung but can never end the run.
+            handleUnanswered(discoveryUuid, attempt, fence, e);
             return;
         } catch (NotFoundException | AttributeException e) {
             // The call could not be assembled at all: the connector row or the run's attributes are gone.
@@ -117,26 +125,41 @@ public class DiscoveryStatusTickWorker {
             // Required on the wire, so its absence is not an answer: unguarded, the null would reach
             // state.getCode() inside the transaction and escape to the listener's log-and-acknowledge instead of
             // spending the budget.
-            handleNonConformant(discoveryUuid, attempt);
+            handleNonConformant(discoveryUuid, attempt, fence);
+            return;
+        }
+        if (!tick.renew()) {
+            logger.debug("Dropping a status answer for discovery {}: another tick holds its row now", discoveryUuid);
             return;
         }
 
-        if (apply(discoveryUuid, status, run.getStatus())) {
-            // A clear answer refreshes the budget without restarting the backoff ramp: the counter drops to
-            // the rung where the ladder already reached its slowest delay.
-            workWriter
-                    .resetAttempt(discoveryUuid, DiscoveryWorkType.STATUS,
-                            workProperties.scheduleFor(DiscoveryWorkType.STATUS).ceilingAttempt());
+        // A stopped run's answer already rescheduled the row and gave up the token, so this refresh changes nothing.
+        if (apply(tick, status, run.getStatus(), fence)) {
+            budget.refresh(tick);
         }
     }
 
     /**
-     * A tick the connector did not answer. Below the budget the run keeps its agenda row, which the sweep's claimer
-     * pushes up the backoff ladder when it takes it next.
+     * For a checkpointed run, a status tick may end the run or apply its answer only while the run keeps the status the
+     * tick read and the tick still holds its row; a stop or a resume breaks both. Not the checkpoint revision: every
+     * drain page raises it, so a status tick failing its last attempt while slices land could never end the run. As in
+     * {@link CheckpointRevision#movedOn}, a run checkpointed when read or now is fenced, so a mode-switching resume
+     * still revokes the tick.
      */
-    private void handleUnanswered(UUID discoveryUuid, int attempt, Throwable e) {
+    private static DiscoveryTickFence stillCurrent(DiscoveryWorkTick tick, Discovery runAsRead) {
+        DiscoveryStatus polledAs = runAsRead.getStatus();
+        boolean readCheckpointed = runAsRead.getDeliveryMode() == DiscoveryDeliveryMode.CHECKPOINTED;
+        return lockedRun -> !(readCheckpointed || lockedRun.getDeliveryMode() == DiscoveryDeliveryMode.CHECKPOINTED)
+                || (lockedRun.getStatus() == polledAs && tick.stillHoldsItsRow());
+    }
+
+    /**
+     * A tick the connector did not answer. Below the budget, the listener's retry moves the row one rung up its backoff
+     * ladder.
+     */
+    private void handleUnanswered(UUID discoveryUuid, int attempt, DiscoveryTickFence fence, Throwable e) {
         if (!budget
-                .spendOnUnanswered(discoveryUuid, DiscoveryWorkType.STATUS, attempt, e,
+                .spendOnUnanswered(discoveryUuid, DiscoveryWorkType.STATUS, attempt, fence, e,
                         "The connector stopped answering status polls for this run")) {
             logger
                     .warn("Status poll {} for discovery {} failed, retrying when next due: {}", attempt, discoveryUuid,
@@ -148,9 +171,9 @@ public class DiscoveryStatusTickWorker {
      * A status answer Core cannot act on. Counted against the budget like any other unanswered tick, so a connector
      * that keeps omitting the run state ends the run rather than stalling it forever.
      */
-    private void handleNonConformant(UUID discoveryUuid, int attempt) {
+    private void handleNonConformant(UUID discoveryUuid, int attempt, DiscoveryTickFence fence) {
         if (!budget
-                .spend(discoveryUuid, DiscoveryWorkType.STATUS, attempt,
+                .spend(discoveryUuid, DiscoveryWorkType.STATUS, attempt, fence,
                         "The connector's status answers omitted the run state")) {
             logger
                     .warn("Status poll {} for discovery {} returned no run state; retrying when next due", attempt,
@@ -164,7 +187,9 @@ public class DiscoveryStatusTickWorker {
      * @return whether the run is still live and its budget should be refreshed — false once the answer was itself
      * terminal, where there is no longer an agenda row to refresh
      */
-    private boolean apply(UUID discoveryUuid, DiscoveryStatusResponseDto status, DiscoveryStatus polledAs) {
+    private boolean apply(DiscoveryWorkTick tick, DiscoveryStatusResponseDto status, DiscoveryStatus polledAs,
+            DiscoveryTickFence fence) {
+        UUID discoveryUuid = tick.discoveryUuid();
         DiscoveryRunState state = status.getState();
         return Boolean.TRUE.equals(transactionHandler.runInNewTransaction(() -> {
             Discovery locked = discoveryRepository.findWithLockByUuid(discoveryUuid).orElse(null);
@@ -184,7 +209,13 @@ public class DiscoveryStatusTickWorker {
                                 discoveryUuid, polledAs, locked.getStatus());
                 return false;
             }
-            // Two status calls for one run can be in flight at once: a call slower than the claim floor is published
+            // A stop and a resume that both land after the poll leave the status as it was, but they took the
+            // tick's row: the answer describes the run before them.
+            if (!fence.admits(locked)) {
+                logger.debug("Dropping status tick for discovery {}: it was overtaken during the poll", discoveryUuid);
+                return false;
+            }
+            // Two status calls for one run can be in flight at once: a call that outlives its lease is published
             // again. The connector's highest sequence never decreases, so an answer carrying less than what is already
             // recorded was taken earlier -- applying it would put older counters back, stamped as freshly recorded.
             if (arrivedOutOfOrder(locked, status)) {
@@ -217,7 +248,7 @@ public class DiscoveryStatusTickWorker {
                 workWriter.deleteForRun(discoveryUuid);
                 return false;
             }
-            applyLiveState(locked, state, previousConnectorState);
+            applyLiveState(tick, locked, state, previousConnectorState);
             return true;
         }));
     }
@@ -306,7 +337,8 @@ public class DiscoveryStatusTickWorker {
                 && status.getHighestSequence() < run.getConnectorHighestSequence();
     }
 
-    private void applyLiveState(Discovery run, DiscoveryRunState state, String previousConnectorState) {
+    private void applyLiveState(DiscoveryWorkTick tick, Discovery run, DiscoveryRunState state,
+            String previousConnectorState) {
         switch (state) {
             case RUNNING -> {
                 // Only an explicit resume moves a stopped run. A connector that keeps answering RUNNING after
@@ -321,10 +353,8 @@ public class DiscoveryStatusTickWorker {
                 run.setStatus(DiscoveryStatus.STOPPED);
                 // Back off rather than keep the live cadence: a stopped run reports nothing new, and the reaper lets
                 // one stay stopped for days. Polled at the live rung it would ask a paused connector the same question
-                // every claim-floor for that whole window.
-                workWriter
-                        .reschedule(run.getUuid(), DiscoveryWorkType.STATUS, 0,
-                                OffsetDateTime.now(ZoneOffset.UTC).plus(stoppedPollInterval));
+                // on every live poll for that whole window.
+                tick.reschedule(0, OffsetDateTime.now(ZoneOffset.UTC).plus(stoppedPollInterval));
                 // Starts the resume window the reaper bounds. Stamped only when the run is not already
                 // inside one, so repeated STOPPED answers cannot keep pushing the deadline out.
                 if (run.getStoppedAt() == null) {

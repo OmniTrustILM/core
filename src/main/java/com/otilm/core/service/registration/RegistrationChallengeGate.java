@@ -1,6 +1,5 @@
 package com.otilm.core.service.registration;
 
-import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
@@ -36,6 +35,11 @@ import org.springframework.transaction.support.DefaultTransactionDefinition;
  * Two verification forms share one locked evaluator: an equality form for a presented secret string (the plaintext
  * never leaves {@link RegistrationChallengeStore}), and a predicate form whose caller decides whether the resolved
  * plaintext satisfies the request (CMP: whether the message MAC verifies under it).
+ *
+ * <p>
+ * Every denial is a {@link RegistrationChallengeException} with one of the fixed texts of the gate, so a protocol that
+ * asks its client for the challenge can tell it apart from every other invalid request, while a caller that catches
+ * {@link ValidationException} answers it as before.
  */
 @Service
 public class RegistrationChallengeGate {
@@ -74,8 +78,8 @@ public class RegistrationChallengeGate {
 
     /**
      * Verifies a presented registration challenge string by equality. Denials (locked, expired window, wrong or missing
-     * challenge) throw a {@link ValidationException}; the audit trail records the failure under {@code operationEvent}.
-     * A null or blank {@code presentedSecret} is missing and spends no failed attempt.
+     * challenge) throw a {@link RegistrationChallengeException}; the audit trail records the failure under
+     * {@code operationEvent}. A null or blank {@code presentedSecret} is missing and spends no failed attempt.
      *
      * @return {@code true} when an ACTIVE authorization's challenge verified — the self-service credential that stands
      * in for the caller's operator permission on the completion write
@@ -109,7 +113,7 @@ public class RegistrationChallengeGate {
         }
         RegistrationChallengeOutcome outcome = evaluateUnderLock(certificateUuid, operationEvent, presented, matches);
         if (outcome.denial() != null) {
-            throw new ValidationException(ValidationError.create(outcome.denial()));
+            throw new RegistrationChallengeException(outcome.denial());
         }
         return outcome.challengeVerified();
     }

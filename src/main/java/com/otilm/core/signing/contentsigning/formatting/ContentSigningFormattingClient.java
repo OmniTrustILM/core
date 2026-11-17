@@ -2,6 +2,7 @@ package com.otilm.core.signing.contentsigning.formatting;
 
 import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.interfaces.client.v1.signing.contentsigning.ContentSigningFormattingSyncApiClient;
 import com.otilm.api.model.connector.signatures.contentsigning.common.ComputeDtbsRequestDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.ComputeDtbsResponseDto;
@@ -13,11 +14,16 @@ import com.otilm.api.model.connector.signatures.contentsigning.common.SignedDocu
 import com.otilm.api.model.connector.signatures.contentsigning.common.SignedDocumentResponseDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.TimestampImprintResponseDto;
 import com.otilm.core.client.ConnectorApiFactory;
+import com.otilm.core.config.ConnectorApiClientProperties;
+import com.otilm.core.signing.engine.error.ConnectorRefusalClassifier;
+import com.otilm.core.signing.engine.error.ConnectorRefusalClassifier.Classification;
 import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
+import java.util.function.Function;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
+import org.springframework.util.unit.DataSize;
 
 /**
  * Calls a content-signing formatting connector's seven operations, routed through {@link ConnectorApiFactory} so
@@ -27,32 +33,39 @@ import org.springframework.stereotype.Component;
 public class ContentSigningFormattingClient {
 
     private static final String CLIENT_MESSAGE = "Internal error during signature formatting";
+    private static final Classification UNCLASSIFIED = new Classification(SigningEngineFailure.CONNECTOR_FAULT,
+            CLIENT_MESSAGE);
 
     private final ConnectorApiFactory connectorApiFactory;
+    private final DataSize readLimit;
 
-    public ContentSigningFormattingClient(ConnectorApiFactory connectorApiFactory) {
+    public ContentSigningFormattingClient(ConnectorApiFactory connectorApiFactory,
+            ConnectorApiClientProperties connectorApiClientProperties) {
         this.connectorApiFactory = connectorApiFactory;
+        this.readLimit = connectorApiClientProperties.maxInMemorySize();
     }
 
     public ComputeDtbsResponseDto computeDtbs(ApiClientConnectorInfo connector, ComputeDtbsRequestDto request)
             throws SigningEngineException {
-        return call("computeDtbs", connector, client -> client.computeDtbs(connector, request));
+        return callSizedByDocument("computeDtbs", connector, client -> client.computeDtbs(connector, request));
     }
 
     public SignedDocumentResponseDto embedSignatureValue(ApiClientConnectorInfo connector,
             EmbedSignatureValueRequestDto request) throws SigningEngineException {
-        return call("embedSignatureValue", connector, client -> client.embedSignatureValue(connector, request));
+        return callSizedByDocument("embedSignatureValue", connector,
+                client -> client.embedSignatureValue(connector, request));
     }
 
     public TimestampImprintResponseDto computeSignatureTimestampImprint(ApiClientConnectorInfo connector,
             SignedDocumentRequestDto request) throws SigningEngineException {
-        return call("computeSignatureTimestampImprint", connector,
+        return callSizedByConnector("computeSignatureTimestampImprint", connector,
                 client -> client.computeSignatureTimestampImprint(connector, request));
     }
 
     public SignedDocumentResponseDto embedSignatureTimestamp(ApiClientConnectorInfo connector,
             EmbedTimestampRequestDto request) throws SigningEngineException {
-        return call("embedSignatureTimestamp", connector, client -> client.embedSignatureTimestamp(connector, request));
+        return callSizedByDocument("embedSignatureTimestamp", connector,
+                client -> client.embedSignatureTimestamp(connector, request));
     }
 
     /**
@@ -66,7 +79,7 @@ public class ContentSigningFormattingClient {
      */
     public ExtendToLevelResponseDto extendToLevel(ApiClientConnectorInfo connector, ExtendToLevelRequestDto request)
             throws SigningEngineException {
-        ResponseEntity<ExtendToLevelResponseDto> response = call("extendToLevel", connector,
+        ResponseEntity<ExtendToLevelResponseDto> response = callSizedByConnector("extendToLevel", connector,
                 client -> client.extendToLevel(connector, request));
         if (response == null || !response.getStatusCode().isSameCodeAs(HttpStatus.OK) || response.getBody() == null) {
             throw SigningEngineException
@@ -80,29 +93,43 @@ public class ContentSigningFormattingClient {
 
     public TimestampImprintResponseDto computeArchiveTimestampImprint(ApiClientConnectorInfo connector,
             SignedDocumentRequestDto request) throws SigningEngineException {
-        return call("computeArchiveTimestampImprint", connector,
+        return callSizedByConnector("computeArchiveTimestampImprint", connector,
                 client -> client.computeArchiveTimestampImprint(connector, request));
     }
 
     public SignedDocumentResponseDto embedArchiveTimestamp(ApiClientConnectorInfo connector,
             EmbedTimestampRequestDto request) throws SigningEngineException {
-        return call("embedArchiveTimestamp", connector, client -> client.embedArchiveTimestamp(connector, request));
+        return callSizedByDocument("embedArchiveTimestamp", connector,
+                client -> client.embedArchiveTimestamp(connector, request));
+    }
+
+    /** The caller's document sizes the response. In computeDtbs, the formattingContext may carry that document. */
+    private <T> T callSizedByDocument(String step, ApiClientConnectorInfo connector, ConnectorCall<T> operation)
+            throws SigningEngineException {
+        return call(step, connector, operation,
+                failure -> ConnectorRefusalClassifier.classifyDocumentCall(failure, readLimit, UNCLASSIFIED));
+    }
+
+    /** An imprint, or validation material the connector fetches, sizes the response. */
+    private <T> T callSizedByConnector(String step, ApiClientConnectorInfo connector, ConnectorCall<T> operation)
+            throws SigningEngineException {
+        return call(step, connector, operation, failure -> ConnectorRefusalClassifier.classify(failure, UNCLASSIFIED));
     }
 
     /**
-     * The REST transport reports a body-less 2xx as an unchecked {@link IllegalStateException}. Every connector refusal
-     * is a connector fault here, including the operator-fixable ones: {@link ConnectorException} carries the
-     * connector's message but not its {@code errorCode}, so there is nothing to classify on.
+     * The REST transport raises a 422 without a problem document, and a connector awaiting approval, as an unchecked
+     * {@link ValidationException}. It raises a body-less 2xx as an unchecked {@link IllegalStateException}.
      */
-    private <T> T call(String step, ApiClientConnectorInfo connector, ConnectorCall<T> operation)
-            throws SigningEngineException {
+    private <T> T call(String step, ApiClientConnectorInfo connector, ConnectorCall<T> operation,
+            Function<Exception, Classification> classifier) throws SigningEngineException {
         ContentSigningFormattingSyncApiClient apiClient = connectorApiFactory
                 .getContentSigningFormattingApiClient(connector);
         try {
             return operation.execute(apiClient);
-        } catch (ConnectorException | IllegalStateException e) {
+        } catch (ConnectorException | ValidationException | IllegalStateException e) {
+            Classification classification = classifier.apply(e);
             throw SigningEngineException
-                    .stepFailed(SigningEngineFailure.CONNECTOR_FAULT, step, e.getMessage(), e, CLIENT_MESSAGE);
+                    .stepFailed(classification.failure(), step, e.getMessage(), e, classification.clientMessage());
         }
     }
 

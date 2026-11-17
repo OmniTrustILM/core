@@ -4,13 +4,16 @@ import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.DataAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.core.auth.AttributeResource;
 import com.otilm.core.service.CredentialInternalService;
 import com.otilm.core.service.ResourceInternalService;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -54,6 +57,9 @@ public class ConnectorRequestAttributesBuilder {
      * {@code OperationAttributeResolver}, which elevates to the platform's attribute-content-resolver system identity
      * for the duration of this call (authorized at the operation level, not per acting caller).
      * <p>
+     * References nested inside a referenced object stay as they are stored; see
+     * {@link #dereferenceWithNestedReferencesForConnectorRequest}.
+     * <p>
      * This method itself does not arm the callback path's outbound-secret value-echo containment. The attribute-list
      * endpoints (list{Issue,Revoke,Register,RaProfile}Attributes) do return connector-supplied content to the operator,
      * so {@code AuthorityProviderV3Adapter} routes those responses through {@code OutboundSecretContainment} —
@@ -68,18 +74,95 @@ public class ConnectorRequestAttributesBuilder {
     }
 
     /**
-     * Shared skeleton: resolve request-attribute content against the connector's definitions, dereferencing CREDENTIAL
-     * + RESOURCE (incl. SECRET) references in place, then map back to client attributes.
+     * As {@link #dereferenceForConnectorRequest}, and also resolves the references inside each referenced object that
+     * belongs to the connector the request is for, such as the OAuth client secret of the authority a discovery refers
+     * to; {@link ReferenceLending} says why. The depth cap and loop guard are those of {@link ReferenceTraversal}.
+     * {@link #prepareRequestAttributesForConnectorRequest}, which runs as the caller, never resolves nested references.
      */
+    public List<RequestAttribute> dereferenceWithNestedReferencesForConnectorRequest(UUID connectorUuid,
+            List<RequestAttribute> requestAttributes) throws AttributeException, NotFoundException, ConnectorException {
+        List<DataAttribute> dataAttributes = loadContent(connectorUuid, requestAttributes);
+        ReferenceTraversal traversal = new ReferenceTraversal(resourceService::loadReferencedObjectContent,
+                lentTo(connectorUuid));
+        for (DataAttribute attribute : dataAttributes) {
+            traversal.resolveInsideLoaded(attribute.getContent());
+        }
+        return AttributeDefinitionUtils.getClientAttributes(dataAttributes);
+    }
+
+    /**
+     * Refuses, before anything is loaded, an attribute that refers to an object of another connector; see
+     * {@link ReferenceLending#belongsToAnotherConnector}. References are read as
+     * {@link ResourceInternalService#loadResourceObjectContentData(List)} reads them, as the declared kind, so the
+     * check covers exactly what that load sends.
+     */
+    public void refuseObjectsOfAnotherConnector(UUID connectorUuid, List<DataAttribute> attributes)
+            throws AttributeException {
+        ReferenceLending lending = lentTo(connectorUuid);
+        List<RequestAttribute> asSent = null;
+        for (DataAttribute attribute : attributes) {
+            List<?> content = attribute.getContent();
+            AttributeResource declared = attribute.getProperties() == null
+                    ? null
+                    : attribute.getProperties().getResource();
+            if (attribute.getContentType() != AttributeContentType.RESOURCE || content == null || content.isEmpty()
+                    || declared == null) {
+                continue;
+            }
+            if (asSent == null) {
+                asSent = AttributeDefinitionUtils.getClientAttributes(attributes);
+            }
+            for (NameAndUuidDto reference : AttributeDefinitionUtils
+                    .getNameAndUuidDataList(attribute.getName(), asSent)) {
+                if (reference != null && reference.getUuid() != null) {
+                    refuseIfOfAnotherConnector(lending, attribute, declared, reference);
+                }
+            }
+        }
+    }
+
+    private static void refuseIfOfAnotherConnector(ReferenceLending lending, DataAttribute attribute,
+            AttributeResource declared, NameAndUuidDto reference) throws AttributeException {
+        UUID uuid;
+        try {
+            uuid = UUID.fromString(reference.getUuid());
+        } catch (IllegalArgumentException e) {
+            throw new AttributeException("Malformed RESOURCE reference UUID: " + reference.getUuid());
+        }
+        if (lending.belongsToAnotherConnector(declared, uuid)) {
+            String label = Objects.requireNonNullElse(attribute.getProperties().getLabel(), attribute.getName());
+            throw new ForeignReferenceException("Attribute '%s'".formatted(label),
+                    "%s '%s'"
+                            .formatted(declared.getLabel(),
+                                    Objects.requireNonNullElse(reference.getName(), reference.getUuid())));
+        }
+    }
+
+    private ReferenceLending lentTo(UUID connectorUuid) {
+        return ReferenceLending
+                .forConnector(connectorUuid, resourceService::findOwningConnector,
+                        resourceService::loadReferencedObjectContent);
+    }
+
     private List<RequestAttribute> resolveContent(UUID connectorUuid, List<RequestAttribute> requestAttributes)
+            throws AttributeException, NotFoundException, ConnectorException {
+        return AttributeDefinitionUtils.getClientAttributes(loadContent(connectorUuid, requestAttributes));
+    }
+
+    /**
+     * Resolves request-attribute content against the connector's definitions, dereferencing CREDENTIAL + RESOURCE
+     * (incl. SECRET) references in place.
+     */
+    private List<DataAttribute> loadContent(UUID connectorUuid, List<RequestAttribute> requestAttributes)
             throws AttributeException, NotFoundException, ConnectorException {
         List<DataAttribute> dataAttributes = attributeEngine
                 .getDataAttributesByContent(connectorUuid, requestAttributes);
+        refuseObjectsOfAnotherConnector(connectorUuid, dataAttributes);
         if (referencesACredential(dataAttributes)) {
             credentialService.loadFullCredentialData(dataAttributes);
         }
         resourceService.loadResourceObjectContentData(dataAttributes);
-        return AttributeDefinitionUtils.getClientAttributes(dataAttributes);
+        return dataAttributes;
     }
 
     /**

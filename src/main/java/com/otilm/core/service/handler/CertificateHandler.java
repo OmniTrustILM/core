@@ -15,6 +15,7 @@ import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.DiscoveryCertificate;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.DiscoveryCertificateRepository;
+import com.otilm.core.dao.repository.X509CertificateRepository;
 import com.otilm.core.events.handlers.discovery.DiscoveryFailureReason;
 import com.otilm.core.events.handlers.discovery.DiscoverySource;
 import com.otilm.core.events.transaction.CertificateValidationEvent;
@@ -70,6 +71,7 @@ public class CertificateHandler {
     private CryptographicKeyInternalService cryptographicKeyService;
 
     private CertificateRepository certificateRepository;
+    private X509CertificateRepository x509CertificateRepository;
     private DiscoveryCertificateRepository discoveryCertificateRepository;
     private DiscoveryWriter discoveryWriter;
     private TransactionHandler transactionHandler;
@@ -121,6 +123,11 @@ public class CertificateHandler {
     @Autowired
     public void setCertificateRepository(CertificateRepository certificateRepository) {
         this.certificateRepository = certificateRepository;
+    }
+
+    @Autowired
+    public void setX509CertificateRepository(X509CertificateRepository x509CertificateRepository) {
+        this.x509CertificateRepository = x509CertificateRepository;
     }
 
     @Autowired
@@ -288,7 +295,7 @@ public class CertificateHandler {
         if (keyUuid == null) {
             return false;
         }
-        certificateRepository.setAltKeyUuidAndHybridCertificate(keyUuid, certificateUuids);
+        x509CertificateRepository.setAltKeyUuidAndHybridCertificate(keyUuid, certificateUuids);
         return true;
     }
 

@@ -1,11 +1,13 @@
 package com.otilm.core.integration.repository;
 
-import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.est.EstProfile;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
+import com.otilm.core.dao.repository.X509CertificateRepository;
+import com.otilm.core.dao.repository.est.EstProfileRepository;
 import com.otilm.core.util.BaseSpringBootTest;
 import java.sql.SQLException;
 import java.util.Set;
@@ -21,6 +23,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+import static com.otilm.core.util.builders.EstProfileBuilder.anEstProfile;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -28,10 +33,16 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 /** Proves each pessimistic lock query on an entity with an inverse {@code @OneToOne} really takes the row lock. */
 public class PessimisticLockITest extends BaseSpringBootTest {
 
-    /** The lock queries the cases below exercise; LockedInverseOneToOneGuardTest keeps it complete. */
+    /**
+     * The lock queries the cases below exercise; LockedInverseOneToOneGuardTest keeps it complete. The query declared
+     * on the shared certificate repository is exercised through each repository that inherits it.
+     */
     public static final Set<String> LOCK_QUERIES = Set
             .of("CertificateRepository#findAndLockWithAssociationsByUuid",
-                    "CryptographicKeyRepository#findForUpdateByUuid", "RaProfileRepository#findWithLockByUuid");
+                    "CertificateBaseRepository#findAndLockWithAssociationsByUuid",
+                    "X509CertificateRepository#findAndLockWithAssociationsByUuid",
+                    "CryptographicKeyRepository#findForUpdateByUuid", "RaProfileRepository#findWithLockByUuid",
+                    "RaProfileRepository#findWithLockByEstProfileUuid");
 
     /** PostgreSQL's SQLSTATE for a NOWAIT lock request on a row another transaction holds. */
     private static final String LOCK_NOT_AVAILABLE = "55P03";
@@ -40,10 +51,16 @@ public class PessimisticLockITest extends BaseSpringBootTest {
     private CertificateRepository certificateRepository;
 
     @Autowired
+    private X509CertificateRepository x509CertificateRepository;
+
+    @Autowired
     private CryptographicKeyRepository cryptographicKeyRepository;
 
     @Autowired
     private RaProfileRepository raProfileRepository;
+
+    @Autowired
+    private EstProfileRepository estProfileRepository;
 
     @Autowired
     private PlatformTransactionManager transactionManager;
@@ -52,10 +69,39 @@ public class PessimisticLockITest extends BaseSpringBootTest {
     private DataSource dataSource;
 
     @Test
-    void certificateLockQueryTakesTheRowLock() {
-        UUID uuid = certificateRepository.save(new Certificate()).getUuid();
-        assertRowLockedWhile("certificate", uuid,
-                () -> certificateRepository.findAndLockWithAssociationsByUuid(uuid).orElseThrow());
+    void locksTheCertificateRow_whenFindingItForUpdate() {
+        // given
+        UUID uuid = certificateRepository.save(aCertificate().build()).getUuid();
+
+        // when
+        Runnable findForUpdate = () -> certificateRepository.findAndLockWithAssociationsByUuid(uuid).orElseThrow();
+
+        // then
+        assertRowLockedWhile("certificate", uuid, findForUpdate);
+    }
+
+    @Test
+    void locksTheCertificateRow_whenFindingItForUpdateThroughTheX509Repository() {
+        // given
+        UUID uuid = x509CertificateRepository.save(aCertificate().build()).getUuid();
+
+        // when
+        Runnable findForUpdate = () -> x509CertificateRepository.findAndLockWithAssociationsByUuid(uuid).orElseThrow();
+
+        // then
+        assertRowLockedWhile("certificate", uuid, findForUpdate);
+    }
+
+    @Test
+    void locksTheCertificateRow_whenReadingItFreshForUpdate() {
+        // given
+        UUID uuid = certificateRepository.save(aCertificate().build()).getUuid();
+
+        // when
+        Runnable findFreshForUpdate = () -> certificateRepository.findAndLockFreshByUuid(uuid).orElseThrow();
+
+        // then
+        assertRowLockedWhile("certificate", uuid, findFreshForUpdate);
     }
 
     @Test
@@ -69,6 +115,23 @@ public class PessimisticLockITest extends BaseSpringBootTest {
     void raProfileLockQueryTakesTheRowLock() {
         UUID uuid = raProfileRepository.save(new RaProfile()).getUuid();
         assertRowLockedWhile("ra_profile", uuid, () -> raProfileRepository.findWithLockByUuid(uuid).orElseThrow());
+    }
+
+    @Test
+    void locksRaProfileRows_whenTheyAreFoundByEstProfile() {
+        // given
+        EstProfile estProfile = estProfileRepository.save(anEstProfile().build());
+        UUID estProfileUuid = estProfile.getUuid();
+        RaProfile activatedRaProfile = new RaProfile();
+        activatedRaProfile.setEstProfile(estProfile);
+        UUID activatedRaProfileUuid = raProfileRepository.save(activatedRaProfile).getUuid();
+
+        // when
+        Runnable findRaProfilesWithLock = () -> assertThat(
+                raProfileRepository.findWithLockByEstProfileUuid(estProfileUuid)).hasSize(1);
+
+        // then
+        assertRowLockedWhile("ra_profile", activatedRaProfileUuid, findRaProfilesWithLock);
     }
 
     private void assertRowLockedWhile(String table, UUID uuid, Runnable lockingQuery) {

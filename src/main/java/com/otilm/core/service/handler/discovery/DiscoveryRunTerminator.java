@@ -72,6 +72,22 @@ public class DiscoveryRunTerminator {
     }
 
     /**
+     * Ends a run like {@link #endConnectorOwned}, unless the tick asking for it no longer speaks for the run.
+     *
+     * @param fence checked under the run's row lock
+     * @return whether this call was the one that ended the run
+     */
+    public boolean endIfAdmitted(UUID discoveryUuid, DiscoveryTickFence fence, DiscoveryStatus status, String reason) {
+        return endIf(discoveryUuid, DiscoveryRunLifecycle::hasLeftTheConnector, run -> {
+            if (!fence.admits(run)) {
+                logger.debug("Not ending discovery {}: the tick asking for it was overtaken", discoveryUuid);
+                return null;
+            }
+            return new Ending(status, reason);
+        });
+    }
+
+    /**
      * Ends a run, accepting even one already {@code PROCESSING} — processing itself legitimately ends a run, unlike the
      * connector-driven ending in {@link #endConnectorOwned}.
      */

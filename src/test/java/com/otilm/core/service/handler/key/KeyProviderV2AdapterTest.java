@@ -49,6 +49,7 @@ import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.SignatureInputMode;
 import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.api.model.connector.common.v2.OperationExecutionMode;
@@ -1007,7 +1008,8 @@ class KeyProviderV2AdapterTest {
         @Test
         void mapsEachListedPair() throws Exception {
             // given
-            ListedKeyPairV2Dto signer = aListedKeyPair().withLabel("signer").build();
+            var storageName = "signer";
+            ListedKeyPairV2Dto signer = aListedKeyPair().withStorageName(storageName).build();
             when(client.listKeys(any(), any())).thenReturn(aKeyListing().withKeys(signer).withTotalItems(7).build());
 
             // when
@@ -1017,7 +1019,7 @@ class KeyProviderV2AdapterTest {
             assertThat(listed.totalItems()).isEqualTo(7L);
             assertThat(listed.keyPairs()).hasSize(1);
             ProviderKeyPair pair = listed.keyPairs().getFirst();
-            assertThat(pair.label()).isEqualTo("signer");
+            assertThat(pair.storageName()).isEqualTo(storageName);
             assertThat(pair.publicKey().material().format()).isEqualTo(KeyFormat.SPKI);
             assertThat(pair.privateKey().reference())
                     .isEqualTo(new RemoteKeyReference.MetadataReference(signer.getPrivateKeyData().getKeyMeta()));
@@ -1078,12 +1080,14 @@ class KeyProviderV2AdapterTest {
         void rejectsAPageEchoingAnExpandedSecret(Resource secretScope) throws Exception {
             // given
             stubExpandedSecret(secretScope, TOKEN_SECRET);
-            ListedKeyPairV2Dto echoing = aListedKeyPair().withLabel(TOKEN_SECRET).withoutPublicKey().build();
+            ListedKeyPairV2Dto echoing = aListedKeyPair().withStorageName(TOKEN_SECRET).withoutPublicKey().build();
             when(client.listKeys(any(), any())).thenReturn(aKeyListing().withKeys(echoing).build());
 
-            // when / then
-            assertThatThrownBy(() -> adapter.listKeyPairs(profile, 0, 10))
-                    .isInstanceOf(OutboundSecretLeakException.class);
+            // when
+            ThrowingCallable listKeyPairs = () -> adapter.listKeyPairs(profile, 0, 10);
+
+            // then
+            assertThatThrownBy(listKeyPairs).isInstanceOf(OutboundSecretLeakException.class);
         }
 
         @Test
@@ -1091,17 +1095,17 @@ class KeyProviderV2AdapterTest {
             // given
             when(client.listKeys(any(), any()))
                     .thenReturn(aKeyListing()
-                            .withUnusableKeys(anUnusableKey().withLabel("legacy").build(),
+                            .withUnusableKeys(anUnusableKey().withStorageName("legacy").build(),
                                     anUnusableKey()
-                                            .withLabel(null)
+                                            .withStorageName(null)
                                             .withReason(UnusableKeyReason.UNSUPPORTED_TYPE)
                                             .build(),
                                     anUnusableKey()
-                                            .withLabel("damaged")
+                                            .withStorageName("damaged")
                                             .withReason(UnusableKeyReason.UNREADABLE)
                                             .build(),
                                     anUnusableKey()
-                                            .withLabel("vanished")
+                                            .withStorageName("vanished")
                                             .withReason(UnusableKeyReason.NOT_FOUND)
                                             .build())
                             .build());
@@ -1123,7 +1127,7 @@ class KeyProviderV2AdapterTest {
         @Test
         void mapsAnUnusableKeyListedWithoutKeyData() throws Exception {
             // given
-            UnusableKeyV2Dto unread = anUnusableKey().withLabel("legacy").withoutKeyData().build();
+            UnusableKeyV2Dto unread = anUnusableKey().withStorageName("legacy").withoutKeyData().build();
             when(client.listKeys(any(), any())).thenReturn(aKeyListing().withUnusableKeys(unread).build());
 
             // when
@@ -1152,16 +1156,19 @@ class KeyProviderV2AdapterTest {
 
         @ParameterizedTest
         @EnumSource(value = Resource.class, names = {"TOKEN", "TOKEN_PROFILE"})
-        void rejectsAnUnusableKeyLabelledWithAnExpandedSecret(Resource secretScope) throws Exception {
+        void rejectsAnUnusableKeyStoredAsAnExpandedSecret(Resource secretScope) throws Exception {
             // given
             stubExpandedSecret(secretScope, TOKEN_SECRET);
             when(client.listKeys(any(), any()))
-                    .thenReturn(
-                            aKeyListing().withUnusableKeys(anUnusableKey().withLabel(TOKEN_SECRET).build()).build());
+                    .thenReturn(aKeyListing()
+                            .withUnusableKeys(anUnusableKey().withStorageName(TOKEN_SECRET).build())
+                            .build());
 
-            // when / then
-            assertThatThrownBy(() -> adapter.listKeyPairs(profile, 0, 10))
-                    .isInstanceOf(OutboundSecretLeakException.class);
+            // when
+            ThrowingCallable listKeyPairs = () -> adapter.listKeyPairs(profile, 0, 10);
+
+            // then
+            assertThatThrownBy(listKeyPairs).isInstanceOf(OutboundSecretLeakException.class);
         }
 
         @Test
@@ -1212,7 +1219,8 @@ class KeyProviderV2AdapterTest {
         @Test
         void returnsTheAnswersInHandleOrder_whenTheConnectorAnswersOutOfOrder() throws Exception {
             // given
-            ListedKeyPairV2Dto signer = aListedKeyPair().withLabel("signer").build();
+            var storageName = "signer";
+            ListedKeyPairV2Dto signer = aListedKeyPair().withStorageName(storageName).build();
             ResolveKeysResponseV2Dto reversed = new ResolveKeysResponseV2Dto(List
                     .of(new KeyResolutionV2Dto("1", KeyResolutionOutcome.FOUND, signer),
                             new KeyResolutionV2Dto("0", KeyResolutionOutcome.NOT_FOUND, null)));
@@ -1226,13 +1234,13 @@ class KeyProviderV2AdapterTest {
             assertThat(resolved)
                     .extracting(ProviderKeyPairResolution::outcome)
                     .containsExactly(KeyResolutionOutcome.NOT_FOUND, KeyResolutionOutcome.FOUND);
-            assertThat(resolved.getLast().keyPair().label()).isEqualTo("signer");
+            assertThat(resolved.getLast().keyPair().storageName()).isEqualTo(storageName);
         }
 
         @Test
         void mapsAFoundKeyPair() throws Exception {
             // given
-            ListedKeyPairV2Dto signer = aListedKeyPair().withLabel("signer").build();
+            ListedKeyPairV2Dto signer = aListedKeyPair().withStorageName("signer").build();
             when(client.listKeys(any(), any())).thenReturn(aKeyListing().withKeys(signer).build());
             when(client.resolveKeys(any(), any()))
                     .thenReturn(aKeyResolutionResponse().withAnswers(found(signer)).build());
@@ -1308,14 +1316,16 @@ class KeyProviderV2AdapterTest {
         void refusesAnAnswerEchoingAnExpandedSecret(Resource secretScope) throws Exception {
             // given
             stubExpandedSecret(secretScope, TOKEN_SECRET);
-            ListedKeyPairV2Dto echoing = aListedKeyPair().withLabel(TOKEN_SECRET).withoutPublicKey().build();
+            ListedKeyPairV2Dto echoing = aListedKeyPair().withStorageName(TOKEN_SECRET).withoutPublicKey().build();
             var handles = List.of(echoing.getKeyPairMeta());
             when(client.resolveKeys(any(), any()))
                     .thenReturn(aKeyResolutionResponse().withAnswers(found(echoing)).build());
 
-            // when / then
-            assertThatThrownBy(() -> adapter.resolveKeyPairs(profile, handles))
-                    .isInstanceOf(OutboundSecretLeakException.class);
+            // when
+            ThrowingCallable resolveKeyPairs = () -> adapter.resolveKeyPairs(profile, handles);
+
+            // then
+            assertThatThrownBy(resolveKeyPairs).isInstanceOf(OutboundSecretLeakException.class);
         }
     }
 
@@ -1635,6 +1645,66 @@ class KeyProviderV2AdapterTest {
             verify(client).destroyKey(any(), any());
         }
 
+        @ParameterizedTest
+        @EnumSource(value = TokenInstanceStatus.class, names = {"ACTIVATED", "DISCONNECTED"})
+        void succeeds_whenConnectorReportsResourceNotFound(TokenInstanceStatus status) throws Exception {
+            // given
+            RemoteKeyReference reference = new RemoteKeyReference.MetadataReference(metadata("deleted-key-handle"));
+            ImmutableCryptographicKeyFullModel key = keyWithTokenStatus(status);
+            when(client.destroyKey(any(), any())).thenThrow(destroyProblem(ErrorCode.RESOURCE_NOT_FOUND));
+
+            // when
+            ThrowingCallable destroy = () -> adapter.destroyKeyItem(key, reference);
+
+            // then
+            assertThatCode(destroy).doesNotThrowAnyException();
+            verify(client).destroyKey(any(), any());
+        }
+
+        @Test
+        void propagatesTheProblem_whenResourceNotFoundComesWithAnotherStatusThanNotFound() throws Exception {
+            // given
+            RemoteKeyReference reference = new RemoteKeyReference.MetadataReference(metadata("key-handle"));
+            ConnectorProblemException gatewayFailure = destroyProblem(ErrorCode.RESOURCE_NOT_FOUND);
+            gatewayFailure.getProblemDetail().setStatus(HttpStatus.SERVICE_UNAVAILABLE.value());
+            when(client.destroyKey(any(), any())).thenThrow(gatewayFailure);
+
+            // when
+            ThrowingCallable destroy = () -> adapter.destroyKeyItem(cryptographicKey, reference);
+
+            // then
+            assertThatThrownBy(destroy).isSameAs(gatewayFailure);
+        }
+
+        @Test
+        void propagatesTheProblem_whenConnectorAnswersOtherThanNotFound() throws Exception {
+            // given
+            RemoteKeyReference reference = new RemoteKeyReference.MetadataReference(metadata("key-handle"));
+            ConnectorProblemException failure = destroyProblem(ErrorCode.FORBIDDEN);
+            when(client.destroyKey(any(), any())).thenThrow(failure);
+
+            // when
+            ThrowingCallable destroy = () -> adapter.destroyKeyItem(cryptographicKey, reference);
+
+            // then
+            assertThatThrownBy(destroy).isSameAs(failure);
+        }
+
+        @Test
+        void toleratesOtherConnectorProblem_whenTokenIsDeactivated() throws Exception {
+            // given
+            RemoteKeyReference reference = new RemoteKeyReference.MetadataReference(metadata("offline-key-handle"));
+            ImmutableCryptographicKeyFullModel key = keyWithTokenStatus(TokenInstanceStatus.DEACTIVATED);
+            when(client.destroyKey(any(), any())).thenThrow(destroyProblem(ErrorCode.FORBIDDEN));
+
+            // when
+            ThrowingCallable destroy = () -> adapter.destroyKeyItem(key, reference);
+
+            // then
+            assertThatCode(destroy).doesNotThrowAnyException();
+            verify(client).destroyKey(any(), any());
+        }
+
         @Test
         void toleratesConnectorFailure_forDeactivatedToken() throws Exception {
             // given
@@ -1696,6 +1766,11 @@ class KeyProviderV2AdapterTest {
                     .of(null, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
                             new RemoteKeyReference.MetadataReference(null),
                             new RemoteKeyReference.MetadataReference(List.of()));
+        }
+
+        private static ConnectorProblemException destroyProblem(ErrorCode errorCode) {
+            return new ConnectorProblemException(
+                    ProblemDetailExtended.fromErrorCode(errorCode, "Key destruction answered", null, null));
         }
     }
 
@@ -2397,6 +2472,31 @@ class KeyProviderV2AdapterTest {
         }
 
         @Test
+        void sendsPrehashedDigest_whenModeIsPrehashedDigest() throws Exception {
+            // given
+            stubSynchronousSigning();
+            SignatureInputMode prehashed = SignatureInputMode.PREHASHED_DIGEST;
+
+            // when
+            adapter.signData(v2KeyItem(metadata("handle")), signRequest(List.of()), prehashed);
+
+            // then
+            assertThat(captureSentSignBody().getSignatureInputMode()).isEqualTo(prehashed);
+        }
+
+        @Test
+        void sendsNoMode_whenModeIsData() throws Exception {
+            // given
+            stubSynchronousSigning();
+
+            // when
+            adapter.signData(v2KeyItem(metadata("handle")), signRequest(List.of()), SignatureInputMode.DATA);
+
+            // then
+            assertThat(captureSentSignBody().getSignatureInputMode()).isNull();
+        }
+
+        @Test
         void asksForSignDefinitionsOnce_acrossSignaturesWithTheKeyItem() throws Exception {
             // given
             when(operationsClient.listSignAttributes(any(), any()))
@@ -2836,6 +2936,19 @@ class KeyProviderV2AdapterTest {
             return Stream
                     .of(named("leading zero", "01"), named("explicit plus sign", "+1"),
                             named("Arabic-Indic digit one", "\u0661"));
+        }
+
+        private void stubSynchronousSigning() throws Exception {
+            when(operationsClient.listSignAttributes(any(), any())).thenReturn(List.of());
+            SignDataResponseV2Dto body = new SignDataResponseV2Dto();
+            body.setSignatures(List.of(new SignatureResponseItemV2Dto(new byte[]{7}, "0")));
+            when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
+        }
+
+        private SignDataRequestV2Dto captureSentSignBody() throws Exception {
+            ArgumentCaptor<SignDataRequestV2Dto> sent = ArgumentCaptor.forClass(SignDataRequestV2Dto.class);
+            verify(operationsClient).signData(any(), sent.capture());
+            return sent.getValue();
         }
     }
 

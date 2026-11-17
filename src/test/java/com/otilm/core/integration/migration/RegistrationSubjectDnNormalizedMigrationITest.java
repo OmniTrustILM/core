@@ -3,6 +3,7 @@ package com.otilm.core.integration.migration;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.oid.RdnAttributeTypeCustomOidEntry;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CustomOidEntryRepository;
@@ -23,6 +24,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -174,14 +176,15 @@ class RegistrationSubjectDnNormalizedMigrationITest extends BaseMigrationTest {
     }
 
     private Certificate persist(CertificateState state, String subjectDn, String subjectDnNormalized) {
-        Certificate certificate = new Certificate();
-        certificate.setState(state);
-        certificate.setSubjectDn(subjectDn);
-        certificate.setSubjectDnNormalized(subjectDnNormalized);
+        X509CertificateEntity certificate = aCertificate()
+                .withState(state)
+                .withSubjectDn(subjectDn)
+                .withSubjectDnNormalized(subjectDnNormalized)
+                .build();
         return certificateRepository.save(certificate);
     }
 
-    private Certificate reload(Certificate certificate) {
-        return certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+    private X509CertificateEntity reload(Certificate certificate) {
+        return X509CertificateEntity.from(certificateRepository.findByUuid(certificate.getUuid()).orElseThrow());
     }
 }

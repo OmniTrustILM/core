@@ -34,6 +34,7 @@ import com.otilm.api.model.core.settings.PlatformSettingsDto;
 import com.otilm.api.model.core.settings.PlatformSettingsUpdateDto;
 import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.SettingsSectionCategory;
+import com.otilm.api.model.core.settings.SigningSettingsDto;
 import com.otilm.api.model.core.settings.UtilsSettingsDto;
 import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsUpdateDto;
 import com.otilm.api.model.core.settings.authentication.JwkSetLoadFailure;
@@ -66,6 +67,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -1252,7 +1255,123 @@ class SettingServiceITest extends BaseSpringBootTest {
         return dto;
     }
 
+    @Test
+    void returnsTheDefaultSigningLimit_whenNoneIsStored() {
+        // given — no signing row is stored
+
+        // when
+        PlatformSettingsDto settings = settingService.getPlatformSettings();
+
+        // then
+        assertThat(settings.getSigning()).isNotNull();
+        assertThat(settings.getSigning().getMaxItemsPerRequest())
+                .isEqualTo(SigningSettingsDto.DEFAULT_MAX_ITEMS_PER_REQUEST);
+    }
+
+    @Test
+    void returnsTheStoredSigningLimit_whenAnOperatorSetsOne() {
+        // given
+        var operatorLimit = 250;
+
+        // when
+        settingService.updatePlatformSettings(createSigningUpdate(operatorLimit));
+
+        // then
+        PlatformSettingsDto settings = settingService.getPlatformSettings();
+        assertThat(settings.getSigning().getMaxItemsPerRequest()).isEqualTo(operatorLimit);
+    }
+
+    @Test
+    void cachesTheSigningLimit_whenAnOperatorSetsOne() {
+        // given
+        var operatorLimit = 250;
+
+        // when
+        settingService.updatePlatformSettings(createSigningUpdate(operatorLimit));
+
+        // then
+        PlatformSettingsDto cached = SettingsCache.getSettings(SettingsSection.PLATFORM);
+        assertThat(cached.getSigning().getMaxItemsPerRequest()).isEqualTo(operatorLimit);
+    }
+
+    @Test
+    void returnsTheDefaultSigningLimit_whenSigningIsSentWithoutALimit() {
+        // given
+        var existingLimit = 250;
+        settingService.updatePlatformSettings(createSigningUpdate(existingLimit));
+
+        // when
+        settingService.updatePlatformSettings(createSigningUpdate(null));
+
+        // then
+        PlatformSettingsDto settings = settingService.getPlatformSettings();
+        assertThat(settings.getSigning().getMaxItemsPerRequest())
+                .isEqualTo(SigningSettingsDto.DEFAULT_MAX_ITEMS_PER_REQUEST);
+    }
+
+    @Test
+    void deletesTheSigningRow_whenSigningIsSentWithoutALimit() {
+        // given
+        var existingLimit = 250;
+        settingService.updatePlatformSettings(createSigningUpdate(existingLimit));
+
+        // when
+        settingService.updatePlatformSettings(createSigningUpdate(null));
+
+        // then
+        assertThat(settingRepository.findBySection(SettingsSection.PLATFORM))
+                .noneMatch(setting -> SettingsSectionCategory.PLATFORM_SIGNING.getCode().equals(setting.getCategory()));
+    }
+
+    @Test
+    void leavesTheSigningLimitUntouched_whenTheUpdateLeavesSigningOut() {
+        // given
+        var operatorLimit = 250;
+        settingService.updatePlatformSettings(createSigningUpdate(operatorLimit));
+        var utilsOnly = new PlatformSettingsUpdateDto();
+        utilsOnly.setUtils(new UtilsSettingsDto());
+
+        // when
+        settingService.updatePlatformSettings(utilsOnly);
+
+        // then
+        PlatformSettingsDto settings = settingService.getPlatformSettings();
+        assertThat(settings.getSigning().getMaxItemsPerRequest()).isEqualTo(operatorLimit);
+    }
+
+    /** Only a manual edit can store such a value. The API checks the bounds before every write. */
+    @ParameterizedTest
+    @ValueSource(strings = {"0", "1001", "lots"})
+    void readsTheDefaultSigningLimit_whenTheStoredValueIsCorrupt(String corruptValue) {
+        // given
+        storeSigningSetting(SettingServiceImpl.SIGNING_MAX_ITEMS_PER_REQUEST_NAME, corruptValue);
+
+        // when
+        PlatformSettingsDto settings = settingService.getPlatformSettings();
+
+        // then
+        assertThat(settings.getSigning().getMaxItemsPerRequest())
+                .isEqualTo(SigningSettingsDto.DEFAULT_MAX_ITEMS_PER_REQUEST);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static PlatformSettingsUpdateDto createSigningUpdate(Integer maxItemsPerRequest) {
+        SigningSettingsDto signing = new SigningSettingsDto();
+        signing.setMaxItemsPerRequest(maxItemsPerRequest);
+        PlatformSettingsUpdateDto update = new PlatformSettingsUpdateDto();
+        update.setSigning(signing);
+        return update;
+    }
+
+    private void storeSigningSetting(String name, String value) {
+        Setting setting = new Setting();
+        setting.setSection(SettingsSection.PLATFORM);
+        setting.setCategory(SettingsSectionCategory.PLATFORM_SIGNING.getCode());
+        setting.setName(name);
+        setting.setValue(value);
+        settingRepository.save(setting);
+    }
 
     private static CertificateSettingsUpdateDto uploadSettings(boolean automaticOwnership) {
         CertificateUploadSettingsUpdateDto upload = new CertificateUploadSettingsUpdateDto();

@@ -11,13 +11,13 @@ import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.cryptography.key.KeyItemDto;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.search.SortDirection;
-import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
@@ -39,6 +39,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 
 /**
  * The key listing fetches in two phases - a page of uuids in the requested order, then the items by {@code uuid IN
@@ -121,15 +123,16 @@ class KeyListingSortITest extends BaseSpringBootTest {
         content.setContent("1234567890-" + UUID.randomUUID());
         content = certificateContentRepository.saveAndFlush(content);
 
-        Certificate certificate = new Certificate();
-        certificate.setCommonName(commonName);
-        certificate.setSubjectDn("CN=" + commonName);
-        certificate.setIssuerDn("CN=" + commonName + "Issuer");
-        certificate.setSerialNumber(UUID.randomUUID().toString());
-        certificate.setState(CertificateState.ISSUED);
-        certificate.setValidationStatus(CertificateValidationStatus.VALID);
-        certificate.setCertificateContentId(content.getId());
-        certificate.setKeyUuid(keyUuid);
+        X509CertificateEntity certificate = aCertificate()
+                .withCommonName(commonName)
+                .withSubjectDn("CN=" + commonName)
+                .withIssuerDn("CN=" + commonName + "Issuer")
+                .withSerialNumber(UUID.randomUUID().toString())
+                .withState(CertificateState.ISSUED)
+                .withValidationStatus(CertificateValidationStatus.VALID)
+                .withCertificateContentId(content.getId())
+                .withKeyUuid(keyUuid)
+                .build();
         certificateRepository.saveAndFlush(certificate);
     }
 

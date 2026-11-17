@@ -15,6 +15,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
@@ -68,6 +69,26 @@ class OperationAttributeResolverTest {
 
         assertSame(resolved, out, "the resolver must return the dereferenced attributes");
         verify(authHelper).runAsSystem(eq(AuthHelper.ATTRIBUTE_CONTENT_RESOLVER_USERNAME), any());
+    }
+
+    @Test
+    void resolvesNestedReferencesUnderTheContentResolverIdentity_whenAskedFor() throws Exception {
+        // given
+        runElevationInline();
+        UUID connectorUuid = UUID.randomUUID();
+        List<RequestAttribute> stored = List.of(referenceAttribute());
+        List<RequestAttribute> resolvedWithNested = List.of(mock(RequestAttribute.class));
+        when(connectorRequestAttributesBuilder
+                .dereferenceWithNestedReferencesForConnectorRequest(connectorUuid, stored))
+                .thenReturn(resolvedWithNested);
+
+        // when
+        List<RequestAttribute> sent = resolver.resolveWithNestedReferencesAsSystem(connectorUuid, stored);
+
+        // then
+        assertThat(sent).isSameAs(resolvedWithNested);
+        verify(authHelper).runAsSystem(eq(AuthHelper.ATTRIBUTE_CONTENT_RESOLVER_USERNAME), any());
+        verify(connectorRequestAttributesBuilder, never()).dereferenceForConnectorRequest(any(), any());
     }
 
     @Test

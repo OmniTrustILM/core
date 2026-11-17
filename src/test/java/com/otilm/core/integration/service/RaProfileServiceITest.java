@@ -109,6 +109,7 @@ import org.springframework.security.concurrent.DelegatingSecurityContextCallable
 import org.springframework.security.concurrent.DelegatingSecurityContextExecutorService;
 import org.springframework.security.core.context.SecurityContextHolder;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.awaitility.Awaitility.await;
 
 class RaProfileServiceITest extends ApprovalProfileData {
@@ -202,7 +203,7 @@ class RaProfileServiceITest extends ApprovalProfileData {
         certificateContent = new CertificateContent();
         certificateContent = certificateContentRepository.save(certificateContent);
 
-        certificate = new Certificate();
+        certificate = aCertificate().build();
         certificate.setCertificateContent(certificateContent);
         certificate.setSerialNumber("123456789");
         certificate = certificateRepository.save(certificate);

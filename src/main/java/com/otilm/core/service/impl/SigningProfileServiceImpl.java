@@ -38,9 +38,10 @@ import com.otilm.api.model.common.PaginationResponseDto;
 import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
-import com.otilm.api.model.common.signature.SignatureFamily;
+import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.common.signature.SignatureLevel;
-import com.otilm.api.model.common.signature.SignatureParameterGroup;
+import com.otilm.api.model.connector.signatures.contentsigning.common.ContentSigningFormattingAttributesDto;
+import com.otilm.api.model.connector.signatures.contentsigning.declaration.SignatureFamilyDeclarationDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateDto;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
@@ -53,7 +54,6 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
 import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
-import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.cluster.ClusterOperationSynchronizer;
 import com.otilm.core.comparator.SearchFieldDataComparator;
 import com.otilm.core.config.cache.CacheConfig;
@@ -80,6 +80,7 @@ import com.otilm.core.model.signing.CertificatePurposeRequirements;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.TspProfileModel;
 import com.otilm.core.model.signing.scheme.SigningSchemeModel;
+import com.otilm.core.model.signing.scheme.StaticKeyManagedSigning;
 import com.otilm.core.model.signing.workflow.SigningWorkflow;
 import com.otilm.core.security.authz.AnyPrincipalEndpoint;
 import com.otilm.core.security.authz.ExternalAuthorization;
@@ -98,9 +99,16 @@ import com.otilm.core.service.TokenProfileInternalService;
 import com.otilm.core.service.TspProfileInternalService;
 import com.otilm.core.service.model.SecuredList;
 import com.otilm.core.service.writer.SigningProfileWriter;
+import com.otilm.core.signing.contentsigning.declaration.ContentSigningDeclarations;
 import com.otilm.core.signing.contentsigning.formatting.ContentSigningFormattingAttributes;
+import com.otilm.core.signing.contentsigning.formatting.ContentSigningFormattingDefinitions;
 import com.otilm.core.signing.contentsigning.profile.ContentSigningWorkflowValidator;
 import com.otilm.core.signing.contentsigning.profile.TimestampSourceRequests;
+import com.otilm.core.signing.engine.error.SigningEngineException;
+import com.otilm.core.signing.engine.resolver.ManagedSchemeResolver;
+import com.otilm.core.signing.engine.signer.SignerFactory;
+import com.otilm.core.signing.formatting.FormattingAttributeDefinitions;
+import com.otilm.core.signing.formatting.FormattingAttributesCheck;
 import com.otilm.core.util.CertificateEligibilityUtil;
 import com.otilm.core.util.FilterPredicatesBuilder;
 import com.otilm.core.util.RequestValidatorHelper;
@@ -146,6 +154,8 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
 
     private SigningProfileServiceImpl self;
     private CryptographicOperationInternalService cryptographicOperationService;
+    private ManagedSchemeResolver managedSchemeResolver;
+    private SignerFactory signerFactory;
     private CertificateInternalService certificateService;
     private ConnectorInternalService connectorService;
     private TokenProfileInternalService tokenProfileService;
@@ -160,11 +170,12 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     private TimeQualityConfigurationRepository timeQualityConfigurationRepository;
     private TspProfileInternalService tspProfileService;
     private AttributeEngine attributeEngine;
-    private ConnectorApiFactory connectorApiFactory;
+    private FormattingAttributeDefinitions formattingAttributeDefinitions;
     private CacheEvictor cacheEvictor;
     private ClusterOperationSynchronizer clusterSynchronizer;
     private ContentSigningWorkflowValidator contentSigningWorkflowValidator;
     private ContentSigningFormattingAttributes contentSigningFormattingAttributes;
+    private ContentSigningDeclarations contentSigningDeclarations;
 
     // ──────────────────────────────────────────────────────────────────────────
     // List / search
@@ -284,21 +295,31 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public List<BaseAttribute> listSignatureFormattingConnectorAttributes(UUID connectorUuid,
             SecuredUUID signingProfileUuid) throws NotFoundException, ConnectorException, AttributeException {
-        return fetchFormattingAttributeDefinitions(connectorUuid);
+        return fetchTimestampingFormattingDefinitions(connectorUuid);
     }
 
     @Override
     @ExternalAuthorization(resource = Resource.SIGNING_PROFILE, action = ResourceAction.ANY)
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public List<BaseAttribute> listContentSigningFormattingConnectorAttributes(UUID connectorUuid,
-            SignatureFamily family, SignatureLevel maxLevel, SecuredUUID signingProfileUuid)
+    public ContentSigningFormattingAttributesDto listContentSigningFormattingConnectorAttributes(UUID connectorUuid,
+            String family, SignatureLevel maxLevel, SecuredUUID signingProfileUuid)
             throws NotFoundException, ConnectorException, AttributeException {
-        ContentSigningWorkflowValidator
-                .requireConnectorServes(
-                        connectorService.getConnectorEntityWithInterfaces(SecuredUUID.fromUUID(connectorUuid)), family,
-                        maxLevel);
-        return contentSigningFormattingAttributes
+        contentSigningWorkflowValidator
+                .requireConnectorServes(connectorService.getConnectorEntity(SecuredUUID.fromUUID(connectorUuid)),
+                        family, maxLevel);
+        ContentSigningFormattingDefinitions definitions = contentSigningFormattingAttributes
                 .aggregate(connectorService.getConnectorForApiClient(connectorUuid), maxLevel);
+        return new ContentSigningFormattingAttributesDto(definitions.profileAttributes(),
+                definitions.requestAttributes());
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.SIGNING_PROFILE, action = ResourceAction.ANY)
+    @Transactional(readOnly = true)
+    public List<SignatureFamilyDeclarationDto> listSignatureFormattingConnectorDeclarations(UUID connectorUuid,
+            SecuredUUID signingProfileUuid) throws NotFoundException {
+        Connector connector = connectorService.getConnectorEntity(SecuredUUID.fromUUID(connectorUuid));
+        return contentSigningDeclarations.families(connector.getUuid());
     }
 
     @Override
@@ -954,11 +975,9 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         version.setSignatureFamily(null);
         version.setMaxSignatureLevel(null);
         version.setTimestampSourceProfileUuid(null);
-        version.setDocumentSizeCap(null);
         version.setRequireNonRepudiation(false);
         version.setRequiredExtendedKeyUsageOids(new ArrayList<>());
-        version.setAllowedRequestParameterGroups(new ArrayList<>());
-        version.setDefaultSignatureParameters(null);
+        version.setAllowedRequestAttributes(new ArrayList<>());
         version.setQualifiedTimestamp(null);
         version.setDefaultPolicyId(null);
         version.setAllowedPolicyIds(new ArrayList<>());
@@ -966,12 +985,10 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         version.setValidateTokenSignature(null);
 
         switch (workflow) {
-            case ContentSigningWorkflowRequestDto w -> {
-                if (signingScheme == SigningScheme.MANAGED) {
-                    applyManagedContentSigning(version, w);
-                }
-                // Stored for both schemes because the cap belongs to request admission, not to leveling.
-                version.setDocumentSizeCap(w.getDocumentSizeCap());
+            case ContentSigningWorkflowRequestDto w when signingScheme == SigningScheme.MANAGED ->
+                applyManagedContentSigning(version, w);
+            case ContentSigningWorkflowRequestDto ignored -> {
+                // Delegated signing keeps the content-signing fields at the values reset above.
             }
             case RawSigningWorkflowRequestDto ignored -> {
                 // RawSigningWorkflowRequestDto has no signatureFormattingConnectorUuid field — no formatting is allowed
@@ -1022,27 +1039,47 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         if (request.getSigningScheme().getSigningScheme() != SigningScheme.MANAGED) {
             requireNoSignatureFormattingConnector(w);
             requireNoLevelLadder(w);
-            requireNoSignatureParameters(w);
+            requireNoAllowedRequestAttributes(w);
             return;
         }
-        requireStaticKeyManagedSigning(request.getSigningScheme());
-        contentSigningWorkflowValidator
-                .validate(w,
-                        connectorService
-                                .getConnectorEntityWithInterfaces(
-                                        SecuredUUID.fromUUID(requireSignatureFormattingConnectorUuid(w))),
-                        targetProfileUuid);
+        StaticKeyManagedSigningRequestDto scheme = requireStaticKeyManagedSigning(request.getSigningScheme());
+        Connector formattingConnector = connectorService
+                .getConnectorEntity(SecuredUUID.fromUUID(requireSignatureFormattingConnectorUuid(w)));
+        requireCertificateAccess(scheme.getCertificateUuid());
+        SignatureAlgorithm signatureAlgorithm = signatureAlgorithmOf(request.getName(), scheme);
+        contentSigningWorkflowValidator.validate(w, formattingConnector, signatureAlgorithm, targetProfileUuid);
+    }
+
+    /** Signer resolution reads the certificate and its key items without access checks, so the caller's comes first. */
+    private void requireCertificateAccess(UUID certificateUuid) throws NotFoundException {
+        certificateService.getCertificateEntity(SecuredUUID.fromUUID(certificateUuid));
+    }
+
+    /** Signing resolves the algorithm the same way, so save checks the algorithm the profile signs with. */
+    private SignatureAlgorithm signatureAlgorithmOf(String profileName, StaticKeyManagedSigningRequestDto scheme) {
+        var signing = new StaticKeyManagedSigning(scheme.getCertificateUuid(),
+                Objects.requireNonNullElse(scheme.getSigningOperationAttributes(), List.of()));
+        try {
+            return signerFactory.signatureAlgorithm(managedSchemeResolver.resolve(profileName, signing));
+        } catch (SigningEngineException e) {
+            log
+                    .info("Signing Profile '{}' cannot resolve its signature algorithm: {}", profileName,
+                            e.operatorMessage());
+            throw new ValidationException("Signature algorithm cannot be resolved for certificate %s: %s"
+                    .formatted(scheme.getCertificateUuid(), e.clientMessage()));
+        }
     }
 
     /**
      * Only the static-key scheme resolves for content signing, so a one-time-key profile would save cleanly and then
      * fail on every request.
      */
-    private static void requireStaticKeyManagedSigning(SigningSchemeRequestDto scheme) {
-        if (!(scheme instanceof StaticKeyManagedSigningRequestDto)) {
+    private static StaticKeyManagedSigningRequestDto requireStaticKeyManagedSigning(SigningSchemeRequestDto scheme) {
+        if (!(scheme instanceof StaticKeyManagedSigningRequestDto staticKeyScheme)) {
             throw new ValidationException("Managed content signing requires the %s managed signing type"
                     .formatted(ManagedSigningType.STATIC_KEY));
         }
+        return staticKeyScheme;
     }
 
     private static UUID requireSignatureFormattingConnectorUuid(ContentSigningWorkflowRequestDto w) {
@@ -1054,21 +1091,24 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     }
 
     /**
-     * Stamps the ladder columns a signing run reads to decide how high it may go. The workflow was already validated by
-     * {@code validateContentSigningWorkflow} before the transaction opened; this only resolves and stores.
+     * Resolves and stores a workflow that {@code validateContentSigningWorkflow} validated before the transaction
+     * opened.
      */
     private void applyManagedContentSigning(SigningProfileVersion version, ContentSigningWorkflowRequestDto w)
             throws NotFoundException {
         Connector contentConnector = connectorService
-                .getConnectorEntity(SecuredUUID.fromUUID(requireSignatureFormattingConnectorUuid(w)));
+                .getConnectorEntity(SecuredUUID.fromUUID(w.getSignatureFormattingConnectorUuid()));
         version.setSignatureFormattingConnector(contentConnector);
         version.setSignatureFamily(w.getFamily());
         version.setMaxSignatureLevel(w.getMaxLevel());
         version.setTimestampSourceProfileUuid(TimestampSourceRequests.internalProfileUuid(w.getTimestampSource()));
         version.setRequireNonRepudiation(Boolean.TRUE.equals(w.getRequireNonRepudiation()));
-        version.setRequiredExtendedKeyUsageOids(new ArrayList<>(safeOids(w)));
-        version.setAllowedRequestParameterGroups(new ArrayList<>(safeGroupCodes(w)));
-        version.setDefaultSignatureParameters(w.getDefaultSignatureParameters());
+        version
+                .setRequiredExtendedKeyUsageOids(
+                        new ArrayList<>(Objects.requireNonNullElse(w.getRequiredExtendedKeyUsageOids(), Set.of())));
+        version
+                .setAllowedRequestAttributes(
+                        new ArrayList<>(Objects.requireNonNullElse(w.getAllowedRequestAttributes(), Set.of())));
     }
 
     /**
@@ -1100,23 +1140,15 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         }
     }
 
-    private static void requireNoSignatureParameters(ContentSigningWorkflowRequestDto w) {
-        boolean groups = w.getAllowedRequestParameterGroups() != null
-                && !w.getAllowedRequestParameterGroups().isEmpty();
-        if (groups || w.getDefaultSignatureParameters() != null) {
+    /**
+     * Allowed request attributes name a formatting connector's declarations. The signer connector formats a delegated
+     * signature itself.
+     */
+    private static void requireNoAllowedRequestAttributes(ContentSigningWorkflowRequestDto w) {
+        if (w.getAllowedRequestAttributes() != null && !w.getAllowedRequestAttributes().isEmpty()) {
             throw new ValidationException(
-                    "allowedRequestParameterGroups and defaultSignatureParameters must be omitted for delegated content signing: the signer connector applies its own parameters");
+                    "allowedRequestAttributes must be omitted for delegated content signing: the signer connector formats the signature itself");
         }
-    }
-
-    private static Set<String> safeOids(ContentSigningWorkflowRequestDto w) {
-        return w.getRequiredExtendedKeyUsageOids() == null ? Set.of() : w.getRequiredExtendedKeyUsageOids();
-    }
-
-    private static List<String> safeGroupCodes(ContentSigningWorkflowRequestDto w) {
-        return w.getAllowedRequestParameterGroups() == null
-                ? List.of()
-                : w.getAllowedRequestParameterGroups().stream().map(SignatureParameterGroup::getCode).toList();
     }
 
     private static String notEligibleMessage(Certificate certificate, SigningWorkflowType workflowType,
@@ -1300,6 +1332,8 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
             throws AttributeException, NotFoundException {
         return switch (workflow) {
             case ContentSigningWorkflowRequestDto w -> {
+                requireDefinedFormattingAttributes(formattingDefinitions,
+                        w.getSignatureFormattingConnectorAttributes());
                 attributeEngine
                         .validateUpdateDataAttributes(w.getSignatureFormattingConnectorUuid(),
                                 AttributeOperation.WORKFLOW_FORMATTING, formattingDefinitions,
@@ -1324,6 +1358,8 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
                 yield null;
             }
             case TimestampingWorkflowRequestDto w -> {
+                requireDefinedFormattingAttributes(formattingDefinitions,
+                        w.getSignatureFormattingConnectorAttributes());
                 attributeEngine
                         .validateUpdateDataAttributes(w.getSignatureFormattingConnectorUuid(),
                                 AttributeOperation.WORKFLOW_FORMATTING, formattingDefinitions,
@@ -1338,6 +1374,17 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
             }
             default -> throw new IllegalStateException("Unexpected type for Signing Workflow: " + workflow);
         };
+    }
+
+    /** Refuses attributes the formatter no longer publishes. */
+    private static void requireDefinedFormattingAttributes(List<BaseAttribute> formattingDefinitions,
+            List<RequestAttribute> attributes) {
+        List<String> undefined = FormattingAttributesCheck
+                .undefinedNames(formattingDefinitions, attributes == null ? List.of() : attributes);
+        if (!undefined.isEmpty()) {
+            throw new ValidationException(
+                    ValidationError.create("Signature formatting connector does not define attributes {}", undefined));
+        }
     }
 
     /** Returns the UUID of the certificate's key, or null when that key has no private item. */
@@ -1357,24 +1404,25 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     private List<BaseAttribute> fetchFormattingAttributeDefinitions(WorkflowRequestDto workflow)
             throws ConnectorException, NotFoundException {
         return switch (workflow) {
-            case ContentSigningWorkflowRequestDto w -> w.getSignatureFormattingConnectorUuid() == null
-                    ? List.of()
-                    : contentSigningFormattingAttributes
-                            .aggregate(
-                                    connectorService.getConnectorForApiClient(w.getSignatureFormattingConnectorUuid()),
-                                    w.getMaxLevel());
+            case ContentSigningWorkflowRequestDto w ->
+                w.getSignatureFormattingConnectorUuid() == null
+                        ? List.of()
+                        : contentSigningFormattingAttributes
+                                .aggregate(
+                                        connectorService
+                                                .getConnectorForApiClient(w.getSignatureFormattingConnectorUuid()),
+                                        w.getMaxLevel())
+                                .all();
             case TimestampingWorkflowRequestDto w ->
-                fetchFormattingAttributeDefinitions(w.getSignatureFormattingConnectorUuid());
+                fetchTimestampingFormattingDefinitions(w.getSignatureFormattingConnectorUuid());
             default -> List.of();
         };
     }
 
-    private List<BaseAttribute> fetchFormattingAttributeDefinitions(UUID connectorUuid)
+    private List<BaseAttribute> fetchTimestampingFormattingDefinitions(UUID connectorUuid)
             throws ConnectorException, NotFoundException {
         ApiClientConnectorInfo apiClientInfo = connectorService.getConnectorForApiClient(connectorUuid);
-        return connectorApiFactory
-                .getSignatureFormattingApiClient(apiClientInfo)
-                .listFormattingAttributes(apiClientInfo);
+        return formattingAttributeDefinitions.liveForTimestamping(apiClientInfo);
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -1442,6 +1490,16 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     }
 
     @Autowired
+    public void setManagedSchemeResolver(ManagedSchemeResolver managedSchemeResolver) {
+        this.managedSchemeResolver = managedSchemeResolver;
+    }
+
+    @Autowired
+    public void setSignerFactory(SignerFactory signerFactory) {
+        this.signerFactory = signerFactory;
+    }
+
+    @Autowired
     public void setCertificateService(CertificateInternalService certificateService) {
         this.certificateService = certificateService;
     }
@@ -1504,8 +1562,8 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     }
 
     @Autowired
-    public void setConnectorApiFactory(ConnectorApiFactory connectorApiFactory) {
-        this.connectorApiFactory = connectorApiFactory;
+    public void setFormattingAttributeDefinitions(FormattingAttributeDefinitions formattingAttributeDefinitions) {
+        this.formattingAttributeDefinitions = formattingAttributeDefinitions;
     }
 
     @Autowired
@@ -1522,5 +1580,10 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     public void setContentSigningFormattingAttributes(
             ContentSigningFormattingAttributes contentSigningFormattingAttributes) {
         this.contentSigningFormattingAttributes = contentSigningFormattingAttributes;
+    }
+
+    @Autowired
+    public void setContentSigningDeclarations(ContentSigningDeclarations contentSigningDeclarations) {
+        this.contentSigningDeclarations = contentSigningDeclarations;
     }
 }

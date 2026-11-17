@@ -8,6 +8,7 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.service.CryptographicKeyExternalService;
+import com.otilm.core.service.writer.CertificatePendingRevokeWriter;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -35,6 +36,8 @@ class CertificateRevocationFinalizerTest {
     private AttributeEngine attributeEngine;
     @Mock
     private CryptographicKeyExternalService keyService;
+    @Mock
+    private CertificatePendingRevokeWriter pendingRevokeWriter;
 
     private CertificateRevocationFinalizer finalizer;
 
@@ -43,41 +46,47 @@ class CertificateRevocationFinalizerTest {
     private static final UUID KEY_UUID = UUID.randomUUID();
 
     @BeforeEach
-    void setUp() {
-        finalizer = new CertificateRevocationFinalizer(attributeEngine, keyService);
+    void createFinalizer() {
+        finalizer = new CertificateRevocationFinalizer(attributeEngine, keyService, pendingRevokeWriter);
     }
 
     @Test
-    void prepareRevokeFinalization_appliesAttributes_capturesDestroyKey_clearsFields() throws Exception {
+    void appliesAttributesAndClearsPendingFields_whenPreparingRevokeFinalization() throws Exception {
+        // given
         Certificate cert = certWithAuthority();
         when(cert.getPendingRevokeAttributes()).thenReturn(List.of(mock(RequestAttribute.class)));
         when(cert.getPendingRevokeDestroyKey()).thenReturn(Boolean.TRUE);
         when(cert.getKey()).thenReturn(mock(CryptographicKey.class));
         when(cert.getKeyUuid()).thenReturn(KEY_UUID);
 
+        // when
         CertificateRevocationFinalizer.KeyCleanup cleanup = finalizer.prepareRevokeFinalization(cert);
 
+        // then
         assertThat(cleanup.destroyKey()).isTrue();
         assertThat(cleanup.keyUuid()).isEqualTo(KEY_UUID);
         verify(attributeEngine).updateObjectDataAttributesContent(any(ObjectAttributeContentInfo.class), any());
         verify(cert).setPendingRevokeDestroyKey(null);
-        verify(cert).setPendingRevokeAttributes(null);
+        verify(pendingRevokeWriter).clear(CERT_UUID);
     }
 
     @Test
-    void prepareRevokeFinalization_noAttributes_noDestroyKey_noKey() {
+    void skipsAttributesAndKeyCleanup_whenNothingWasPreserved() {
+        // given
         Certificate cert = certWithAuthority();
         when(cert.getPendingRevokeAttributes()).thenReturn(null);
         when(cert.getPendingRevokeDestroyKey()).thenReturn(null);
         when(cert.getKey()).thenReturn(null);
 
+        // when
         CertificateRevocationFinalizer.KeyCleanup cleanup = finalizer.prepareRevokeFinalization(cert);
 
+        // then
         assertThat(cleanup.destroyKey()).isFalse();
         assertThat(cleanup.keyUuid()).isNull();
         verifyNoInteractions(attributeEngine);
         verify(cert).setPendingRevokeDestroyKey(null);
-        verify(cert).setPendingRevokeAttributes(null);
+        verify(pendingRevokeWriter).clear(CERT_UUID);
     }
 
     @Test
@@ -136,13 +145,17 @@ class CertificateRevocationFinalizerTest {
     }
 
     @Test
-    void clearPendingRevokeFields_clearsBoth() {
+    void clearsDestroyKeyAndAttributes_whenClearingPendingRevokeFields() {
+        // given
         Certificate cert = mock(Certificate.class);
+        when(cert.getUuid()).thenReturn(CERT_UUID);
 
+        // when
         finalizer.clearPendingRevokeFields(cert);
 
+        // then
         verify(cert).setPendingRevokeDestroyKey(null);
-        verify(cert).setPendingRevokeAttributes(null);
+        verify(pendingRevokeWriter).clear(CERT_UUID);
     }
 
     private Certificate certWithAuthority() {
