@@ -50,6 +50,7 @@ import com.otilm.core.service.ComplianceInternalService;
 import com.otilm.core.service.CryptographicKeyExportExternalService;
 import com.otilm.core.service.CryptographicKeyExternalService;
 import com.otilm.core.service.CryptographicOperationExternalService;
+import com.otilm.core.service.RaProfileExternalService;
 import com.otilm.core.service.ResourceExternalService;
 import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.service.v2.ClientOperationInternalService;
@@ -121,6 +122,9 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
 
     @Autowired
     private AcmeProfileExternalService acmeProfileService;
+
+    @Autowired
+    private RaProfileExternalService raProfileService;
 
     @Autowired
     private CertificateInternalService certificateInternalService;
@@ -278,6 +282,36 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
         // then
         assertThat(reported.contains(ResourceAction.DELETE)).isEqualTo(raProfileUpdateGranted);
         assertReportedExactlyWhenAccepted(User.FULLY_PRIVILEGED, reported, endpoints);
+    }
+
+    @ParameterizedTest
+    @EnumSource(User.class)
+    void reportsEnableAndUpdateExactly_whenTheRaProfileHasNoAuthority(User user) {
+        // given
+        RaProfile detached = new RaProfile();
+        detached.setName("detached-ra-profile");
+        detached.setEnabled(true);
+        UUID detachedUuid = raProfileRepository.save(detached).getUuid();
+        actAs(user, Resource.RA_PROFILE, detachedUuid);
+        List<SecuredUUID> uuids = List.of(SecuredUUID.fromUUID(detachedUuid));
+        Map<ResourceAction, List<Endpoint>> endpoints = new LinkedHashMap<>();
+        endpoints
+                .put(ResourceAction.UPDATE, List
+                        .of(endpoint(() -> resourceService
+                                .updateAttributeContentForObject(SecuredResource.fromResource(Resource.RA_PROFILE),
+                                        SecuredUUID.fromUUID(detachedUuid), UUID.randomUUID(), List.of()),
+                                check(Resource.RA_PROFILE, ResourceAction.UPDATE))));
+        endpoints
+                .put(ResourceAction.ENABLE,
+                        List
+                                .of(endpoint(() -> raProfileService.bulkDisableRaProfile(uuids)),
+                                        endpoint(() -> raProfileService.bulkEnableRaProfile(uuids))));
+
+        // when
+        List<ResourceAction> reported = reportedActions(Resource.RA_PROFILE, detachedUuid);
+
+        // then
+        assertReportedExactlyWhenAccepted(user, reported, endpoints);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

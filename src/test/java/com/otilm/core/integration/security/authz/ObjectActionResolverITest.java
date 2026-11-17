@@ -643,7 +643,7 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
     }
 
     @Test
-    void reportsDetailAndDelete_whenTheRaProfileHasNoAuthority() {
+    void reportsDetailUpdateDeleteAndEnable_whenTheRaProfileHasNoAuthority() {
         // given
         RaProfile detached = new RaProfile();
         detached.setName("ra-profile-" + UUID.randomUUID());
@@ -655,8 +655,22 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
 
         // then
         assertThat(allowed)
-                .as("the RA profile endpoints without an authority check it only when it is set")
-                .contains(ResourceAction.DETAIL, ResourceAction.DELETE)
+                .as("the RA profile endpoints reaching a profile without an authority check it only when it is set")
+                .contains(ResourceAction.DETAIL, ResourceAction.UPDATE, ResourceAction.DELETE, ResourceAction.ENABLE);
+    }
+
+    @Test
+    void leavesOutUpdateAndEnable_whenTheRaProfileAuthorityCannotBeViewed() {
+        // given
+        RaProfile raProfile = saveRaProfile();
+        denyResourceAccess(Resource.AUTHORITY, ResourceAction.DETAIL, raProfile.getAuthorityInstanceReferenceUuid());
+
+        // when
+        List<ResourceAction> allowed = actionsOn(Resource.RA_PROFILE, raProfile.getUuid());
+
+        // then
+        assertThat(allowed)
+                .as("the RA profile endpoints check its authority when it is set")
                 .doesNotContain(ResourceAction.UPDATE, ResourceAction.ENABLE);
     }
 
