@@ -47,9 +47,18 @@ public class CertificateProtocolInfo {
     }
 
     public static CertificateProtocolInfo est(UUID estProfileUuid, Consumer<UUID> onStored) {
+        return est(estProfileUuid, null, onStored);
+    }
+
+    /**
+     * @param clientUuid the correlation UUID of the EST client that requested the certificate, which a retry of the
+     * request must come from to be answered with it; {@code null} when no client is to be matched
+     */
+    public static CertificateProtocolInfo est(UUID estProfileUuid, UUID clientUuid, Consumer<UUID> onStored) {
         CertificateProtocolInfo certificateProtocolInfo = new CertificateProtocolInfo();
         certificateProtocolInfo.setProtocol(CertificateProtocol.EST);
         certificateProtocolInfo.setProtocolProfileUuid(estProfileUuid);
+        certificateProtocolInfo.setAdditionalProtocolUuid(clientUuid);
         certificateProtocolInfo.setOnStored(onStored);
         return certificateProtocolInfo;
     }

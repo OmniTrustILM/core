@@ -60,6 +60,32 @@ public interface CertificateRepository extends CertificateBaseRepository<Certifi
             @Param("estProfileUuid") UUID estProfileUuid, @Param("requestFingerprint") String requestFingerprint);
 
     /**
+     * Finds the newest certificate, not archived, that the client requested through the EST Profile and the RA Profile
+     * with the request of the given fingerprint, which is how a retry of an EST enrolment is recognised: the same
+     * request from another client is a new request.
+     *
+     * @param clientUuid the correlation UUID of the EST client
+     * @param requestFingerprint SHA-256 of the encoded request in lower-case hexadecimal
+     */
+    @Query("""
+            SELECT c.uuid AS uuid, c.state AS state, c.notAfter AS notAfter, r.fingerprint AS requestFingerprint
+              FROM Certificate c
+              JOIN c.certificateRequestEntity r
+              JOIN c.protocolAssociation a
+             WHERE c.raProfileUuid = :raProfileUuid
+               AND c.archived = false
+               AND a.protocol = com.otilm.api.model.core.enums.CertificateProtocol.EST
+               AND a.protocolProfileUuid = :estProfileUuid
+               AND a.additionalProtocolUuid = :clientUuid
+               AND r.fingerprint = :requestFingerprint
+             ORDER BY c.created DESC, c.uuid DESC
+             LIMIT 1
+            """)
+    Optional<EstRequestedCertificate> findLatestRequestedThroughEstByClient(@Param("raProfileUuid") UUID raProfileUuid,
+            @Param("estProfileUuid") UUID estProfileUuid, @Param("clientUuid") UUID clientUuid,
+            @Param("requestFingerprint") String requestFingerprint);
+
+    /**
      * Finds the newest certificate on the RA Profile that the source was renewed or rekeyed into with the request,
      * whatever the type of the relation, so that a retry of the request through that RA Profile finds it. The request
      * fingerprint is that of the request the successor carries.

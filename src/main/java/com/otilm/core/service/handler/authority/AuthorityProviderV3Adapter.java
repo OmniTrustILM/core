@@ -1,7 +1,7 @@
 package com.otilm.core.service.handler.authority;
 
 import com.otilm.api.clients.ApiClientConnectorInfo;
-import com.otilm.api.exception.ConnectionServiceException;
+import com.otilm.api.clients.CancelResponses;
 import com.otilm.api.exception.ConnectorEntityNotFoundException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.ConnectorProblemException;
@@ -56,7 +56,6 @@ import java.util.function.Function;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 
@@ -445,7 +444,7 @@ public class AuthorityProviderV3Adapter extends AbstractAuthorityProviderAdapter
                 case REVOKE -> v3Client.cancelRevoke(connectorDto, wire);
                 case REGISTER -> v3Client.cancelRegister(connectorDto, wire);
             };
-            requireCancelConfirmed(response);
+            CancelResponses.requireConfirmed(response);
             return new CancelResult(CancelOutcome.CANCELLED);
         } catch (ConnectorProblemException e) {
             ErrorCode code = e.getProblemDetail() != null ? e.getProblemDetail().getErrorCode() : null;
@@ -474,20 +473,6 @@ public class AuthorityProviderV3Adapter extends AbstractAuthorityProviderAdapter
         wire.setAuthorityAttributes(authorityAttributesFor(authority));
         wire.setRaProfileAttributes(resolvedRaProfileAttributes(raProfile, authority));
         return wire;
-    }
-
-    /**
-     * Only a 2xx confirms a cancel. The client raises errors for 4xx and 5xx alone, so a bodiless 3xx returns normally
-     * and must not be read as a cancellation the connector performed.
-     */
-    private static void requireCancelConfirmed(ResponseEntity<Void> response) throws ConnectionServiceException {
-        HttpStatusCode status = response == null ? null : response.getStatusCode();
-        if (status == null || !status.is2xxSuccessful()) {
-            String label = status == null ? "no response" : String.valueOf(status.value());
-            HttpStatus httpStatus = status == null ? null : HttpStatus.resolve(status.value());
-            throw new ConnectionServiceException("Connector answered cancel with unexpected status " + label,
-                    httpStatus == null ? HttpStatus.BAD_GATEWAY : httpStatus);
-        }
     }
 
     @FunctionalInterface

@@ -18,6 +18,7 @@ import com.otilm.core.certificate.request.RequestAttributePolicyViolationExcepti
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.est.EstProfile;
+import com.otilm.core.dao.entity.est.EstRequestClaim;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.EstRequestedCertificate;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
@@ -376,6 +377,37 @@ class EstEnrollmentTest {
     }
 
     @Test
+    void answersLikeARetry_whenAnIdenticalRequestCompletesTheRegistrationFirst() throws Exception {
+        // given — the registration waits for a request when read, and an identical request completes it before this one
+        var completedByTheIdenticalRequest = registration(CertificateState.PENDING_APPROVAL, null,
+                fingerprintOfTheCsr());
+        stubRaceLostTo(completedByTheIdenticalRequest);
+
+        // when
+        ResponseEntity<byte[]> response = enrollment.enroll(route, aRegistrationClient(), csr, credentials());
+
+        // then
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+        verifyNoInteractions(certificateService, issuanceWait);
+    }
+
+    @Test
+    void throwsRegistrationRejected_whenAnotherRequestCompletesTheRegistrationFirst() throws Exception {
+        // given — the registration waits for a request when read, and a different request completes it before this one
+        var fingerprintOfAnotherRequest = "0f".repeat(32);
+        var completedByAnotherRequest = registration(CertificateState.PENDING_APPROVAL, null,
+                fingerprintOfAnotherRequest);
+        stubRaceLostTo(completedByAnotherRequest);
+
+        // when
+        ThrowingCallable enroll = () -> enrollment.enroll(route, aRegistrationClient(), csr, credentials());
+
+        // then
+        assertThatThrownBy(enroll).satisfies(thrown -> assertRefusal(thrown, EstError.REGISTRATION_REJECTED));
+        verifyNoInteractions(certificateService, issuanceWait);
+    }
+
+    @Test
     void throwsRegistrationRejected_whenRegistrationFailedWithoutARequest() {
         // given
         stubRegistration(CertificateState.FAILED, null);
@@ -653,13 +685,14 @@ class EstEnrollmentTest {
     @MethodSource("statesThatWaitForTheClientToCallAgain")
     void answersAcceptedAtOnce_whenRetryFindsTheCertificateOnItsWay(CertificateState state) {
         // given
+        EstClient client = aClient();
         when(certificateRepository
-                .findLatestRequestedThroughEst(route.raProfile().getUuid(), route.estProfile().getUuid(),
-                        fingerprintOfTheCsr()))
+                .findLatestRequestedThroughEstByClient(route.raProfile().getUuid(), route.estProfile().getUuid(),
+                        client.correlationUuid(), fingerprintOfTheCsr()))
                 .thenReturn(Optional.of(new FoundCertificate(certificateUuid, state, null, fingerprintOfTheCsr())));
 
         // when
-        ResponseEntity<byte[]> response = enrollment.enroll(route, aClient(), csr, credentials());
+        ResponseEntity<byte[]> response = enrollment.enroll(route, client, csr, credentials());
 
         // then
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
@@ -681,6 +714,44 @@ class EstEnrollmentTest {
 
         // then
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+    }
+
+    @Test
+    void attributesTheSubmittedCertificateToTheClient_whenSubmitting() throws Exception {
+        // given
+        stubSubmission();
+        when(issuanceWait.awaitSettled(certificateUuid, fingerprintOfTheCsr(), DOCUMENTED_ISSUE_WAIT))
+                .thenReturn(Optional.of(CertificateState.PENDING_APPROVAL));
+        EstClient client = aClient();
+
+        // when
+        enrollment.enroll(route, client, csr, credentials());
+
+        // then
+        verify(clientOperationService)
+                .issueCertificate(any(SecuredParentUUID.class), any(), any(ClientCertificateIssueRequestDto.class),
+                        argThat(info -> client.correlationUuid().equals(info.getAdditionalProtocolUuid())), any());
+    }
+
+    @Test
+    void claimsTheRequestForTheClient_whenSubmitting() throws Exception {
+        // given
+        stubSubmission();
+        when(issuanceWait.awaitSettled(certificateUuid, fingerprintOfTheCsr(), DOCUMENTED_ISSUE_WAIT))
+                .thenReturn(Optional.of(CertificateState.PENDING_APPROVAL));
+        EstClient client = aClient();
+        EstClient anotherClient = aClient();
+
+        // when
+        enrollment.enroll(route, client, csr, credentials());
+
+        // then
+        verify(claimWriter)
+                .claim(eq(route.estProfile().getUuid()), eq(route.raProfile().getUuid()),
+                        eq(EstRequestClaim.Operation.ENROLL),
+                        argThat(requestKey -> requestKey.contains(client.correlationUuid().toString())
+                                && requestKey.contains(fingerprintOfTheCsr())
+                                && !requestKey.contains(anotherClient.correlationUuid().toString())));
     }
 
     @Test
@@ -951,6 +1022,16 @@ class EstEnrollmentTest {
         stubRegistration(CertificateState.REGISTERED, null);
         stubCompletionRequest();
         when(clientOperationExternalService.issueExistingCertificate(any(), any(), any(), any())).thenThrow(failure);
+    }
+
+    /** The platform refuses the completion because the registration was completed meanwhile, as it now reads. */
+    private void stubRaceLostTo(FoundCertificate completedMeanwhile) throws Exception {
+        when(certificateRepository.findEstRequestedCertificateByUuid(registrationUuid))
+                .thenReturn(Optional.of(registration(CertificateState.REGISTERED, null, null)),
+                        Optional.of(completedMeanwhile));
+        stubCompletionRequest();
+        when(clientOperationExternalService.issueExistingCertificate(any(), any(), any(), any()))
+                .thenThrow(new ValidationException("The certificate already has a signing request."));
     }
 
     /** The issued certificate is read only while the certificate still carries this request. */

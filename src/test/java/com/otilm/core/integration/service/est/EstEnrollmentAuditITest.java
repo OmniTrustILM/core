@@ -75,6 +75,8 @@ class EstEnrollmentAuditITest extends BaseSpringBootTest {
     private static final String ESTPROFILE_NAME = "devices-profile";
     private static final String USERNAME = "device-owner";
     private static final String PASSWORD = "s3cret-audit-password";
+    private static final String OTHER_USERNAME = "other-device-owner";
+    private static final String OTHER_PASSWORD = "0ther-s3cret-audit-password";
     private static final String ISSUE_PATH = "/v2/authorityProvider/authorities/[^/]+/certificates/issue";
 
     @Autowired
@@ -137,9 +139,7 @@ class EstEnrollmentAuditITest extends BaseSpringBootTest {
         platformLogger.setLevel(Level.DEBUG);
         platformLogger.addAppender(logs);
 
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        request.addHeader(HttpHeaders.AUTHORIZATION, basicAuthorization(USERNAME, PASSWORD));
-        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+        authenticateAs(USERNAME, PASSWORD);
     }
 
     @AfterEach
@@ -200,6 +200,35 @@ class EstEnrollmentAuditITest extends BaseSpringBootTest {
     }
 
     @Test
+    void recordsTheOtherCredentialAndItsOwnCertificate_whenAnotherCredentialRepeatsTheRequest() throws Exception {
+        // given
+        issueAtOnce();
+        Secret otherCredential = secrets.seedBasicAuthSecret("other-ra-credential", OTHER_USERNAME, OTHER_PASSWORD);
+        EstProfile sharedProfile = routes
+                .seedRaBasicEstProfile("shared-profile", raProfile, credential, otherCredential);
+        byte[] request = EstCsrFixtures.signedRequestBody();
+        estController.simpleEnroll(sharedProfile.getName(), request);
+        UUID firstCertificateUuid = certificateRepository.findAll().getFirst().getUuid();
+        X509Certificate otherIssued = PkiFixtures.clientCertificate(PkiFixtures.rootCa("Other Root"));
+        stubConnector("{ \"certificateData\": \"" + base64(otherIssued) + "\" }");
+        auditMessages.clear();
+        authenticateAs(OTHER_USERNAME, OTHER_PASSWORD);
+
+        // when
+        estController.simpleEnroll(sharedProfile.getName(), request);
+
+        // then
+        LogRecord record = theEnrolmentRecord();
+        assertThat(record.operationData())
+                .isEqualTo(new EstEnrollmentAudit(sharedProfile.getName(), EstAuthenticationPolicy.RA_BASIC,
+                        "secret:" + otherCredential.getUuid(), EstEnrollmentAudit.ISSUED));
+        assertThat(record.resource().objects())
+                .extracting(ResourceObjectIdentity::uuid)
+                .doesNotContain(firstCertificateUuid)
+                .hasSize(1);
+    }
+
+    @Test
     void logsOutcomeOnce_whenEnrolmentIsAnswered() throws Exception {
         // given
         issueAtOnce();
@@ -241,6 +270,12 @@ class EstEnrollmentAuditITest extends BaseSpringBootTest {
             actionsListener.processMessage(invocation.getArgument(0));
             return null;
         }).when(actionProducer).produceMessage(Mockito.any());
+    }
+
+    private static void authenticateAs(String username, String password) {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader(HttpHeaders.AUTHORIZATION, basicAuthorization(username, password));
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
     }
 
     private String theClientIdentity() {

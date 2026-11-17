@@ -82,6 +82,55 @@ class EstRequestedCertificateLookupITest extends BaseSpringBootTest {
     }
 
     @Test
+    void findsCertificate_whenTheSameClientMadeTheRequest() throws Exception {
+        // given
+        var clientUuid = UUID.randomUUID();
+        Certificate requested = saveRequestedCertificate(raProfile, CertificateProtocol.EST, estProfile.getUuid(),
+                clientUuid, REQUEST_BYTES, CertificateState.ISSUED, null);
+
+        // when
+        Optional<EstRequestedCertificate> found = certificateRepository
+                .findLatestRequestedThroughEstByClient(raProfile.getUuid(), estProfile.getUuid(), clientUuid,
+                        fingerprintOf(REQUEST_BYTES));
+
+        // then
+        assertThat(found).get().extracting(EstRequestedCertificate::getUuid).isEqualTo(requested.getUuid());
+    }
+
+    @Test
+    void findsNothingForTheClient_whenAnotherClientMadeTheRequest() throws Exception {
+        // given
+        var clientUuid = UUID.randomUUID();
+        var anotherClientUuid = UUID.randomUUID();
+        saveRequestedCertificate(raProfile, CertificateProtocol.EST, estProfile.getUuid(), anotherClientUuid,
+                REQUEST_BYTES, CertificateState.ISSUED, null);
+
+        // when
+        Optional<EstRequestedCertificate> found = certificateRepository
+                .findLatestRequestedThroughEstByClient(raProfile.getUuid(), estProfile.getUuid(), clientUuid,
+                        fingerprintOf(REQUEST_BYTES));
+
+        // then
+        assertThat(found).isEmpty();
+    }
+
+    @Test
+    void findsNothingForTheClient_whenTheRequestNamesNoClient() throws Exception {
+        // given
+        var clientUuid = UUID.randomUUID();
+        saveRequestedCertificate(raProfile, CertificateProtocol.EST, estProfile.getUuid(), REQUEST_BYTES,
+                CertificateState.ISSUED, null);
+
+        // when
+        Optional<EstRequestedCertificate> found = certificateRepository
+                .findLatestRequestedThroughEstByClient(raProfile.getUuid(), estProfile.getUuid(), clientUuid,
+                        fingerprintOf(REQUEST_BYTES));
+
+        // then
+        assertThat(found).isEmpty();
+    }
+
+    @Test
     void findsNewestCertificate_whenTheSameCsrWasRequestedTwice() throws Exception {
         // given
         saveRequestedCertificate(raProfile, CertificateProtocol.EST, estProfile.getUuid(), REQUEST_BYTES,
@@ -246,6 +295,12 @@ class EstRequestedCertificateLookupITest extends BaseSpringBootTest {
 
     private Certificate saveRequestedCertificate(RaProfile certificateRaProfile, CertificateProtocol protocol,
             UUID protocolProfileUuid, byte[] requestBytes, CertificateState state, Date notAfter) {
+        return saveRequestedCertificate(certificateRaProfile, protocol, protocolProfileUuid, null, requestBytes, state,
+                notAfter);
+    }
+
+    private Certificate saveRequestedCertificate(RaProfile certificateRaProfile, CertificateProtocol protocol,
+            UUID protocolProfileUuid, UUID clientUuid, byte[] requestBytes, CertificateState state, Date notAfter) {
         var request = certificateRequestRepository
                 .save(aCertificateRequest().withContent(Base64.getEncoder().encodeToString(requestBytes)).build());
         Certificate certificate = certificateRepository
@@ -259,6 +314,7 @@ class EstRequestedCertificateLookupITest extends BaseSpringBootTest {
         association.setCertificateUuid(certificate.getUuid());
         association.setProtocol(protocol);
         association.setProtocolProfileUuid(protocolProfileUuid);
+        association.setAdditionalProtocolUuid(clientUuid);
         certificateProtocolAssociationRepository.save(association);
         return certificate;
     }
