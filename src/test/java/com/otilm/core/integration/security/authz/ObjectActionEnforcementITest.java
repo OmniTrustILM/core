@@ -566,7 +566,7 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
             case OBJECT_GRANT -> request -> surroundings.test(request)
                     || (resource.getCode().equals(name(request)) && request.getObjectUUIDs() != null
                             && List.of(objectUuid.toString()).equals(request.getObjectUUIDs()));
-            case OWNER -> request -> surroundings.test(request);
+            case OWNER -> surroundings;
             case GROUP_MEMBER ->
                 request -> surroundings.test(request) || (Resource.GROUP.getCode().equals(name(request))
                         && ResourceAction.MEMBERS.getCode().equals(action(request)));
