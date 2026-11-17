@@ -39,13 +39,14 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Stream;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
 /**
  * Reports the actions the current principal may perform on objects of one resource, as {@link ObjectActionRequirements}
  * describes the endpoints that perform them. Objects that do not exist, or that the principal may neither list nor
  * view, are left out. Each decision is the one enforcement makes, asked once per call, and the requested objects are
- * read in one query.
+ * read in one query, as are their owner and group associations.
  */
 @Component
 public class ObjectActionResolver {
@@ -54,11 +55,14 @@ public class ObjectActionResolver {
 
     private final AuthorizationEnforcer authorizationEnforcer;
 
+    private final ExternalAuthorizationCore authorizationCore;
+
     private final EntityManagerFactory entityManagerFactory;
 
-    public ObjectActionResolver(AuthorizationEnforcer authorizationEnforcer,
+    ObjectActionResolver(AuthorizationEnforcer authorizationEnforcer, ExternalAuthorizationCore authorizationCore,
             EntityManagerFactory entityManagerFactory) {
         this.authorizationEnforcer = authorizationEnforcer;
+        this.authorizationCore = authorizationCore;
         this.entityManagerFactory = entityManagerFactory;
     }
 
@@ -71,6 +75,13 @@ public class ObjectActionResolver {
         Call call = new Call();
         Set<UUID> requested = new LinkedHashSet<>(objectUuids);
         Set<UUID> existing = call.load(resource, objects, requested);
+        return authorizationCore
+                .withAssociationSnapshot(SecurityContextHolder.getContext().getAuthentication(),
+                        Map.of(resource, existing), () -> allowedActions(call, resource, objects, requested, existing));
+    }
+
+    private static List<ObjectAllowedActionsDto> allowedActions(Call call, Resource resource, ResourceObjects objects,
+            Set<UUID> requested, Set<UUID> existing) {
         List<ObjectAllowedActionsDto> items = new ArrayList<>();
         for (UUID objectUuid : requested) {
             if (!existing.contains(objectUuid) || !call.isVisible(resource, objects, objectUuid)) {

@@ -15,15 +15,21 @@ import com.otilm.core.security.authz.opa.OpaClient;
 import com.otilm.core.security.authz.opa.dto.OpaRequestedResource;
 import com.otilm.core.security.authz.opa.dto.OpaResourceAccessResult;
 import com.otilm.core.util.AuthenticationTokenTestHelper;
+import com.otilm.core.util.PrincipalFixtures;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
+import jakarta.persistence.TypedQuery;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.core.Authentication;
@@ -49,13 +55,17 @@ class ExternalAuthorizationCoreTest {
     @Mock
     OwnerAssociationRepository ownerAssociationRepository;
 
+    @Mock
+    EntityManagerFactory entityManagerFactory;
+
     ObjectMapper om = new ObjectMapper();
 
     ExternalAuthorizationCore core;
 
     @BeforeEach
     void setUp() {
-        core = new ExternalAuthorizationCore(opaClient, om, groupAssociationRepository, ownerAssociationRepository);
+        core = new ExternalAuthorizationCore(opaClient, om, groupAssociationRepository, ownerAssociationRepository,
+                entityManagerFactory);
     }
 
     @Test
@@ -124,7 +134,7 @@ class ExternalAuthorizationCoreTest {
         when(brokenMapper.writeValueAsString(any())).thenThrow(new JsonProcessingException("boom") {
         });
         ExternalAuthorizationCore coreWithBrokenMapper = new ExternalAuthorizationCore(opaClient, brokenMapper,
-                groupAssociationRepository, ownerAssociationRepository);
+                groupAssociationRepository, ownerAssociationRepository, entityManagerFactory);
         AuthorizationRequest request = AuthorizationRequest
                 .forDirectCheck(Resource.TOKEN, ResourceAction.DETAIL, List.of());
 
@@ -393,6 +403,180 @@ class ExternalAuthorizationCoreTest {
         // then: denied before any OPA call is made
         assertThat(decision.isGranted()).isFalse();
         verifyNoInteractions(opaClient);
+    }
+
+    @Test
+    void grantsWithoutAskingOpa_whenThePrincipalMayUseEveryResourceInsideASnapshot() {
+        // given
+        Authentication authentication = PrincipalFixtures
+                .authentication(PrincipalFixtures.adminProfile(UUID.randomUUID().toString(), "admin"));
+        AuthorizationRequest request = AuthorizationRequest
+                .forDirectCheck(Resource.CERTIFICATE, ResourceAction.UPDATE,
+                        List.of(SecuredUUID.fromUUID(UUID.randomUUID())));
+
+        // when
+        AuthorizationDecision decision = core
+                .withAssociationSnapshot(authentication, Map.of(), () -> core.decide(authentication, request));
+
+        // then
+        assertThat(decision.isGranted()).isTrue();
+        verifyNoInteractions(opaClient, entityManagerFactory);
+    }
+
+    @Test
+    void grantsParentAndObjectWithoutAskingOpa_whenThePrincipalMayUseEveryResourceInsideASnapshot() {
+        // given
+        Authentication authentication = PrincipalFixtures
+                .authentication(PrincipalFixtures.adminProfile(UUID.randomUUID().toString(), "admin"));
+        AuthorizationRequest request = requestWithParent(List.of(SecuredUUID.fromUUID(UUID.randomUUID())),
+                List.of(SecuredUUID.fromUUID(UUID.randomUUID())));
+
+        // when
+        AuthorizationDecision decision = core
+                .withAssociationSnapshot(authentication, Map.of(), () -> core.decide(authentication, request));
+
+        // then
+        assertThat(decision.isGranted()).isTrue();
+        verifyNoInteractions(opaClient);
+    }
+
+    @Test
+    void asksOpa_whenThePrincipalMayUseEveryResourceButDeniesAnObjectOfIt() {
+        // given
+        when(opaClient.checkResourceAccess(any(), any(), any(), any()))
+                .thenReturn(OpaResourceAccessResult.unauthorized());
+        Authentication authentication = PrincipalFixtures
+                .authentication(PrincipalFixtures
+                        .adminDenyingProfile(Resource.TOKEN, ResourceAction.DETAIL, UUID.randomUUID()));
+        AuthorizationRequest request = AuthorizationRequest
+                .forDirectCheck(Resource.TOKEN, ResourceAction.UPDATE,
+                        List.of(SecuredUUID.fromUUID(UUID.randomUUID())));
+
+        // when
+        AuthorizationDecision decision = core
+                .withAssociationSnapshot(authentication, Map.of(), () -> core.decide(authentication, request));
+
+        // then
+        assertThat(decision.isGranted()).isFalse();
+        verify(opaClient).checkResourceAccess(any(), any(), any(), any());
+    }
+
+    @Test
+    void grantsWithoutAskingOpa_whenThePrincipalDeniesOnlyObjectsOfAnotherResource() {
+        // given
+        Authentication authentication = PrincipalFixtures
+                .authentication(PrincipalFixtures
+                        .adminDenyingProfile(Resource.CERTIFICATE, ResourceAction.DETAIL, UUID.randomUUID()));
+        AuthorizationRequest request = AuthorizationRequest
+                .forDirectCheck(Resource.TOKEN, ResourceAction.UPDATE,
+                        List.of(SecuredUUID.fromUUID(UUID.randomUUID())));
+
+        // when
+        AuthorizationDecision decision = core
+                .withAssociationSnapshot(authentication, Map.of(), () -> core.decide(authentication, request));
+
+        // then
+        assertThat(decision.isGranted()).isTrue();
+        verifyNoInteractions(opaClient);
+    }
+
+    @Test
+    void asksOpa_whenThePrincipalMayUseEveryResourceOutsideASnapshot() {
+        // given
+        when(opaClient.checkResourceAccess(any(), any(), any(), any())).thenReturn(accessGranted());
+        Authentication authentication = PrincipalFixtures
+                .authentication(PrincipalFixtures.adminProfile(UUID.randomUUID().toString(), "admin"));
+        AuthorizationRequest request = AuthorizationRequest
+                .forDirectCheck(Resource.TOKEN, ResourceAction.UPDATE,
+                        List.of(SecuredUUID.fromUUID(UUID.randomUUID())));
+
+        // when
+        AuthorizationDecision decision = core.decide(authentication, request);
+
+        // then
+        assertThat(decision.isGranted()).isTrue();
+        verify(opaClient).checkResourceAccess(any(), any(), any(), any());
+    }
+
+    @Test
+    void asksOpa_whenThePrincipalMayNotUseEveryResource() {
+        // given
+        when(opaClient.checkResourceAccess(any(), any(), any(), any()))
+                .thenReturn(OpaResourceAccessResult.unauthorized());
+        Authentication authentication = PrincipalFixtures
+                .authentication(PrincipalFixtures.operatorProfile(UUID.randomUUID().toString(), "operator"));
+        AuthorizationRequest request = AuthorizationRequest
+                .forDirectCheck(Resource.TOKEN, ResourceAction.UPDATE,
+                        List.of(SecuredUUID.fromUUID(UUID.randomUUID())));
+
+        // when
+        AuthorizationDecision decision = core
+                .withAssociationSnapshot(authentication, Map.of(), () -> core.decide(authentication, request));
+
+        // then
+        assertThat(decision.isGranted()).isFalse();
+        verify(opaClient).checkResourceAccess(any(), any(), any(), any());
+    }
+
+    @Test
+    void readsAnotherPrincipalsOwnershipThroughTheRepository_insideASnapshot() {
+        // given
+        when(opaClient.checkResourceAccess(any(), any(), any(), any()))
+                .thenReturn(OpaResourceAccessResult.unauthorized());
+        Authentication snapshotOwner = PrincipalFixtures
+                .authentication(PrincipalFixtures.operatorProfile(UUID.randomUUID().toString(), "a"));
+        UUID otherUserUuid = UUID.randomUUID();
+        Authentication other = PrincipalFixtures
+                .authentication(PrincipalFixtures.operatorProfile(otherUserUuid.toString(), "b"));
+        AuthorizationRequest request = AuthorizationRequest
+                .forDirectCheck(Resource.CERTIFICATE, ResourceAction.ARCHIVE,
+                        List.of(SecuredUUID.fromUUID(UUID.randomUUID())));
+        when(ownerAssociationRepository.countOwnedObjects(eq(otherUserUuid), eq(Resource.CERTIFICATE), any()))
+                .thenReturn(1L);
+
+        // when
+        AuthorizationDecision decision = core
+                .withAssociationSnapshot(snapshotOwner, Map.of(), () -> core.decide(other, request));
+
+        // then
+        assertThat(decision.isGranted()).isTrue();
+        verifyNoInteractions(entityManagerFactory);
+    }
+
+    @Test
+    void keepsANestedScopesObjectsOutOfAnotherPrincipalsSnapshot() {
+        // given
+        when(opaClient.checkResourceAccess(any(), any(), any(), any()))
+                .thenReturn(OpaResourceAccessResult.unauthorized());
+        Authentication snapshotOwner = PrincipalFixtures
+                .authentication(PrincipalFixtures.operatorProfile(UUID.randomUUID().toString(), "a"));
+        Authentication other = PrincipalFixtures
+                .authentication(PrincipalFixtures.operatorProfile(UUID.randomUUID().toString(), "b"));
+        UUID asked = UUID.randomUUID();
+        UUID otherPrincipalsObject = UUID.randomUUID();
+        TypedQuery<UUID> ownedQuery = ownedQueryReturning(List.of(asked));
+        AuthorizationRequest request = AuthorizationRequest
+                .forDirectCheck(Resource.CERTIFICATE, ResourceAction.ARCHIVE, List.of(SecuredUUID.fromUUID(asked)));
+
+        // when
+        AuthorizationDecision decision = core
+                .withAssociationSnapshot(snapshotOwner, Map.of(), () -> core
+                        .withAssociationSnapshot(other, Map.of(Resource.CERTIFICATE, List.of(otherPrincipalsObject)),
+                                () -> core.decide(snapshotOwner, request)));
+
+        // then
+        assertThat(decision.isGranted()).isTrue();
+        verify(ownedQuery).setParameter("objectUuids", Set.of(asked));
+    }
+
+    @SuppressWarnings("unchecked")
+    private TypedQuery<UUID> ownedQueryReturning(List<UUID> owned) {
+        EntityManager entityManager = mock(EntityManager.class);
+        TypedQuery<UUID> query = mock(TypedQuery.class, Mockito.RETURNS_SELF);
+        when(entityManagerFactory.createEntityManager()).thenReturn(entityManager);
+        when(entityManager.createQuery(any(String.class), eq(UUID.class))).thenReturn(query);
+        when(query.getResultList()).thenReturn(owned);
+        return query;
     }
 
     /** A child TOKEN:DETAIL check nested under a parent TOKEN_PROFILE:DETAIL check. */
