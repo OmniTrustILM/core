@@ -546,6 +546,28 @@ class ExternalAuthorizationCoreTest {
     }
 
     @Test
+    void deniesWithItsOwnPermissions_whenAnotherPrincipalDecidesInsideAnAdministratorSnapshot() {
+        // given
+        when(opaClient.checkResourceAccess(any(), any(), any(), any()))
+                .thenReturn(OpaResourceAccessResult.unauthorized());
+        Authentication administrator = PrincipalFixtures
+                .authentication(PrincipalFixtures.adminProfile(UUID.randomUUID().toString(), "admin"));
+        PlatformAuthenticationToken operator = PrincipalFixtures
+                .authentication(PrincipalFixtures.operatorProfile(UUID.randomUUID().toString(), "operator"));
+        AuthorizationRequest request = AuthorizationRequest
+                .forDirectCheck(Resource.TOKEN, ResourceAction.UPDATE,
+                        List.of(SecuredUUID.fromUUID(UUID.randomUUID())));
+
+        // when
+        AuthorizationDecision decision = core
+                .withAssociationSnapshot(administrator, Map.of(), () -> core.decide(operator, request));
+
+        // then
+        assertThat(decision.isGranted()).isFalse();
+        verify(opaClient).checkResourceAccess(any(), any(), eq(operator.getPrincipal().getRawData()), any());
+    }
+
+    @Test
     void keepsNestedScopeObjectsOutOfTheSnapshot_whenTheNestedScopeIsAnotherPrincipals() {
         // given
         when(opaClient.checkResourceAccess(any(), any(), any(), any()))
