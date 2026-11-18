@@ -376,7 +376,7 @@ class RequestAttributesCheckTest {
             // then
             assertThatThrownBy(check).isInstanceOfSatisfying(SigningEngineException.class, refusal -> {
                 assertThat(refusal.clientMessage()).doesNotContain(notLettersOnly);
-                assertThat(refusal.getMessage()).doesNotContain(notLettersOnly);
+                assertThat(refusal.operatorMessage()).doesNotContain(notLettersOnly);
             });
         }
 
