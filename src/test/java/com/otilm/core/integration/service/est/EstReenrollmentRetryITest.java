@@ -292,6 +292,26 @@ class EstReenrollmentRetryITest extends AbstractEstReenrollmentITest {
     }
 
     @Test
+    void createsSuccessor_whenAnotherClientsEnrolmentWithTheCsrWasRejected() throws Exception {
+        // given — another client sent this renewal request through /simpleenroll, and its certificate was rejected
+        X509Certificate source = issueDueCertificate(deviceKeys);
+        Certificate seededSource = routes.seedIssuedCertificate(source, raProfile, estProfile);
+        byte[] request = signRequest(deviceKeys);
+        Certificate othersEnrolment = enrollThroughTheEstProfile(request, issueFreshCertificate(deviceKeys));
+        othersEnrolment.setState(CertificateState.REJECTED);
+        certificateRepository.save(othersEnrolment);
+        X509Certificate renewed = issueFreshCertificate(deviceKeys);
+        AuthorityV2ConnectorStubs.on(connector).stubRenew(renewed);
+
+        // when
+        ResponseEntity<byte[]> response = reenroll(request, certificateCredentials(source));
+
+        // then
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertSuccessorOf(seededSource, findInInventory(renewed));
+    }
+
+    @Test
     void createsNewSuccessor_whenEarlierSuccessorFailed() throws Exception {
         // given — the authority could not renew the certificate when the client first asked
         X509Certificate source = issueDueCertificate(deviceKeys);

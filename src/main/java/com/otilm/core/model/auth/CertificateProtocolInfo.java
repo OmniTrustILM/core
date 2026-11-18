@@ -51,8 +51,9 @@ public class CertificateProtocolInfo {
     }
 
     /**
-     * @param clientUuid the correlation UUID of the EST client that requested the certificate, which a retry of the
-     * request must come from to be answered with it; {@code null} when no client is to be matched
+     * @param clientUuid who requested the certificate, which a retry of the request must come from to be matched with
+     * it: the correlation UUID of the EST client for an enrolment, the certificate renewed for a re-enrolment;
+     * {@code null} when no requester is to be matched
      */
     public static CertificateProtocolInfo est(UUID estProfileUuid, UUID clientUuid, Consumer<UUID> onStored) {
         CertificateProtocolInfo certificateProtocolInfo = new CertificateProtocolInfo();

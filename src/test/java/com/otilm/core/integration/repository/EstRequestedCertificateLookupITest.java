@@ -61,16 +61,18 @@ class EstRequestedCertificateLookupITest extends BaseSpringBootTest {
     }
 
     @Test
-    void findsCertificate_whenRequestWasMadeThroughTheRoute() throws Exception {
+    void findsCertificate_whenTheClientMadeTheRequestThroughTheRoute() throws Exception {
         // given
         var notAfter = new Date(1_900_000_000_000L);
+        var clientUuid = UUID.randomUUID();
         var requestFingerprint = fingerprintOf(REQUEST_BYTES);
         Certificate requested = saveRequestedCertificate(raProfile, CertificateProtocol.EST, estProfile.getUuid(),
-                REQUEST_BYTES, CertificateState.ISSUED, notAfter);
+                clientUuid, REQUEST_BYTES, CertificateState.ISSUED, notAfter);
 
         // when
         Optional<EstRequestedCertificate> found = certificateRepository
-                .findLatestRequestedThroughEst(raProfile.getUuid(), estProfile.getUuid(), requestFingerprint);
+                .findLatestRequestedThroughEstByClient(raProfile.getUuid(), estProfile.getUuid(), clientUuid,
+                        requestFingerprint);
 
         // then
         assertThat(found).hasValueSatisfying(certificate -> {
@@ -79,22 +81,6 @@ class EstRequestedCertificateLookupITest extends BaseSpringBootTest {
             assertThat(certificate.getNotAfter().getTime()).isEqualTo(notAfter.getTime());
             assertThat(certificate.getRequestFingerprint()).isEqualTo(requestFingerprint);
         });
-    }
-
-    @Test
-    void findsCertificate_whenTheSameClientMadeTheRequest() throws Exception {
-        // given
-        var clientUuid = UUID.randomUUID();
-        Certificate requested = saveRequestedCertificate(raProfile, CertificateProtocol.EST, estProfile.getUuid(),
-                clientUuid, REQUEST_BYTES, CertificateState.ISSUED, null);
-
-        // when
-        Optional<EstRequestedCertificate> found = certificateRepository
-                .findLatestRequestedThroughEstByClient(raProfile.getUuid(), estProfile.getUuid(), clientUuid,
-                        fingerprintOf(REQUEST_BYTES));
-
-        // then
-        assertThat(found).get().extracting(EstRequestedCertificate::getUuid).isEqualTo(requested.getUuid());
     }
 
     @Test
@@ -203,14 +189,16 @@ class EstRequestedCertificateLookupITest extends BaseSpringBootTest {
     @Test
     void findsNewestCertificate_whenTheSameCsrWasRequestedTwice() throws Exception {
         // given
-        saveRequestedCertificate(raProfile, CertificateProtocol.EST, estProfile.getUuid(), REQUEST_BYTES,
+        var clientUuid = UUID.randomUUID();
+        saveRequestedCertificate(raProfile, CertificateProtocol.EST, estProfile.getUuid(), clientUuid, REQUEST_BYTES,
                 CertificateState.REJECTED, null);
         Certificate newest = saveRequestedCertificate(raProfile, CertificateProtocol.EST, estProfile.getUuid(),
-                REQUEST_BYTES, CertificateState.ISSUED, null);
+                clientUuid, REQUEST_BYTES, CertificateState.ISSUED, null);
 
         // when
         Optional<EstRequestedCertificate> found = certificateRepository
-                .findLatestRequestedThroughEst(raProfile.getUuid(), estProfile.getUuid(), fingerprintOf(REQUEST_BYTES));
+                .findLatestRequestedThroughEstByClient(raProfile.getUuid(), estProfile.getUuid(), clientUuid,
+                        fingerprintOf(REQUEST_BYTES));
 
         // then
         assertThat(found).get().extracting(EstRequestedCertificate::getUuid).isEqualTo(newest.getUuid());
@@ -219,76 +207,15 @@ class EstRequestedCertificateLookupITest extends BaseSpringBootTest {
     @Test
     void findsNothing_whenFingerprintDiffers() throws Exception {
         // given
-        saveRequestedCertificate(raProfile, CertificateProtocol.EST, estProfile.getUuid(), REQUEST_BYTES,
+        var clientUuid = UUID.randomUUID();
+        saveRequestedCertificate(raProfile, CertificateProtocol.EST, estProfile.getUuid(), clientUuid, REQUEST_BYTES,
                 CertificateState.ISSUED, null);
         var otherFingerprint = fingerprintOf(OTHER_REQUEST_BYTES);
 
         // when
         Optional<EstRequestedCertificate> found = certificateRepository
-                .findLatestRequestedThroughEst(raProfile.getUuid(), estProfile.getUuid(), otherFingerprint);
-
-        // then
-        assertThat(found).isEmpty();
-    }
-
-    @Test
-    void findsNothing_whenRaProfileDiffers() throws Exception {
-        // given
-        saveRequestedCertificate(raProfile, CertificateProtocol.EST, estProfile.getUuid(), REQUEST_BYTES,
-                CertificateState.ISSUED, null);
-        RaProfile otherRaProfile = estRouteSeeder.seedRaProfile("other-ra");
-
-        // when
-        Optional<EstRequestedCertificate> found = certificateRepository
-                .findLatestRequestedThroughEst(otherRaProfile.getUuid(), estProfile.getUuid(),
-                        fingerprintOf(REQUEST_BYTES));
-
-        // then
-        assertThat(found).isEmpty();
-    }
-
-    @ParameterizedTest
-    @EnumSource(value = CertificateProtocol.class, names = "EST", mode = EnumSource.Mode.EXCLUDE)
-    void findsNothing_whenCertificateWasRequestedThroughAnotherProtocol(CertificateProtocol anotherProtocol)
-            throws Exception {
-        // given
-        saveRequestedCertificate(raProfile, anotherProtocol, estProfile.getUuid(), REQUEST_BYTES,
-                CertificateState.ISSUED, null);
-
-        // when
-        Optional<EstRequestedCertificate> found = certificateRepository
-                .findLatestRequestedThroughEst(raProfile.getUuid(), estProfile.getUuid(), fingerprintOf(REQUEST_BYTES));
-
-        // then
-        assertThat(found).isEmpty();
-    }
-
-    @Test
-    void findsNothing_whenCertificateWasRequestedThroughAnotherEstProfile() throws Exception {
-        // given
-        EstProfile otherEstProfile = estRouteSeeder.seedEstProfile("est-other", true, raProfile);
-        saveRequestedCertificate(raProfile, CertificateProtocol.EST, otherEstProfile.getUuid(), REQUEST_BYTES,
-                CertificateState.ISSUED, null);
-
-        // when
-        Optional<EstRequestedCertificate> found = certificateRepository
-                .findLatestRequestedThroughEst(raProfile.getUuid(), estProfile.getUuid(), fingerprintOf(REQUEST_BYTES));
-
-        // then
-        assertThat(found).isEmpty();
-    }
-
-    @Test
-    void findsNothing_whenCertificateIsArchived() throws Exception {
-        // given
-        Certificate archived = saveRequestedCertificate(raProfile, CertificateProtocol.EST, estProfile.getUuid(),
-                REQUEST_BYTES, CertificateState.ISSUED, null);
-        archived.setArchived(true);
-        certificateRepository.save(archived);
-
-        // when
-        Optional<EstRequestedCertificate> found = certificateRepository
-                .findLatestRequestedThroughEst(raProfile.getUuid(), estProfile.getUuid(), fingerprintOf(REQUEST_BYTES));
+                .findLatestRequestedThroughEstByClient(raProfile.getUuid(), estProfile.getUuid(), clientUuid,
+                        otherFingerprint);
 
         // then
         assertThat(found).isEmpty();

@@ -218,11 +218,11 @@ class EstEnrollmentAuditITest extends BaseSpringBootTest {
         estController.simpleEnroll(sharedProfile.getName(), request);
 
         // then
-        LogRecord record = theEnrolmentRecord();
-        assertThat(record.operationData())
+        LogRecord enrolmentRecord = theEnrolmentRecord();
+        assertThat(enrolmentRecord.operationData())
                 .isEqualTo(new EstEnrollmentAudit(sharedProfile.getName(), EstAuthenticationPolicy.RA_BASIC,
                         "secret:" + otherCredential.getUuid(), EstEnrollmentAudit.ISSUED));
-        assertThat(record.resource().objects())
+        assertThat(enrolmentRecord.resource().objects())
                 .extracting(ResourceObjectIdentity::uuid)
                 .doesNotContain(firstCertificateUuid)
                 .hasSize(1);
