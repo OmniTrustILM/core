@@ -14,18 +14,22 @@ import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.service.impl.SettingServiceImpl;
 import com.otilm.core.settings.SettingsCache;
 import java.util.List;
+import java.util.stream.Stream;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Named;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Named.named;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -235,12 +239,12 @@ class SettingServiceMockedTest {
                 .hasMessageContaining("The resource for applications must not contain credentials.");
     }
 
-    @Test
-    void refusesApplications_whenEnabledIssuerUrlCarriesCredentials() {
+    @ParameterizedTest
+    @MethodSource("unpublishableIssuers")
+    void refusesApplications_whenEnabledIssuerUrlCannotBePublished(String unpublishableIssuer) {
         // given
-        var issuerWithCredentials = "https://user:secret@idp.example.com/realms/ILM";
         var providerSettings = providerWithApplications(applications(true));
-        providerSettings.setIssuerUrl(issuerWithCredentials);
+        providerSettings.setIssuerUrl(unpublishableIssuer);
 
         // when
         ThrowingCallable update = () -> settingService.updateOAuth2ProviderSettings("issuer", null, providerSettings);
@@ -248,10 +252,17 @@ class SettingServiceMockedTest {
         // then
         assertThatThrownBy(update)
                 .isInstanceOf(ValidationException.class)
-                .hasMessageContaining("Sign-in for applications requires an issuer URL without credentials.");
+                .hasMessageContaining("Sign-in for applications requires a valid issuer URL without credentials.");
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    static Stream<Named<String>> unpublishableIssuers() {
+        return Stream
+                .of(named("credentials", "https://user:secret@idp.example.com/realms/ILM"),
+                        named("credentials on a registry-based host", "https://user:secret@idp_internal.example/realm"),
+                        named("not a URI", "https://idp.example.com/realm with space"));
+    }
 
     private static OAuth2ApplicationSettingsDto applications(boolean enabled) {
         var applications = new OAuth2ApplicationSettingsDto();

@@ -5,8 +5,11 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.oauth2.server.resource.web.BearerTokenAuthenticationEntryPoint;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 /**
@@ -18,6 +21,11 @@ public final class ProtectedResourceChallenge {
     public static final String RESOURCE_PATH = "/api";
 
     public static final String METADATA_PATH = "/.well-known/oauth-protected-resource" + RESOURCE_PATH;
+
+    /** {@code GET} of the metadata, which is public and answers whatever credentials the request carries. */
+    public static final RequestMatcher METADATA_REQUEST = PathPatternRequestMatcher
+            .withDefaults()
+            .matcher(HttpMethod.GET, METADATA_PATH);
 
     private static final String BEARER = "Bearer";
 

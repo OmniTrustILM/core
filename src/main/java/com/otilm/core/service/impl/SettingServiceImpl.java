@@ -1166,8 +1166,8 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
         if (applications.isEnabled() && isBlank(settingsDto.getIssuerUrl())) {
             throw new ValidationException("Sign-in for applications requires the provider's issuer URL.");
         }
-        if (applications.isEnabled() && hasUserInfo(settingsDto.getIssuerUrl())) {
-            throw new ValidationException("Sign-in for applications requires an issuer URL without credentials.");
+        if (applications.isEnabled() && !isPublishableIssuer(settingsDto.getIssuerUrl())) {
+            throw new ValidationException("Sign-in for applications requires a valid issuer URL without credentials.");
         }
         applications.setName(blankToNull(applications.getName()));
         applications.setClientId(blankToNull(applications.getClientId()));
@@ -1214,9 +1214,14 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
         }
     }
 
-    private static boolean hasUserInfo(String url) {
+    /**
+     * The issuer is published to anyone, so it must parse and carry no credentials. The authority is checked rather
+     * than the user information, which a registry-based authority such as a host with an underscore does not expose.
+     */
+    private static boolean isPublishableIssuer(String url) {
         try {
-            return new URI(url.trim()).getRawUserInfo() != null;
+            String authority = new URI(url.trim()).getRawAuthority();
+            return authority != null && !authority.contains("@");
         } catch (URISyntaxException e) {
             return false;
         }

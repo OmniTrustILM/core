@@ -14,6 +14,7 @@ import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsDto;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
 import com.otilm.core.security.authn.PlatformAuthenticationException;
+import com.otilm.core.security.authn.ProtectedResourceChallenge;
 import com.otilm.core.service.AuditLogInternalService;
 import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.util.OAuth2Constants;
@@ -157,6 +158,25 @@ class OAuth2LoginFilterTest {
         // then
         assertThat(response.getStatus()).isEqualTo(401);
         assertThat(response.getHeader(HttpHeaders.WWW_AUTHENTICATE)).isEqualTo(expectedChallenge);
+    }
+
+    @Test
+    void passesTheMetadataReadThrough_whenItsSessionCouldNotBeRefreshed() throws Exception {
+        // given
+        configureProvider();
+        when(authorizedClientProvider.authorize(any()))
+                .thenThrow(new ClientAuthorizationException(new OAuth2Error("invalid_grant"), REGISTRATION_ID));
+        MockHttpServletRequest metadataRead = requestHolding(Instant.now().minusSeconds(60));
+        metadataRead.setRequestURI(ProtectedResourceChallenge.METADATA_PATH);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        FilterChain chain = mock(FilterChain.class);
+
+        // when
+        filter.doFilter(metadataRead, response, chain);
+
+        // then
+        assertThat(response.getStatus()).isEqualTo(200);
+        verify(chain).doFilter(metadataRead, response);
     }
 
     @Test

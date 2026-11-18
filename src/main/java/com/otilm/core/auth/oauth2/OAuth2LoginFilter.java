@@ -78,6 +78,12 @@ public class OAuth2LoginFilter extends OncePerRequestFilter {
         this.clientRegistrationRepository = clientRegistrationRepository;
     }
 
+    /** The protected resource metadata is public, so a stale session must not turn its read into a refusal. */
+    @Override
+    protected boolean shouldNotFilter(@NonNull HttpServletRequest request) {
+        return ProtectedResourceChallenge.METADATA_REQUEST.matches(request);
+    }
+
     @Override
     protected void doFilterInternal(@NonNull HttpServletRequest request, @NonNull HttpServletResponse response,
             @NonNull FilterChain filterChain) throws IOException {
