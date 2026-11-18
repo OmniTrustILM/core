@@ -353,6 +353,8 @@ class JwtDecoderITest extends BaseSpringBootTest {
         Assertions.assertTrue(exception.getMessage().contains("Token is not an instance of Signed JWT"));
     }
 
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
     private void corruptStoredProviderSettings() {
         Setting setting = settingRepository
                 .findBySectionAndCategoryAndName(SettingsSection.AUTHENTICATION,

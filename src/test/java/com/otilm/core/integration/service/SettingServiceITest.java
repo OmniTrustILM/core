@@ -53,6 +53,7 @@ import com.otilm.core.exception.PreconditionFailedException;
 import com.otilm.core.service.SettingExternalService;
 import com.otilm.core.service.TaggedOAuth2ProviderSettings;
 import com.otilm.core.service.impl.SettingServiceImpl;
+import com.otilm.core.settings.AuthenticationSettingsSnapshot;
 import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.LoopbackWireMock;
@@ -1296,7 +1297,7 @@ class SettingServiceITest extends BaseSpringBootTest {
         }
 
         @Test
-        void publishesNormalizedDelegates_inTheNextSnapshot() throws Exception {
+        void publishesNormalizedDelegatesToTheSnapshot_whenDelegatesArePaddedOrBlank() throws Exception {
             // given
             var provider = createProviderUpdateDto();
             provider.setAllowedDelegates(java.util.Arrays.asList(" mcp ", "", null, "worker"));
@@ -1306,7 +1307,7 @@ class SettingServiceITest extends BaseSpringBootTest {
             settingService.updateOAuth2ProviderSettings("delegation", null, provider);
 
             // then
-            var snapshot = com.otilm.core.settings.SettingsCache.getAuthenticationSnapshot();
+            AuthenticationSettingsSnapshot snapshot = SettingsCache.getAuthenticationSnapshot();
             assertThat(snapshot.settings().getOAuth2Providers().get("delegation").getAllowedDelegates())
                     .containsExactly("mcp", "worker");
         }
@@ -1344,10 +1345,16 @@ class SettingServiceITest extends BaseSpringBootTest {
             assertThat(settingService.getOAuth2ProviderSettings("invalid-delegation", false)).isNull();
         }
 
-        static Stream<Named<List<String>>> invalidDelegateLists() {
+        // ── Helpers ─────────────────────────────────────────────────────────────
+
+        private static Stream<Named<List<String>>> invalidDelegateLists() {
             return Stream
                     .of(named("duplicate after trimming", List.of("mcp", " mcp ")),
                             named("longer than 255 characters", List.of("a".repeat(256))));
+        }
+
+        private OAuth2ProviderSettingsDto findStoredProvider(String providerName) {
+            return settingService.getAuthenticationSettings(true).getOAuth2Providers().get(providerName);
         }
     }
 
@@ -1488,10 +1495,6 @@ class SettingServiceITest extends BaseSpringBootTest {
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────────
-
-    private OAuth2ProviderSettingsDto findStoredProvider(String providerName) {
-        return settingService.getAuthenticationSettings(true).getOAuth2Providers().get(providerName);
-    }
 
     private void storeOAuth2Provider(String providerName, OAuth2ProviderSettingsDto providerSettings)
             throws JsonProcessingException {

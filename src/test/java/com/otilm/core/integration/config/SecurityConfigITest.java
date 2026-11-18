@@ -247,7 +247,7 @@ class SecurityConfigITest extends BaseSpringBootTestNoAuth {
 
         // then
         response.andExpect(status().isUnauthorized());
-        assertThat(challengeOf(response)).isEqualTo(EXPECTED_CHALLENGE);
+        assertThat(extractChallenge(response)).isEqualTo(EXPECTED_CHALLENGE);
     }
 
     @Test
@@ -262,7 +262,7 @@ class SecurityConfigITest extends BaseSpringBootTestNoAuth {
 
         // then
         response.andExpect(status().isUnauthorized());
-        assertThat(challengeOf(response))
+        assertThat(extractChallenge(response))
                 .startsWith("Bearer error=\"invalid_token\"")
                 .endsWith(", resource_metadata=\"" + METADATA_URL + "\"")
                 .containsOnlyOnce("resource_metadata=");
@@ -294,7 +294,7 @@ class SecurityConfigITest extends BaseSpringBootTestNoAuth {
 
         // then
         response.andExpect(status().isUnauthorized());
-        assertThat(challengeOf(response)).isEqualTo(EXPECTED_CHALLENGE);
+        assertThat(extractChallenge(response)).isEqualTo(EXPECTED_CHALLENGE);
     }
 
     private void enableValidBearer() {
@@ -307,10 +307,6 @@ class SecurityConfigITest extends BaseSpringBootTestNoAuth {
                 .assertNull(cacheManager
                         .getCache(com.otilm.core.config.cache.CacheConfig.CERTIFICATE_AUTH_CACHE)
                         .get(com.otilm.core.security.authn.ForwardedCertificateFixtures.THUMBPRINT));
-    }
-
-    private static String challengeOf(ResultActions response) {
-        return response.andReturn().getResponse().getHeader(HttpHeaders.WWW_AUTHENTICATE);
     }
 
     @Test
@@ -583,4 +579,7 @@ class SecurityConfigITest extends BaseSpringBootTestNoAuth {
                                         """.formatted(userInfoUsername))));
     }
 
+    private static String extractChallenge(ResultActions response) {
+        return response.andReturn().getResponse().getHeader(HttpHeaders.WWW_AUTHENTICATE);
+    }
 }
