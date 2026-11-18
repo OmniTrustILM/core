@@ -332,6 +332,38 @@ class RequestAttributesCheckTest {
         }
 
         @Test
+        void acceptsAValueOutsideTheOptions_whenTheListIsExtensible() {
+            // given
+            var extensibleScope = definition(SCOPE, null);
+            extensibleScope.getProperties().setExtensibleList(true);
+            var definitions = new ContentSigningFormattingDefinitions(List.of(), List.of(extensibleScope));
+            var notAnOption = "amendment";
+
+            // when
+            ThrowingCallable check = () -> RequestAttributesCheck
+                    .requireAccepted(PROFILE_NAME, definitions, Set.of(SCOPE), List.of(value(SCOPE, notAnOption)));
+
+            // then
+            assertThatCode(check).doesNotThrowAnyException();
+        }
+
+        @Test
+        void acceptsAValueOtherThanTheDefault_whenTheAttributeIsNotAList() {
+            // given
+            var scopeWithADefault = definition(SCOPE, null);
+            scopeWithADefault.getProperties().setList(false);
+            var definitions = new ContentSigningFormattingDefinitions(List.of(), List.of(scopeWithADefault));
+            var notTheDefault = "amendment";
+
+            // when
+            ThrowingCallable check = () -> RequestAttributesCheck
+                    .requireAccepted(PROFILE_NAME, definitions, Set.of(SCOPE), List.of(value(SCOPE, notTheDefault)));
+
+            // then
+            assertThatCode(check).doesNotThrowAnyException();
+        }
+
+        @Test
         void leavesTheValueOutOfTheRefusal_whenItsDefinitionRefusesIt() {
             // given
             var notLettersOnly = "Prague 1";
