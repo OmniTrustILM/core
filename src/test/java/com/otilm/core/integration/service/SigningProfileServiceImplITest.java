@@ -1035,9 +1035,11 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                             .build());
 
             // then
-            List<ResponseAttribute> stored = assertInstanceOf(StaticKeyManagedSigningDto.class,
-                    created.getSigningScheme()).getSigningOperationAttributes();
-            assertEquals("32", extractStringAttrValue(stored, "pssSaltLength"));
+            assertThat(created.getSigningScheme())
+                    .isInstanceOfSatisfying(StaticKeyManagedSigningDto.class,
+                            scheme -> assertThat(
+                                    extractStringAttrValue(scheme.getSigningOperationAttributes(), "pssSaltLength"))
+                                    .isEqualTo("32"));
         }
 
         @Test
@@ -1053,11 +1055,12 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                     .build();
 
             // when
-            Executable create = () -> signingProfileService.createSigningProfile(request);
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService.createSigningProfile(request);
 
             // then
-            ValidationException failure = assertThrows(ValidationException.class, create);
-            assertTrue(firstErrorMessage(failure).contains("unpublished"), firstErrorMessage(failure));
+            assertThatThrownBy(create)
+                    .isInstanceOfSatisfying(ValidationException.class,
+                            failure -> assertThat(firstErrorMessage(failure)).contains("unpublished"));
         }
 
         @Test

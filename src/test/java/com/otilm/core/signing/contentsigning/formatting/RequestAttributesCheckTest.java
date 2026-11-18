@@ -47,6 +47,8 @@ class RequestAttributesCheckTest {
                     .of(definition(PAGE, VISIBLE_SIGNATURE), definition(TEXT, VISIBLE_SIGNATURE),
                             definition(LOCATION, null), definition(REASON, null), definition(SCOPE, null)));
 
+    // ── RequireAccepted ───────────────────────────────────────────────────────
+
     @Nested
     class RequireAccepted {
 
@@ -200,8 +202,12 @@ class RequestAttributesCheckTest {
         @Test
         void refusesAContentType_whenItDiffersFromTheDefinitions() {
             // given
-            var integerTypedString = new RequestAttributeV3(uuidOf(LOCATION), LOCATION, AttributeContentType.INTEGER,
-                    List.of(new StringAttributeContentV3("Prague")));
+            RequestAttributeV3 integerTypedString = aCustomAttribute()
+                    .withUuid(uuidOf(LOCATION))
+                    .withName(LOCATION)
+                    .withStringContent("Prague")
+                    .build();
+            integerTypedString.setContentType(AttributeContentType.INTEGER);
 
             // when
             ThrowingCallable check = () -> RequestAttributesCheck
@@ -272,8 +278,9 @@ class RequestAttributesCheckTest {
             var withoutFileName = new FileAttributeContentData();
             withoutFileName.setContent("aW1hZ2U=");
             withoutFileName.setMimeType("image/png");
-            var image = new RequestAttributeV3(uuidOf(SIGNER_IMAGE), SIGNER_IMAGE, AttributeContentType.FILE,
-                    List.of(new FileAttributeContentV3(null, withoutFileName)));
+            RequestAttributeV3 image = aCustomAttribute().withUuid(uuidOf(SIGNER_IMAGE)).withName(SIGNER_IMAGE).build();
+            image.setContentType(AttributeContentType.FILE);
+            image.setContent(List.of(new FileAttributeContentV3(null, withoutFileName)));
 
             // when
             ThrowingCallable check = () -> RequestAttributesCheck
@@ -373,6 +380,8 @@ class RequestAttributesCheckTest {
         }
     }
 
+    // ── UndeclaredAllowedNames ────────────────────────────────────────────────
+
     @Nested
     class UndeclaredAllowedNames {
 
@@ -459,7 +468,9 @@ class RequestAttributesCheckTest {
     }
 
     private static RequestAttribute attributeCarrying(String name, List<BaseAttributeContentV3<?>> content) {
-        return new RequestAttributeV3(uuidOf(name), name, AttributeContentType.STRING, content);
+        RequestAttributeV3 attribute = aCustomAttribute().withUuid(uuidOf(name)).withName(name).build();
+        attribute.setContent(content);
+        return attribute;
     }
 
     private static RequestAttribute v2Value(String name, String data) {

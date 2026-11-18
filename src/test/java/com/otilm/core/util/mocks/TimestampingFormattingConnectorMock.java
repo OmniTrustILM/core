@@ -7,13 +7,14 @@ import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.client.connector.v2.attribute.AttributeDefinitionsDto;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.content.data.ProtectionLevel;
-import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
+
+import static com.otilm.core.util.builders.DataAttributeV3Builder.aDataAttribute;
 
 /**
  * Mock of a V2 timestamping formatting connector — stubs {@code GET /v2/info} advertising
@@ -72,16 +73,10 @@ public class TimestampingFormattingConnectorMock extends BaseConnectorMock {
      */
     public TimestampingFormattingConnectorMock stubEncryptedReadOnlyAttributeDefinition(UUID attrUuid, String attrName,
             String fixedValue) {
-        DataAttributeV3 def = new DataAttributeV3();
-        def.setUuid(attrUuid.toString());
-        def.setName(attrName);
-        def.setContentType(AttributeContentType.STRING);
+        DataAttributeV3 def = aDataAttribute().withUuid(attrUuid).withName(attrName).build();
         def.setContent(List.of(new StringAttributeContentV3(fixedValue)));
-        DataAttributeProperties props = new DataAttributeProperties();
-        props.setLabel(attrName);
-        props.setReadOnly(true);
-        props.setProtectionLevel(ProtectionLevel.ENCRYPTED);
-        def.setProperties(props);
+        def.getProperties().setReadOnly(true);
+        def.getProperties().setProtectionLevel(ProtectionLevel.ENCRYPTED);
         return stubAttributeDefinitions(List.of(def));
     }
 
@@ -92,14 +87,9 @@ public class TimestampingFormattingConnectorMock extends BaseConnectorMock {
 
     private static DataAttributeV3 definition(UUID attrUuid, String attrName, AttributeContentType contentType,
             boolean required) {
-        DataAttributeV3 def = new DataAttributeV3();
-        def.setUuid(attrUuid.toString());
-        def.setName(attrName);
+        DataAttributeV3 def = aDataAttribute().withUuid(attrUuid).withName(attrName).build();
         def.setContentType(contentType);
-        DataAttributeProperties props = new DataAttributeProperties();
-        props.setLabel(attrName);
-        props.setRequired(required);
-        def.setProperties(props);
+        def.getProperties().setRequired(required);
         return def;
     }
 

@@ -7,8 +7,6 @@ import com.github.tomakehurst.wiremock.client.WireMock;
 import com.otilm.api.clients.signing.contentsigning.ContentSigningFormattingPaths;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
-import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
-import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.error.ErrorCode;
@@ -29,6 +27,8 @@ import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.util.unit.DataSize;
+
+import static com.otilm.core.util.builders.DataAttributeV3Builder.aDataAttribute;
 
 /**
  * Mock of a V2 content-signing formatting connector, backing {@code CONTENT_SIGNING} workflow profiles. It serves
@@ -383,14 +383,8 @@ public class ContentSigningFormattingMock extends BaseConnectorMock {
     }
 
     private static DataAttributeV3 attributeDefinition(UUID attrUuid, String attrName, boolean required) {
-        DataAttributeV3 def = new DataAttributeV3();
-        def.setUuid(attrUuid.toString());
-        def.setName(attrName);
-        def.setContentType(AttributeContentType.STRING);
-        DataAttributeProperties props = new DataAttributeProperties();
-        props.setLabel(attrName);
-        props.setRequired(required);
-        def.setProperties(props);
+        DataAttributeV3 def = aDataAttribute().withUuid(attrUuid).withName(attrName).build();
+        def.getProperties().setRequired(required);
         return def;
     }
 }
