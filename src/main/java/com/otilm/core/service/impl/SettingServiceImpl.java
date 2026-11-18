@@ -1168,7 +1168,7 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
         }
         if (applications.isEnabled() && !isPublishableIssuer(settingsDto.getIssuerUrl())) {
             throw new ValidationException(
-                    "Sign-in for applications requires an http or https issuer URL without credentials, query or fragment.");
+                    "Sign-in for applications requires an http or https issuer URL with a valid host name and without credentials, query or fragment.");
         }
         applications.setName(blankToNull(applications.getName()));
         applications.setClientId(blankToNull(applications.getClientId()));
@@ -1216,9 +1216,9 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
     }
 
     /**
-     * The issuer is published to anyone as an OAuth issuer identifier, so it must be an http or https URI with a server
-     * host and no credentials, query or fragment. The authority is checked for credentials rather than the user
-     * information, which a registry-based authority such as a host with an underscore does not expose.
+     * The issuer is published to anyone as an OAuth issuer identifier, so it must be an http or https URI with a valid
+     * host name and no credentials, query or fragment. A host {@code java.net.URI} cannot parse, such as one with an
+     * underscore, leaves no host and is refused.
      */
     private static boolean isPublishableIssuer(String url) {
         URI issuer;
@@ -1229,9 +1229,8 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
         }
         String scheme = issuer.getScheme();
         boolean http = "http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme);
-        String authority = issuer.getRawAuthority();
-        return http && issuer.getHost() != null && authority != null && !authority.contains("@")
-                && issuer.getRawQuery() == null && issuer.getRawFragment() == null;
+        return http && issuer.getHost() != null && issuer.getRawUserInfo() == null && issuer.getRawQuery() == null
+                && issuer.getRawFragment() == null;
     }
 
     private static boolean isBlank(String value) {

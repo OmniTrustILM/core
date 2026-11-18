@@ -254,7 +254,7 @@ class SettingServiceMockedTest {
         assertThatThrownBy(update)
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining(
-                        "Sign-in for applications requires an http or https issuer URL without credentials, query or fragment.");
+                        "Sign-in for applications requires an http or https issuer URL with a valid host name and without credentials, query or fragment.");
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -262,7 +262,7 @@ class SettingServiceMockedTest {
     private static Stream<Named<String>> unpublishableIssuers() {
         return Stream
                 .of(named("credentials", "https://user:secret@idp.example.com/realms/ILM"),
-                        named("credentials on a registry-based host", "https://user:secret@idp_internal.example/realm"),
+                        named("a host name with an underscore", "https://idp_internal.example/realm"),
                         named("not a URI", "https://idp.example.com/realm with space"),
                         named("not http or https", "ftp://idp.example.com/realm"),
                         named("a query", "https://idp.example.com/realm?tenant=a"),
