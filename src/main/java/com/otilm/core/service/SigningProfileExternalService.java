@@ -81,17 +81,17 @@ public interface SigningProfileExternalService {
             throws NotFoundException, ConnectorException, AttributeException;
 
     /**
-     * Lists the formatting attribute descriptors a content-signing profile of this family and ceiling can reach. The
+     * Lists the formatting attribute descriptors a content-signing profile of this family and level reaches. The
      * descriptors a signing request may set come back apart from the rest.
      *
      * @param connectorUuid the Signature Formatting Provider to ask
      * @param family the family the profile produces, which the provider must advertise
-     * @param maxLevel the profile's ceiling, which decides the operations the merge covers
+     * @param level the profile's level, which decides the operations the merge covers
      * @param signingProfileUuid authorization only, and absent while the profile is still being created
      * @return the descriptors merged by name, in the order the reachable operations declare them
      */
     ContentSigningFormattingAttributesDto listContentSigningFormattingConnectorAttributes(UUID connectorUuid,
-            String family, SignatureLevel maxLevel, SecuredUUID signingProfileUuid)
+            String family, SignatureLevel level, SecuredUUID signingProfileUuid)
             throws NotFoundException, ConnectorException, AttributeException;
 
     PaginationResponseDto<SigningRecordListDto> listSigningRecordsForSigningProfile(SecuredUUID uuid,

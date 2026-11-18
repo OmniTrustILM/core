@@ -14,14 +14,14 @@ import java.util.UUID;
  * @param signatureFormattingConnectorUuid UUID of the Signature Formatting Provider.
  * @param signatureFormattingConnectorAttributes Attributes controlling DTBS construction.
  * @param family Signature family this profile produces.
- * @param maxLevel Highest level a request may ask for.
+ * @param level Signature level at which the profile signs every document.
  * @param timestampSourceProfileUuid TIMESTAMPING Signing Profile that issues the embedded timestamps. Time quality is
  * gated on that profile's own configuration; a content-signing profile never names one directly.
  * @param certificatePurpose Per-profile constraints on what the signing certificate is for.
  * @param allowedRequestAttributes Names of the groups and ungrouped request attributes a signing request may set.
  */
 public record ManagedContentSigningWorkflow(UUID signatureFormattingConnectorUuid,
-        List<RequestAttribute> signatureFormattingConnectorAttributes, String family, SignatureLevel maxLevel,
+        List<RequestAttribute> signatureFormattingConnectorAttributes, String family, SignatureLevel level,
         UUID timestampSourceProfileUuid, CertificatePurposeRequirements certificatePurpose,
         Set<String> allowedRequestAttributes) implements ContentSigningWorkflow {
 }

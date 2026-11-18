@@ -29,7 +29,7 @@ public final class ResolvedManagedContentSigningProfileBuilder {
     private SignatureFamilyDeclarationDto familyDeclaration = SignatureFamilyDeclarationDtoBuilder
             .aFamilyDeclaration(SignatureFamilyFixtures.PADES)
             .build();
-    private SignatureLevel maxLevel = SignatureLevel.TIMESTAMPED;
+    private SignatureLevel level = SignatureLevel.TIMESTAMPED;
     private String timestampSourceProfileName = "internal-tsa";
     private CertificatePurposeRequirements certificatePurpose = CertificatePurposeRequirements.NONE;
     private ApiClientConnectorInfo signatureFormattingConnector = null;
@@ -87,8 +87,8 @@ public final class ResolvedManagedContentSigningProfileBuilder {
         return this;
     }
 
-    public ResolvedManagedContentSigningProfileBuilder withMaxLevel(SignatureLevel maxLevel) {
-        this.maxLevel = maxLevel;
+    public ResolvedManagedContentSigningProfileBuilder withLevel(SignatureLevel level) {
+        this.level = level;
         return this;
     }
 
@@ -117,7 +117,7 @@ public final class ResolvedManagedContentSigningProfileBuilder {
 
     public ResolvedManagedContentSigningProfile build() {
         return new ResolvedManagedContentSigningProfile(uuid, name, description, version, enabled, enabledProtocols,
-                signatureFormattingConnectorAttributes, familyDeclaration, maxLevel, timestampSourceProfileName,
+                signatureFormattingConnectorAttributes, familyDeclaration, level, timestampSourceProfileName,
                 certificatePurpose, signatureFormattingConnector, resolvedScheme);
     }
 

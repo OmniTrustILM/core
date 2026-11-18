@@ -155,16 +155,16 @@ class FormattingAttributeDefinitionsTest {
         }
 
         @Test
-        void readsTheOperationsUpToTheMaximumLevel_whenTheProfileSignsContent() throws Exception {
+        void readsTheOperationsTheLevelReaches_whenTheProfileSignsContent() throws Exception {
             // given
-            var maxLevel = SignatureLevel.TIMESTAMPED;
+            var level = SignatureLevel.TIMESTAMPED;
             when(contentSigningFormattingAttributes.aggregate(any(), any())).thenReturn(NO_DEFINITIONS);
 
             // when
-            definitions.forContentSigning(formatter, contentSigningWorkflowAt(maxLevel));
+            definitions.forContentSigning(formatter, contentSigningWorkflowAt(level));
 
             // then
-            verify(contentSigningFormattingAttributes).aggregate(formatter, maxLevel);
+            verify(contentSigningFormattingAttributes).aggregate(formatter, level);
         }
     }
 
@@ -302,7 +302,7 @@ class FormattingAttributeDefinitionsTest {
                 AuthType.NONE, List.of(), null);
     }
 
-    private ManagedContentSigningWorkflow contentSigningWorkflowAt(SignatureLevel maxLevel) {
-        return new ManagedContentSigningWorkflow(connectorUuid, List.of(), null, maxLevel, null, null, null);
+    private ManagedContentSigningWorkflow contentSigningWorkflowAt(SignatureLevel level) {
+        return new ManagedContentSigningWorkflow(connectorUuid, List.of(), null, level, null, null, null);
     }
 }
