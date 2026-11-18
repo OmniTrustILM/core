@@ -48,7 +48,7 @@ class AugmentationRequestTest {
     }
 
     @Test
-    void copiesTheDocumentInAndOutSoNeitherSideCanAlterWhatIsAugmented() {
+    void keepsTheDocumentItWasGiven_whenEitherSideMutatesItsBuffer() {
         // given: a buffer the caller still holds
         byte[] caller = FOREIGN_DOCUMENT.clone();
         AugmentationRequest request = new AugmentationRequest(caller, null);

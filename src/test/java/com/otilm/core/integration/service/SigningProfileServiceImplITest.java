@@ -1594,22 +1594,6 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                                     .containsExactlyInAnyOrder(allowedGroup, allowedUngroupedAttribute));
         }
 
-        static Stream<Arguments> ladderFields() {
-            return Stream
-                    .of(Arguments
-                            .of("family",
-                                    (UnaryOperator<ContentSigningWorkflowRequestDtoBuilder>) b -> b
-                                            .withFamily(SignatureFamilyFixtures.PADES)),
-                            Arguments
-                                    .of("level",
-                                            (UnaryOperator<ContentSigningWorkflowRequestDtoBuilder>) b -> b
-                                                    .withLevel(SignatureLevel.TIMESTAMPED)),
-                            Arguments
-                                    .of("timestampSource",
-                                            (UnaryOperator<ContentSigningWorkflowRequestDtoBuilder>) b -> b
-                                                    .withInternalTimestampSource(UUID.randomUUID())));
-        }
-
         @ParameterizedTest(name = "{0}")
         @MethodSource("ladderFields")
         void rejectsTheLadderField_whenTheSchemeIsDelegated(String field,
@@ -1939,6 +1923,22 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                             .withLevel(SignatureLevel.SIGNED)
                             .build())
                     .build();
+        }
+
+        static Stream<Arguments> ladderFields() {
+            return Stream
+                    .of(Arguments
+                            .of("family",
+                                    (UnaryOperator<ContentSigningWorkflowRequestDtoBuilder>) b -> b
+                                            .withFamily(SignatureFamilyFixtures.PADES)),
+                            Arguments
+                                    .of("level",
+                                            (UnaryOperator<ContentSigningWorkflowRequestDtoBuilder>) b -> b
+                                                    .withLevel(SignatureLevel.TIMESTAMPED)),
+                            Arguments
+                                    .of("timestampSource",
+                                            (UnaryOperator<ContentSigningWorkflowRequestDtoBuilder>) b -> b
+                                                    .withInternalTimestampSource(UUID.randomUUID())));
         }
     }
 
@@ -3663,7 +3663,8 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             // then: the operations declaring one shared name merge into one entry
             assertThat(discovered.getProfileAttributes()).extracting(BaseAttribute::getName).containsExactly(attrName);
 
-            // and: a profile built from that answer saves, which is the whole contract of the endpoint
+            // when: a profile is built from that answer, which is the whole contract of the endpoint
+            BaseAttribute discoveredAttribute = discovered.getProfileAttributes().getFirst();
             SigningProfileDto created = signingProfileService
                     .createSigningProfile(aSigningProfileRequest()
                             .withName("profile-built-from-discovery")
@@ -3673,10 +3674,13 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                                             UUID.fromString(contentSigningFormattingConnector.getUuid()))
                                     .withFamily(SignatureFamilyFixtures.PADES)
                                     .withLevel(SignatureLevel.SIGNED)
-                                    .withSignatureFormattingConnectorAttributes(
-                                            List.of(aStringAttribute(attrUuid, attrName, "discoveredValue")))
+                                    .withSignatureFormattingConnectorAttributes(List
+                                            .of(aStringAttribute(UUID.fromString(discoveredAttribute.getUuid()),
+                                                    discoveredAttribute.getName(), "discoveredValue")))
                                     .build())
                             .build());
+
+            // then: the profile saves with the value set on the discovered attribute
             assertThat(created.getWorkflow())
                     .isInstanceOfSatisfying(ContentSigningWorkflowDto.class,
                             workflow -> assertThat(extractStringAttrValue(
