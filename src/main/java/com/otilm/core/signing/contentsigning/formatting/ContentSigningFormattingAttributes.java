@@ -66,8 +66,8 @@ public class ContentSigningFormattingAttributes {
             throws ConnectorException, ValidationException {
         Map<ContentSigningFormattingOperation, ContentSigningFormattingAttributesDto> listings = listings(connector,
                 level);
-        requireRequestAttributeRules(listings);
-        return merged(listings);
+        List<DataAttribute> declaredRequestAttributes = validatedRequestAttributeDefinitions(listings);
+        return merged(listings, declaredRequestAttributes);
     }
 
     private Map<ContentSigningFormattingOperation, ContentSigningFormattingAttributesDto> listings(
@@ -82,12 +82,14 @@ public class ContentSigningFormattingAttributes {
     }
 
     /** Checks the rules that let a request attribute be named, allowed and overridden without ambiguity. */
-    private static void requireRequestAttributeRules(
+    private static List<DataAttribute> validatedRequestAttributeDefinitions(
             Map<ContentSigningFormattingOperation, ContentSigningFormattingAttributesDto> listings) {
         requireRequestAttributesOnlyOnComputeDtbs(listings);
         List<DataAttribute> declaredRequestDataAttributes = requireRequestAttributesAreData(listings);
         requireProfileAndRequestNamesDistinct(listings);
+        requireNoBlankGroup(declaredRequestDataAttributes);
         requireNoGroupNamedAsARequestAttribute(declaredRequestDataAttributes);
+        return declaredRequestDataAttributes;
     }
 
     /** A request attribute's value travels on computeDtbs alone. */
@@ -133,6 +135,20 @@ public class ContentSigningFormattingAttributes {
         }
     }
 
+    /**
+     * A profile allows a grouped request attribute by its group. The group therefore needs a name a profile can list.
+     */
+    private static void requireNoBlankGroup(List<DataAttribute> declaredRequestDataAttributes) {
+        for (DataAttribute declared : declaredRequestDataAttributes) {
+            String group = groupOf(declared);
+            if (group != null && group.isBlank()) {
+                throw new ValidationException(
+                        "Signature Formatting Provider groups request attribute '%s' under a blank name; a group needs a name a Signing Profile can allow"
+                                .formatted(declared.getName()));
+            }
+        }
+    }
+
     private static void requireNoGroupNamedAsARequestAttribute(List<DataAttribute> declaredRequestDataAttributes) {
         Set<String> requestNames = declaredRequestDataAttributes
                 .stream()
@@ -148,50 +164,21 @@ public class ContentSigningFormattingAttributes {
         }
     }
 
-    private static String groupOf(DataAttribute requestAttribute) {
+    static String groupOf(DataAttribute requestAttribute) {
         return requestAttribute.getProperties() == null ? null : requestAttribute.getProperties().getGroup();
     }
 
     private static ContentSigningFormattingDefinitions merged(
-            Map<ContentSigningFormattingOperation, ContentSigningFormattingAttributesDto> listings) {
-        Map<String, BaseAttribute> profileAttributesByName = new LinkedHashMap<>();
-        Map<String, BaseAttribute> requestAttributesByName = new LinkedHashMap<>();
-        listings.forEach((operation, listing) -> {
-            for (BaseAttribute declared : safe(listing.getProfileAttributes())) {
-                mergeOne(profileAttributesByName, declared, operation);
-            }
-            for (BaseAttribute declared : safe(listing.getRequestAttributes())) {
-                mergeOne(requestAttributesByName, declared, operation);
-            }
-        });
-        List<BaseAttribute> profileAttributes = List.copyOf(profileAttributesByName.values());
-        List<BaseAttribute> requestAttributes = List.copyOf(requestAttributesByName.values());
-        return new ContentSigningFormattingDefinitions(profileAttributes, requestAttributes);
-    }
-
-    private static void mergeOne(Map<String, BaseAttribute> merged, BaseAttribute declared,
-            ContentSigningFormattingOperation operation) {
-        BaseAttribute existing = merged.putIfAbsent(declared.getName(), declared);
-        if (existing != null && !sameDefinition(existing, declared)) {
-            throw new ValidationException(
-                    "Signature Formatting Provider declares formatting attribute '%s' differently for operation '%s' than for an earlier operation; a shared name must carry one shared definition"
-                            .formatted(declared.getName(), operation.getCode()));
-        }
-    }
-
-    private static boolean sameDefinition(BaseAttribute existing, BaseAttribute declared) {
-        if (existing == declared) {
-            return true;
-        }
-        try {
-            return CANONICAL_FORM.writeValueAsString(existing).equals(CANONICAL_FORM.writeValueAsString(declared));
-        } catch (JsonProcessingException e) {
-            // Our own serialization fault, so it must not surface as the caller's "the connector declares it
-            // differently" message, which sends the operator to the wrong vendor.
-            throw new IllegalStateException(
-                    "Failed to render formatting attribute '%s' to its canonical form".formatted(declared.getName()),
-                    e);
-        }
+            Map<ContentSigningFormattingOperation, ContentSigningFormattingAttributesDto> listings,
+            List<DataAttribute> declaredRequestAttributes) {
+        ByName<BaseAttribute> profileAttributes = new ByName<>();
+        listings
+                .forEach((operation, listing) -> safe(listing.getProfileAttributes())
+                        .forEach(declared -> profileAttributes.add(declared, operation)));
+        ByName<DataAttribute> requestAttributes = new ByName<>();
+        declaredRequestAttributes
+                .forEach(declared -> requestAttributes.add(declared, ContentSigningFormattingOperation.COMPUTE_DTBS));
+        return new ContentSigningFormattingDefinitions(profileAttributes.attributes(), requestAttributes.attributes());
     }
 
     private static List<BaseAttribute> declaredProfileAttributes(
@@ -206,5 +193,49 @@ public class ContentSigningFormattingAttributes {
 
     private static List<BaseAttribute> safe(List<BaseAttribute> declared) {
         return declared == null ? List.of() : declared;
+    }
+
+    /** Formatting attributes merged by name, each kept with the operation that declared it first. */
+    private static final class ByName<A extends BaseAttribute> {
+
+        private record Declaration<A>(A attribute, ContentSigningFormattingOperation operation) {
+        }
+
+        private final Map<String, Declaration<A>> declarations = new LinkedHashMap<>();
+
+        void add(A declared, ContentSigningFormattingOperation operation) {
+            Declaration<A> first = declarations.putIfAbsent(declared.getName(), new Declaration<>(declared, operation));
+            if (first != null && !sameDefinition(first.attribute(), declared)) {
+                throw new ValidationException(
+                        conflictingDefinitionsMessage(declared.getName(), first.operation(), operation));
+            }
+        }
+
+        List<A> attributes() {
+            return declarations.values().stream().map(Declaration::attribute).toList();
+        }
+
+        private static String conflictingDefinitionsMessage(String name,
+                ContentSigningFormattingOperation firstDeclarer, ContentSigningFormattingOperation operation) {
+            return firstDeclarer == operation
+                    ? "Signature Formatting Provider declares formatting attribute '%s' twice for operation '%s', with different definitions; a name must carry one definition"
+                            .formatted(name, operation.getCode())
+                    : "Signature Formatting Provider declares formatting attribute '%s' differently for operation '%s' than for operation '%s'; a shared name must carry one shared definition"
+                            .formatted(name, operation.getCode(), firstDeclarer.getCode());
+        }
+
+        private static boolean sameDefinition(BaseAttribute existing, BaseAttribute declared) {
+            if (existing == declared) {
+                return true;
+            }
+            try {
+                return CANONICAL_FORM.writeValueAsString(existing).equals(CANONICAL_FORM.writeValueAsString(declared));
+            } catch (JsonProcessingException e) {
+                // Our own serialization fault, so it must not surface as the caller's "the connector declares it
+                // differently" message, which sends the operator to the wrong vendor.
+                throw new IllegalStateException("Failed to render formatting attribute '%s' to its canonical form"
+                        .formatted(declared.getName()), e);
+            }
+        }
     }
 }

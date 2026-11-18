@@ -8,7 +8,9 @@ import com.otilm.api.model.connector.signatures.contentsigning.declaration.Signa
 import com.otilm.api.model.connector.signatures.contentsigning.declaration.SignatureLevelDeclarationDto;
 import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.core.model.signing.CertificatePurposeRequirements;
+import com.otilm.core.signing.contentsigning.formatting.ContentSigningFormattingDefinitions;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -21,6 +23,8 @@ import java.util.UUID;
  * @param enabled Whether the profile is enabled.
  * @param enabledProtocols Enabled protocols.
  * @param signatureFormattingConnectorAttributes Attributes controlling DTBS construction.
+ * @param formattingDefinitions The formatter's listing of profile and request attributes.
+ * @param allowedRequestAttributes Names of the groups and ungrouped request attributes a signing request may set.
  * @param familyDeclaration The formatting connector's declaration of the family this profile produces.
  * @param level Signature level at which the profile signs every document.
  * @param timestampSourceProfileName Name of the TIMESTAMPING profile that issues embedded timestamps, or {@code null}.
@@ -30,9 +34,10 @@ import java.util.UUID;
  */
 public record ResolvedManagedContentSigningProfile(UUID uuid, String name, String description, int version,
         boolean enabled, List<SigningProtocol> enabledProtocols,
-        List<RequestAttribute> signatureFormattingConnectorAttributes, SignatureFamilyDeclarationDto familyDeclaration,
-        SignatureLevel level, String timestampSourceProfileName, CertificatePurposeRequirements certificatePurpose,
-        ApiClientConnectorInfo signatureFormattingConnector,
+        List<RequestAttribute> signatureFormattingConnectorAttributes,
+        ContentSigningFormattingDefinitions formattingDefinitions, Set<String> allowedRequestAttributes,
+        SignatureFamilyDeclarationDto familyDeclaration, SignatureLevel level, String timestampSourceProfileName,
+        CertificatePurposeRequirements certificatePurpose, ApiClientConnectorInfo signatureFormattingConnector,
         ResolvedManagedScheme resolvedScheme) implements ResolvedSigningProfile {
 
     @Override

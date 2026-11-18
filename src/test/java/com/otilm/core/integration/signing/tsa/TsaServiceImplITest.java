@@ -4,7 +4,6 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.interfaces.core.tsp.error.TspException;
 import com.otilm.api.interfaces.core.tsp.error.TspFailureInfo;
 import com.otilm.api.model.client.attribute.RequestAttribute;
-import com.otilm.api.model.client.attribute.RequestAttributeV2;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.client.signing.profile.SigningProfileDto;
 import com.otilm.api.model.client.signing.profile.SigningProfileRequestDto;
@@ -12,7 +11,6 @@ import com.otilm.api.model.client.signing.profile.record.SigningRecordPersistenc
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.attribute.common.DataAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
-import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.core.connector.v2.ConnectorDetailDto;
@@ -63,6 +61,7 @@ import static com.otilm.core.signing.tsa.messages.TspRequestBuilder.aTspRequest;
 import static com.otilm.core.util.builders.ConnectorRequestDtoBuilder.aV1ConnectorRequest;
 import static com.otilm.core.util.builders.ConnectorRequestDtoBuilder.aV2ConnectorRequest;
 import static com.otilm.core.util.builders.KeyPairRequestDtoBuilder.aKeyPairRequest;
+import static com.otilm.core.util.builders.RequestAttributeV3Builder.aCustomAttribute;
 import static com.otilm.core.util.builders.SearchRequestDtoBuilder.aSearchRequest;
 import static com.otilm.core.util.builders.SigningProfileRequestDtoBuilder.aSigningProfileRequest;
 import static com.otilm.core.util.builders.SigningRecordPolicyRequestDtoBuilder.aSigningRecordPolicyRequest;
@@ -665,12 +664,11 @@ class TsaServiceImplITest extends BaseSpringBootTest {
         // ── Helpers ───────────────────────────────────────────────────────────
 
         private static RequestAttribute policyAttribute(String value) {
-            RequestAttributeV2 attribute = new RequestAttributeV2();
-            attribute.setUuid(POLICY_ATTRIBUTE_UUID);
-            attribute.setName(POLICY_ATTRIBUTE_NAME);
-            attribute.setContentType(AttributeContentType.STRING);
-            attribute.setContent(List.of(new StringAttributeContentV2(value, value)));
-            return attribute;
+            return aCustomAttribute()
+                    .withUuid(POLICY_ATTRIBUTE_UUID)
+                    .withName(POLICY_ATTRIBUTE_NAME)
+                    .withStringContent(value)
+                    .build();
         }
 
         private void updateFormattingAttributes(SigningProfileDto profile, List<RequestAttribute> formattingAttributes)
