@@ -3193,35 +3193,6 @@ class AttributeEngineITest extends BaseSpringBootTest {
         }
     }
 
-    private void publish(UUID connectorUuid, String operation, DataAttributeV3 definition) {
-        try {
-            attributeEngine.updateDataAttributeDefinitions(connectorUuid, operation, List.of(definition));
-        } catch (AttributeException e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
-    private String storedOperation(UUID connectorUuid, DataAttributeV3 definition) {
-        return storedDefinition(connectorUuid, definition).getOperation();
-    }
-
-    private AttributeDefinition storedDefinition(UUID connectorUuid, DataAttributeV3 definition) {
-        return attributeDefinitionRepository
-                .findByTypeAndConnectorUuidAndAttributeUuidAndName(AttributeType.DATA, connectorUuid,
-                        UUID.fromString(definition.getUuid()), definition.getName())
-                .orElseThrow();
-    }
-
-    private RequestAttributeV3 registerDataAttributeWithValue(String name) throws AttributeException {
-        DataAttributeV3 attribute = aDataAttribute().withName(name).build();
-        attributeEngine.updateDataAttributeDefinitions(null, null, List.of(attribute));
-        return aCustomAttribute()
-                .withUuid(attribute.getUuid())
-                .withName(name)
-                .withStringContent(name + "-value")
-                .build();
-    }
-
     // ── DefinitionRewrites ────────────────────────────────────────────────────
 
     @Nested
@@ -3260,15 +3231,35 @@ class AttributeEngineITest extends BaseSpringBootTest {
             // given
             UUID attributeUuid = UUID.randomUUID();
             var secretDefault = "secret default";
-            inNewTransaction(
-                    () -> register(encrypted(withDefaultValue(anIssueAttribute(attributeUuid), secretDefault))));
+            inNewTransaction(() -> register(
+                    withEncryptedProtection(withDefaultValue(anIssueAttribute(attributeUuid), secretDefault))));
 
             // when
-            long updates = countDefinitionUpdates(
-                    () -> register(encrypted(withDefaultValue(anIssueAttribute(attributeUuid), secretDefault))));
+            long updates = countDefinitionUpdates(() -> register(
+                    withEncryptedProtection(withDefaultValue(anIssueAttribute(attributeUuid), secretDefault))));
 
             // then
             assertThat(updates).isZero();
+        }
+
+        @Test
+        void handsBackPlaceholders_whenConnectorResubmitsUnchangedEncryptedDefaultContent() {
+            // given
+            UUID attributeUuid = UUID.randomUUID();
+            var secretDefault = "secret default";
+            inNewTransaction(() -> register(
+                    withEncryptedProtection(withDefaultValue(anIssueAttribute(attributeUuid), secretDefault))));
+            DataAttributeV2 resubmitted = withEncryptedProtection(
+                    withDefaultValue(anIssueAttribute(attributeUuid), secretDefault));
+
+            // when
+            inNewTransaction(() -> register(resubmitted));
+
+            // then
+            assertThat(resubmitted.getContent()).singleElement().satisfies(content -> {
+                assertThat(content.getReference()).isEqualTo(DEFAULT_CONTENT_REFERENCE);
+                assertThat(content.getData()).isNull();
+            });
         }
 
         @Test
@@ -3289,7 +3280,27 @@ class AttributeEngineITest extends BaseSpringBootTest {
             assertThat(reloaded.getDefinition().getDescription()).isEqualTo(changedDescription);
         }
 
-        @ParameterizedTest
+        @Test
+        void storesNewDescriptionWithoutOptions_whenConnectorChangesAnExtensibleListAttribute() {
+            // given
+            UUID attributeUuid = UUID.randomUUID();
+            inNewTransaction(() -> register(asExtensibleListWithOption(anIssueAttribute(attributeUuid))));
+            var changedDescription = "Changed description";
+            DataAttributeV2 changed = asExtensibleListWithOption(anIssueAttribute(attributeUuid));
+            changed.setDescription(changedDescription);
+
+            // when
+            inNewTransaction(() -> register(changed));
+
+            // then
+            AttributeDefinition reloaded = inNewTransaction(
+                    () -> attributeDefinitionRepository.findByAttributeUuid(attributeUuid).orElseThrow());
+            List<AttributeContent> storedOptions = reloaded.getDefinition().getContent();
+            assertThat(reloaded.getDefinition().getDescription()).isEqualTo(changedDescription);
+            assertThat(storedOptions).isNull();
+        }
+
+        @ParameterizedTest(name = "{1}")
         @MethodSource("changedIssueAttributes")
         void writesDefinition_whenConnectorChangesIt(UnaryOperator<DataAttributeV2> original,
                 UnaryOperator<DataAttributeV2> change) {
@@ -3309,10 +3320,10 @@ class AttributeEngineITest extends BaseSpringBootTest {
         void skipsUpdate_whenConnectorResubmitsAnUnchangedGroupAttribute() {
             // given
             UUID attributeUuid = UUID.randomUUID();
-            inNewTransaction(() -> registerGroupAttribute(attributeUuid));
+            inNewTransaction(() -> register(aGroupAttribute(attributeUuid)));
 
             // when
-            long updates = countDefinitionUpdates(() -> registerGroupAttribute(attributeUuid));
+            long updates = countDefinitionUpdates(() -> register(aGroupAttribute(attributeUuid)));
 
             // then
             assertThat(updates).isZero();
@@ -3320,34 +3331,47 @@ class AttributeEngineITest extends BaseSpringBootTest {
 
         // ── Helpers ───────────────────────────────────────────────────────────
 
+        private static final String DEFAULT_CONTENT_REFERENCE = "default";
+
         static Stream<Arguments> changedIssueAttributes() {
             UnaryOperator<DataAttributeV2> plain = UnaryOperator.identity();
             UnaryOperator<DataAttributeV2> withDefault = attribute -> withDefaultValue(attribute, "first");
-            UnaryOperator<DataAttributeV2> encryptedWithDefault = attribute -> encrypted(
+            UnaryOperator<DataAttributeV2> encryptedWithDefault = attribute -> withEncryptedProtection(
                     withDefaultValue(attribute, "first secret"));
-            return Stream.of(Arguments.of(plain, named("description", attribute -> {
+            UnaryOperator<DataAttributeV2> changeDescription = attribute -> {
                 attribute.setDescription("Changed description");
                 return attribute;
-            })), Arguments.of(plain, named("properties", attribute -> {
-                attribute.getProperties().setLabel("Changed label");
+            };
+            UnaryOperator<DataAttributeV2> changeGroupProperty = attribute -> {
+                attribute.getProperties().setGroup("Changed group");
                 return attribute;
-            })), Arguments.of(plain, named("constraint", attribute -> {
+            };
+            UnaryOperator<DataAttributeV2> addConstraint = attribute -> {
                 attribute
                         .setConstraints(List
                                 .of(new RegexpAttributeConstraint("Lower case", "Only lower case letters",
                                         "^[a-z]+$")));
                 return attribute;
-            })), Arguments.of(plain, named("callback", attribute -> {
+            };
+            UnaryOperator<DataAttributeV2> addCallback = attribute -> {
                 AttributeCallback callback = new AttributeCallback();
                 callback.setCallbackContext("/v1/values");
                 callback.setCallbackMethod("GET");
                 attribute.setAttributeCallback(callback);
                 return attribute;
-            })), Arguments
-                    .of(withDefault, named("default content", attribute -> withDefaultValue(attribute, "second"))),
-                    Arguments
-                            .of(encryptedWithDefault, named("encrypted default content",
-                                    attribute -> withDefaultValue(attribute, "second secret"))));
+            };
+            UnaryOperator<DataAttributeV2> changeDefault = attribute -> withDefaultValue(attribute, "second");
+            UnaryOperator<DataAttributeV2> changeEncryptedDefault = attribute -> withDefaultValue(attribute,
+                    "second secret");
+            return Stream
+                    .of(Arguments.of(plain, named("description", changeDescription)),
+                            Arguments.of(plain, named("property no column mirrors", changeGroupProperty)),
+                            Arguments.of(plain, named("constraint", addConstraint)),
+                            Arguments.of(plain, named("callback", addCallback)),
+                            Arguments.of(withDefault, named("default content", changeDefault)),
+                            Arguments
+                                    .of(encryptedWithDefault,
+                                            named("encrypted default content", changeEncryptedDefault)));
         }
 
         private static Named<UnaryOperator<DataAttributeV2>> named(String change,
@@ -3371,26 +3395,26 @@ class AttributeEngineITest extends BaseSpringBootTest {
         /** Sets default content typed as a connector response deserializes it. */
         private static DataAttributeV2 withDefaultValue(DataAttributeV2 attribute, String value) {
             BaseAttributeContentV2<String> content = new BaseAttributeContentV2<>();
-            content.setReference(value);
+            content.setReference(DEFAULT_CONTENT_REFERENCE);
             content.setData(value);
             attribute.setContent(List.of(content));
             return attribute;
         }
 
-        private static DataAttributeV2 encrypted(DataAttributeV2 attribute) {
+        /** Declares the protection level a connector sets for content the platform must encrypt at rest. */
+        private static DataAttributeV2 withEncryptedProtection(DataAttributeV2 attribute) {
             attribute.getProperties().setProtectionLevel(ProtectionLevel.ENCRYPTED);
             return attribute;
         }
 
-        private void register(DataAttributeV2 attribute) {
-            try {
-                attributeEngine.updateDataAttributeDefinitions(connectorAuthority.getUuid(), null, List.of(attribute));
-            } catch (AttributeException e) {
-                throw new IllegalStateException(e);
-            }
+        private static DataAttributeV2 asExtensibleListWithOption(DataAttributeV2 attribute) {
+            withDefaultValue(attribute, "option");
+            attribute.getProperties().setList(true);
+            attribute.getProperties().setExtensibleList(true);
+            return attribute;
         }
 
-        private void registerGroupAttribute(UUID attributeUuid) {
+        private static GroupAttributeV3 aGroupAttribute(UUID attributeUuid) {
             GroupAttributeV3 groupAttribute = new GroupAttributeV3();
             groupAttribute.setUuid(attributeUuid.toString());
             groupAttribute.setName("perIssuanceGroup");
@@ -3398,12 +3422,11 @@ class AttributeEngineITest extends BaseSpringBootTest {
             callback.setCallbackContext("/callback");
             callback.setCallbackMethod("GET");
             groupAttribute.setAttributeCallback(callback);
-            try {
-                attributeEngine
-                        .updateDataAttributeDefinitions(connectorAuthority.getUuid(), null, List.of(groupAttribute));
-            } catch (AttributeException e) {
-                throw new IllegalStateException(e);
-            }
+            return groupAttribute;
+        }
+
+        private void register(BaseAttribute attribute) {
+            publish(connectorAuthority.getUuid(), null, attribute);
         }
 
         /** Counts the attribute definition rows the work updates when it runs in its own transaction. */
@@ -3422,5 +3445,36 @@ class AttributeEngineITest extends BaseSpringBootTest {
                 statistics.setStatisticsEnabled(statisticsWereEnabled);
             }
         }
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private void publish(UUID connectorUuid, String operation, BaseAttribute definition) {
+        try {
+            attributeEngine.updateDataAttributeDefinitions(connectorUuid, operation, List.of(definition));
+        } catch (AttributeException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private String storedOperation(UUID connectorUuid, DataAttributeV3 definition) {
+        return storedDefinition(connectorUuid, definition).getOperation();
+    }
+
+    private AttributeDefinition storedDefinition(UUID connectorUuid, DataAttributeV3 definition) {
+        return attributeDefinitionRepository
+                .findByTypeAndConnectorUuidAndAttributeUuidAndName(AttributeType.DATA, connectorUuid,
+                        UUID.fromString(definition.getUuid()), definition.getName())
+                .orElseThrow();
+    }
+
+    private RequestAttributeV3 registerDataAttributeWithValue(String name) throws AttributeException {
+        DataAttributeV3 attribute = aDataAttribute().withName(name).build();
+        attributeEngine.updateDataAttributeDefinitions(null, null, List.of(attribute));
+        return aCustomAttribute()
+                .withUuid(attribute.getUuid())
+                .withName(name)
+                .withStringContent(name + "-value")
+                .build();
     }
 }

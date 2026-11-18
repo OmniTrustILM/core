@@ -1225,10 +1225,10 @@ public class AttributeEngine {
         attributeDefinition.setRequired(dataAttribute.getProperties().isRequired());
         attributeDefinition.setReadOnly(dataAttribute.getProperties().isReadOnly());
 
-        encryptOrDecryptExistingContent(attributeDefinition, dataAttribute.getProperties().getProtectionLevel());
-        attributeDefinition.setProtectionLevel(dataAttribute.getProperties().getProtectionLevel());
-
         ProtectionLevel protectionLevel = dataAttribute.getProperties().getProtectionLevel();
+        encryptOrDecryptExistingContent(attributeDefinition, protectionLevel);
+        attributeDefinition.setProtectionLevel(protectionLevel);
+
         // Persist the definition without extensible-list options, but do NOT strip them from the
         // caller's attribute: a listing endpoint returns that same object and the UI needs the
         // options as suggestions. (Secret containment on callback responses is handled separately.)
@@ -1262,7 +1262,9 @@ public class AttributeEngine {
 
     /**
      * Returns the stored definition with its encrypted default content decrypted, to compare it with the plaintext a
-     * connector sends before encrypting that again: the ciphertext differs on every encryption.
+     * connector sends before encrypting that again: the ciphertext differs on every encryption. Content that does not
+     * decrypt leaves the stored definition as it is, so it counts as changed. The failure is not logged with its
+     * exception, whose message may quote the decrypted value.
      */
     private static Object storedDefinitionInPlaintext(AttributeDefinition attributeDefinition) {
         BaseAttribute stored = attributeDefinition.getDefinition();
@@ -1272,12 +1274,20 @@ public class AttributeEngine {
                 || placeholders == null || placeholders.size() != encryptedData.size()) {
             return stored;
         }
-        List<AttributeContent> plaintext = IntStream
-                .range(0, placeholders.size())
-                .mapToObj(i -> decryptedContentItem(placeholders.get(i), attributeDefinition.getVersion(),
-                        attributeDefinition.getContentType(), encryptedData.get(i),
-                        "attribute definition " + attributeDefinition.getName()))
-                .toList();
+        List<AttributeContent> plaintext = new ArrayList<>();
+        for (int i = 0; i < placeholders.size(); i++) {
+            try {
+                plaintext
+                        .add(AttributeVersionHelper
+                                .decryptContent(placeholders.get(i), attributeDefinition.getVersion(),
+                                        attributeDefinition.getContentType(), encryptedData.get(i)));
+            } catch (IllegalArgumentException | IllegalStateException | DateTimeException e) {
+                logger
+                        .debug("Default content of attribute definition {} does not decrypt; writing the definition",
+                                attributeDefinition.getName());
+                return stored;
+            }
+        }
         ObjectNode storedTree = (ObjectNode) AttributeDefinitionValues.toTree(stored);
         storedTree.set("content", AttributeDefinitionValues.toTree(plaintext));
         return storedTree;
@@ -1329,7 +1339,7 @@ public class AttributeEngine {
 
     /**
      * The first row of a data definition carries it without content: the registration that follows encrypts default
-     * content into the caller's attribute and writes the full definition, as it does for every registration.
+     * content into the caller's attribute and writes the full definition when it differs from this row.
      */
     private static AttributeDefinition newDataDefinition(UUID connectorUuid, String operation,
             DataAttribute dataAttribute) {

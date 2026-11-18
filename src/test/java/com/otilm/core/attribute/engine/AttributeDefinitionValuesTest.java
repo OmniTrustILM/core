@@ -1,10 +1,14 @@
 package com.otilm.core.attribute.engine;
 
+import com.otilm.api.model.common.attribute.common.callback.AttributeCallback;
+import com.otilm.api.model.common.attribute.common.callback.AttributeCallbackMapping;
+import com.otilm.api.model.common.attribute.common.callback.AttributeValueTarget;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.content.BaseAttributeContentV2;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -28,6 +32,35 @@ class AttributeDefinitionValuesTest {
 
         // then
         assertThat(same).isTrue();
+    }
+
+    @Test
+    void reportsSameValue_whenCallbackMappingsAndTheirTargetsComeInAnotherOrder() {
+        // given
+        var storedOrder = anAttributeWithCallback(
+                aMapping("algorithm", AttributeValueTarget.PATH_VARIABLE, AttributeValueTarget.REQUEST_PARAMETER),
+                aMapping("curve", AttributeValueTarget.BODY));
+        var sentOrder = anAttributeWithCallback(aMapping("curve", AttributeValueTarget.BODY),
+                aMapping("algorithm", AttributeValueTarget.REQUEST_PARAMETER, AttributeValueTarget.PATH_VARIABLE));
+
+        // when
+        boolean same = AttributeDefinitionValues.sameValue(storedOrder, sentOrder);
+
+        // then
+        assertThat(same).isTrue();
+    }
+
+    @Test
+    void reportsDifferentValue_whenACallbackMappingDiffers() {
+        // given
+        var stored = anAttributeWithCallback(aMapping("algorithm", AttributeValueTarget.PATH_VARIABLE));
+        var changedTarget = anAttributeWithCallback(aMapping("algorithm", AttributeValueTarget.REQUEST_PARAMETER));
+
+        // when
+        boolean same = AttributeDefinitionValues.sameValue(stored, changedTarget);
+
+        // then
+        assertThat(same).isFalse();
     }
 
     @Test
@@ -79,5 +112,20 @@ class AttributeDefinitionValuesTest {
         content.setData(data);
         attribute.setContent(List.of(content));
         return attribute;
+    }
+
+    /** Builds the callback's sets in the given order, as a deserialized copy may iterate them. */
+    private static DataAttributeV2 anAttributeWithCallback(AttributeCallbackMapping... mappings) {
+        DataAttributeV2 attribute = anAttribute();
+        AttributeCallback callback = new AttributeCallback();
+        callback.setCallbackContext("/v1/keyspec/{algorithm}");
+        callback.setCallbackMethod("GET");
+        callback.setMappings(new LinkedHashSet<>(List.of(mappings)));
+        attribute.setAttributeCallback(callback);
+        return attribute;
+    }
+
+    private static AttributeCallbackMapping aMapping(String to, AttributeValueTarget... targets) {
+        return new AttributeCallbackMapping("data_" + to, to, new LinkedHashSet<>(List.of(targets)));
     }
 }

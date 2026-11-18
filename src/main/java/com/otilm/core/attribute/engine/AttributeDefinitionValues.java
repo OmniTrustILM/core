@@ -2,7 +2,11 @@ package com.otilm.core.attribute.engine;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.otilm.core.serialization.ObjectMapperFactory;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -26,7 +30,7 @@ final class AttributeDefinitionValues {
      */
     static boolean sameValue(Object stored, Object candidate) {
         try {
-            return toTree(stored).equals(toTree(candidate));
+            return withSetsSorted(toTree(stored)).equals(withSetsSorted(toTree(candidate)));
         } catch (IllegalArgumentException e) {
             logger.debug("Attribute definition comparison failed to serialize; persisting the definition", e);
             return false;
@@ -35,5 +39,30 @@ final class AttributeDefinitionValues {
 
     static JsonNode toTree(Object value) {
         return value instanceof JsonNode tree ? tree : MAPPER.valueToTree(value);
+    }
+
+    /**
+     * Callback mappings and their targets are sets in the attribute model, and a set read back from JSON has no fixed
+     * order, so their order is normalized before comparing.
+     */
+    private static JsonNode withSetsSorted(JsonNode tree) {
+        JsonNode copy = tree.deepCopy();
+        if (copy.path("attributeCallback").path("mappings") instanceof ArrayNode mappings) {
+            for (JsonNode mapping : mappings) {
+                if (mapping.path("targets") instanceof ArrayNode targets) {
+                    sortElements(targets);
+                }
+            }
+            sortElements(mappings);
+        }
+        return copy;
+    }
+
+    private static void sortElements(ArrayNode array) {
+        List<JsonNode> elements = new ArrayList<>();
+        array.forEach(elements::add);
+        elements.sort(Comparator.comparing(JsonNode::toString));
+        array.removeAll();
+        array.addAll(elements);
     }
 }
