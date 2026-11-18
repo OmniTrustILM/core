@@ -87,8 +87,7 @@ class DiscoveryCertificateTaskTest {
         List<String> names = created.getAllValues().stream().map(DiscoveryDto::getName).toList();
         assertThat(names.get(0))
                 .isNotEqualTo(names.get(1))
-                .matches("nightly_\\d{4}-\\d{2}-\\d{2}_\\d{2}-\\d{2}-\\d{2}\\.\\d{3}_"
-                        + firstExecution.toString().substring(0, 8));
-        assertThat(names.get(1)).endsWith("_" + secondExecution.toString().substring(0, 8));
+                .matches("nightly_\\d{4}-\\d{2}-\\d{2}_\\d{2}-\\d{2}-\\d{2}\\.\\d{3}_" + firstExecution);
+        assertThat(names.get(1)).endsWith("_" + secondExecution);
     }
 }

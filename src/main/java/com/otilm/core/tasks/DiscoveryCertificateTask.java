@@ -127,6 +127,6 @@ public class DiscoveryCertificateTask implements ScheduledJobTask {
         if (scheduledJobInfo == null || scheduledJobInfo.jobHistoryUuid() == null) {
             return suffix;
         }
-        return suffix + "_" + scheduledJobInfo.jobHistoryUuid().toString().substring(0, 8);
+        return suffix + "_" + scheduledJobInfo.jobHistoryUuid();
     }
 }
