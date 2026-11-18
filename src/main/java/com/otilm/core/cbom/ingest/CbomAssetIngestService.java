@@ -408,12 +408,13 @@ public class CbomAssetIngestService {
      */
     private void recordReport(UUID cbomUuid, CbomAssetExtractor.Extraction extraction) {
         final IngestFindingRollup.Rollup report = IngestFindingRollup.of(extraction);
+        final OffsetDateTime recordedAt = OffsetDateTime.now();
         transactionHandler.runInNewTransaction(() -> {
             findingWriter.clear(cbomUuid);
             for (IngestFindingRollup.Row row : report.rows()) {
                 findingWriter
                         .record(cbomUuid, row.kind().name(), row.componentName(), row.detail(), row.occurrences(),
-                                OffsetDateTime.now());
+                                recordedAt);
             }
         });
         if (report.dropped() > 0) {

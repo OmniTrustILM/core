@@ -1,8 +1,9 @@
 package com.otilm.core.dao.entity.cbom;
 
+import com.otilm.api.model.core.cbom.CbomIngestFindingDto;
+import com.otilm.api.model.core.cbom.CbomIngestFindingKind;
 import com.otilm.core.dao.entity.Cbom;
 import com.otilm.core.dao.entity.UniquelyIdentified;
-import com.otilm.core.model.cbom.CbomIngestFindingKind;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -80,6 +81,16 @@ public class CbomIngestFinding extends UniquelyIdentified {
 
     @Column(name = "recorded_at", nullable = false)
     private OffsetDateTime recordedAt;
+
+    public CbomIngestFindingDto mapToDto() {
+        CbomIngestFindingDto dto = new CbomIngestFindingDto();
+        dto.setKind(kind);
+        dto.setComponentName(componentName);
+        dto.setDetail(detail);
+        dto.setOccurrences(occurrences);
+        dto.setRecordedAt(recordedAt);
+        return dto;
+    }
 
     // No-op overrides required by S2160: identity and hashing stay UUID-based, and the added columns never affect
     // equality.

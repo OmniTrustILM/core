@@ -343,8 +343,8 @@ public record AssetNormalizer(IdentityTables tables) {
      * <p>
      * The bound is the storage bound, so nothing refused here could have been written anyway: the column's CHECK and
      * the writer's pre-check both stop at the same length. Refusing costs the component its row and reports it as a
-     * skip, which is what the walker does with anything it cannot key -- and a skip names the failure class only, never
-     * the name that caused it.
+     * skip, which is what the walker does with anything it cannot key -- and a skip says why in fixed words only, never
+     * quoting the name that caused it.
      */
     private static void requireNormalizableName(String name) {
         if (exceedsNormalizableLength(name)) {

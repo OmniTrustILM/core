@@ -10,6 +10,7 @@ import com.otilm.api.model.common.PaginationResponseDto;
 import com.otilm.api.model.core.cbom.CbomContributedAssetDto;
 import com.otilm.api.model.core.cbom.CbomDetailDto;
 import com.otilm.api.model.core.cbom.CbomDto;
+import com.otilm.api.model.core.cbom.CbomIngestFindingDto;
 import com.otilm.api.model.core.cbom.CbomSyncSkipDto;
 import com.otilm.api.model.core.cbom.CbomUploadRequestDto;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
@@ -54,6 +55,16 @@ public interface CbomExternalService {
      */
     PaginationResponseDto<CbomContributedAssetDto> listCbomAssets(SecuredUUID uuid, SearchRequestDto request,
             SecurityFilter filter) throws NotFoundException;
+
+    /**
+     * The report the last cryptographic asset ingest attempt wrote about this CBOM record, ordered by kind and then by
+     * detail; empty while no attempt has read the document, and cleared once a later version withdraws this record's
+     * assets or settles it as superseded. A record synced without contributing an asset, or no longer retried, keeps
+     * its last report.
+     *
+     * @throws NotFoundException if the CBOM with the specified UUID does not exist
+     */
+    List<CbomIngestFindingDto> listCbomIngestFindings(SecuredUUID uuid) throws NotFoundException;
 
     /**
      * Upload CBOM into cbom-repository and store cbom statistics in database.
