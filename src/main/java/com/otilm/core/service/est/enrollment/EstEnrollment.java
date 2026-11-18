@@ -106,22 +106,25 @@ public class EstEnrollment {
     }
 
     /**
-     * A certificate that the same request created answers it as it stands. Only a request that EST has just submitted
-     * is given the time to be issued, so that a client that polls a request which cannot progress holds no thread.
+     * A certificate that the same client created with the same request answers it as it stands; the same request from
+     * another client is a new request. Only a request that EST has just submitted is given the time to be issued, so
+     * that a client that polls a request which cannot progress holds no thread.
      */
     private ResponseEntity<byte[]> enrollNew(EstRoute route, EstClient client, Pkcs10CertificateRequest csr) {
         String requestFingerprint = answers.fingerprintOf(csr);
+        UUID clientUuid = client.correlationUuid();
+        String requestKey = clientUuid + ":" + requestFingerprint;
         return requestClaims
-                .answerOnce(route, EstRequestClaim.Operation.ENROLL, requestFingerprint, requestFingerprint,
+                .answerOnce(route, EstRequestClaim.Operation.ENROLL, requestKey, requestFingerprint,
                         new ClaimedRequest() {
                             @Override
                             public Optional<EstRequestedCertificate> find() {
-                                return findAnswering(route, requestFingerprint);
+                                return findAnswering(route, clientUuid, requestFingerprint);
                             }
 
                             @Override
                             public UUID submit(Consumer<UUID> onStored) {
-                                return EstEnrollment.this.submit(route, csr, onStored);
+                                return EstEnrollment.this.submit(route, csr, clientUuid, onStored);
                             }
 
                             @Override
@@ -139,13 +142,14 @@ public class EstEnrollment {
     }
 
     /**
-     * Finds the certificate that the same request created through this route, when it still answers a retry, as
-     * {@link EstAnswers#answersRetry} tells.
+     * Finds the certificate that the same client created with the same request through this route, when it still
+     * answers a retry, as {@link EstAnswers#answersRetry} tells.
      */
-    private Optional<EstRequestedCertificate> findAnswering(EstRoute route, String requestFingerprint) {
+    private Optional<EstRequestedCertificate> findAnswering(EstRoute route, UUID clientUuid,
+            String requestFingerprint) {
         Optional<EstRequestedCertificate> found = certificateRepository
-                .findLatestRequestedThroughEst(route.raProfile().getUuid(), route.estProfile().getUuid(),
-                        requestFingerprint);
+                .findLatestRequestedThroughEstByClient(route.raProfile().getUuid(), route.estProfile().getUuid(),
+                        clientUuid, requestFingerprint);
         if (found.isEmpty()) {
             log.debug("No certificate was requested through EST by this request, so it is a new request");
             return Optional.empty();
@@ -170,11 +174,11 @@ public class EstEnrollment {
      * @throws EstException as {@link EstAnswers#submissionFailed} answers a failure
      */
     UUID submit(EstRoute route, Pkcs10CertificateRequest csr) {
-        return submit(route, csr, null);
+        return submit(route, csr, null, null);
     }
 
-    private UUID submit(EstRoute route, Pkcs10CertificateRequest csr, Consumer<UUID> onStored) {
-        return submit(route, issueRequests.newRequest(route, csr), onStored, certificateUuid -> {
+    private UUID submit(EstRoute route, Pkcs10CertificateRequest csr, UUID clientUuid, Consumer<UUID> onStored) {
+        return submit(route, issueRequests.newRequest(route, csr), clientUuid, onStored, certificateUuid -> {
         });
     }
 
@@ -193,15 +197,16 @@ public class EstEnrollment {
         ClientCertificateIssueRequestDto request = issueRequests.newRequest(route, csr);
         request.setKeyUuid(keyUuid);
         request.setTokenProfileUuid(tokenProfileUuid);
-        return submit(route, request, null, created);
+        return submit(route, request, null, null, created);
     }
 
     /**
+     * @param clientUuid the correlation UUID of the client that a retry must come from, or null
      * @param onStored run in the transaction that stores the certificate, or null
      * @throws EstRequestClaimLostException when {@code onStored} found the claim taken over
      */
-    private UUID submit(EstRoute route, ClientCertificateIssueRequestDto request, Consumer<UUID> onStored,
-            Consumer<UUID> created) {
+    private UUID submit(EstRoute route, ClientCertificateIssueRequestDto request, UUID clientUuid,
+            Consumer<UUID> onStored, Consumer<UUID> created) {
         RaProfile raProfile = route.raProfile();
         AtomicReference<UUID> submitted = new AtomicReference<>();
         Consumer<UUID> beforeDispatch = certificateUuid -> {
@@ -212,7 +217,8 @@ public class EstEnrollment {
             ClientCertificateDataResponseDto response = clientOperationService
                     .issueCertificate(raProfile.getAuthorityInstanceReference().getSecuredParentUuid(),
                             raProfile.getSecuredUuid(), request,
-                            CertificateProtocolInfo.est(route.estProfile().getUuid(), onStored), beforeDispatch);
+                            CertificateProtocolInfo.est(route.estProfile().getUuid(), clientUuid, onStored),
+                            beforeDispatch);
             return UUID.fromString(response.getUuid());
         } catch (Exception e) {
             EstRequestClaimLostException.rethrowIfCause(e);
@@ -255,12 +261,34 @@ public class EstEnrollment {
         if (requestFingerprint.equals(registration.getRequestFingerprint())) {
             return answerCompletedRegistration(route, client, registration, requestFingerprint);
         }
-        completeOpenRegistration(route, registration, csr, credentials);
+        try {
+            completeOpenRegistration(route, registration, csr, credentials);
+        } catch (EstException e) {
+            return answerIfCompletedMeanwhile(route, client, registrationUuid, requestFingerprint, e);
+        }
         CertificateState state = issuanceWait
                 .awaitSettled(route, registrationUuid, requestFingerprint)
                 .orElseThrow(() -> registrationRejected(route, registrationUuid, "no longer carries this request"));
         log.debug("Registration {} completed through EST is {}", registrationUuid, state);
         return answerRegistration(route, client, registrationUuid, state, requestFingerprint);
+    }
+
+    /**
+     * An identical request that arrived at the same time may have completed the registration between the read and the
+     * completion, which the platform then refuses. Read again, a registration that carries this request answers it as a
+     * retry does; any other refusal stands.
+     */
+    private ResponseEntity<byte[]> answerIfCompletedMeanwhile(EstRoute route, EstClient client, UUID registrationUuid,
+            String requestFingerprint, EstException refusal) {
+        if (refusal.error() != EstError.REGISTRATION_REJECTED) {
+            throw refusal;
+        }
+        EstRequestedCertificate registration = findRegistration(route, registrationUuid);
+        if (!requestFingerprint.equals(registration.getRequestFingerprint())) {
+            throw refusal;
+        }
+        log.debug("Registration {} was completed meanwhile by an identical request", registrationUuid);
+        return answerCompletedRegistration(route, client, registration, requestFingerprint);
     }
 
     /**
