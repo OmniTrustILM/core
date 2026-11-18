@@ -14,13 +14,12 @@ import static com.otilm.core.util.KeyMetaFixtures.keyIdMeta;
 import static com.otilm.core.util.builders.ProviderKeyItemBuilder.aProviderKeyItem;
 
 /**
- * Builds a key pair as the key provider adapter reads it from a listing: a 2048-bit RSA pair stored as "signer", with a
- * key ID of its own and a freshly generated public key. Tests override only what their scenario turns on.
+ * Builds a key pair as the key provider adapter reads it from a listing: a 2048-bit RSA pair with a key ID of its own
+ * and a freshly generated public key. Tests override only what their scenario turns on.
  */
 public final class ProviderKeyPairBuilder {
 
     private String keyId = UUID.randomUUID().toString();
-    private String storageName = "signer";
     private PublicKey publicKey = TestPublicKeys.rsaPublicKey();
 
     public static ProviderKeyPairBuilder aProviderKeyPair() {
@@ -29,11 +28,6 @@ public final class ProviderKeyPairBuilder {
 
     public ProviderKeyPairBuilder withKeyId(String keyId) {
         this.keyId = keyId;
-        return this;
-    }
-
-    public ProviderKeyPairBuilder withStorageName(String storageName) {
-        this.storageName = storageName;
         return this;
     }
 
@@ -50,6 +44,6 @@ public final class ProviderKeyPairBuilder {
                 .withReference(reference)
                 .withMaterial(new KeyMaterial(KeyFormat.SPKI, TestPublicKeys.spkiBase64(publicKey)))
                 .build();
-        return new ProviderKeyPair(keyIdMeta(keyId), storageName, privateKeyItem, publicKeyItem);
+        return new ProviderKeyPair(keyIdMeta(keyId), privateKeyItem, publicKeyItem);
     }
 }
