@@ -49,7 +49,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * Drives a content-signing Signing Profile's level state machine. One forward-only run: the connector builds and
- * completes the signature, Core acquires what only Core can, and the target level picks the exit.
+ * completes the signature, Core acquires what only Core can, and the profile's level picks the exit.
  */
 @Component
 public class ManagedContentSigningEngine {
@@ -78,8 +78,8 @@ public class ManagedContentSigningEngine {
     }
 
     /**
-     * Signs every document of {@code request} to its target level with one call of the profile's key. It returns the
-     * documents only after staging their signing records.
+     * Signs every document of {@code request} at the profile's level with one call of the profile's key. It returns the
+     * documents after staging their signing records as the profile's recording policy asks.
      *
      * @param protocol how the run was initiated, as its signing records carry it
      * @return one result per document, in request order
@@ -89,13 +89,13 @@ public class ManagedContentSigningEngine {
             ResolvedManagedContentSigningProfile profile, SigningProtocol protocol) throws SigningEngineException {
         List<BigInteger> serials = new ArrayList<>();
         try {
-            return signToTargetLevel(request, signingProfile, profile, protocol, serials);
+            return signAtProfileLevel(request, signingProfile, profile, protocol, serials);
         } catch (Exception e) {
-            throw loggedFailure(profile, request.targetLevel(), serials, e);
+            throw loggedFailure(profile, serials, e);
         }
     }
 
-    private List<SignedItem> signToTargetLevel(ContentSigningRequest request, SigningProfileModel<?, ?> signingProfile,
+    private List<SignedItem> signAtProfileLevel(ContentSigningRequest request, SigningProfileModel<?, ?> signingProfile,
             ResolvedManagedContentSigningProfile profile, SigningProtocol protocol, List<BigInteger> serials)
             throws SigningEngineException {
         requireSignableBatch(request, profile);
@@ -116,8 +116,7 @@ public class ManagedContentSigningEngine {
     private void requireSignableBatch(ContentSigningRequest request, ResolvedManagedContentSigningProfile profile)
             throws SigningEngineException {
         BatchAdmission.admit(request.identifiers());
-        requireReachableLevel(request.targetLevel(), profile);
-        requireDeclaredCeiling(profile);
+        requireDeclaredLevel(profile);
         requireAcceptedTransfer(profile.familyDeclaration(), request.transferMode());
         requireWellFormedDigests(request);
         requireAcceptableSigningCertificate(profile);
@@ -227,85 +226,60 @@ public class ManagedContentSigningEngine {
                 run.signatureAlgorithm());
         cursor = advance(cursor, ContentSigningCursor.SIGNED);
 
-        SignatureLevel targetLevel = run.request().targetLevel();
+        SignatureLevel level = run.profile().level();
         int issuedBefore = serials.size();
-        SignatureLevel reached = SignatureLevel.SIGNED;
-        if (targetLevel != SignatureLevel.SIGNED) {
+        if (level != SignatureLevel.SIGNED) {
             signedDocument = applySignatureTimestamp(run.profile(), signedDocument,
-                    detachedContentFor(run.request(), item), targetLevel, cursor, serials);
-            reached = targetLevel;
+                    detachedContentFor(run.request(), item), cursor, serials);
         }
         List<BigInteger> documentSerials = List.copyOf(serials.subList(issuedBefore, serials.size()));
-        return new SignedContent(signedDocument, reached, documentSerials);
+        return new SignedContent(signedDocument, level, documentSerials);
     }
 
     /**
-     * Raises a signature made elsewhere, entering the machine at the signature-timestamp imprint with {@code SIGNED} as
-     * the given cursor.
+     * Raises a signature made elsewhere to the profile's level, entering the machine at the signature-timestamp
+     * imprint. A profile that signs at {@code SIGNED} adds nothing, so it is refused as invalid input.
      */
     @OutsideTransaction
     public SignedContent augment(AugmentationRequest request, SigningProfileModel<?, ?> signingProfile,
             ResolvedManagedContentSigningProfile profile, SigningProtocol protocol) throws SigningEngineException {
         List<BigInteger> serials = new ArrayList<>();
         try {
-            return augmentToTargetLevel(request, signingProfile, profile, protocol, serials);
+            return augmentToProfileLevel(request, signingProfile, profile, protocol, serials);
         } catch (Exception e) {
-            throw loggedFailure(profile, request.targetLevel(), serials, e);
+            throw loggedFailure(profile, serials, e);
         }
     }
 
-    private SignedContent augmentToTargetLevel(AugmentationRequest request, SigningProfileModel<?, ?> signingProfile,
+    private SignedContent augmentToProfileLevel(AugmentationRequest request, SigningProfileModel<?, ?> signingProfile,
             ResolvedManagedContentSigningProfile profile, SigningProtocol protocol, List<BigInteger> serials)
             throws SigningEngineException {
-        requireReachableLevel(request.targetLevel(), profile);
-        requireDeclaredCeiling(profile);
-        if (request.targetLevel() == SignatureLevel.SIGNED) {
+        requireDeclaredLevel(profile);
+        if (profile.level() == SignatureLevel.SIGNED) {
             throw new SigningEngineException(SigningEngineFailure.INVALID_INPUT,
-                    "augmentation to SIGNED was requested, but the document already carries a signature",
-                    "The document is already signed; augmentation needs a level above SIGNED");
+                    "Signing Profile '%s' signs at SIGNED, which adds nothing to a document signed elsewhere"
+                            .formatted(profile.name()),
+                    "This Signing Profile signs at SIGNED; augmentation needs a profile above SIGNED");
         }
         // No certificate or clock gate here: the profile's own key signs nothing on this path, which mints no
         // signingTime claim. The referenced TIMESTAMPING profile gates its own key and its own time.
         byte[] timestamped = applySignatureTimestamp(profile, request.signedDocument(), request.detachedContent(),
-                request.targetLevel(), ContentSigningCursor.SIGNED, serials);
+                ContentSigningCursor.SIGNED, serials);
 
-        SignedContent result = new SignedContent(timestamped, request.targetLevel(), serials);
+        SignedContent result = new SignedContent(timestamped, profile.level(), serials);
         recordAugmentation(signingProfile, profile, result, protocol);
         return result;
     }
 
-    /**
-     * Both refusals name levels an operator configured, so both are safe to put on the wire. The ceiling
-     * {@link ContentSigningTransitions#HIGHEST_EXECUTABLE_LEVEL} imposes is the one that moves as rungs gain steps.
-     */
-    private static void requireReachableLevel(SignatureLevel target, ResolvedManagedContentSigningProfile profile)
-            throws SigningEngineException {
-        if (!target.isWithin(profile.maxLevel())) {
-            throw new SigningEngineException(SigningEngineFailure.INVALID_INPUT,
-                    "level %s was requested but Signing Profile '%s' permits at most %s"
-                            .formatted(target, profile.name(), profile.maxLevel()),
-                    "Signature level %s exceeds the maximum this Signing Profile permits (%s)"
-                            .formatted(target, profile.maxLevel()));
-        }
-        if (!target.isWithin(ContentSigningTransitions.HIGHEST_EXECUTABLE_LEVEL)) {
-            throw new SigningEngineException(SigningEngineFailure.INVALID_INPUT,
-                    "level %s was requested, which no step reaches yet".formatted(target),
-                    "Signature level %s is not available yet".formatted(target));
-        }
-    }
-
-    /**
-     * A reconnect may have lowered the family's ceiling since the profile was saved. The declared levels have no gap,
-     * so a declared ceiling covers every level beneath it.
-     */
-    private static void requireDeclaredCeiling(ResolvedManagedContentSigningProfile profile)
+    /** A reconnect may have withdrawn the profile's level from the family since the profile was saved. */
+    private static void requireDeclaredLevel(ResolvedManagedContentSigningProfile profile)
             throws SigningEngineException {
         SignatureFamilyDeclarationDto family = profile.familyDeclaration();
-        boolean declared = family.getLevels().stream().anyMatch(level -> level.getLevel() == profile.maxLevel());
+        boolean declared = family.getLevels().stream().anyMatch(level -> level.getLevel() == profile.level());
         if (!declared) {
             throw new SigningEngineException(SigningEngineFailure.MISCONFIGURED,
-                    "Signing Profile '%s' permits up to %s, which its formatting connector no longer declares for %s"
-                            .formatted(profile.name(), profile.maxLevel(), family.getLabel()),
+                    "Signing Profile '%s' signs at %s, which its formatting connector no longer declares for %s"
+                            .formatted(profile.name(), profile.level(), family.getLabel()),
                     CLIENT_MESSAGE);
         }
     }
@@ -456,8 +430,8 @@ public class ManagedContentSigningEngine {
      * The serial is collected because it is the only handle a completed operation has on its timestamp record.
      */
     private byte[] applySignatureTimestamp(ResolvedManagedContentSigningProfile profile, byte[] signedDocument,
-            DocumentTransferDto detachedContent, SignatureLevel targetLevel, ContentSigningCursor cursor,
-            List<BigInteger> serials) throws SigningEngineException {
+            DocumentTransferDto detachedContent, ContentSigningCursor cursor, List<BigInteger> serials)
+            throws SigningEngineException {
         TimestampImprint imprint = requireImprint(
                 formattingClient
                         .computeSignatureTimestampImprint(profile.signatureFormattingConnector(),
@@ -477,7 +451,7 @@ public class ManagedContentSigningEngine {
         byte[] timestamped = requireSignedDocument(
                 formattingClient.embedSignatureTimestamp(profile.signatureFormattingConnector(), embed),
                 "embedSignatureTimestamp");
-        advance(acquired, ContentSigningTransitions.exitCursorFor(targetLevel));
+        advance(acquired, ContentSigningTransitions.exitCursorFor(profile.level()));
         return timestamped;
     }
 
@@ -539,9 +513,9 @@ public class ManagedContentSigningEngine {
      * without the funnel such a throw would take the run's only record of the serials it already issued with it.
      */
     private static SigningEngineException loggedFailure(ResolvedManagedContentSigningProfile profile,
-            SignatureLevel targetLevel, List<BigInteger> serials, Exception e) {
+            List<BigInteger> serials, Exception e) {
         SigningEngineException failure = asEngineFailure(e);
-        logFailure(profile, targetLevel, serials, failure);
+        logFailure(profile, serials, failure);
         return failure;
     }
 
@@ -557,19 +531,19 @@ public class ManagedContentSigningEngine {
      * A run that dies after the key has signed leaves no signing record, so the log line is the only trace it ever had.
      * Neither the document, the data-to-be-signed nor the signature value is log material.
      */
-    private static void logFailure(ResolvedManagedContentSigningProfile profile, SignatureLevel targetLevel,
-            List<BigInteger> serials, SigningEngineException e) {
+    private static void logFailure(ResolvedManagedContentSigningProfile profile, List<BigInteger> serials,
+            SigningEngineException e) {
         String step = e.step() != null ? e.step() : "none";
         String scope = failureScope(e);
         if (isPlatformFault(e.failure())) {
             logger
-                    .error("Content signing failed for signing profile '{}' at step '{}' of {} targeting level {}, "
-                            + "timestamp serials already issued {}: {}", profile.name(), step, scope, targetLevel,
+                    .error("Content signing failed for signing profile '{}' at step '{}' of {}, profile level {}, "
+                            + "timestamp serials already issued {}: {}", profile.name(), step, scope, profile.level(),
                             TimestampTokenSerialNumbers.hex(serials), e.operatorMessage(), e);
         } else {
             logger
-                    .warn("Refusing to sign content for signing profile '{}' at step '{}' of {} targeting level {}, "
-                            + "timestamp serials already issued {}: {}", profile.name(), step, scope, targetLevel,
+                    .warn("Refusing to sign content for signing profile '{}' at step '{}' of {}, profile level {}, "
+                            + "timestamp serials already issued {}: {}", profile.name(), step, scope, profile.level(),
                             TimestampTokenSerialNumbers.hex(serials), e.operatorMessage());
         }
     }

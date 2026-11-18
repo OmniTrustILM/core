@@ -26,7 +26,7 @@ class SigningProfileFormattingDiscoveryITest extends BaseSpringBootTest {
     @Test
     void contentSigningFormattingAttributes_bindsTheFamilyAndLevelWireCodes() throws Exception {
         mockMvc
-                .perform(get(PATH.formatted(UUID.randomUUID())).param("family", "pades").param("maxLevel", "signed"))
+                .perform(get(PATH.formatted(UUID.randomUUID())).param("family", "pades").param("level", "signed"))
                 .andExpect(status().isNotFound());
     }
 
@@ -39,7 +39,7 @@ class SigningProfileFormattingDiscoveryITest extends BaseSpringBootTest {
         ResultActions response = mockMvc
                 .perform(get(PATH.formatted(UUID.randomUUID()))
                         .param("family", uppercaseFamily)
-                        .param("maxLevel", "signed"));
+                        .param("level", "signed"));
 
         // then
         response

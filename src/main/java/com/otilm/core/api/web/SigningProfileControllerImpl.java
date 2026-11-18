@@ -170,10 +170,10 @@ public class SigningProfileControllerImpl implements SigningProfileController {
     @Override
     @AuditLogged(module = Module.SIGNING, resource = Resource.SIGNING_PROFILE, operation = Operation.LIST_ATTRIBUTES)
     public ContentSigningFormattingAttributesDto listContentSigningFormattingConnectorAttributes(UUID connectorUuid,
-            String family, SignatureLevel maxLevel, @LogResource(uuid = true) UUID signingProfileUuid)
+            String family, SignatureLevel level, @LogResource(uuid = true) UUID signingProfileUuid)
             throws NotFoundException, ConnectorException, AttributeException {
         return signingProfileService
-                .listContentSigningFormattingConnectorAttributes(connectorUuid, family, maxLevel,
+                .listContentSigningFormattingConnectorAttributes(connectorUuid, family, level,
                         SecuredUUID.fromUUID(signingProfileUuid));
     }
 

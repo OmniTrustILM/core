@@ -45,27 +45,25 @@ public class ContentSigningWorkflowValidator {
      */
     public void validate(ContentSigningWorkflowRequestDto workflow, Connector connector,
             SignatureAlgorithm signatureAlgorithm, @Nullable UUID targetProfileUuid) {
-        String family = requireFamily(workflow);
-        SignatureLevel maxLevel = requireMaxLevel(workflow);
-
-        SignatureFamilyDeclarationDto declared = requireConnectorServes(connector, family, maxLevel);
+        SignatureFamilyDeclarationDto declared = requireConnectorServes(connector, workflow.getFamily(),
+                workflow.getLevel());
         requireFamilyAcceptsAlgorithm(declared, signatureAlgorithm);
-        validateTimestampSource(workflow, maxLevel, targetProfileUuid);
+        validateTimestampSource(workflow, workflow.getLevel(), targetProfileUuid);
     }
 
     /**
-     * Checks the connector alone: it must declare the family and a level at the ceiling. The formatting-attribute
-     * discovery applies this same check, so a form built from its answer passes save on the connector's account.
+     * Checks that the connector declares the family and the level and that Core executes the level. The
+     * formatting-attribute discovery applies this same check, so a form built from its answer passes save.
      *
      * @return the connector's declaration of the family
      */
     public SignatureFamilyDeclarationDto requireConnectorServes(Connector connector, String family,
-            SignatureLevel maxLevel) {
+            SignatureLevel level) {
         requireFamily(family);
-        requireMaxLevel(maxLevel);
+        requireLevel(level);
         SignatureFamilyDeclarationDto declared = requireDeclaredFamily(connector, family);
-        requireDeclaredLevel(connector, declared, maxLevel);
-        requireExecutableMaxLevel(maxLevel);
+        requireDeclaredLevel(connector, declared, level);
+        requireExecutableLevel(level);
         return declared;
     }
 
@@ -77,50 +75,39 @@ public class ContentSigningWorkflowValidator {
                                 .formatted(connector.getName(), family)));
     }
 
-    private static String requireFamily(ContentSigningWorkflowRequestDto workflow) {
-        return requireFamily(workflow.getFamily());
-    }
-
-    private static String requireFamily(String family) {
+    private static void requireFamily(String family) {
         if (family == null) {
             throw new ValidationException("Signature family is required for a managed content signing workflow");
         }
-        return family;
     }
 
-    private static SignatureLevel requireMaxLevel(ContentSigningWorkflowRequestDto workflow) {
-        return requireMaxLevel(workflow.getMaxLevel());
-    }
-
-    private static SignatureLevel requireMaxLevel(SignatureLevel maxLevel) {
-        if (maxLevel == null) {
-            throw new ValidationException("maxLevel is required for a managed content signing workflow");
+    private static void requireLevel(SignatureLevel level) {
+        if (level == null) {
+            throw new ValidationException("level is required for a managed content signing workflow");
         }
-        return maxLevel;
     }
 
     /**
-     * A ceiling above what the engine executes would be advertised by the API and the UI while every request at that
-     * level is refused at signing time, so it is refused here instead.
+     * The engine trusts the saved level to be executable, so a level above what it executes is refused here.
      */
-    private static void requireExecutableMaxLevel(SignatureLevel maxLevel) {
-        if (!maxLevel.isWithin(ContentSigningTransitions.HIGHEST_EXECUTABLE_LEVEL)) {
+    private static void requireExecutableLevel(SignatureLevel level) {
+        if (!level.isWithin(ContentSigningTransitions.HIGHEST_EXECUTABLE_LEVEL)) {
             throw new ValidationException(
-                    "Signature level %s is not available yet, so it cannot be a maxLevel; the highest ceiling this version supports is %s"
-                            .formatted(maxLevel.name(), ContentSigningTransitions.HIGHEST_EXECUTABLE_LEVEL.name()));
+                    "Signature level %s is not available yet; the highest level this version supports is %s"
+                            .formatted(level.name(), ContentSigningTransitions.HIGHEST_EXECUTABLE_LEVEL.name()));
         }
     }
 
     private static void requireDeclaredLevel(Connector connector, SignatureFamilyDeclarationDto declared,
-            SignatureLevel maxLevel) {
+            SignatureLevel level) {
         boolean reached = declared
                 .getLevels()
                 .stream()
                 .map(SignatureLevelDeclarationDto::getLevel)
-                .anyMatch(maxLevel::equals);
+                .anyMatch(level::equals);
         if (!reached) {
             throw new ValidationException("Signature Formatting Provider '%s' does not reach level %s for %s"
-                    .formatted(connector.getName(), maxLevel.name(), declared.getLabel()));
+                    .formatted(connector.getName(), level.name(), declared.getLabel()));
         }
     }
 
@@ -141,21 +128,20 @@ public class ContentSigningWorkflowValidator {
         return signatureAlgorithms.stream().map(SignatureAlgorithm::getCode).sorted().collect(Collectors.joining(", "));
     }
 
-    private void validateTimestampSource(ContentSigningWorkflowRequestDto workflow, SignatureLevel maxLevel,
+    private void validateTimestampSource(ContentSigningWorkflowRequestDto workflow, SignatureLevel level,
             @Nullable UUID targetProfileUuid) {
         UUID referenced = TimestampSourceRequests.internalProfileUuid(workflow.getTimestampSource());
-        boolean timestampsEmbedded = maxLevel != SignatureLevel.SIGNED;
+        boolean timestampsEmbedded = level != SignatureLevel.SIGNED;
 
         if (!timestampsEmbedded) {
             if (referenced != null) {
                 throw new ValidationException(
-                        "A maxLevel of SIGNED embeds no timestamp, so a timestamp source must be omitted");
+                        "A level of SIGNED embeds no timestamp, so a timestamp source must be omitted");
             }
             return;
         }
         if (referenced == null) {
-            throw new ValidationException(
-                    "A timestamp source is required when maxLevel is %s or higher".formatted(maxLevel.name()));
+            throw new ValidationException("A timestamp source is required at level %s".formatted(level.name()));
         }
         requireDistinctTimestampSource(referenced, targetProfileUuid);
         requireUsableTimestampingProfile(referenced);

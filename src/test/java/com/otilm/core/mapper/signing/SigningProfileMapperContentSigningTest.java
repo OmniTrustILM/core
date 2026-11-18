@@ -45,7 +45,7 @@ class SigningProfileMapperContentSigningTest {
 
             // then
             assertThat(model.workflow().family()).isEqualTo(SignatureFamilyFixtures.PADES);
-            assertThat(model.workflow().maxLevel()).isEqualTo(SignatureLevel.TIMESTAMPED);
+            assertThat(model.workflow().level()).isEqualTo(SignatureLevel.TIMESTAMPED);
             assertThat(model.workflow().timestampSourceProfileUuid()).isEqualTo(timestampSourceUuid);
             assertThat(model.workflow().signatureFormattingConnectorUuid()).isEqualTo(connectorUuid);
             assertThat(model.workflow().certificatePurpose())
@@ -118,7 +118,7 @@ class SigningProfileMapperContentSigningTest {
             // then
             ContentSigningWorkflowDto workflow = (ContentSigningWorkflowDto) dto.getWorkflow();
             assertThat(workflow.getFamily()).isEqualTo(SignatureFamilyFixtures.PADES);
-            assertThat(workflow.getMaxLevel()).isEqualTo(SignatureLevel.TIMESTAMPED);
+            assertThat(workflow.getLevel()).isEqualTo(SignatureLevel.TIMESTAMPED);
             assertThat(workflow.isRequireNonRepudiation()).isTrue();
             assertThat(workflow.getRequiredExtendedKeyUsageOids()).containsExactly(DOCUMENT_SIGNING_OID);
             assertThat(workflow.getTimestampSource())
@@ -214,7 +214,7 @@ class SigningProfileMapperContentSigningTest {
         version.setManagedSigningType(ManagedSigningType.STATIC_KEY);
         version.setSignatureFormattingConnectorUuid(UUID.randomUUID());
         version.setSignatureFamily(SignatureFamilyFixtures.PADES);
-        version.setMaxSignatureLevel(SignatureLevel.TIMESTAMPED);
+        version.setSignatureLevel(SignatureLevel.TIMESTAMPED);
         version.setRequireNonRepudiation(true);
         version.setRequiredExtendedKeyUsageOids(List.of(DOCUMENT_SIGNING_OID));
         return version;

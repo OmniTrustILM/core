@@ -135,7 +135,7 @@ public class SigningProfileRequestDtoBuilder {
         ContentSigningWorkflowRequestDto contentSigningWorkflow = new ContentSigningWorkflowRequestDto();
         contentSigningWorkflow.setSignatureFormattingConnectorUuid(signatureFormattingConnectorUuid);
         contentSigningWorkflow.setFamily(SignatureFamilyFixtures.PADES);
-        contentSigningWorkflow.setMaxLevel(SignatureLevel.SIGNED);
+        contentSigningWorkflow.setLevel(SignatureLevel.SIGNED);
         return withWorkflow(contentSigningWorkflow);
     }
 
@@ -204,7 +204,7 @@ public class SigningProfileRequestDtoBuilder {
                         .setSignatureFormattingConnectorAttributes(
                                 requestAttributesFromResponse(c.getSignatureFormattingConnectorAttributes()));
                 req.setFamily(c.getFamily());
-                req.setMaxLevel(c.getMaxLevel());
+                req.setLevel(c.getLevel());
                 if (c.isRequireNonRepudiation()) {
                     req.setRequireNonRepudiation(true);
                 }

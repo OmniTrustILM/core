@@ -302,13 +302,13 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     @ExternalAuthorization(resource = Resource.SIGNING_PROFILE, action = ResourceAction.ANY)
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public ContentSigningFormattingAttributesDto listContentSigningFormattingConnectorAttributes(UUID connectorUuid,
-            String family, SignatureLevel maxLevel, SecuredUUID signingProfileUuid)
+            String family, SignatureLevel level, SecuredUUID signingProfileUuid)
             throws NotFoundException, ConnectorException, AttributeException {
         contentSigningWorkflowValidator
                 .requireConnectorServes(connectorService.getConnectorEntity(SecuredUUID.fromUUID(connectorUuid)),
-                        family, maxLevel);
+                        family, level);
         ContentSigningFormattingDefinitions definitions = contentSigningFormattingAttributes
-                .aggregate(connectorService.getConnectorForApiClient(connectorUuid), maxLevel);
+                .aggregate(connectorService.getConnectorForApiClient(connectorUuid), level);
         return new ContentSigningFormattingAttributesDto(definitions.profileAttributes(),
                 definitions.requestAttributes());
     }
@@ -630,7 +630,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         List<String> blockers = new ArrayList<>();
         if (!latestVersionNames.isEmpty()) {
             blockers
-                    .add("it is named as the timestamp source by Signing Profile(s) (repoint them, or lower their maxLevel to SIGNED, to release it): "
+                    .add("it is named as the timestamp source by Signing Profile(s) (repoint them, or set their level to SIGNED and drop their timestamp source, to release it): "
                             + String.join(", ", latestVersionNames));
         }
         if (!supersededOnlyNames.isEmpty()) {
@@ -973,7 +973,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         version.setWorkflowType(workflow.getType());
         version.setSignatureFormattingConnector(null);
         version.setSignatureFamily(null);
-        version.setMaxSignatureLevel(null);
+        version.setSignatureLevel(null);
         version.setTimestampSourceProfileUuid(null);
         version.setRequireNonRepudiation(false);
         version.setRequiredExtendedKeyUsageOids(new ArrayList<>());
@@ -1100,7 +1100,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
                 .getConnectorEntity(SecuredUUID.fromUUID(w.getSignatureFormattingConnectorUuid()));
         version.setSignatureFormattingConnector(contentConnector);
         version.setSignatureFamily(w.getFamily());
-        version.setMaxSignatureLevel(w.getMaxLevel());
+        version.setSignatureLevel(w.getLevel());
         version.setTimestampSourceProfileUuid(TimestampSourceRequests.internalProfileUuid(w.getTimestampSource()));
         version.setRequireNonRepudiation(Boolean.TRUE.equals(w.getRequireNonRepudiation()));
         version
@@ -1129,14 +1129,12 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     }
 
     /**
-     * A delegated signature is levelled entirely by the signer connector, so ILM configures no ladder for it. Ignoring
-     * a ladder rather than refusing it would still let {@code maxLevel} decide which formatting operations' attributes
-     * are collected and stored against a version whose ladder columns say those operations are out of scope.
+     * The signer connector levels a delegated signature itself, so the family, level and timestamp source are its own.
      */
     private static void requireNoLevelLadder(ContentSigningWorkflowRequestDto w) {
-        if (w.getFamily() != null || w.getMaxLevel() != null || w.getTimestampSource() != null) {
+        if (w.getFamily() != null || w.getLevel() != null || w.getTimestampSource() != null) {
             throw new ValidationException(
-                    "family, maxLevel and timestampSource must be omitted for delegated content signing: the signer connector levels the signature itself");
+                    "family, level and timestampSource must be omitted for delegated content signing: the signer connector levels the signature itself");
         }
     }
 
@@ -1411,7 +1409,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
                                 .aggregate(
                                         connectorService
                                                 .getConnectorForApiClient(w.getSignatureFormattingConnectorUuid()),
-                                        w.getMaxLevel())
+                                        w.getLevel())
                                 .all();
             case TimestampingWorkflowRequestDto w ->
                 fetchTimestampingFormattingDefinitions(w.getSignatureFormattingConnectorUuid());

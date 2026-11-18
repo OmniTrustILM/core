@@ -137,7 +137,7 @@ class ContentSigningSignerKeyITest extends SigningProfileTestBase {
                 .withContentSigning(aContentSigningWorkflow()
                         .withSignatureFormattingConnector(formattingConnector.getUuid())
                         .withFamily(SignatureFamilyFixtures.PADES)
-                        .withMaxLevel(SignatureLevel.SIGNED)
+                        .withLevel(SignatureLevel.SIGNED)
                         .build())
                 .build();
     }

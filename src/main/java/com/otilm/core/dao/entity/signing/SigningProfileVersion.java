@@ -108,9 +108,9 @@ public class SigningProfileVersion extends UniquelyIdentifiedAndAudited {
     @Column(name = "signature_family")
     private String signatureFamily;
 
-    @Column(name = "max_signature_level")
+    @Column(name = "signature_level")
     @Enumerated(EnumType.STRING)
-    private SignatureLevel maxSignatureLevel;
+    private SignatureLevel signatureLevel;
 
     @Column(name = "timestamp_source_profile_uuid")
     private UUID timestampSourceProfileUuid;

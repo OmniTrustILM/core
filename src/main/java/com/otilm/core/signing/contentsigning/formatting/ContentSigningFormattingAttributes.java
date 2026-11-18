@@ -22,8 +22,8 @@ import java.util.stream.Collectors;
 import org.springframework.stereotype.Component;
 
 /**
- * Aggregates the per-operation formatting attribute listings a content-signing profile can reach under its
- * {@code maxLevel}. The attributes a signing request may set stay apart from those only the operator sets.
+ * Aggregates the per-operation formatting attribute listings a content-signing profile can reach at its {@code level}.
+ * Request attributes set stay apart from the signing profile attributes.
  *
  * <p>
  * Attribute names form a single namespace across the operations, so a name two operations declare must carry an
@@ -42,13 +42,14 @@ public class ContentSigningFormattingAttributes {
     }
 
     /**
-     * The operations a run can reach at {@code maxLevel}.
+     * The operations a run at {@code level} reaches, in execution order; a {@code null} level reaches the compute and
+     * embed pair.
      */
-    public static List<ContentSigningFormattingOperation> reachableOperations(SignatureLevel maxLevel) {
+    public static List<ContentSigningFormattingOperation> reachableOperations(SignatureLevel level) {
         List<ContentSigningFormattingOperation> operations = new ArrayList<>(List
                 .of(ContentSigningFormattingOperation.COMPUTE_DTBS,
                         ContentSigningFormattingOperation.EMBED_SIGNATURE_VALUE));
-        if (maxLevel != null && maxLevel != SignatureLevel.SIGNED) {
+        if (level != null && level != SignatureLevel.SIGNED) {
             operations
                     .addAll(List
                             .of(ContentSigningFormattingOperation.COMPUTE_SIGNATURE_TIMESTAMP_IMPRINT,
@@ -58,23 +59,23 @@ public class ContentSigningFormattingAttributes {
     }
 
     /**
-     * Fetches the attribute listing of every operation {@code maxLevel} reaches and merges each kind of attribute by
-     * name. Listings that break a request-attribute rule are rejected.
+     * Fetches the attribute listing of every operation {@code level} reaches and merges each kind of attribute by name.
+     * Listings that break a request-attribute rule are rejected.
      */
-    public ContentSigningFormattingDefinitions aggregate(ApiClientConnectorInfo connector, SignatureLevel maxLevel)
+    public ContentSigningFormattingDefinitions aggregate(ApiClientConnectorInfo connector, SignatureLevel level)
             throws ConnectorException, ValidationException {
         Map<ContentSigningFormattingOperation, ContentSigningFormattingAttributesDto> listings = listings(connector,
-                maxLevel);
+                level);
         requireRequestAttributeRules(listings);
         return merged(listings);
     }
 
     private Map<ContentSigningFormattingOperation, ContentSigningFormattingAttributesDto> listings(
-            ApiClientConnectorInfo connector, SignatureLevel maxLevel) throws ConnectorException {
+            ApiClientConnectorInfo connector, SignatureLevel level) throws ConnectorException {
         ContentSigningFormattingSyncApiClient client = connectorApiFactory
                 .getContentSigningFormattingApiClient(connector);
         Map<ContentSigningFormattingOperation, ContentSigningFormattingAttributesDto> listings = new LinkedHashMap<>();
-        for (ContentSigningFormattingOperation operation : reachableOperations(maxLevel)) {
+        for (ContentSigningFormattingOperation operation : reachableOperations(level)) {
             listings.put(operation, client.listFormattingAttributes(connector, operation));
         }
         return listings;

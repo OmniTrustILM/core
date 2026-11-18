@@ -78,8 +78,8 @@ class ContentSigningFormattingAttributesTest {
         }
 
         @Test
-        void aNullMaxLevelReachesOnlyTheComputeAndEmbedPair() {
-            // given: defensive default when the ceiling is unknown -- fail closed to the smallest set
+        void aNullLevelReachesOnlyTheComputeAndEmbedPair() {
+            // given: defensive default when the level is unknown -- fail closed to the smallest set
             // when
             List<ContentSigningFormattingOperation> reached = ContentSigningFormattingAttributes
                     .reachableOperations(null);
@@ -95,7 +95,7 @@ class ContentSigningFormattingAttributesTest {
     class Aggregate {
 
         @Test
-        void aggregatesTheReachableSchemasIntoOneFlatSet_whenMaxLevelIsSigned() throws Exception {
+        void aggregatesTheReachableSchemasIntoOneFlatSet_whenLevelIsSigned() throws Exception {
             // given
             when(connectorApiFactory.getContentSigningFormattingApiClient(connector)).thenReturn(apiClient);
             when(apiClient.listFormattingAttributes(connector, ContentSigningFormattingOperation.COMPUTE_DTBS))
@@ -135,7 +135,7 @@ class ContentSigningFormattingAttributesTest {
         }
 
         @Test
-        void fetchesTheTimestampTwinsToo_whenMaxLevelIsTimestamped() throws Exception {
+        void fetchesTheTimestampTwinsToo_whenLevelIsTimestamped() throws Exception {
             // given
             when(connectorApiFactory.getContentSigningFormattingApiClient(connector)).thenReturn(apiClient);
             when(apiClient.listFormattingAttributes(any(), any())).thenReturn(profileListing());

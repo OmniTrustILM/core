@@ -340,7 +340,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                         .withContentSigning(aContentSigningWorkflow()
                                 .withSignatureFormattingConnector(UUID.fromString(connector.getUuid()))
                                 .withFamily(SignatureFamilyFixtures.PADES)
-                                .withMaxLevel(SignatureLevel.TIMESTAMPED)
+                                .withLevel(SignatureLevel.TIMESTAMPED)
                                 .withInternalTimestampSource(timestampSourceProfileUuid)
                                 .build())
                         .build());
@@ -1417,7 +1417,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                                     .withSignatureFormattingConnector(
                                             UUID.fromString(contentSigningFormattingConnector.getUuid()))
                                     .withFamily(SignatureFamilyFixtures.PADES)
-                                    .withMaxLevel(SignatureLevel.SIGNED)
+                                    .withLevel(SignatureLevel.SIGNED)
                                     .withRequireNonRepudiation(true)
                                     .withRequiredExtendedKeyUsageOids(DOCUMENT_SIGNING_OID)
                                     .build())
@@ -1449,7 +1449,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                                     .withSignatureFormattingConnector(
                                             UUID.fromString(contentSigningFormattingConnector.getUuid()))
                                     .withFamily(SignatureFamilyFixtures.PADES)
-                                    .withMaxLevel(SignatureLevel.SIGNED)
+                                    .withLevel(SignatureLevel.SIGNED)
                                     .withRequireNonRepudiation(true)
                                     .build())
                             .build());
@@ -1579,7 +1579,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                                     .withSignatureFormattingConnector(
                                             UUID.fromString(contentSigningFormattingConnector.getUuid()))
                                     .withFamily(SignatureFamilyFixtures.PADES)
-                                    .withMaxLevel(SignatureLevel.SIGNED)
+                                    .withLevel(SignatureLevel.SIGNED)
                                     .withAllowedRequestAttributes(allowedGroup, allowedUngroupedAttribute)
                                     .build())
                             .build());
@@ -1600,9 +1600,9 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                                     (UnaryOperator<ContentSigningWorkflowRequestDtoBuilder>) b -> b
                                             .withFamily(SignatureFamilyFixtures.PADES)),
                             Arguments
-                                    .of("maxLevel",
+                                    .of("level",
                                             (UnaryOperator<ContentSigningWorkflowRequestDtoBuilder>) b -> b
-                                                    .withMaxLevel(SignatureLevel.TIMESTAMPED)),
+                                                    .withLevel(SignatureLevel.TIMESTAMPED)),
                             Arguments
                                     .of("timestampSource",
                                             (UnaryOperator<ContentSigningWorkflowRequestDtoBuilder>) b -> b
@@ -1625,7 +1625,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             assertThatThrownBy(create)
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining(
-                            "family, maxLevel and timestampSource must be omitted for delegated content signing");
+                            "family, level and timestampSource must be omitted for delegated content signing");
         }
 
         @Test
@@ -1729,7 +1729,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                             .withContentSigning(aContentSigningWorkflow()
                                     .withSignatureFormattingConnector(
                                             UUID.fromString(contentSigningFormattingConnector.getUuid()))
-                                    .withMaxLevel(SignatureLevel.SIGNED)
+                                    .withLevel(SignatureLevel.SIGNED)
                                     .build())
                             .build());
 
@@ -1740,7 +1740,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         }
 
         @Test
-        void managedScheme_contentSigningWorkflowWithoutAMaxLevel_throwsValidationException() {
+        void managedScheme_contentSigningWorkflowWithoutALevel_throwsValidationException() {
             // when
             ThrowableAssert.ThrowingCallable create = () -> signingProfileService
                     .createSigningProfile(aSigningProfileRequest()
@@ -1756,7 +1756,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             // then
             assertThatThrownBy(create)
                     .isInstanceOf(ValidationException.class)
-                    .hasMessageContaining("maxLevel is required");
+                    .hasMessageContaining("level is required");
         }
 
         @Test
@@ -1929,7 +1929,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                             .withSignatureFormattingConnector(
                                     UUID.fromString(contentSigningFormattingConnector.getUuid()))
                             .withFamily(SignatureFamilyFixtures.PADES)
-                            .withMaxLevel(SignatureLevel.SIGNED)
+                            .withLevel(SignatureLevel.SIGNED)
                             .build())
                     .build();
         }
@@ -1999,7 +1999,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                                     .withSignatureFormattingConnector(
                                             UUID.fromString(contentSigningFormattingConnector.getUuid()))
                                     .withFamily(SignatureFamilyFixtures.PADES)
-                                    .withMaxLevel(SignatureLevel.SIGNED)
+                                    .withLevel(SignatureLevel.SIGNED)
                                     .withAllowedRequestAttributes("reason")
                                     .build())
                             .build());
@@ -2282,7 +2282,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                         .isInstanceOf(ValidationException.class)
                         .satisfies(thrown -> assertThat(firstErrorMessage((ValidationException) thrown))
                                 .contains("expected-content-signing-name", "timestamp source")
-                                .contains("repoint them, or lower their maxLevel to SIGNED")
+                                .contains("repoint them, or set their level to SIGNED")
                                 .doesNotContain("superseded version(s)"));
             } finally {
                 formattingMock.stop();
@@ -2313,7 +2313,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                                         .withContentSigning(aContentSigningWorkflow()
                                                 .withSignatureFormattingConnector(UUID.fromString(connector.getUuid()))
                                                 .withFamily(SignatureFamilyFixtures.PADES)
-                                                .withMaxLevel(SignatureLevel.SIGNED)
+                                                .withLevel(SignatureLevel.SIGNED)
                                                 .build())
                                         .build());
 
@@ -2361,7 +2361,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                                         .withContentSigning(aContentSigningWorkflow()
                                                 .withSignatureFormattingConnector(UUID.fromString(connector.getUuid()))
                                                 .withFamily(SignatureFamilyFixtures.PADES)
-                                                .withMaxLevel(SignatureLevel.SIGNED)
+                                                .withLevel(SignatureLevel.SIGNED)
                                                 .build())
                                         .build());
 
@@ -2373,7 +2373,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                 assertThatThrownBy(deleteProfile)
                         .isInstanceOf(ValidationException.class)
                         .satisfies(thrown -> assertThat(firstErrorMessage((ValidationException) thrown))
-                                .containsSubsequence("repoint them, or lower their maxLevel to SIGNED",
+                                .containsSubsequence("repoint them, or set their level to SIGNED",
                                         "live-reference-profile", "only in superseded version(s)",
                                         "history-only-profile"));
             } finally {
@@ -3355,7 +3355,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                                     .withSignatureFormattingConnector(
                                             UUID.fromString(contentSigningFormattingConnector.getUuid()))
                                     .withFamily(SignatureFamilyFixtures.PADES)
-                                    .withMaxLevel(SignatureLevel.SIGNED)
+                                    .withLevel(SignatureLevel.SIGNED)
                                     .withSignatureFormattingConnectorAttributes(
                                             List.of(aStringAttribute(attrUuid, attrName, "testValue")))
                                     .build())
@@ -3395,7 +3395,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                                         .withSignatureFormattingConnector(
                                                 UUID.fromString(contentSigningFormattingConnector.getUuid()))
                                         .withFamily(SignatureFamilyFixtures.PADES)
-                                        .withMaxLevel(SignatureLevel.SIGNED)
+                                        .withLevel(SignatureLevel.SIGNED)
                                         .withSignatureFormattingConnectorAttributes(
                                                 List.of(aStringAttribute(attrUuid, attrName, "valueA")))
                                         .build())
@@ -3411,7 +3411,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                                                 .withSignatureFormattingConnector(
                                                         UUID.fromString(formattingBConnector.getUuid()))
                                                 .withFamily(SignatureFamilyFixtures.PADES)
-                                                .withMaxLevel(SignatureLevel.SIGNED)
+                                                .withLevel(SignatureLevel.SIGNED)
                                                 .withSignatureFormattingConnectorAttributes(
                                                         List.of(aStringAttribute(attrUuid, attrName, "valueB")))
                                                 .build())
@@ -3460,7 +3460,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                                     .withSignatureFormattingConnector(
                                             UUID.fromString(contentSigningFormattingConnector.getUuid()))
                                     .withFamily(SignatureFamilyFixtures.PADES)
-                                    .withMaxLevel(SignatureLevel.SIGNED)
+                                    .withLevel(SignatureLevel.SIGNED)
                                     .withSignatureFormattingConnectorAttributes(
                                             List.of(aStringAttribute(attrUuid, attrName, "toDelete")))
                                     .build())
@@ -3517,7 +3517,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                             .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
                             .withContentSigning(aContentSigningWorkflow()
                                     .withFamily(SignatureFamilyFixtures.PADES)
-                                    .withMaxLevel(SignatureLevel.SIGNED)
+                                    .withLevel(SignatureLevel.SIGNED)
                                     .build())
                             .build());
 
@@ -3617,7 +3617,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                             .withSignatureFormattingConnector(
                                     UUID.fromString(contentSigningFormattingConnector.getUuid()))
                             .withFamily(SignatureFamilyFixtures.PADES)
-                            .withMaxLevel(SignatureLevel.SIGNED)
+                            .withLevel(SignatureLevel.SIGNED)
                             .withSignatureFormattingConnectorAttributes(List.of(formattingAttribute))
                             .build())
                     .build();
@@ -3670,7 +3670,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                                     .withSignatureFormattingConnector(
                                             UUID.fromString(contentSigningFormattingConnector.getUuid()))
                                     .withFamily(SignatureFamilyFixtures.PADES)
-                                    .withMaxLevel(SignatureLevel.SIGNED)
+                                    .withLevel(SignatureLevel.SIGNED)
                                     .withSignatureFormattingConnectorAttributes(
                                             List.of(aStringAttribute(attrUuid, attrName, "discoveredValue")))
                                     .build())
@@ -3706,7 +3706,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         void refusesAsSaveWould_whenTheProviderDoesNotReachTheLevel() {
             // given — the registered provider declares the AdES families up to SIGNED only
 
-            // when: the form asks for the descriptors of a TIMESTAMPED ceiling
+            // when: the form asks for the descriptors of a TIMESTAMPED level
             ThrowableAssert.ThrowingCallable discover = () -> signingProfileService
                     .listContentSigningFormattingConnectorAttributes(
                             UUID.fromString(contentSigningFormattingConnector.getUuid()), SignatureFamilyFixtures.PADES,
@@ -3719,7 +3719,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         }
 
         @Test
-        void discovery_atATimestampedCeiling_reachesTheTimestampOperationsToo()
+        void discovery_atTheTimestampedLevel_reachesTheTimestampOperationsToo()
                 throws ConnectorException, AlreadyExistException, AttributeException, NotFoundException {
             // given: a provider that reaches TIMESTAMPED and declares one attribute on every operation
             ContentSigningFormattingMock timestampedMock = connectorMockFactory.startContentSigningFormatting();
