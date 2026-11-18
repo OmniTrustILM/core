@@ -131,6 +131,76 @@ class EstRequestedCertificateLookupITest extends BaseSpringBootTest {
     }
 
     @Test
+    void findsNothingForTheClient_whenRaProfileDiffers() throws Exception {
+        // given
+        var clientUuid = UUID.randomUUID();
+        saveRequestedCertificate(raProfile, CertificateProtocol.EST, estProfile.getUuid(), clientUuid, REQUEST_BYTES,
+                CertificateState.ISSUED, null);
+        RaProfile otherRaProfile = estRouteSeeder.seedRaProfile("other-ra");
+
+        // when
+        Optional<EstRequestedCertificate> found = certificateRepository
+                .findLatestRequestedThroughEstByClient(otherRaProfile.getUuid(), estProfile.getUuid(), clientUuid,
+                        fingerprintOf(REQUEST_BYTES));
+
+        // then
+        assertThat(found).isEmpty();
+    }
+
+    @Test
+    void findsNothingForTheClient_whenCertificateWasRequestedThroughAnotherEstProfile() throws Exception {
+        // given
+        var clientUuid = UUID.randomUUID();
+        EstProfile otherEstProfile = estRouteSeeder.seedEstProfile("est-other", true, raProfile);
+        saveRequestedCertificate(raProfile, CertificateProtocol.EST, otherEstProfile.getUuid(), clientUuid,
+                REQUEST_BYTES, CertificateState.ISSUED, null);
+
+        // when
+        Optional<EstRequestedCertificate> found = certificateRepository
+                .findLatestRequestedThroughEstByClient(raProfile.getUuid(), estProfile.getUuid(), clientUuid,
+                        fingerprintOf(REQUEST_BYTES));
+
+        // then
+        assertThat(found).isEmpty();
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = CertificateProtocol.class, names = "EST", mode = EnumSource.Mode.EXCLUDE)
+    void findsNothingForTheClient_whenCertificateWasRequestedThroughAnotherProtocol(CertificateProtocol anotherProtocol)
+            throws Exception {
+        // given
+        var clientUuid = UUID.randomUUID();
+        saveRequestedCertificate(raProfile, anotherProtocol, estProfile.getUuid(), clientUuid, REQUEST_BYTES,
+                CertificateState.ISSUED, null);
+
+        // when
+        Optional<EstRequestedCertificate> found = certificateRepository
+                .findLatestRequestedThroughEstByClient(raProfile.getUuid(), estProfile.getUuid(), clientUuid,
+                        fingerprintOf(REQUEST_BYTES));
+
+        // then
+        assertThat(found).isEmpty();
+    }
+
+    @Test
+    void findsNothingForTheClient_whenCertificateIsArchived() throws Exception {
+        // given
+        var clientUuid = UUID.randomUUID();
+        Certificate archived = saveRequestedCertificate(raProfile, CertificateProtocol.EST, estProfile.getUuid(),
+                clientUuid, REQUEST_BYTES, CertificateState.ISSUED, null);
+        archived.setArchived(true);
+        certificateRepository.save(archived);
+
+        // when
+        Optional<EstRequestedCertificate> found = certificateRepository
+                .findLatestRequestedThroughEstByClient(raProfile.getUuid(), estProfile.getUuid(), clientUuid,
+                        fingerprintOf(REQUEST_BYTES));
+
+        // then
+        assertThat(found).isEmpty();
+    }
+
+    @Test
     void findsNewestCertificate_whenTheSameCsrWasRequestedTwice() throws Exception {
         // given
         saveRequestedCertificate(raProfile, CertificateProtocol.EST, estProfile.getUuid(), REQUEST_BYTES,

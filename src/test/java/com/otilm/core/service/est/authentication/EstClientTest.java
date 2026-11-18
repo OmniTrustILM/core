@@ -52,6 +52,19 @@ class EstClientTest {
     }
 
     @Test
+    void derivesTheFirst128BitsOfTheSha256MarkedAsVersion8_whenDerivingTheCorrelationUuid() {
+        // given — the UUID is stored with certificates, so a client's retries depend on this mapping staying fixed
+        var client = EstClient.ofCertificate(EstAuthenticationPolicy.VENDOR_MTLS, "0a1b2c3d");
+        var sha256OfTheIdentityAsVersion8 = UUID.fromString("5e4a0f11-eae4-8a25-96cd-7d9a62f54503");
+
+        // when
+        UUID correlationUuid = client.correlationUuid();
+
+        // then
+        assertThat(correlationUuid).isEqualTo(sha256OfTheIdentityAsVersion8);
+    }
+
+    @Test
     void derivesAVersion8UuidThatIsNotTheMd5NameUuid_whenDerivingTheCorrelationUuid() {
         // given
         var identity = "certificate:0a1b2c3d";
