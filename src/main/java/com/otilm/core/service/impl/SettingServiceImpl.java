@@ -34,6 +34,7 @@ import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsDt
 import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsUpdateDto;
 import com.otilm.api.model.core.settings.authentication.JwkDto;
 import com.otilm.api.model.core.settings.authentication.JwkSetLoadFailure;
+import com.otilm.api.model.core.settings.authentication.OAuth2ApplicationSettingsDto;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsResponseDto;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsUpdateDto;
@@ -45,11 +46,13 @@ import com.otilm.core.cbom.sync.CbomSyncPolicy;
 import com.otilm.core.certificate.request.DefaultRequestAttributeSet;
 import com.otilm.core.dao.entity.Setting;
 import com.otilm.core.dao.repository.SettingRepository;
+import com.otilm.core.exception.PreconditionFailedException;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.service.SettingExternalService;
 import com.otilm.core.service.SettingInternalService;
+import com.otilm.core.service.TaggedOAuth2ProviderSettings;
 import com.otilm.core.service.TriggerExternalService;
 import com.otilm.core.service.TriggerInternalService;
 import com.otilm.core.service.registration.CertificateRegistrationDefaults;
@@ -81,6 +84,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -932,9 +936,38 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
     @ExternalAuthorization(resource = Resource.SETTINGS, action = ResourceAction.DETAIL)
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public OAuth2ProviderSettingsResponseDto getOAuth2ProviderSettings(String providerName, boolean withClientSecret) {
-        Setting setting = settingRepository
+        return toOAuth2ProviderSettingsResponse(findOAuth2ProviderSetting(providerName), providerName,
+                withClientSecret);
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.SETTINGS, action = ResourceAction.DETAIL)
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public TaggedOAuth2ProviderSettings getTaggedOAuth2ProviderSettings(String providerName) {
+        Setting setting = findOAuth2ProviderSetting(providerName);
+        if (setting == null) {
+            return new TaggedOAuth2ProviderSettings(null, null);
+        }
+        OAuth2ProviderSettingsResponseDto settingsDto = toOAuth2ProviderSettingsResponse(setting, providerName, false);
+        return new TaggedOAuth2ProviderSettings(settingsDto, entityTagOf(setting, providerName));
+    }
+
+    private Setting findOAuth2ProviderSetting(String providerName) {
+        return settingRepository
                 .findBySectionAndCategoryAndName(SettingsSection.AUTHENTICATION,
                         SettingsSectionCategory.OAUTH2_PROVIDER.getCode(), providerName);
+    }
+
+    private String entityTagOf(Setting setting, String providerName) {
+        try {
+            return OAuth2ProviderSettingsEntityTag.of(setting.getValue());
+        } catch (JsonProcessingException e) {
+            throw new ValidationException(DESERIALIZATION_ERROR_MESSAGE.formatted(providerName));
+        }
+    }
+
+    private OAuth2ProviderSettingsResponseDto toOAuth2ProviderSettingsResponse(Setting setting, String providerName,
+            boolean withClientSecret) {
         OAuth2ProviderSettingsResponseDto settingsDto = null;
         if (setting != null) {
             try {
@@ -969,15 +1002,29 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
 
     @Override
     @ExternalAuthorization(resource = Resource.SETTINGS, action = ResourceAction.UPDATE)
-    public void updateOAuth2ProviderSettings(String providerName, OAuth2ProviderSettingsUpdateDto settingsDto) {
+    public void updateOAuth2ProviderSettings(String providerName, String ifMatch,
+            OAuth2ProviderSettingsUpdateDto settingsDto) {
         normalizeAndValidateOAuth2ProviderSettings(settingsDto);
 
         settingRepository.lockOAuth2ProviderWrites();
+        verifyOAuth2ProviderPrecondition(providerName, ifMatch);
         validateIssuerUniqueness(providerName, settingsDto.getIssuerUrl());
 
         persistOAuth2Provider(providerName, settingsDto);
         cacheAfterCommit(
                 () -> settingsCache.cacheSettings(SettingsSection.AUTHENTICATION, getAuthenticationSettings(true)));
+    }
+
+    private void verifyOAuth2ProviderPrecondition(String providerName, String ifMatch) {
+        if (StringUtils.isBlank(ifMatch)) {
+            return;
+        }
+        Setting stored = findOAuth2ProviderSetting(providerName);
+        if (stored == null || !OAuth2ProviderSettingsEntityTag.matches(ifMatch, entityTagOf(stored, providerName))) {
+            throw new PreconditionFailedException(
+                    "OAuth2 provider '%s' was changed since it was read. Reload it and try again."
+                            .formatted(providerName));
+        }
     }
 
     private void persistOAuth2Provider(String providerName, OAuth2ProviderSettingsUpdateDto settingsDto) {
@@ -1066,6 +1113,7 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
 
     private void normalizeAndValidateOAuth2ProviderSettings(OAuth2ProviderSettingsUpdateDto settingsDto) {
         normalizeAndValidateDelegationSettings(settingsDto);
+        normalizeAndValidateApplicationSettings(settingsDto);
         String jwkSet = settingsDto.getJwkSet();
         if (jwkSet != null && jwkSet.isBlank()) {
             settingsDto.setJwkSet(null);
@@ -1110,6 +1158,93 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
         settingsDto.setAllowedDelegates(new ArrayList<>(identifiers));
     }
 
+    private static void normalizeAndValidateApplicationSettings(OAuth2ProviderSettingsUpdateDto settingsDto) {
+        OAuth2ApplicationSettingsDto applications = settingsDto.getApplications();
+        if (applications == null) {
+            return;
+        }
+        if (applications.isEnabled() && isBlank(settingsDto.getIssuerUrl())) {
+            throw new ValidationException("Sign-in for applications requires the provider's issuer URL.");
+        }
+        if (applications.isEnabled() && !isPublishableIssuer(settingsDto.getIssuerUrl())) {
+            throw new ValidationException(
+                    "Sign-in for applications requires an http or https issuer URL with a valid host name and without credentials, query or fragment.");
+        }
+        applications.setName(blankToNull(applications.getName()));
+        applications.setClientId(blankToNull(applications.getClientId()));
+        applications.setResource(blankToNull(applications.getResource()));
+        if (applications.getClientId() != null && applications.getClientId().equals(settingsDto.getClientId())) {
+            throw new ValidationException("The client ID for applications must differ from the provider's client ID.");
+        }
+        applications.setScopes(normalizeApplicationScopes(applications.getScopes()));
+        validateApplicationResource(applications.getResource());
+    }
+
+    private static List<String> normalizeApplicationScopes(List<String> scopes) {
+        Set<String> normalized = new LinkedHashSet<>();
+        if (scopes != null) {
+            for (String scope : scopes) {
+                if (scope == null || scope.isBlank()) {
+                    throw new ValidationException("Scopes for applications must not contain blank entries.");
+                }
+                normalized.add(scope.trim());
+            }
+        }
+        return new ArrayList<>(normalized);
+    }
+
+    static void validateApplicationResource(String resource) {
+        if (resource == null) {
+            return;
+        }
+        URI uri;
+        try {
+            uri = new URI(resource);
+        } catch (URISyntaxException e) {
+            throw new ValidationException("The resource for applications must be an absolute http or https URI.");
+        }
+        String scheme = uri.getScheme();
+        if (!isHttpScheme(scheme) || uri.getHost() == null) {
+            throw new ValidationException("The resource for applications must be an absolute http or https URI.");
+        }
+        if (uri.getRawUserInfo() != null) {
+            throw new ValidationException("The resource for applications must not contain credentials.");
+        }
+        if (uri.getRawFragment() != null) {
+            throw new ValidationException("The resource for applications must not contain a fragment.");
+        }
+    }
+
+    /**
+     * The issuer is published to anyone as an OAuth issuer identifier, so it must be an http or https URI with a valid
+     * host name and no credentials, query or fragment. A host {@code java.net.URI} cannot parse, such as one with an
+     * underscore, leaves no host and is refused.
+     */
+    private static boolean isPublishableIssuer(String url) {
+        URI issuer;
+        try {
+            issuer = new URI(url.trim());
+        } catch (URISyntaxException e) {
+            return false;
+        }
+        String scheme = issuer.getScheme();
+        boolean http = isHttpScheme(scheme);
+        return http && issuer.getHost() != null && issuer.getRawUserInfo() == null && issuer.getRawQuery() == null
+                && issuer.getRawFragment() == null;
+    }
+
+    private static boolean isHttpScheme(String scheme) {
+        return "http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme);
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
+
+    private static String blankToNull(String value) {
+        return isBlank(value) ? null : value.trim();
+    }
+
     private URL parseJwkSetUrl(String jwkSetUrl) {
         URI uri;
         try {
@@ -1119,7 +1254,7 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
                     "JWK Set URL is invalid: %s at index %d.".formatted(e.getReason(), e.getIndex()));
         }
         String scheme = uri.getScheme();
-        if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) {
+        if (!isHttpScheme(scheme)) {
             throw new ValidationException("JWK Set URL must use http or https.");
         }
         if (uri.getHost() == null || uri.getHost().isBlank()) {

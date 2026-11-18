@@ -13,6 +13,7 @@ import com.otilm.core.logging.LoggingHelper;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authn.PlatformAuthenticationToken;
 import com.otilm.core.security.authn.PlatformUserDetails;
+import com.otilm.core.security.authn.ProtectedResourceChallenge;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
 import com.otilm.core.security.authn.client.PlatformAuthenticationClient;
 import com.otilm.core.security.authn.client.UserManagementApiClient;
@@ -91,10 +92,12 @@ public class AuthHelper {
     /**
      * Served without authentication for {@code GET} alone. {@code /v?/branding} is here because the login page needs
      * the customer's identity before anyone signs in; it returns a purpose-built DTO carrying branding fields and
-     * nothing else. Opening only {@code GET} keeps a write against the path refused by the security chain rather than
-     * by the handler mapping happening to register no other method.
+     * nothing else. The protected resource metadata is here because a client reads it to find where to sign in. Opening
+     * only {@code GET} keeps a write against the path refused by the security chain rather than by the handler mapping
+     * happening to register no other method.
      */
-    public static final List<String> GET_PERMITTED_ENDPOINTS = List.of(BRANDING_ENDPOINT);
+    public static final List<String> GET_PERMITTED_ENDPOINTS = List
+            .of(BRANDING_ENDPOINT, ProtectedResourceChallenge.METADATA_PATH);
     public static final List<String> OAUTH2_ENDPOINTS = List
             .of("/login", "/oauth2/**", "/v?/oauth2/**", "/v?/health/**", "/v?/connector/register");
 

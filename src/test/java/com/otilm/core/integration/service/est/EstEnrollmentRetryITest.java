@@ -5,6 +5,7 @@ import com.github.tomakehurst.wiremock.client.WireMock;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
+import com.otilm.api.model.core.est.EstAuthenticationPolicy;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
@@ -19,6 +20,7 @@ import com.otilm.core.model.auth.CertificateProtocolInfo;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CertificateExternalService;
 import com.otilm.core.service.est.EstExternalService;
+import com.otilm.core.service.est.authentication.EstClient;
 import com.otilm.core.service.est.message.EstError;
 import com.otilm.core.service.est.message.EstException;
 import com.otilm.core.service.handler.authority.CertificateOperation;
@@ -34,6 +36,8 @@ import com.otilm.core.util.WireMockPorts;
 import com.otilm.core.util.WireMockResponseGate;
 import com.otilm.core.util.builders.V3ConnectorStubs;
 import com.otilm.core.util.mockbeans.ProducerMocks;
+import com.otilm.core.util.mocks.AuthorityV2ConnectorStubs;
+import com.otilm.core.util.mocks.CertifyingIssueTransformer;
 import com.otilm.core.util.seeders.ApprovalProfileSeeder;
 import com.otilm.core.util.seeders.EstRouteSeeder;
 import com.otilm.core.util.seeders.SecretSeeder;
@@ -51,6 +55,7 @@ import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -83,6 +88,8 @@ class EstEnrollmentRetryITest extends BaseSpringBootTest {
     private static final String RA_PROFILE_NAME = "devices-ra";
     private static final String USERNAME = "device-owner";
     private static final String PASSWORD = "s3cret";
+    private static final String OTHER_USERNAME = "other-device-owner";
+    private static final String OTHER_PASSWORD = "0ther-s3cret";
     private static final UUID APPROVER_UUID = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
     private static final String V2_ISSUE_PATH = "/v2/authorityProvider/authorities/[^/]+/certificates/issue";
     private static final String V3_ISSUE_PATH = "/v3/authorityProvider/certificates/issue";
@@ -127,13 +134,15 @@ class EstEnrollmentRetryITest extends BaseSpringBootTest {
     private WireMockServer authService;
     private WireMockServer connector;
     private X509Certificate issued;
+    private Secret raCredential;
 
     @BeforeEach
     void startConnectorThatIssuesAtOnceAndAuthService() throws Exception {
         authService = new WireMockServer(WireMockPorts.AUTH_SERVICE);
         authService.start();
         AuthServiceWireMockStubs.stubImpersonation(authService, UUID.randomUUID(), "est-user");
-        connector = LoopbackWireMock.start(responseGate);
+        connector = LoopbackWireMock
+                .start(responseGate, new CertifyingIssueTransformer(PkiFixtures.rootCa("EST Certifying Root")));
         issued = PkiFixtures.clientCertificate(PkiFixtures.rootCa("EST Issuing Root"));
         stubV2Issue(issued);
         delivery.deliverQueuedActions();
@@ -455,6 +464,64 @@ class EstEnrollmentRetryITest extends BaseSpringBootTest {
     }
 
     @Test
+    void createsNewCertificate_whenAnotherCredentialRepeatsTheRequest() throws Exception {
+        // given
+        EstProfile estProfile = seedRaBasicProfileWithAnotherCredential();
+        byte[] request = EstCsrFixtures.signedRequestBody();
+        ResponseEntity<byte[]> first = enroll(estProfile, request);
+        stubV2Issue(PkiFixtures.clientCertificate(PkiFixtures.rootCa("Second Root")));
+
+        // when
+        ResponseEntity<byte[]> repeated = enrollAsAnotherCredential(estProfile, request);
+
+        // then
+        assertThat(repeated.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(repeated.getBody()).isNotEqualTo(first.getBody());
+        assertThat(certificateRepository.findAll()).hasSize(2);
+        connector.verify(2, WireMock.postRequestedFor(WireMock.urlPathMatching(V2_ISSUE_PATH)));
+    }
+
+    @Test
+    void answersTheFirstCertificate_whenTheFirstCredentialRetriesAfterAnotherRepeatedTheRequest() throws Exception {
+        // given
+        EstProfile estProfile = seedRaBasicProfileWithAnotherCredential();
+        byte[] request = EstCsrFixtures.signedRequestBody();
+        ResponseEntity<byte[]> first = enroll(estProfile, request);
+        stubV2Issue(PkiFixtures.clientCertificate(PkiFixtures.rootCa("Second Root")));
+        enrollAsAnotherCredential(estProfile, request);
+
+        // when
+        ResponseEntity<byte[]> retry = enroll(estProfile, request);
+
+        // then
+        assertThat(retry.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(retry.getBody()).isEqualTo(first.getBody());
+        connector.verify(2, WireMock.postRequestedFor(WireMock.urlPathMatching(V2_ISSUE_PATH)));
+    }
+
+    @Test
+    void issuesForEachCredential_whenTwoCredentialsSendTheRequestConcurrently() throws Exception {
+        // given
+        EstProfile estProfile = seedRaBasicProfileWithAnotherCredential();
+        byte[] request = EstCsrFixtures.signedRequestBody();
+        AuthorityV2ConnectorStubs.on(connector).stubIssueCertifyingTheRequest();
+        stubV2AttributeValidationTakingLong();
+        var callsStarted = new AtomicInteger();
+
+        // when
+        List<ResponseEntity<byte[]>> answers = ConcurrentCalls
+                .callTogether(2,
+                        () -> callsStarted.getAndIncrement() == 0
+                                ? enroll(estProfile, request)
+                                : enrollAsAnotherCredential(estProfile, request));
+
+        // then
+        assertThat(answers).extracting(ResponseEntity::getStatusCode).containsOnly(HttpStatus.OK);
+        assertThat(certificateRepository.findAll()).hasSize(2);
+        connector.verify(2, WireMock.postRequestedFor(WireMock.urlPathMatching(V2_ISSUE_PATH)));
+    }
+
+    @Test
     void answersFromInventory_whenNoRequestStateSurvives() throws Exception {
         // given
         RaProfile raProfile = routes.seedRaProfile(connector, RA_PROFILE_NAME);
@@ -465,7 +532,8 @@ class EstEnrollmentRetryITest extends BaseSpringBootTest {
         earlier.setFormat(CertificateRequestFormat.PKCS10);
         clientOperationService
                 .issueCertificate(raProfile.getAuthorityInstanceReference().getSecuredParentUuid(),
-                        raProfile.getSecuredUuid(), earlier, CertificateProtocolInfo.est(estProfile.getUuid()));
+                        raProfile.getSecuredUuid(), earlier,
+                        CertificateProtocolInfo.est(estProfile.getUuid(), correlationUuidOf(raCredential), null));
 
         // when
         ResponseEntity<byte[]> answer = enroll(estProfile, request);
@@ -482,9 +550,26 @@ class EstEnrollmentRetryITest extends BaseSpringBootTest {
         return estService.simpleEnroll(estProfile.getName(), request, basicCredentials(USERNAME, PASSWORD));
     }
 
+    private ResponseEntity<byte[]> enrollAsAnotherCredential(EstProfile estProfile, byte[] request) {
+        return estService.simpleEnroll(estProfile.getName(), request, basicCredentials(OTHER_USERNAME, OTHER_PASSWORD));
+    }
+
     private EstProfile seedRaBasicProfile(RaProfile raProfile) {
-        Secret credential = secrets.seedBasicAuthSecret("ra-credential", USERNAME, PASSWORD);
-        return routes.seedRaBasicEstProfile(ESTPROFILE_NAME, raProfile, credential);
+        raCredential = secrets.seedBasicAuthSecret("ra-credential", USERNAME, PASSWORD);
+        return routes.seedRaBasicEstProfile(ESTPROFILE_NAME, raProfile, raCredential);
+    }
+
+    private EstProfile seedRaBasicProfileWithAnotherCredential() {
+        raCredential = secrets.seedBasicAuthSecret("ra-credential", USERNAME, PASSWORD);
+        Secret otherCredential = secrets.seedBasicAuthSecret("other-ra-credential", OTHER_USERNAME, OTHER_PASSWORD);
+        return routes
+                .seedRaBasicEstProfile(ESTPROFILE_NAME, routes.seedRaProfile(connector, RA_PROFILE_NAME), raCredential,
+                        otherCredential);
+    }
+
+    private static UUID correlationUuidOf(Secret credential) {
+        return new EstClient(EstAuthenticationPolicy.RA_BASIC, "secret:" + credential.getUuid(), null)
+                .correlationUuid();
     }
 
     private EstProfile seedProfileWithApproval() throws Exception {
