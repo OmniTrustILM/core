@@ -10,11 +10,13 @@ import com.otilm.core.model.signing.SigningCertificateBuilder;
 import com.otilm.core.model.signing.resolved.ResolvedManagedContentSigningProfile;
 import com.otilm.core.model.signing.resolved.ResolvedManagedScheme;
 import com.otilm.core.model.signing.resolved.ResolvedStaticKeyManagedSigning;
+import com.otilm.core.signing.contentsigning.formatting.ContentSigningFormattingDefinitions;
 import com.otilm.core.signing.engine.CertificateChain;
 import com.otilm.core.util.CertificateTestUtil;
 import com.otilm.core.util.SignatureFamilyFixtures;
 import java.security.cert.X509Certificate;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 public final class ResolvedManagedContentSigningProfileBuilder {
@@ -26,6 +28,9 @@ public final class ResolvedManagedContentSigningProfileBuilder {
     private boolean enabled = true;
     private List<SigningProtocol> enabledProtocols = List.of(SigningProtocol.CSC_API);
     private List<RequestAttribute> signatureFormattingConnectorAttributes = List.of();
+    private final ContentSigningFormattingDefinitions formattingDefinitions = new ContentSigningFormattingDefinitions(
+            List.of(), List.of());
+    private final Set<String> allowedRequestAttributes = Set.of();
     private SignatureFamilyDeclarationDto familyDeclaration = SignatureFamilyDeclarationDtoBuilder
             .aFamilyDeclaration(SignatureFamilyFixtures.PADES)
             .build();
@@ -117,8 +122,9 @@ public final class ResolvedManagedContentSigningProfileBuilder {
 
     public ResolvedManagedContentSigningProfile build() {
         return new ResolvedManagedContentSigningProfile(uuid, name, description, version, enabled, enabledProtocols,
-                signatureFormattingConnectorAttributes, familyDeclaration, level, timestampSourceProfileName,
-                certificatePurpose, signatureFormattingConnector, resolvedScheme);
+                signatureFormattingConnectorAttributes, formattingDefinitions, allowedRequestAttributes,
+                familyDeclaration, level, timestampSourceProfileName, certificatePurpose, signatureFormattingConnector,
+                resolvedScheme);
     }
 
     private static ResolvedManagedScheme defaultScheme() {

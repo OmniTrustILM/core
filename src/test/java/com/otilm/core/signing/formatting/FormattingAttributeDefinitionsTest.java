@@ -7,6 +7,7 @@ import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.interfaces.client.v2.AttributesSyncApiClient;
 import com.otilm.api.model.client.connector.v2.attribute.AttributeDefinitionsDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.common.signature.SignatureLevel;
 import com.otilm.api.model.core.connector.AuthType;
 import com.otilm.api.model.core.connector.ConnectorStatus;
@@ -177,7 +178,7 @@ class FormattingAttributeDefinitionsTest {
         void storesTheRequestAttributesWithTheProfileAttributes_whenTheProfileSignsContent() throws Exception {
             // given
             BaseAttribute profileAttribute = aDataAttribute().withName("data_formattingPolicy").build();
-            BaseAttribute requestAttribute = aDataAttribute().withName("data_formattingLocation").build();
+            DataAttributeV3 requestAttribute = aDataAttribute().withName("data_formattingLocation").build();
             when(contentSigningFormattingAttributes.aggregate(any(), any()))
                     .thenReturn(new ContentSigningFormattingDefinitions(List.of(profileAttribute),
                             List.of(requestAttribute)));

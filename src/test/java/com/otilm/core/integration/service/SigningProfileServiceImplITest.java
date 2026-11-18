@@ -8,7 +8,6 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
-import com.otilm.api.model.client.attribute.RequestAttributeV2;
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.client.attribute.ResponseAttribute;
 import com.otilm.api.model.client.attribute.ResponseAttributeV3;
@@ -24,6 +23,7 @@ import com.otilm.api.model.client.signing.profile.scheme.DelegatedSigningDto;
 import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
 import com.otilm.api.model.client.signing.profile.scheme.StaticKeyManagedSigningDto;
 import com.otilm.api.model.client.signing.profile.workflow.ContentSigningWorkflowDto;
+import com.otilm.api.model.client.signing.profile.workflow.ContentSigningWorkflowRequestDto;
 import com.otilm.api.model.client.signing.profile.workflow.RawSigningWorkflowDto;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.client.signing.profile.workflow.TimestampingWorkflowDto;
@@ -36,10 +36,10 @@ import com.otilm.api.model.common.PaginationResponseDto;
 import com.otilm.api.model.common.attribute.common.AttributeContent;
 import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.attribute.common.constraint.RegexpAttributeConstraint;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.properties.CustomAttributeProperties;
 import com.otilm.api.model.common.attribute.common.properties.MetadataAttributeProperties;
-import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.common.attribute.v3.CustomAttributeV3;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.MetadataAttributeV3;
@@ -126,6 +126,7 @@ import com.otilm.core.util.MetaDefinitions;
 import com.otilm.core.util.SignatureFamilyFixtures;
 import com.otilm.core.util.builders.ContentSigningWorkflowRequestDtoBuilder;
 import com.otilm.core.util.builders.DataAttributeV3Builder;
+import com.otilm.core.util.builders.SigningProfileRequestDtoBuilder;
 import com.otilm.core.util.mocks.ConnectorMockFactory;
 import com.otilm.core.util.mocks.ContentSigningFormattingMock;
 import com.otilm.core.util.mocks.CryptographyProviderConnectorMock;
@@ -183,6 +184,7 @@ import static com.otilm.core.util.builders.TimestampingWorkflowRequestDtoBuilder
 import static com.otilm.core.util.builders.TokenInstanceRequestDtoBuilder.aTokenInstanceRequest;
 import static com.otilm.core.util.builders.TokenProfileRequestDtoBuilder.aTokenProfileRequest;
 import static com.otilm.core.util.builders.TspProfileRequestDtoBuilder.aTspProfileRequest;
+import static com.otilm.core.util.mocks.ContentSigningFormattingMock.requestAttributeDefinition;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
@@ -361,12 +363,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
     }
 
     private static RequestAttribute aStringAttribute(UUID uuid, String name, String value) {
-        RequestAttributeV2 attr = new RequestAttributeV2();
-        attr.setUuid(uuid);
-        attr.setName(name);
-        attr.setContentType(AttributeContentType.STRING);
-        attr.setContent(List.of(new StringAttributeContentV2(value, value)));
-        return attr;
+        return aCustomAttribute().withUuid(uuid).withName(name).withStringContent(value).build();
     }
 
     private Connector persistV2Connector(String url) {
@@ -1027,7 +1024,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             attributeEngine.updateDataAttributeDefinitions(v2Connector.getUuid(), null, List.of(saltLength));
             List<RequestAttribute> attributes = new ArrayList<>(
                     signingAttributes(RsaSignatureScheme.PSS, DigestAlgorithm.SHA_256));
-            attributes.add(aStringAttributeV3(SALT_LENGTH_UUID, "pssSaltLength", "32"));
+            attributes.add(aStringAttribute(SALT_LENGTH_UUID, "pssSaltLength", "32"));
 
             // when
             SigningProfileDto created = signingProfileService
@@ -1038,9 +1035,11 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                             .build());
 
             // then
-            List<ResponseAttribute> stored = assertInstanceOf(StaticKeyManagedSigningDto.class,
-                    created.getSigningScheme()).getSigningOperationAttributes();
-            assertEquals("32", extractStringAttrValue(stored, "pssSaltLength"));
+            assertThat(created.getSigningScheme())
+                    .isInstanceOfSatisfying(StaticKeyManagedSigningDto.class,
+                            scheme -> assertThat(
+                                    extractStringAttrValue(scheme.getSigningOperationAttributes(), "pssSaltLength"))
+                                    .isEqualTo("32"));
         }
 
         @Test
@@ -1048,7 +1047,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             // given
             List<RequestAttribute> attributes = new ArrayList<>(
                     signingAttributes(RsaSignatureScheme.PKCS1_v1_5, DigestAlgorithm.SHA_256));
-            attributes.add(aStringAttributeV3(UUID.randomUUID(), "unpublished", "value"));
+            attributes.add(aStringAttribute(UUID.randomUUID(), "unpublished", "value"));
             SigningProfileRequestDto request = aSigningProfileRequest()
                     .withName("v2-unpublished")
                     .withStaticKeyManagedSigning(v2SigningCertificate.getUuid(), attributes)
@@ -1056,11 +1055,12 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                     .build();
 
             // when
-            Executable create = () -> signingProfileService.createSigningProfile(request);
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService.createSigningProfile(request);
 
             // then
-            ValidationException failure = assertThrows(ValidationException.class, create);
-            assertTrue(firstErrorMessage(failure).contains("unpublished"), firstErrorMessage(failure));
+            assertThatThrownBy(create)
+                    .isInstanceOfSatisfying(ValidationException.class,
+                            failure -> assertThat(firstErrorMessage(failure)).contains("unpublished"));
         }
 
         @Test
@@ -1164,12 +1164,12 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         /** Core's fields choose the signature algorithm, and the connector's own attributes repeat the choice. */
         private static List<RequestAttribute> signingAttributes(RsaSignatureScheme scheme, DigestAlgorithm digest) {
             return List
-                    .of(aStringAttributeV3(UUID.fromString(RsaSignatureAttributes.ATTRIBUTE_DATA_RSA_SIG_SCHEME_UUID),
+                    .of(aStringAttribute(UUID.fromString(RsaSignatureAttributes.ATTRIBUTE_DATA_RSA_SIG_SCHEME_UUID),
                             RsaSignatureAttributes.ATTRIBUTE_DATA_RSA_SIG_SCHEME, scheme.getCode()),
-                            aStringAttributeV3(UUID.fromString(RsaSignatureAttributes.ATTRIBUTE_DATA_SIG_DIGEST_UUID),
+                            aStringAttribute(UUID.fromString(RsaSignatureAttributes.ATTRIBUTE_DATA_SIG_DIGEST_UUID),
                                     RsaSignatureAttributes.ATTRIBUTE_DATA_SIG_DIGEST, digest.getCode()),
-                            aStringAttributeV3(SCHEME_UUID, "signatureScheme", scheme.getCode()),
-                            aStringAttributeV3(DIGEST_UUID, "digestAlgorithm", digest.getCode()));
+                            aStringAttribute(SCHEME_UUID, "signatureScheme", scheme.getCode()),
+                            aStringAttribute(DIGEST_UUID, "digestAlgorithm", digest.getCode()));
         }
 
         /** A v2 provider publishes the reserved signature algorithm attribute beside its own. */
@@ -1182,12 +1182,6 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                                             SignatureAlgorithm.SHA384_WITH_RSA)));
             return "[" + signatureAlgorithm + "," + stringAttribute(SCHEME_UUID, "signatureScheme") + ","
                     + stringAttribute(DIGEST_UUID, "digestAlgorithm") + "]";
-        }
-
-        /** pkcs11 publishes schema-v3 definitions, so a client answers them in v3. */
-        private static RequestAttribute aStringAttributeV3(UUID uuid, String name, String value) {
-            return new RequestAttributeV3(uuid, name, AttributeContentType.STRING,
-                    List.of(new StringAttributeContentV3(value)));
         }
 
         private static String stringAttribute(UUID uuid, String name) {
@@ -1570,6 +1564,10 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             // given
             var allowedGroup = "visibleSignature";
             var allowedUngroupedAttribute = "reason";
+            contentSigningFormattingMock
+                    .stubComputeDtbsRequestAttributeDefinitions(List
+                            .of(requestAttributeDefinition(UUID.randomUUID(), "visibleSignaturePage", allowedGroup),
+                                    requestAttributeDefinition(UUID.randomUUID(), allowedUngroupedAttribute, null)));
 
             // when
             SigningProfileDto created = signingProfileService
@@ -1592,6 +1590,53 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                     .isInstanceOfSatisfying(ContentSigningWorkflowDto.class,
                             workflow -> assertThat(workflow.getAllowedRequestAttributes())
                                     .containsExactlyInAnyOrder(allowedGroup, allowedUngroupedAttribute));
+        }
+
+        @Test
+        void refusesTheProfile_whenAnAllowedNameIsAGroupedAttributesOwnName() {
+            // given
+            var groupedAttribute = "visibleSignaturePage";
+            contentSigningFormattingMock
+                    .stubComputeDtbsRequestAttributeDefinitions(List
+                            .of(requestAttributeDefinition(UUID.randomUUID(), groupedAttribute, "visibleSignature")));
+
+            // when
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService
+                    .createSigningProfile(aManagedContentSigningProfile("ct-allowed-grouped-attribute-by-name")
+                            .withContentSigning(aManagedContentSigningWorkflow()
+                                    .withAllowedRequestAttributes(groupedAttribute)
+                                    .build())
+                            .build());
+
+            // then
+            assertThatThrownBy(create).isInstanceOf(ValidationException.class).hasMessageContaining(groupedAttribute);
+        }
+
+        @Test
+        void refusesTheProfile_whenItsValueOfARequestAttributeBreaksTheDefinitionsConstraint() {
+            // given
+            var location = "location";
+            var locationUuid = UUID.randomUUID();
+            DataAttributeV3 lettersOnly = requestAttributeDefinition(locationUuid, location, null);
+            lettersOnly
+                    .setConstraints(List
+                            .of(new RegexpAttributeConstraint("Letters only", "Location must hold letters only",
+                                    "^[A-Za-z ]+$")));
+            contentSigningFormattingMock.stubComputeDtbsRequestAttributeDefinitions(List.of(lettersOnly));
+            var notLettersOnly = "Prague 1";
+
+            // when
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService
+                    .createSigningProfile(aManagedContentSigningProfile("ct-request-attribute-value-refused")
+                            .withContentSigning(aManagedContentSigningWorkflow()
+                                    .withAllowedRequestAttributes(location)
+                                    .withSignatureFormattingConnectorAttributes(
+                                            List.of(aStringAttribute(locationUuid, location, notLettersOnly)))
+                                    .build())
+                            .build());
+
+            // then
+            assertThatThrownBy(create).isInstanceOf(ValidationException.class).hasMessageContaining(notLettersOnly);
         }
 
         @ParameterizedTest(name = "{0}")
@@ -1912,6 +1957,19 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
 
         // ── Helpers ───────────────────────────────────────────────────────────
 
+        private SigningProfileRequestDtoBuilder aManagedContentSigningProfile(String name) {
+            return aSigningProfileRequest()
+                    .withName(name)
+                    .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid());
+        }
+
+        private ContentSigningWorkflowRequestDtoBuilder aManagedContentSigningWorkflow() {
+            return aContentSigningWorkflow()
+                    .withSignatureFormattingConnector(UUID.fromString(contentSigningFormattingConnector.getUuid()))
+                    .withFamily(SignatureFamilyFixtures.PADES)
+                    .withLevel(SignatureLevel.SIGNED);
+        }
+
         private SigningProfileRequestDto managedPadesSigningRequest(String name, UUID certificateUuid) {
             return aSigningProfileRequest()
                     .withName(name)
@@ -1998,6 +2056,9 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         void clearsTheAllowedRequestAttributes_whenTheWorkflowSwitchesFromManagedContentSigningToRaw()
                 throws Exception {
             // given
+            contentSigningFormattingMock
+                    .stubComputeDtbsRequestAttributeDefinitions(
+                            List.of(requestAttributeDefinition(UUID.randomUUID(), "reason", null)));
             SigningProfileDto profile = signingProfileService
                     .createSigningProfile(aSigningProfileRequest()
                             .withName("allowed-request-attributes-cleared-on-workflow-switch")
@@ -2021,6 +2082,34 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             // then
             assertThat(persistedVersion(updated.getUuid(), updated.getVersion()).getAllowedRequestAttributes())
                     .isEmpty();
+        }
+
+        @Test
+        void refusesTheUpdate_whenAnAllowedNameIsAGroupedAttributesOwnName() throws Exception {
+            // given
+            var group = "visibleSignature";
+            var groupedAttribute = "visibleSignaturePage";
+            contentSigningFormattingMock
+                    .stubComputeDtbsRequestAttributeDefinitions(
+                            List.of(requestAttributeDefinition(UUID.randomUUID(), groupedAttribute, group)));
+            SigningProfileDto existing = signingProfileService
+                    .createSigningProfile(aSigningProfileRequest()
+                            .withName("update-allowed-grouped-attribute-by-name")
+                            .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
+                            .withContentSigning(aPadesWorkflowAllowing(group))
+                            .build());
+            SecuredUUID profileUuid = SecuredUUID.fromString(existing.getUuid());
+            var allowingTheOwnName = aSigningProfileRequestFromExistingProfile(existing)
+                    .withContentSigning(aPadesWorkflowAllowing(groupedAttribute))
+                    .build();
+
+            // when
+            ThrowableAssert.ThrowingCallable update = () -> signingProfileService
+                    .updateSigningProfile(profileUuid, allowingTheOwnName);
+
+            // then
+            assertThatThrownBy(update).isInstanceOf(ValidationException.class).hasMessageContaining(groupedAttribute);
+            assertThat(signingProfileService.getSigningProfile(profileUuid, null)).isEqualTo(existing);
         }
 
         @Test
@@ -2207,6 +2296,17 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                     extractStringAttrValue(v1Workflow.getSignatureFormattingConnectorAttributes(), formattingAttrName));
             assertEquals("policy-v2",
                     extractStringAttrValue(v2Workflow.getSignatureFormattingConnectorAttributes(), formattingAttrName));
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private ContentSigningWorkflowRequestDto aPadesWorkflowAllowing(String allowedName) {
+            return aContentSigningWorkflow()
+                    .withSignatureFormattingConnector(UUID.fromString(contentSigningFormattingConnector.getUuid()))
+                    .withFamily(SignatureFamilyFixtures.PADES)
+                    .withLevel(SignatureLevel.SIGNED)
+                    .withAllowedRequestAttributes(allowedName)
+                    .build();
         }
     }
 

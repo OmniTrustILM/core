@@ -7,9 +7,7 @@ import com.github.tomakehurst.wiremock.client.WireMock;
 import com.otilm.api.clients.signing.contentsigning.ContentSigningFormattingPaths;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
-import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
-import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
-import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
+import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.common.error.ProblemDetailExtended;
@@ -29,6 +27,8 @@ import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.util.unit.DataSize;
+
+import static com.otilm.core.util.builders.DataAttributeV3Builder.aDataAttribute;
 
 /**
  * Mock of a V2 content-signing formatting connector, backing {@code CONTENT_SIGNING} workflow profiles. It serves
@@ -281,8 +281,17 @@ public class ContentSigningFormattingMock extends BaseConnectorMock {
      * attribute discovery.
      */
     public ContentSigningFormattingMock stubComputeDtbsRequestAttributeDefinition(UUID attrUuid, String attrName) {
+        return stubComputeDtbsRequestAttributeDefinitions(List.of(attributeDefinition(attrUuid, attrName, false)));
+    }
+
+    /**
+     * Declares the given request attributes on computeDtbs and nothing on the other operations. Profile save and
+     * profile resolution fetch this listing.
+     */
+    public ContentSigningFormattingMock stubComputeDtbsRequestAttributeDefinitions(
+            List<BaseAttribute> requestAttributes) {
         try {
-            String computeDtbsListing = requestListing(List.of(attributeDefinition(attrUuid, attrName, false)));
+            String computeDtbsListing = requestListing(requestAttributes);
             String emptyListing = profileListing(List.of());
             for (ContentSigningFormattingOperation operation : ContentSigningFormattingOperation.values()) {
                 String body = operation == ContentSigningFormattingOperation.COMPUTE_DTBS
@@ -325,6 +334,14 @@ public class ContentSigningFormattingMock extends BaseConnectorMock {
                 .toList();
     }
 
+    /** The {@code requestAttributes} each computeDtbs request carried, in call order. */
+    public List<JsonNode> requestAttributesReceivedByComputeDtbs() {
+        return bodiesReceivedBy(ContentSigningFormattingOperation.COMPUTE_DTBS)
+                .stream()
+                .map(body -> body.path("requestAttributes"))
+                .toList();
+    }
+
     /** The {@code formattingAttributes} each request to {@code operation} carried, in call order. */
     public List<JsonNode> formattingAttributesReceivedBy(ContentSigningFormattingOperation operation) {
         return bodiesReceivedBy(operation).stream().map(body -> body.path("formattingAttributes")).toList();
@@ -358,15 +375,16 @@ public class ContentSigningFormattingMock extends BaseConnectorMock {
                 .writeValueAsString(new ContentSigningFormattingAttributesDto(List.of(), requestAttributes));
     }
 
-    private static DataAttributeV2 attributeDefinition(UUID attrUuid, String attrName, boolean required) {
-        DataAttributeV2 def = new DataAttributeV2();
-        def.setUuid(attrUuid.toString());
-        def.setName(attrName);
-        def.setContentType(AttributeContentType.STRING);
-        DataAttributeProperties props = new DataAttributeProperties();
-        props.setLabel(attrName);
-        props.setRequired(required);
-        def.setProperties(props);
+    /** A string request attribute in {@code group}, or ungrouped when {@code group} is {@code null}. */
+    public static DataAttributeV3 requestAttributeDefinition(UUID attrUuid, String attrName, String group) {
+        DataAttributeV3 definition = attributeDefinition(attrUuid, attrName, false);
+        definition.getProperties().setGroup(group);
+        return definition;
+    }
+
+    private static DataAttributeV3 attributeDefinition(UUID attrUuid, String attrName, boolean required) {
+        DataAttributeV3 def = aDataAttribute().withUuid(attrUuid).withName(attrName).build();
+        def.getProperties().setRequired(required);
         return def;
     }
 }

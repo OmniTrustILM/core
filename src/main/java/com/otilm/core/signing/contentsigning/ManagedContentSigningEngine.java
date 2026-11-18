@@ -21,6 +21,7 @@ import com.otilm.core.model.signing.resolved.ResolvedManagedScheme;
 import com.otilm.core.signing.contentsigning.acquisition.ContentSigningAcquisitions;
 import com.otilm.core.signing.contentsigning.declaration.FamilyAlgorithms;
 import com.otilm.core.signing.contentsigning.formatting.ContentSigningFormattingClient;
+import com.otilm.core.signing.contentsigning.formatting.RequestAttributesCheck;
 import com.otilm.core.signing.contentsigning.state.ContentSigningCursor;
 import com.otilm.core.signing.contentsigning.state.ContentSigningTransitions;
 import com.otilm.core.signing.engine.batch.BatchAdmission;
@@ -118,6 +119,9 @@ public class ManagedContentSigningEngine {
         BatchAdmission.admit(request.identifiers());
         requireDeclaredLevel(profile);
         requireAcceptedTransfer(profile.familyDeclaration(), request.transferMode());
+        RequestAttributesCheck
+                .requireAccepted(profile.name(), profile.formattingDefinitions(), profile.allowedRequestAttributes(),
+                        request.requestAttributes());
         requireWellFormedDigests(request);
         requireAcceptableSigningCertificate(profile);
     }
@@ -361,7 +365,7 @@ public class ManagedContentSigningEngine {
         dtbsRequest.setFamily(profile.family());
         dtbsRequest.setDocument(run.request().transferOf(item));
         dtbsRequest.setFormattingAttributes(profile.signatureFormattingConnectorAttributes());
-        dtbsRequest.setRequestAttributes(List.of());
+        dtbsRequest.setRequestAttributes(run.request().requestAttributes());
         dtbsRequest.setSignerCertificateChain(run.signerChain());
         dtbsRequest.setSigningTime(run.signingTime().atOffset(ZoneOffset.UTC));
         dtbsRequest.setSignatureAlgorithm(run.signatureAlgorithm());

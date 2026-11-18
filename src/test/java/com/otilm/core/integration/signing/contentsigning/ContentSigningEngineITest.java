@@ -3,14 +3,11 @@ package com.otilm.core.integration.signing.contentsigning;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
-import com.otilm.api.model.client.attribute.RequestAttributeV2;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.client.signing.profile.SigningProfileDto;
 import com.otilm.api.model.client.signing.profile.SigningProfileRequestDto;
 import com.otilm.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
 import com.otilm.api.model.client.signing.profile.record.SigningRecordPolicyRequestDto;
-import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
-import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
@@ -92,6 +89,7 @@ import static com.otilm.core.util.builders.ConnectorRequestDtoBuilder.aV1Connect
 import static com.otilm.core.util.builders.ConnectorRequestDtoBuilder.aV2ConnectorRequest;
 import static com.otilm.core.util.builders.ContentSigningWorkflowRequestDtoBuilder.aContentSigningWorkflow;
 import static com.otilm.core.util.builders.KeyPairRequestDtoBuilder.aKeyPairRequest;
+import static com.otilm.core.util.builders.RequestAttributeV3Builder.aCustomAttribute;
 import static com.otilm.core.util.builders.SearchRequestDtoBuilder.aSearchRequest;
 import static com.otilm.core.util.builders.SignatureFamilyDeclarationDtoBuilder.aFamilyDeclaration;
 import static com.otilm.core.util.builders.SigningProfileRequestDtoBuilder.aSigningProfileRequest;
@@ -99,6 +97,7 @@ import static com.otilm.core.util.builders.SigningRecordPolicyRequestDtoBuilder.
 import static com.otilm.core.util.builders.TimestampingWorkflowRequestDtoBuilder.aTimestampingWorkflow;
 import static com.otilm.core.util.builders.TokenInstanceRequestDtoBuilder.aTokenInstanceRequest;
 import static com.otilm.core.util.builders.TokenProfileRequestDtoBuilder.aTokenProfileRequest;
+import static com.otilm.core.util.mocks.ContentSigningFormattingMock.requestAttributeDefinition;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -636,18 +635,148 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         }
 
         private static RequestAttribute locationAttribute(String value) {
-            RequestAttributeV2 attribute = new RequestAttributeV2();
-            attribute.setUuid(LOCATION_ATTRIBUTE_UUID);
-            attribute.setName(LOCATION_ATTRIBUTE_NAME);
-            attribute.setContentType(AttributeContentType.STRING);
-            attribute.setContent(List.of(new StringAttributeContentV2(value, value)));
-            return attribute;
+            return stringValue(LOCATION_ATTRIBUTE_UUID, LOCATION_ATTRIBUTE_NAME, value);
         }
 
         private static void assertMisconfigured(ThrowingCallable resolve) {
             assertThatThrownBy(resolve)
                     .isInstanceOfSatisfying(SigningEngineException.class,
                             refusal -> assertThat(refusal.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED));
+        }
+    }
+
+    // ── RequestAttributes ─────────────────────────────────────────────────────
+
+    @Nested
+    class RequestAttributes {
+
+        private static final String VISIBLE_SIGNATURE = "visibleSignature";
+        private static final UUID PAGE_UUID = UUID.fromString("0000dddd-1111-2222-3333-444444444444");
+        private static final String PAGE = "data_visibleSignaturePage";
+        private static final UUID TEXT_UUID = UUID.fromString("0000eeee-1111-2222-3333-444444444444");
+        private static final String TEXT = "data_visibleSignatureText";
+        private static final UUID LOCATION_UUID = UUID.fromString("0000ffff-1111-2222-3333-444444444444");
+        private static final String LOCATION = "data_location";
+        private static final byte[] DOCUMENT = "a document signed with request attributes"
+                .getBytes(StandardCharsets.UTF_8);
+
+        @Test
+        void sendsTheValuesOfAnAllowedGroupToComputeDtbs_whenTheFormatterGroupsItsRequestAttributes() throws Exception {
+            // given
+            contentSigningFormattingMock
+                    .stubComputeDtbsRequestAttributeDefinitions(List
+                            .of(requestAttributeDefinition(PAGE_UUID, PAGE, VISIBLE_SIGNATURE),
+                                    requestAttributeDefinition(TEXT_UUID, TEXT, VISIBLE_SIGNATURE),
+                                    requestAttributeDefinition(LOCATION_UUID, LOCATION, null)));
+            SigningProfileDto contentProfile = createProfileAllowing("allows-visible-signature", VISIBLE_SIGNATURE);
+            var requestedText = "Signed by the request";
+            var requested = List.of(stringValue(PAGE_UUID, PAGE, "1"), stringValue(TEXT_UUID, TEXT, requestedText));
+
+            // when
+            engine
+                    .sign(signingRequestSetting(requested), modelOf(contentProfile),
+                            resolvedContentSigningProfile(contentProfile), SigningProtocol.CSC_API);
+
+            // then
+            assertThat(contentSigningFormattingMock.requestAttributesReceivedByComputeDtbs())
+                    .singleElement()
+                    .satisfies(attributes -> {
+                        assertThat(attributes.findValuesAsText("name")).containsExactly(PAGE, TEXT);
+                        assertThat(attributes.findValuesAsText("data")).containsExactly("1", requestedText);
+                    });
+        }
+
+        @Test
+        void sendsAnAllowedValueToComputeDtbs_whenTheFormatterDeclaresNoGroup() throws Exception {
+            // given
+            contentSigningFormattingMock.stubComputeDtbsRequestAttributeDefinition(LOCATION_UUID, LOCATION);
+            SigningProfileDto contentProfile = createProfileAllowing("allows-location", LOCATION);
+            var requestedLocation = "Prague";
+
+            // when
+            engine
+                    .sign(signingRequestSetting(List.of(stringValue(LOCATION_UUID, LOCATION, requestedLocation))),
+                            modelOf(contentProfile), resolvedContentSigningProfile(contentProfile),
+                            SigningProtocol.CSC_API);
+
+            // then
+            assertThat(contentSigningFormattingMock.requestAttributesReceivedByComputeDtbs())
+                    .singleElement()
+                    .satisfies(attributes -> {
+                        assertThat(attributes.findValuesAsText("name")).containsExactly(LOCATION);
+                        assertThat(attributes.findValuesAsText("data")).containsExactly(requestedLocation);
+                    });
+        }
+
+        @Test
+        void refusesBeforeComputeDtbs_whenTheProfileAllowsNoRequestAttribute() throws Exception {
+            // given
+            contentSigningFormattingMock.stubComputeDtbsRequestAttributeDefinition(LOCATION_UUID, LOCATION);
+            SigningProfileDto contentProfile = createProfileAllowing("allows-nothing");
+            var request = signingRequestSetting(List.of(stringValue(LOCATION_UUID, LOCATION, "Prague")));
+            var resolved = resolvedContentSigningProfile(contentProfile);
+
+            // when
+            ThrowingCallable sign = () -> engine
+                    .sign(request, modelOf(contentProfile), resolved, SigningProtocol.CSC_API);
+
+            // then
+            assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, refusal -> {
+                assertThat(refusal.failure()).isEqualTo(SigningEngineFailure.INVALID_INPUT);
+                assertThat(refusal.clientMessage()).contains(LOCATION);
+            });
+            assertThat(contentSigningFormattingMock.requestAttributesReceivedByComputeDtbs()).isEmpty();
+        }
+
+        @Test
+        void refusesBeforeComputeDtbs_whenTheValueEqualsTheProfileValueTheProfileDoesNotAllowOverriding()
+                throws Exception {
+            // given
+            contentSigningFormattingMock.stubComputeDtbsRequestAttributeDefinition(LOCATION_UUID, LOCATION);
+            var profileLocation = "Prague";
+            SigningProfileDto contentProfile = createProfile("sets-location",
+                    List.of(stringValue(LOCATION_UUID, LOCATION, profileLocation)));
+            var request = signingRequestSetting(List.of(stringValue(LOCATION_UUID, LOCATION, profileLocation)));
+            var resolved = resolvedContentSigningProfile(contentProfile);
+
+            // when
+            ThrowingCallable sign = () -> engine
+                    .sign(request, modelOf(contentProfile), resolved, SigningProtocol.CSC_API);
+
+            // then
+            assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, refusal -> {
+                assertThat(refusal.failure()).isEqualTo(SigningEngineFailure.INVALID_INPUT);
+                assertThat(refusal.clientMessage()).contains(LOCATION);
+            });
+            assertThat(contentSigningFormattingMock.requestAttributesReceivedByComputeDtbs()).isEmpty();
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private SigningProfileDto createProfileAllowing(String name, String... allowed) throws Exception {
+            return createProfile(name, List.of(), allowed);
+        }
+
+        private SigningProfileDto createProfile(String name, List<RequestAttribute> profileValues, String... allowed)
+                throws Exception {
+            var workflow = aContentSigningWorkflow()
+                    .withSignatureFormattingConnector(UUID.fromString(contentSigningFormattingConnector.getUuid()))
+                    .withFamily(SignatureFamilyFixtures.PADES)
+                    .withLevel(SignatureLevel.SIGNED)
+                    .withSignatureFormattingConnectorAttributes(profileValues)
+                    .withAllowedRequestAttributes(allowed);
+            return createEnabledSigningProfile(aSigningProfileRequest()
+                    .withName(name)
+                    .withContentSigning(workflow.build())
+                    .withStaticKeyManagedSigning(signingCertificate.getUuid()));
+        }
+
+        private static ContentSigningRequest signingRequestSetting(List<RequestAttribute> requestAttributes)
+                throws Exception {
+            ContentSigningItem item = new ContentSigningItem("document-1", DOCUMENT,
+                    MessageDigest.getInstance("SHA-256").digest(DOCUMENT));
+            return new ContentSigningRequest(DocumentTransferMode.INLINE, DigestAlgorithm.SHA_256, List.of(item),
+                    requestAttributes);
         }
     }
 
@@ -925,7 +1054,7 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
             throws Exception {
         ContentSigningItem item = new ContentSigningItem("document-1", document,
                 MessageDigest.getInstance(authorizedDigest.getCode()).digest(document));
-        return new ContentSigningRequest(DocumentTransferMode.INLINE, authorizedDigest, List.of(item));
+        return new ContentSigningRequest(DocumentTransferMode.INLINE, authorizedDigest, List.of(item), List.of());
     }
 
     private static ContentSigningRequest batchOf(String... identifiers) throws Exception {
@@ -935,7 +1064,11 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
             byte[] authorizedDigest = MessageDigest.getInstance("SHA-256").digest(document);
             items.add(new ContentSigningItem(identifier, document, authorizedDigest));
         }
-        return new ContentSigningRequest(DocumentTransferMode.INLINE, DigestAlgorithm.SHA_256, items);
+        return new ContentSigningRequest(DocumentTransferMode.INLINE, DigestAlgorithm.SHA_256, items, List.of());
+    }
+
+    private static RequestAttribute stringValue(UUID uuid, String name, String value) {
+        return aCustomAttribute().withUuid(uuid).withName(name).withStringContent(value).build();
     }
 
     private static byte[] documentNamed(String identifier) {
