@@ -111,6 +111,18 @@ GUARD_SEPARATORS = (r"-_ \t\n\x0B\f\r\x1C\x1D\x1E\x1F\x85\xA0"
                     r"\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200A"
                     r"\u2028\u2029\u202F\u205F\u3000")
 
+# The tail of a `<signature> with <digest>` rule: an optional key size, an optional `with`, at most one guard
+# separator between any two of them, and the digest looked ahead at rather than consumed, so the
+# secondary-token scan still finds it. `dsa-1024 with sha-1`, `DSA_with_SHA256`, `dsaWithSHA1`, `DSA-SHA1`
+# and `RSA-2048-SHA-256` all end this way; `DSA-1024` and `RSA` do not, and keep falling to their own rules.
+# One separator, not a run: the variant residue strips the rules in order, and a run would let the gap an
+# earlier rule leaves behind join the halves -- `TLS_RSA_WITH_CHACHA20_POLY1305_SHA256` read as RSA with
+# SHA-256 once its AEAD was stripped, and a cipher suite's residue is part of its key.
+# The key size is group 1, named by the rule's `spelledSizeGroup`: the residue pass keeps it, so a spelled size that
+# contradicts the declared parameter set still keys `DSA-1024-SHA256` apart from `DSA-2048-SHA256`.
+SIGNATURE_THEN_DIGEST = (r"(?:[" + GUARD_SEPARATORS + r"]?(\d{3,5}))?[" + GUARD_SEPARATORS + r"]?"
+                         r"(?:with[" + GUARD_SEPARATORS + r"]?)?(?=(?:SHA|MD)-?\d)")
+
 NAME_GRAMMAR = [
     # --- exact producer strings, highest precedence -----------------------------
     {"pattern": r"(?<![A-Za-z0-9])ChaCha20[-_]?Poly1305", "family": "ChaCha20",
@@ -236,10 +248,10 @@ NAME_GRAMMAR = [
     {"pattern": r"^RSA[-_]?\d{3,5}[-_]PKCS1", "family": "RSASSA-PKCS1",
      "why": "RSA-2048-PKCS1v15-SHA256, same interposed-size shape; a digest suffix "
             "makes PKCS#1 v1.5 a signature scheme rather than the encryption scheme"},
-    {"pattern": r"^RSA[-_]?PSS(?=[-_]|$)", "family": "RSASSA-PSS",
-     "why": "RSA-PSS-SHA256: the size-less PSS spelling had no rule and fell to the digest rules, storing an RSA signature asset as a hash. Symmetry with ^RSASSA-PSS"},
-    {"pattern": r"^RSA[-_]?\d{3,5}[-_](?=(SHA|MD)\d)", "family": "RSASSA-PKCS1",
-     "why": r"rsa-2048-sha1-signed-key (authoring corpus): the interposed-size form of the existing ^RSA-(?=(SHA|MD)\d) rule — a digest-suffixed RSA name is a signature scheme, never the digest"},
+    {"pattern": r"^RSA[-_]?PSS(?=[" + GUARD_SEPARATORS + r"]|$)", "family": "RSASSA-PSS",
+     "why": "RSA-PSS-SHA256: the size-less PSS spelling had no rule and fell to the digest rules, storing an RSA "
+            "signature asset as a hash. Symmetry with ^RSASSA-PSS. The right guard admits every separator the "
+            "grammar knows, so `RSA-PSS with SHA-256` elects here too instead of reading as its digest"},
     {"pattern": r"^RSA[-_]?PKCS1(?:[-_.]?v?1[._]5)?(?=[-_])", "family": "RSASSA-PKCS1",
      "why": "RSA-PKCS1-1.5-SHA512 (authoring corpus): PKCS#1 v1.5 with a digest is a "
             "signature scheme; the cipher-suite classifier had been swallowing it"},
@@ -255,8 +267,12 @@ NAME_GRAMMAR = [
     {"pattern": r"with-?RSA(Encryption)?(?![A-Za-z0-9])", "family": "RSASSA-PKCS1",
      "why": "theia SHA512withRSA; corroborated by OID 1.2.840.113549.1.1.13"},
     {"pattern": r"^rsa-sha2-", "family": "RSASSA-PKCS1", "why": "cbom-lens, RFC 8332"},
-    {"pattern": r"^RSA-(?=(SHA|MD)\d)", "family": "RSASSA-PKCS1",
-     "why": "conformance fixture RSA-SHA256: digest-suffixed RSA is a signature scheme"},
+    {"pattern": r"(?<![A-Za-z0-9])RSA" + SIGNATURE_THEN_DIGEST, "family": "RSASSA-PKCS1", "spelledSizeGroup": 1,
+     "why": "conformance fixture RSA-SHA256 and rsa-2048-sha1-signed-key (authoring corpus): a digest-suffixed RSA "
+            "name is a signature scheme, never the digest. One rule for the whole `<signature> with <digest>` shape, "
+            "size and connector included: the two anchored forms it replaces consumed exactly what it consumes on "
+            "their spellings, and `rsa-2048 with sha-256`, `RSA with SHA-256`, `RSA-2048-SHA-256` and the glued "
+            "`rsaWithSHA1` reached the digest rules, or no rule, and keyed an RSA signature as a hash"},
     {"pattern": r"withECDSA(?![A-Za-z0-9])", "family": "ECDSA", "why": "JCA infix form"},
     {"pattern": r"withDSA(?![A-Za-z0-9])", "family": "DSA", "why": "JCA infix form"},
     # Signature families, ahead of the digest rules for the reason above.
@@ -269,7 +285,11 @@ NAME_GRAMMAR = [
      "why": "ECDSA-SHA256 must be ECDSA, not SHA-2 - the measured parity break"},
     {"pattern": r"^ecdsa-sha2-", "family": "ECDSA", "why": "cbom-lens familyPrefix"},
     {"pattern": r"(?<![A-Za-z0-9])EdDSA(?![A-Za-z0-9])", "family": "EdDSA", "why": "cbomkit EdDSA"},
-    {"pattern": r"^DSA-(?=(SHA|MD)\d)", "family": "DSA", "why": "digest-suffixed DSA"},
+    {"pattern": r"(?<![A-Za-z0-9])DSA" + SIGNATURE_THEN_DIGEST, "family": "DSA", "spelledSizeGroup": 1,
+     "why": "digest-suffixed DSA, in every connector form. The anchored `DSA-SHA256` rule it replaces left "
+            "`dsa-1024 with sha-1` to the SHA-1 rule: the family contradicted the dsa-with-sha1 arc the producer "
+            "wrote, the arc was refuted and the asset keyed apart from its own algorithm. Placed after ML-DSA, "
+            "SLH-DSA, ECDSA and EdDSA, which the left guard alone does not keep out of `ML-DSA-65 with SHA-512`"},
 
     # --- PQC candidates. Pseudo-families; see PQC_PSEUDO_FAMILIES ---------------
     # Ordered longest-first where one name contains another (X25519MLKEM768 is a
@@ -322,8 +342,9 @@ NAME_GRAMMAR = [
     {"pattern": r"(?<![A-Za-z0-9])ecdh-sha2", "family": "ECDH", "why": "SSH KEX name"},
     {"pattern": r"(?<![A-Za-z0-9])rsassa-?pss", "family": "RSASSA-PSS",
      "why": "camelCase rsassaPss defeated the anchored rule"},
+    {"pattern": r"(?<![A-Za-z0-9])SM2(?![A-Za-z0-9])", "family": "SM2",
+     "why": "observed; ahead of SM3 as every signature scheme is ahead of its digest, so `SM2 with SM3` is SM2"},
     {"pattern": r"(?<![A-Za-z0-9])SM3(?![A-Za-z0-9])", "family": "SM3", "why": "observed"},
-    {"pattern": r"(?<![A-Za-z0-9])SM2(?![A-Za-z0-9])", "family": "SM2", "why": "observed"},
     {"pattern": r"(?<![A-Za-z0-9])SM4(?![A-Za-z0-9])", "family": "SM4", "why": "observed"},
     {"pattern": r"(?<![A-Za-z0-9])bcrypt", "family": "bcrypt", "why": "observed"},
 
@@ -1447,7 +1468,7 @@ TABLE_SHAPES = {
     "oidToFamily": {"*": {"family": "str?", "curve": "str?", "mode": "str?",
                           "primitive": "str?", "parameterSet": "int?", "...": True}},
     "oidBlockedPrefixes": ["str"],
-    "nameGrammar": [{"...": True}],
+    "nameGrammar": [{"spelledSizeGroup": "int?", "...": True}],
     "sizeStoplist": ["str"],
     "modeTokens": ["str"],
     "cipherSuiteNamePatterns": ["str"],
