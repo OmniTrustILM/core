@@ -247,16 +247,21 @@ public class EstReenrollment {
     }
 
     /**
-     * Lets the request start a renewal or rekey only when nothing in the inventory answers it already: a rejected
-     * request stays rejected, and a source with a renewal or rekey on its way refuses another request.
+     * Lets the request start a renewal or rekey only when nothing in the inventory answers it already: a request
+     * rejected for the renewal of this certificate stays rejected, and a source with a renewal or rekey on its way
+     * refuses another request. A rejected renewal loses its relation to the source, so it is found by the source that
+     * it was requested for, which the submission records; a rejection of the same request for another client does not
+     * count.
      */
     private void requireNewRequest(EstRoute route, EstSourceCertificate source, String requestFingerprint) {
         Optional<EstRequestedCertificate> rejected = certificateRepository
-                .findLatestRequestedThroughEst(route.raProfile().getUuid(), route.estProfile().getUuid(),
-                        requestFingerprint)
+                .findLatestRequestedThroughEstByClient(route.raProfile().getUuid(), route.estProfile().getUuid(),
+                        source.uuid(), requestFingerprint)
                 .filter(certificate -> certificate.getState() == CertificateState.REJECTED);
         if (rejected.isPresent()) {
-            log.debug("Certificate {} requested through EST with this request was rejected", rejected.get().getUuid());
+            log
+                    .debug("Certificate {} that certificate {} was to be renewed or rekeyed into with this request was rejected",
+                            rejected.get().getUuid(), source.uuid());
             throw refused(route, source, new EstException(EstError.REQUEST_REJECTED));
         }
         if (certificateRepository.existsPendingSuccessor(source.uuid())) {
@@ -319,7 +324,8 @@ public class EstReenrollment {
         SecuredUUID raProfileUuid = raProfile.getSecuredUuid();
         String sourceUuid = source.uuid().toString();
         String request = Base64.getEncoder().encodeToString(csr.getEncoded());
-        CertificateProtocolInfo throughEst = CertificateProtocolInfo.est(route.estProfile().getUuid(), onStored);
+        CertificateProtocolInfo throughEst = CertificateProtocolInfo
+                .est(route.estProfile().getUuid(), source.uuid(), onStored);
         String authorizationSecret = registrationSecretOf(route, source, credentials);
         AtomicReference<UUID> successor = new AtomicReference<>();
         try {
