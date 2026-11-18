@@ -478,6 +478,9 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
             TokenKeyOnboardingResultDto.TokenKeyOnboardingResultDtoBuilder result, String fingerprint) {
         PublicKeyHolderSummary holder = cryptographicKeyWriter.holdersOf(Set.of(fingerprint)).get(fingerprint);
         if (holder != null && holder.holding() == Holding.KEY_PAIR) {
+            if (keyImportGates.maySeeInDetail(holder.keyUuid(), holder.tokenInstanceUuid())) {
+                result.keyUuid(holder.keyUuid()).keyName(holder.keyName());
+            }
             return blocked(result, TokenKeyStatus.IN_INVENTORY, HELD_MEANWHILE);
         }
         return failed(result, PUBLIC_KEY_TAKEN_MEANWHILE);

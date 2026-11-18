@@ -1272,10 +1272,14 @@ class KeyProviderV2AdapterTest {
             ListedKeyEntryV2Dto described = anUnusableKey().withMetadata(List.of(echoing)).build();
             when(client.listKeys(any(), any())).thenReturn(aKeyListing().withEntries(described).build());
 
-            // when / then
-            assertThatThrownBy(() -> adapter.listKeyPairs(profile, 0, 10))
-                    .isInstanceOf(OutboundSecretLeakException.class);
+            // when
+            ThrowingCallable listKeyPairs = () -> adapter.listKeyPairs(profile, 0, 10);
+
+            // then
+            assertThatThrownBy(listKeyPairs).isInstanceOf(OutboundSecretLeakException.class);
         }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
 
         private static ProviderKeyEntry unusable(KeyEntryStatus status, String storageName, KeyAlgorithm algorithm,
                 Integer length) {

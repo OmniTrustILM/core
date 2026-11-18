@@ -16,12 +16,15 @@ import java.util.UUID;
 
 import static com.otilm.core.util.KeyMetaFixtures.keyIdMeta;
 
-/** An entry of a key pair listing. Its status decides whether it carries the key pair or only its descriptor. */
+/**
+ * An entry of a key pair listing, by default an available RSA 2048 pair named {@code signer} with a fresh key id.
+ * {@link #anUnusableKey()} builds an unaddressable {@code legacy} entry, which carries only the key's descriptor.
+ */
 public final class ListedKeyEntryV2DtoBuilder {
 
-    private KeyEntryStatus status;
+    private KeyEntryStatus status = KeyEntryStatus.AVAILABLE;
     private String diagnostic;
-    private String storageName;
+    private String storageName = "signer";
     private String keyId = UUID.randomUUID().toString();
     private KeyAlgorithm algorithm = KeyAlgorithm.RSA;
     private Integer length = 2048;
@@ -30,17 +33,15 @@ public final class ListedKeyEntryV2DtoBuilder {
     private boolean keyDataRead = true;
     private List<MetadataAttribute> metadata;
 
-    private ListedKeyEntryV2DtoBuilder(KeyEntryStatus status, String storageName) {
-        this.status = status;
-        this.storageName = storageName;
-    }
-
     public static ListedKeyEntryV2DtoBuilder aListedKeyPair() {
-        return new ListedKeyEntryV2DtoBuilder(KeyEntryStatus.AVAILABLE, "signer");
+        return new ListedKeyEntryV2DtoBuilder();
     }
 
     public static ListedKeyEntryV2DtoBuilder anUnusableKey() {
-        return new ListedKeyEntryV2DtoBuilder(KeyEntryStatus.UNADDRESSABLE, "legacy").withMetadata(List.of());
+        return new ListedKeyEntryV2DtoBuilder()
+                .withStatus(KeyEntryStatus.UNADDRESSABLE)
+                .withStorageName("legacy")
+                .withMetadata(List.of());
     }
 
     /** The handle of the key pair an entry carries. */

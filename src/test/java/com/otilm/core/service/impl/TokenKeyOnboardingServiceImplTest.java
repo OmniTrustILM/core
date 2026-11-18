@@ -27,6 +27,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -74,88 +75,101 @@ class TokenKeyOnboardingServiceImplTest {
         when(keyProviderAdapterFactory.forToken(profile.tokenInstance())).thenReturn(keyProviderAdapter);
     }
 
-    @Test
-    void throwsNamingTheResolutionOnlyStatus_whenTheConnectorListsAnInvalidHandle() throws Exception {
-        // given
-        var invalidHandle = new ProviderKeyEntry(KeyEntryStatus.INVALID_HANDLE, null, null, null, null, null);
-        when(keyProviderAdapter.listKeyPairs(profile, 0, 10))
-                .thenReturn(new ProviderKeyEntryPage(List.of(invalidHandle), 1));
+    // ── ListTokenKeys ─────────────────────────────────────────────────────────
 
-        // when
-        ThrowingCallable listTokenKeys = () -> service
-                .listTokenKeys(profile.tokenInstanceReferenceUuid(), profile.uuid(), 1, 10);
+    @Nested
+    class ListTokenKeys {
 
-        // then
-        assertThatThrownBy(listTokenKeys)
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("which only a resolution reports");
+        @Test
+        void throwsNamingTheResolutionOnlyStatus_whenTheConnectorListsAnInvalidHandle() throws Exception {
+            // given
+            var invalidHandle = new ProviderKeyEntry(KeyEntryStatus.INVALID_HANDLE, null, null, null, null, null);
+            when(keyProviderAdapter.listKeyPairs(profile, 0, 10))
+                    .thenReturn(new ProviderKeyEntryPage(List.of(invalidHandle), 1));
+
+            // when
+            ThrowingCallable listTokenKeys = () -> service
+                    .listTokenKeys(profile.tokenInstanceReferenceUuid(), profile.uuid(), 1, 10);
+
+            // then
+            assertThatThrownBy(listTokenKeys)
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("which only a resolution reports");
+        }
     }
 
-    @Test
-    void blocksTheKeyPairAsImportInProgress_whenAnImportOpensBeforeItIsWrittenAsAKeyOfItsOwn() throws Exception {
-        // given
-        ProviderKeyPair pair = aProviderKeyPair().build();
-        resolves(pair);
-        when(cryptographicKeyWriter
-                .onboardUnlessImporting(any(), eq(profile), eq(fingerprintOf(pair)), any(), any(), any()))
-                .thenReturn(Optional.empty());
+    // ── OnboardTokenKeys ──────────────────────────────────────────────────────
 
-        // when
-        TokenKeyOnboardingResultDto result = onboard(pair);
+    @Nested
+    class OnboardTokenKeys {
 
-        // then
-        assertImportInProgress(result);
-        verify(cryptographicKeyWriter)
-                .onboardUnlessImporting(any(), eq(profile), eq(fingerprintOf(pair)), any(), any(), any());
-    }
+        @Test
+        void blocksTheKeyPairAsImportInProgress_whenAnImportOpensBeforeItIsWrittenAsAKeyOfItsOwn() throws Exception {
+            // given
+            ProviderKeyPair pair = aProviderKeyPair().build();
+            resolves(pair);
+            when(cryptographicKeyWriter
+                    .onboardUnlessImporting(any(), eq(profile), eq(fingerprintOf(pair)), any(), any(), any()))
+                    .thenReturn(Optional.empty());
 
-    @Test
-    void blocksTheKeyPairAsImportInProgress_whenAnImportOpensBeforeItsPrivateKeyJoinsTheRecord() throws Exception {
-        // given
-        ProviderKeyPair pair = aProviderKeyPair().build();
-        var recordUuid = UUID.randomUUID();
-        var publicKeyRecord = new PublicKeyHolderSummary(recordUuid, "certKey_signer", null, Holding.PUBLIC_KEY_ONLY,
-                true);
-        resolves(pair);
-        when(cryptographicKeyWriter.holdersOf(any())).thenReturn(Map.of(fingerprintOf(pair), publicKeyRecord));
-        when(cryptographicKeyWriter
-                .onboardIntoRecordUnlessImporting(eq(recordUuid), eq(profile), eq(fingerprintOf(pair)), any()))
-                .thenReturn(Optional.empty());
+            // when
+            TokenKeyOnboardingResultDto result = onboard(pair);
 
-        // when
-        TokenKeyOnboardingResultDto result = onboard(pair);
+            // then
+            assertImportInProgress(result);
+            verify(cryptographicKeyWriter)
+                    .onboardUnlessImporting(any(), eq(profile), eq(fingerprintOf(pair)), any(), any(), any());
+        }
 
-        // then
-        assertImportInProgress(result);
-        verify(cryptographicKeyWriter)
-                .onboardIntoRecordUnlessImporting(eq(recordUuid), eq(profile), eq(fingerprintOf(pair)), any());
-    }
+        @Test
+        void blocksTheKeyPairAsImportInProgress_whenAnImportOpensBeforeItsPrivateKeyJoinsTheRecord() throws Exception {
+            // given
+            ProviderKeyPair pair = aProviderKeyPair().build();
+            var recordUuid = UUID.randomUUID();
+            var publicKeyRecord = new PublicKeyHolderSummary(recordUuid, "certKey_signer", null,
+                    Holding.PUBLIC_KEY_ONLY, true);
+            resolves(pair);
+            when(cryptographicKeyWriter.holdersOf(any())).thenReturn(Map.of(fingerprintOf(pair), publicKeyRecord));
+            when(cryptographicKeyWriter
+                    .onboardIntoRecordUnlessImporting(eq(recordUuid), eq(profile), eq(fingerprintOf(pair)), any()))
+                    .thenReturn(Optional.empty());
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
+            // when
+            TokenKeyOnboardingResultDto result = onboard(pair);
 
-    private void resolves(ProviderKeyPair pair) throws Exception {
-        var available = new ProviderKeyEntry(KeyEntryStatus.AVAILABLE, null, "signer", pair, null, null);
-        when(keyProviderAdapter.resolveKeyPairs(profile, List.of(pair.keyPairMeta()))).thenReturn(List.of(available));
-    }
+            // then
+            assertImportInProgress(result);
+            verify(cryptographicKeyWriter)
+                    .onboardIntoRecordUnlessImporting(eq(recordUuid), eq(profile), eq(fingerprintOf(pair)), any());
+        }
 
-    private TokenKeyOnboardingResultDto onboard(ProviderKeyPair pair) throws Exception {
-        var selection = new TokenKeySelectionDto(pair.keyPairMeta(), null);
-        return service
-                .onboardTokenKeys(profile.tokenInstanceReferenceUuid(), profile.uuid(),
-                        new OnboardTokenKeysRequestDto(List.of(selection), null))
-                .getResults()
-                .getFirst();
-    }
+        // ── Helpers ───────────────────────────────────────────────────────────
 
-    private static String fingerprintOf(ProviderKeyPair pair) {
-        return CryptographyUtil.calculateKeyFingerprint(pair.publicKey().material());
-    }
+        private void resolves(ProviderKeyPair pair) throws Exception {
+            var available = new ProviderKeyEntry(KeyEntryStatus.AVAILABLE, null, "signer", pair, null, null);
+            when(keyProviderAdapter.resolveKeyPairs(profile, List.of(pair.keyPairMeta())))
+                    .thenReturn(List.of(available));
+        }
 
-    private static void assertImportInProgress(TokenKeyOnboardingResultDto result) {
-        assertThat(result)
-                .extracting(TokenKeyOnboardingResultDto::getOutcome, TokenKeyOnboardingResultDto::getStatus,
-                        TokenKeyOnboardingResultDto::getReason)
-                .containsExactly(TokenKeyOnboardingOutcome.BLOCKED, TokenKeyStatus.IMPORT_IN_PROGRESS,
-                        TokenKeyOnboardingServiceImpl.IMPORTING);
+        private TokenKeyOnboardingResultDto onboard(ProviderKeyPair pair) throws Exception {
+            var selection = new TokenKeySelectionDto(pair.keyPairMeta(), null);
+            return service
+                    .onboardTokenKeys(profile.tokenInstanceReferenceUuid(), profile.uuid(),
+                            new OnboardTokenKeysRequestDto(List.of(selection), null))
+                    .getResults()
+                    .getFirst();
+        }
+
+        private static String fingerprintOf(ProviderKeyPair pair) {
+            return CryptographyUtil.calculateKeyFingerprint(pair.publicKey().material());
+        }
+
+        private static void assertImportInProgress(TokenKeyOnboardingResultDto result) {
+            assertThat(result)
+                    .extracting(TokenKeyOnboardingResultDto::getOutcome, TokenKeyOnboardingResultDto::getStatus,
+                            TokenKeyOnboardingResultDto::getReason)
+                    .containsExactly(TokenKeyOnboardingOutcome.BLOCKED, TokenKeyStatus.IMPORT_IN_PROGRESS,
+                            TokenKeyOnboardingServiceImpl.IMPORTING);
+        }
     }
 }

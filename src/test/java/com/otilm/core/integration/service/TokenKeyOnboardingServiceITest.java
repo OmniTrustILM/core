@@ -140,6 +140,7 @@ import static org.junit.jupiter.params.provider.Arguments.arguments;
 class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
 
     private static final String SLOT_ATTRIBUTE_UUID = "3f6d2a8e-9c41-4b7a-a5e2-7d1c8b0f4e93";
+    private static final String REGISTERED_MEANWHILE = "registered meanwhile";
 
     @Autowired
     private V2TokenFixture v2TokenFixture;
@@ -277,26 +278,6 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
                 .createKeyWithItems(aKeyPairRequest().withName(name).build(), profile, profile.tokenInstance(),
                         pair.toOnboardedItems(name), false, true)
                 .uuid();
-    }
-
-    /** Registers a key pair holding the public key, as key creation does, within the caller's transaction. */
-    private void registeredMeanwhile(PublicKey publicKey) {
-        try {
-            keyPairThePlatformCreated("registered meanwhile", aProviderKeyPair().withPublicKey(publicKey).build());
-            cryptographicKeyItemRepository.flush();
-        } catch (Exception e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
-    /** Brings the public key in as an uploaded certificate does, within the caller's transaction. */
-    private void uploadedMeanwhile(PublicKey publicKey) {
-        try {
-            recordHolding("uploaded meanwhile", publicKey);
-            cryptographicKeyItemRepository.flush();
-        } catch (Exception e) {
-            throw new IllegalStateException(e);
-        }
     }
 
     /** Joins the key pair's private key to the record holding its public key, within the caller's transaction. */
@@ -856,18 +837,6 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             assertThat(entry).extracting(TokenKeyDto::getStatus, TokenKeyDto::getReason).containsExactly(status, text);
         }
 
-        private static Stream<Arguments> unusableKeyStatuses() {
-            return Stream
-                    .of(arguments(KeyEntryStatus.UNADDRESSABLE, TokenKeyStatus.UNADDRESSABLE,
-                            "The connector cannot address this key alone."),
-                            arguments(KeyEntryStatus.UNSUPPORTED_TYPE, TokenKeyStatus.UNSUPPORTED_KEY_TYPE,
-                                    "The connector cannot operate a key of this type."),
-                            arguments(KeyEntryStatus.UNREADABLE, TokenKeyStatus.UNREADABLE,
-                                    "The connector cannot read this key."),
-                            arguments(KeyEntryStatus.NOT_FOUND, TokenKeyStatus.GONE,
-                                    "The key storage no longer holds this key pair."));
-        }
-
         @Test
         void carriesTheConnectorsDiagnostic_whenAKeyIsUnusable() throws Exception {
             // given
@@ -1060,12 +1029,29 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             var pageNumber = 4_294_969;
             var itemsPerPage = 1000;
 
-            // when / then
-            assertThatThrownBy(
-                    () -> tokenKeyOnboardingService.listTokenKeys(tokenUuid, profileUuid, pageNumber, itemsPerPage))
+            // when
+            ThrowingCallable listPage = () -> tokenKeyOnboardingService
+                    .listTokenKeys(tokenUuid, profileUuid, pageNumber, itemsPerPage);
+
+            // then
+            assertThatThrownBy(listPage)
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining("The page must start at most 2147483647 entries into the listing.");
             connectorMock.verifyKeyListingRequests(0);
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private static Stream<Arguments> unusableKeyStatuses() {
+            return Stream
+                    .of(arguments(KeyEntryStatus.UNADDRESSABLE, TokenKeyStatus.UNADDRESSABLE,
+                            "The connector cannot address this key alone."),
+                            arguments(KeyEntryStatus.UNSUPPORTED_TYPE, TokenKeyStatus.UNSUPPORTED_KEY_TYPE,
+                                    "The connector cannot operate a key of this type."),
+                            arguments(KeyEntryStatus.UNREADABLE, TokenKeyStatus.UNREADABLE,
+                                    "The connector cannot read this key."),
+                            arguments(KeyEntryStatus.NOT_FOUND, TokenKeyStatus.GONE,
+                                    "The key storage no longer holds this key pair."));
         }
     }
 
@@ -1422,13 +1408,16 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
                             .create(() -> onboardTogether(contested, uncontested), securityContext));
 
             // then
-            assertThat(onboarding.get(10, TimeUnit.SECONDS))
+            List<TokenKeyOnboardingResultDto> results = onboarding.get(10, TimeUnit.SECONDS);
+            assertThat(results)
                     .extracting(TokenKeyOnboardingResultDto::getOutcome, TokenKeyOnboardingResultDto::getStatus,
                             TokenKeyOnboardingResultDto::getReason)
                     .containsExactly(
                             tuple(TokenKeyOnboardingOutcome.BLOCKED, TokenKeyStatus.IN_INVENTORY,
                                     "The inventory came to hold this key pair while it was being onboarded."),
                             tuple(TokenKeyOnboardingOutcome.ONBOARDED, null, null));
+            assertThat(results.getFirst().getKeyName()).isEqualTo(REGISTERED_MEANWHILE);
+            assertThat(results.getFirst().getKeyUuid()).isNotNull();
             assertThat(cryptographicKeyRepository.existsByName("contested")).isFalse();
         }
 
@@ -1585,22 +1574,6 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             assertThat(results.getFirst())
                     .extracting(TokenKeyOnboardingResultDto::getKeyUuid, TokenKeyOnboardingResultDto::getKeyName)
                     .containsOnlyNulls();
-        }
-
-        private static Stream<Arguments> answersWithoutAKeyPair() {
-            return Stream
-                    .of(arguments(KeyEntryStatus.NOT_FOUND, TokenKeyStatus.GONE,
-                            "The key storage no longer holds this key pair."),
-                            arguments(KeyEntryStatus.UNADDRESSABLE, TokenKeyStatus.UNADDRESSABLE,
-                                    "The connector cannot address this key pair by its handle alone."),
-                            arguments(KeyEntryStatus.UNSUPPORTED_TYPE, TokenKeyStatus.UNSUPPORTED_KEY_TYPE,
-                                    "The connector cannot operate a key of this type."),
-                            arguments(KeyEntryStatus.UNREADABLE, TokenKeyStatus.UNREADABLE,
-                                    "The connector cannot read this key pair."),
-                            arguments(
-                                    named("a handle the token does not recognise has no key to describe",
-                                            KeyEntryStatus.INVALID_HANDLE),
-                                    null, "The connector does not recognise this handle."));
         }
 
         @Test
@@ -1914,6 +1887,44 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
                     .hasSize(2)
                     .extracting(CryptographicKeyItem::getLength)
                     .containsOnlyNulls();
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private static Stream<Arguments> answersWithoutAKeyPair() {
+            return Stream
+                    .of(arguments(KeyEntryStatus.NOT_FOUND, TokenKeyStatus.GONE,
+                            "The key storage no longer holds this key pair."),
+                            arguments(KeyEntryStatus.UNADDRESSABLE, TokenKeyStatus.UNADDRESSABLE,
+                                    "The connector cannot address this key pair by its handle alone."),
+                            arguments(KeyEntryStatus.UNSUPPORTED_TYPE, TokenKeyStatus.UNSUPPORTED_KEY_TYPE,
+                                    "The connector cannot operate a key of this type."),
+                            arguments(KeyEntryStatus.UNREADABLE, TokenKeyStatus.UNREADABLE,
+                                    "The connector cannot read this key pair."),
+                            arguments(
+                                    named("a handle the token does not recognise has no key to describe",
+                                            KeyEntryStatus.INVALID_HANDLE),
+                                    null, "The connector does not recognise this handle."));
+        }
+
+        /** Registers a key pair holding the public key, as key creation does, within the caller's transaction. */
+        private void registeredMeanwhile(PublicKey publicKey) {
+            try {
+                keyPairThePlatformCreated(REGISTERED_MEANWHILE, aProviderKeyPair().withPublicKey(publicKey).build());
+                cryptographicKeyItemRepository.flush();
+            } catch (Exception e) {
+                throw new IllegalStateException(e);
+            }
+        }
+
+        /** Brings the public key in as an uploaded certificate does, within the caller's transaction. */
+        private void uploadedMeanwhile(PublicKey publicKey) {
+            try {
+                recordHolding("uploaded meanwhile", publicKey);
+                cryptographicKeyItemRepository.flush();
+            } catch (Exception e) {
+                throw new IllegalStateException(e);
+            }
         }
     }
 
