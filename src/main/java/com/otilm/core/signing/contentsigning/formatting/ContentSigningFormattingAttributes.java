@@ -181,30 +181,6 @@ public class ContentSigningFormattingAttributes {
         return new ContentSigningFormattingDefinitions(profileAttributes.attributes(), requestAttributes.attributes());
     }
 
-    private static String conflictingDefinitionsMessage(String name, ContentSigningFormattingOperation firstDeclarer,
-            ContentSigningFormattingOperation operation) {
-        return firstDeclarer == operation
-                ? "Signature Formatting Provider declares formatting attribute '%s' twice for operation '%s', with different definitions; a name must carry one definition"
-                        .formatted(name, operation.getCode())
-                : "Signature Formatting Provider declares formatting attribute '%s' differently for operation '%s' than for operation '%s'; a shared name must carry one shared definition"
-                        .formatted(name, operation.getCode(), firstDeclarer.getCode());
-    }
-
-    private static boolean sameDefinition(BaseAttribute existing, BaseAttribute declared) {
-        if (existing == declared) {
-            return true;
-        }
-        try {
-            return CANONICAL_FORM.writeValueAsString(existing).equals(CANONICAL_FORM.writeValueAsString(declared));
-        } catch (JsonProcessingException e) {
-            // Our own serialization fault, so it must not surface as the caller's "the connector declares it
-            // differently" message, which sends the operator to the wrong vendor.
-            throw new IllegalStateException(
-                    "Failed to render formatting attribute '%s' to its canonical form".formatted(declared.getName()),
-                    e);
-        }
-    }
-
     private static List<BaseAttribute> declaredProfileAttributes(
             Map<ContentSigningFormattingOperation, ContentSigningFormattingAttributesDto> listings) {
         return listings.values().stream().flatMap(listing -> safe(listing.getProfileAttributes()).stream()).toList();
@@ -237,6 +213,29 @@ public class ContentSigningFormattingAttributes {
 
         List<A> attributes() {
             return declarations.values().stream().map(Declaration::attribute).toList();
+        }
+
+        private static String conflictingDefinitionsMessage(String name,
+                ContentSigningFormattingOperation firstDeclarer, ContentSigningFormattingOperation operation) {
+            return firstDeclarer == operation
+                    ? "Signature Formatting Provider declares formatting attribute '%s' twice for operation '%s', with different definitions; a name must carry one definition"
+                            .formatted(name, operation.getCode())
+                    : "Signature Formatting Provider declares formatting attribute '%s' differently for operation '%s' than for operation '%s'; a shared name must carry one shared definition"
+                            .formatted(name, operation.getCode(), firstDeclarer.getCode());
+        }
+
+        private static boolean sameDefinition(BaseAttribute existing, BaseAttribute declared) {
+            if (existing == declared) {
+                return true;
+            }
+            try {
+                return CANONICAL_FORM.writeValueAsString(existing).equals(CANONICAL_FORM.writeValueAsString(declared));
+            } catch (JsonProcessingException e) {
+                // Our own serialization fault, so it must not surface as the caller's "the connector declares it
+                // differently" message, which sends the operator to the wrong vendor.
+                throw new IllegalStateException("Failed to render formatting attribute '%s' to its canonical form"
+                        .formatted(declared.getName()), e);
+            }
         }
     }
 }

@@ -363,8 +363,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
     }
 
     private static RequestAttribute aStringAttribute(UUID uuid, String name, String value) {
-        return new RequestAttributeV3(uuid, name, AttributeContentType.STRING,
-                List.of(new StringAttributeContentV3(value)));
+        return aCustomAttribute().withUuid(uuid).withName(name).withStringContent(value).build();
     }
 
     private Connector persistV2Connector(String url) {
@@ -2107,7 +2106,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
 
             // then
             assertThatThrownBy(update).isInstanceOf(ValidationException.class).hasMessageContaining(groupedAttribute);
-            assertEquals(existing, signingProfileService.getSigningProfile(profileUuid, null));
+            assertThat(signingProfileService.getSigningProfile(profileUuid, null)).isEqualTo(existing);
         }
 
         @Test

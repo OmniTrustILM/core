@@ -4,10 +4,8 @@ import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.interfaces.client.v1.signing.contentsigning.ContentSigningFormattingSyncApiClient;
-import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
-import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.InfoAttributeV3;
 import com.otilm.api.model.common.signature.SignatureLevel;
@@ -24,6 +22,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import static com.otilm.core.util.builders.DataAttributeV3Builder.aDataAttribute;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -418,14 +417,6 @@ class ContentSigningFormattingAttributesTest {
     }
 
     private static DataAttributeV3 attribute(String name) {
-        DataAttributeV3 attribute = new DataAttributeV3();
-        attribute.setUuid(UUID.nameUUIDFromBytes(name.getBytes()).toString());
-        attribute.setName(name);
-        attribute.setType(AttributeType.DATA);
-        attribute.setContentType(AttributeContentType.STRING);
-        DataAttributeProperties properties = new DataAttributeProperties();
-        properties.setLabel(name);
-        attribute.setProperties(properties);
-        return attribute;
+        return aDataAttribute().withUuid(UUID.nameUUIDFromBytes(name.getBytes())).withName(name).build();
     }
 }

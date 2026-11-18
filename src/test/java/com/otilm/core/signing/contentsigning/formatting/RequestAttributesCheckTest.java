@@ -5,10 +5,12 @@ import com.otilm.api.model.client.attribute.RequestAttributeV2;
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.common.attribute.common.constraint.RegexpAttributeConstraint;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.content.data.FileAttributeContentData;
 import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
 import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
+import com.otilm.api.model.common.attribute.v3.content.FileAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
@@ -20,6 +22,8 @@ import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
+import static com.otilm.core.util.builders.DataAttributeV3Builder.aDataAttribute;
+import static com.otilm.core.util.builders.RequestAttributeV3Builder.aCustomAttribute;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -34,6 +38,7 @@ class RequestAttributesCheckTest {
     private static final String LOCATION = "data_location";
     private static final String REASON = "data_reason";
     private static final String SCOPE = "data_signatureScope";
+    private static final String SIGNER_IMAGE = "data_signerImage";
     private static final String LETTERS_ONLY = "^[A-Za-z ]+$";
 
     private static final ContentSigningFormattingDefinitions DEFINITIONS = new ContentSigningFormattingDefinitions(
@@ -259,6 +264,26 @@ class RequestAttributesCheckTest {
         }
 
         @Test
+        void refusesAFile_whenItsContentDataLacksAFileName() {
+            // given
+            var fileDefinition = definition(SIGNER_IMAGE, null);
+            fileDefinition.setContentType(AttributeContentType.FILE);
+            var definitions = new ContentSigningFormattingDefinitions(List.of(), List.of(fileDefinition));
+            var withoutFileName = new FileAttributeContentData();
+            withoutFileName.setContent("aW1hZ2U=");
+            withoutFileName.setMimeType("image/png");
+            var image = new RequestAttributeV3(uuidOf(SIGNER_IMAGE), SIGNER_IMAGE, AttributeContentType.FILE,
+                    List.of(new FileAttributeContentV3(null, withoutFileName)));
+
+            // when
+            ThrowingCallable check = () -> RequestAttributesCheck
+                    .requireAccepted(PROFILE_NAME, definitions, Set.of(SIGNER_IMAGE), List.of(image));
+
+            // then
+            assertRefusalSays(check, SIGNER_IMAGE, "incomplete content data");
+        }
+
+        @Test
         void refusesSeveralValues_whenTheDefinitionTakesOne() {
             // given
             var twoReasons = attributeCarrying(REASON,
@@ -365,8 +390,11 @@ class RequestAttributesCheckTest {
 
         @Test
         void returnsAGroupedAttributesOwnName() {
+            // given
+            var allowed = Set.of(PAGE);
+
             // when
-            List<String> undeclared = RequestAttributesCheck.undeclaredAllowedNames(DEFINITIONS, Set.of(PAGE));
+            List<String> undeclared = RequestAttributesCheck.undeclaredAllowedNames(DEFINITIONS, allowed);
 
             // then
             assertThat(undeclared).containsExactly(PAGE);
@@ -374,8 +402,11 @@ class RequestAttributesCheckTest {
 
         @Test
         void returnsAProfileAttributesName() {
+            // given
+            var allowed = Set.of(SUB_FILTER);
+
             // when
-            List<String> undeclared = RequestAttributesCheck.undeclaredAllowedNames(DEFINITIONS, Set.of(SUB_FILTER));
+            List<String> undeclared = RequestAttributesCheck.undeclaredAllowedNames(DEFINITIONS, allowed);
 
             // then
             assertThat(undeclared).containsExactly(SUB_FILTER);
@@ -404,14 +435,9 @@ class RequestAttributesCheckTest {
     }
 
     private static DataAttributeV3 definition(String name, String group) {
-        DataAttributeV3 definition = new DataAttributeV3();
-        definition.setUuid(uuidOf(name).toString());
-        definition.setName(name);
-        definition.setContentType(AttributeContentType.STRING);
-        DataAttributeProperties properties = new DataAttributeProperties();
-        properties.setLabel(name);
+        DataAttributeV3 definition = aDataAttribute().withUuid(uuidOf(name)).withName(name).build();
+        DataAttributeProperties properties = definition.getProperties();
         properties.setGroup(group);
-        definition.setProperties(properties);
         if (LOCATION.equals(name)) {
             definition
                     .setConstraints(List
@@ -429,8 +455,7 @@ class RequestAttributesCheckTest {
     }
 
     private static RequestAttribute value(String name, String data) {
-        return new RequestAttributeV3(uuidOf(name), name, AttributeContentType.STRING,
-                List.of(new StringAttributeContentV3(data)));
+        return aCustomAttribute().withUuid(uuidOf(name)).withName(name).withStringContent(data).build();
     }
 
     private static RequestAttribute attributeCarrying(String name, List<BaseAttributeContentV3<?>> content) {

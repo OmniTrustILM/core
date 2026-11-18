@@ -3,14 +3,11 @@ package com.otilm.core.integration.signing.contentsigning;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
-import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.client.signing.profile.SigningProfileDto;
 import com.otilm.api.model.client.signing.profile.SigningProfileRequestDto;
 import com.otilm.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
 import com.otilm.api.model.client.signing.profile.record.SigningRecordPolicyRequestDto;
-import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
-import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
@@ -92,6 +89,7 @@ import static com.otilm.core.util.builders.ConnectorRequestDtoBuilder.aV1Connect
 import static com.otilm.core.util.builders.ConnectorRequestDtoBuilder.aV2ConnectorRequest;
 import static com.otilm.core.util.builders.ContentSigningWorkflowRequestDtoBuilder.aContentSigningWorkflow;
 import static com.otilm.core.util.builders.KeyPairRequestDtoBuilder.aKeyPairRequest;
+import static com.otilm.core.util.builders.RequestAttributeV3Builder.aCustomAttribute;
 import static com.otilm.core.util.builders.SearchRequestDtoBuilder.aSearchRequest;
 import static com.otilm.core.util.builders.SignatureFamilyDeclarationDtoBuilder.aFamilyDeclaration;
 import static com.otilm.core.util.builders.SigningProfileRequestDtoBuilder.aSigningProfileRequest;
@@ -1070,8 +1068,7 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
     }
 
     private static RequestAttribute stringValue(UUID uuid, String name, String value) {
-        return new RequestAttributeV3(uuid, name, AttributeContentType.STRING,
-                List.of(new StringAttributeContentV3(value)));
+        return aCustomAttribute().withUuid(uuid).withName(name).withStringContent(value).build();
     }
 
     private static byte[] documentNamed(String identifier) {

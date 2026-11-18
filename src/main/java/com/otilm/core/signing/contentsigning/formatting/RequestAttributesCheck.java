@@ -7,6 +7,7 @@ import com.otilm.api.model.common.attribute.common.AttributeVersion;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.DataAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.content.data.AttributeContentData;
 import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
 import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
@@ -99,7 +100,7 @@ public final class RequestAttributesCheck {
 
     /**
      * Returns the first problem of one value. The shared validator throws on missing data and skips the content type,
-     * the item count and closed lists, so those checks run before it.
+     * structured content data, the item count and closed lists, so those checks run before it.
      */
     private static Optional<String> valueProblem(DataAttribute definition, RequestAttribute sent) {
         String name = definition.getName();
@@ -121,6 +122,9 @@ public final class RequestAttributesCheck {
         if (items.stream().anyMatch(item -> item == null || item.getData() == null)) {
             return Optional.of("'%s' carries an item without data".formatted(name));
         }
+        if (items.stream().anyMatch(RequestAttributesCheck::hasIncompleteData)) {
+            return Optional.of("'%s' carries incomplete content data".formatted(name));
+        }
         DataAttributeProperties properties = propertiesOf(definition);
         if (items.size() > 1 && !properties.isMultiSelect()) {
             return Optional.of("'%s' carries %d values, but its definition takes one".formatted(name, items.size()));
@@ -133,6 +137,18 @@ public final class RequestAttributesCheck {
             return Optional.empty();
         } catch (ValidationException e) {
             return Optional.of("'%s' has a value its definition refuses".formatted(name));
+        }
+    }
+
+    private static boolean hasIncompleteData(AttributeContent item) {
+        if (!(item.getData() instanceof AttributeContentData data)) {
+            return false;
+        }
+        try {
+            data.validate();
+            return false;
+        } catch (ValidationException e) {
+            return true;
         }
     }
 
