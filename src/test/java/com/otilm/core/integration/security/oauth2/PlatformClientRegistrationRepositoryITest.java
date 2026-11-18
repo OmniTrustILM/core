@@ -18,7 +18,7 @@ class PlatformClientRegistrationRepositoryITest extends BaseSpringBootTest {
     private SettingExternalService settingService;
 
     @BeforeEach
-    void setUp() {
+    void storeProviderWithEmbeddedJwkSet() {
         OAuth2ProviderSettingsUpdateDto providerSettings = new OAuth2ProviderSettingsUpdateDto();
         providerSettings.setClientSecret("secret");
         providerSettings.setIssuerUrl("issuer");

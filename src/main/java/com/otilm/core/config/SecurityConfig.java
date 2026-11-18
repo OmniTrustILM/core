@@ -117,7 +117,8 @@ public class SecurityConfig {
                 .exceptionHandling(exceptionHandling -> exceptionHandling
                         .accessDeniedHandler((request, response, accessDeniedException) -> response
                                 .sendError(HttpServletResponse.SC_FORBIDDEN))
-                        .authenticationEntryPoint(ProtectedResourceChallenge::commence))
+                        .authenticationEntryPoint((request, response, exception) -> ProtectedResourceChallenge
+                                .rejectWithChallenge(request, response)))
                 .sessionManagement(AbstractHttpConfigurer::disable)
                 .csrf(AbstractHttpConfigurer::disable)
                 .httpBasic(AbstractHttpConfigurer::disable)

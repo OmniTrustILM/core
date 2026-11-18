@@ -40,7 +40,7 @@ class PlatformJwtConvertorITest extends BaseSpringBootTest {
     KeyPair keyPair;
 
     @BeforeEach
-    void setUp() throws NoSuchAlgorithmException, JOSEException {
+    void createTokenAndStubAuthService() throws NoSuchAlgorithmException, JOSEException {
 
         KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
         generator.initialize(2048);

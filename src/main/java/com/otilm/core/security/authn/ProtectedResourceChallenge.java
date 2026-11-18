@@ -1,12 +1,13 @@
 package com.otilm.core.security.authn;
 
-import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
+import org.springframework.security.oauth2.server.resource.InvalidBearerTokenException;
 import org.springframework.security.oauth2.server.resource.web.BearerTokenAuthenticationEntryPoint;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
@@ -28,6 +29,8 @@ public final class ProtectedResourceChallenge {
             .matcher(HttpMethod.GET, METADATA_PATH);
 
     private static final String BEARER = "Bearer";
+
+    private static final String INVALID_TOKEN_DESCRIPTION = "The access token is invalid.";
 
     private static final BearerTokenAuthenticationEntryPoint BEARER_ENTRY_POINT = bearerEntryPoint();
 
@@ -64,20 +67,18 @@ public final class ProtectedResourceChallenge {
         response.sendError(HttpServletResponse.SC_UNAUTHORIZED, message);
     }
 
-    /** Entry point for requests that carried no credentials Spring Security could use. */
-    public static void commence(HttpServletRequest request, HttpServletResponse response,
-            AuthenticationException exception) throws IOException {
-        rejectWithChallenge(request, response);
-    }
-
     /**
-     * Entry point for a bearer token that was refused, keeping the RFC 6750 error parameters. Spring's entry point adds
-     * a {@code resource_metadata} parameter of its own, so it is told the platform's metadata URL rather than appended
-     * to.
+     * Entry point for a bearer token that was refused. Spring's entry point writes the RFC 6750 error parameters only
+     * for an OAuth2 refusal, so the platform's own refusals are reported as an invalid token with a fixed description
+     * that reveals nothing about why. It also adds a {@code resource_metadata} parameter of its own, so it is told the
+     * platform's metadata URL rather than appended to.
      */
     public static void commenceBearer(HttpServletRequest request, HttpServletResponse response,
-            AuthenticationException exception) throws IOException, ServletException {
-        BEARER_ENTRY_POINT.commence(request, response, exception);
+            AuthenticationException exception) {
+        AuthenticationException refusal = exception instanceof OAuth2AuthenticationException
+                ? exception
+                : new InvalidBearerTokenException(INVALID_TOKEN_DESCRIPTION, exception);
+        BEARER_ENTRY_POINT.commence(request, response, refusal);
     }
 
     private static BearerTokenAuthenticationEntryPoint bearerEntryPoint() {

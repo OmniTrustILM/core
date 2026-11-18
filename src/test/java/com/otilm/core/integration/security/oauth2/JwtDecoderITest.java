@@ -81,7 +81,7 @@ class JwtDecoderITest extends BaseSpringBootTest {
     String jwkSetJson;
 
     @BeforeEach
-    void setUp() throws NoSuchAlgorithmException, JsonProcessingException, JOSEException {
+    void startIssuerAndStoreProvider() throws NoSuchAlgorithmException, JsonProcessingException, JOSEException {
         mockServer = new WireMockServer(8082);
         mockServer.start();
         WireMock.configureFor("localhost", mockServer.port());
