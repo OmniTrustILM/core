@@ -263,6 +263,7 @@ class SecurityConfigITest extends BaseSpringBootTestNoAuth {
         String challenge = result.getResponse().getHeader(HttpHeaders.WWW_AUTHENTICATE);
         Assertions.assertTrue(challenge.startsWith("Bearer error=\"invalid_token\""), challenge);
         Assertions.assertTrue(challenge.endsWith(", resource_metadata=\"" + METADATA_URL + "\""), challenge);
+        Assertions.assertEquals(1, challenge.split("resource_metadata=", -1).length - 1, challenge);
     }
 
     @Test

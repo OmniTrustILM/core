@@ -21,6 +21,8 @@ public final class ProtectedResourceChallenge {
 
     private static final String BEARER = "Bearer";
 
+    private static final BearerTokenAuthenticationEntryPoint BEARER_ENTRY_POINT = bearerEntryPoint();
+
     private ProtectedResourceChallenge() {
     }
 
@@ -60,15 +62,28 @@ public final class ProtectedResourceChallenge {
         rejectWithChallenge(request, response);
     }
 
-    /** Entry point for a bearer token that was refused, keeping the RFC 6750 error parameters. */
+    /**
+     * Entry point for a bearer token that was refused, keeping the RFC 6750 error parameters. Spring's entry point adds
+     * a {@code resource_metadata} parameter of its own, so it is told the platform's metadata URL rather than appended
+     * to.
+     */
     public static void commenceBearer(HttpServletRequest request, HttpServletResponse response,
             AuthenticationException exception) throws IOException, ServletException {
-        new BearerTokenAuthenticationEntryPoint().commence(request, response, exception);
-        setChallenge(request, response);
+        BEARER_ENTRY_POINT.commence(request, response, exception);
+    }
+
+    private static BearerTokenAuthenticationEntryPoint bearerEntryPoint() {
+        BearerTokenAuthenticationEntryPoint entryPoint = new BearerTokenAuthenticationEntryPoint();
+        entryPoint.setResourceMetadataParameterResolver(ProtectedResourceChallenge::metadataUrl);
+        return entryPoint;
+    }
+
+    private static String metadataUrl(HttpServletRequest request) {
+        return origin(ServletUriComponentsBuilder.fromContextPath(request)) + METADATA_PATH;
     }
 
     private static void setChallenge(HttpServletRequest request, HttpServletResponse response) {
-        String metadataUrl = origin(ServletUriComponentsBuilder.fromContextPath(request)) + METADATA_PATH;
+        String metadataUrl = metadataUrl(request);
         String existing = response.getHeader(HttpHeaders.WWW_AUTHENTICATE);
         response.setHeader(HttpHeaders.WWW_AUTHENTICATE, headerValue(metadataUrl, existing));
     }
