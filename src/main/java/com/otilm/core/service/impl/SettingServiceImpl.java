@@ -1204,7 +1204,7 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
             throw new ValidationException("The resource for applications must be an absolute http or https URI.");
         }
         String scheme = uri.getScheme();
-        if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme) || uri.getHost() == null) {
+        if (!isHttpScheme(scheme) || uri.getHost() == null) {
             throw new ValidationException("The resource for applications must be an absolute http or https URI.");
         }
         if (uri.getRawUserInfo() != null) {
@@ -1228,9 +1228,13 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
             return false;
         }
         String scheme = issuer.getScheme();
-        boolean http = "http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme);
+        boolean http = isHttpScheme(scheme);
         return http && issuer.getHost() != null && issuer.getRawUserInfo() == null && issuer.getRawQuery() == null
                 && issuer.getRawFragment() == null;
+    }
+
+    private static boolean isHttpScheme(String scheme) {
+        return "http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme);
     }
 
     private static boolean isBlank(String value) {
@@ -1250,7 +1254,7 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
                     "JWK Set URL is invalid: %s at index %d.".formatted(e.getReason(), e.getIndex()));
         }
         String scheme = uri.getScheme();
-        if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) {
+        if (!isHttpScheme(scheme)) {
             throw new ValidationException("JWK Set URL must use http or https.");
         }
         if (uri.getHost() == null || uri.getHost().isBlank()) {
