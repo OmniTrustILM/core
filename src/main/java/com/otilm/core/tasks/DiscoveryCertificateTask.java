@@ -11,6 +11,7 @@ import com.otilm.core.model.discovery.DiscoveryRunLifecycle;
 import com.otilm.core.service.DiscoveryExternalService;
 import com.otilm.core.service.DiscoveryInternalService;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.UUID;
 import lombok.NoArgsConstructor;
@@ -122,7 +123,7 @@ public class DiscoveryCertificateTask implements ScheduledJobTask {
      * time alone does not tell the runs apart: the execution's own history UUID does.
      */
     private static String prepareRunSuffix(final ScheduledJobInfo scheduledJobInfo) {
-        final String suffix = "_" + RUN_TIME_FORMAT.format(LocalDateTime.now());
+        final String suffix = "_" + RUN_TIME_FORMAT.format(LocalDateTime.now(ZoneId.systemDefault()));
         if (scheduledJobInfo == null || scheduledJobInfo.jobHistoryUuid() == null) {
             return suffix;
         }
