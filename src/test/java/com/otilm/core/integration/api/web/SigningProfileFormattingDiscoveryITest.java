@@ -24,10 +24,15 @@ class SigningProfileFormattingDiscoveryITest extends BaseSpringBootTest {
     private MockMvc mockMvc;
 
     @Test
-    void contentSigningFormattingAttributes_bindsTheFamilyAndLevelWireCodes() throws Exception {
-        mockMvc
-                .perform(get(PATH.formatted(UUID.randomUUID())).param("family", "pades").param("level", "signed"))
-                .andExpect(status().isNotFound());
+    void answersNotFound_whenTheFamilyAndLevelWireCodesBind() throws Exception {
+        // given — no connector exists under the requested UUID
+
+        // when
+        ResultActions discovery = mockMvc
+                .perform(get(PATH.formatted(UUID.randomUUID())).param("family", "pades").param("level", "signed"));
+
+        // then
+        discovery.andExpect(status().isNotFound());
     }
 
     @Test

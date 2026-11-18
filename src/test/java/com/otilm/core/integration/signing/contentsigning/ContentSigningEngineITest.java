@@ -378,8 +378,8 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
 
         @ParameterizedTest(name = "{0}")
         @MethodSource("postQuantumKeys")
-        void tellsTheConnectorThePostQuantumParameterSet_ofTheResolvedSigner(PostQuantumKey postQuantumKey)
-                throws Exception {
+        void tellsTheConnectorThePostQuantumParameterSet_whenTheSignerHoldsAPostQuantumKey(
+                PostQuantumKey postQuantumKey) throws Exception {
             // given: a profile over a key of this parameter set, authorized under the digest the row pins
             SigningProfileDto contentProfile = createPostQuantumContentSigningProfile(postQuantumKey);
             byte[] document = "a document signed with a post-quantum key".getBytes(StandardCharsets.UTF_8);
@@ -425,9 +425,8 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
 
             // then: the key was never released, so nothing was signed and nothing was recorded
             assertThatThrownBy(sign)
-                    .isInstanceOf(SigningEngineException.class)
-                    .satisfies(failure -> assertThat(((SigningEngineException) failure).failure())
-                            .isEqualTo(SigningEngineFailure.BINDING_VIOLATION));
+                    .isInstanceOfSatisfying(SigningEngineException.class,
+                            failure -> assertThat(failure.failure()).isEqualTo(SigningEngineFailure.BINDING_VIOLATION));
             cryptographyProviderMock.verifyNoDataWasSigned();
             assertThat(recordsFor(contentProfile.getName())).isEmpty();
         }

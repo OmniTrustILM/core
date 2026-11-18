@@ -78,8 +78,9 @@ class ContentSigningFormattingAttributesTest {
         }
 
         @Test
-        void aNullLevelReachesOnlyTheComputeAndEmbedPair() {
-            // given: defensive default when the level is unknown -- fail closed to the smallest set
+        void reachesOnlyTheComputeAndEmbedPair_whenTheLevelIsNull() {
+            // given — no level, so the smallest set is the safe default
+
             // when
             List<ContentSigningFormattingOperation> reached = ContentSigningFormattingAttributes
                     .reachableOperations(null);

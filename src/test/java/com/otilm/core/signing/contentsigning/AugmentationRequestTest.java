@@ -9,7 +9,7 @@ class AugmentationRequestTest {
     private static final byte[] FOREIGN_DOCUMENT = "a document signed elsewhere".getBytes();
 
     @Test
-    void toStringReportsTheDocumentSizeInsteadOfItsContent() {
+    void reportsTheDocumentSizeInsteadOfItsContent_whenRendered() {
         // given: the document was signed by a customer, so a log line must not carry it
         AugmentationRequest request = new AugmentationRequest(FOREIGN_DOCUMENT, null);
 
@@ -21,22 +21,30 @@ class AugmentationRequestTest {
     }
 
     @Test
-    void twoRequestsHoldingEqualDocumentBytesAreEqual() {
+    void equalsAnotherRequest_whenTheDocumentBytesAreEqual() {
         // given: distinct arrays, because a record's generated equals would compare them by identity
         AugmentationRequest one = new AugmentationRequest(FOREIGN_DOCUMENT, null);
         AugmentationRequest other = new AugmentationRequest(FOREIGN_DOCUMENT.clone(), null);
 
-        // when / then
-        assertThat(one).isEqualTo(other).hasSameHashCodeAs(other);
+        // when
+        boolean equal = one.equals(other);
+
+        // then
+        assertThat(equal).isTrue();
+        assertThat(one).hasSameHashCodeAs(other);
     }
 
     @Test
-    void requestsDifferingInTheDocumentAreNotEqual() {
+    void differsFromAnotherRequest_whenTheDocumentsDiffer() {
         // given
         AugmentationRequest request = new AugmentationRequest(FOREIGN_DOCUMENT, null);
+        AugmentationRequest another = new AugmentationRequest("another".getBytes(), null);
 
-        // when / then
-        assertThat(request).isNotEqualTo(new AugmentationRequest("another".getBytes(), null));
+        // when
+        boolean equal = request.equals(another);
+
+        // then
+        assertThat(equal).isFalse();
     }
 
     @Test

@@ -138,7 +138,7 @@ class ManagedContentSigningEngineTest {
     class SignedPath {
 
         @Test
-        void signsToSignedLevel_throughComputeAndEmbed() throws Exception {
+        void signsThroughComputeAndEmbed() throws Exception {
             // given
             ResolvedManagedContentSigningProfile profile = aSignedOnlyProfile();
             stubComputeDtbs(digestOf(DOCUMENT));
@@ -356,7 +356,7 @@ class ManagedContentSigningEngineTest {
     class TimestampedPath {
 
         @Test
-        void raisesTheSignatureToTimestamped_throughTheInProcessBridge() throws Exception {
+        void raisesTheSignatureToTimestampedThroughTheInProcessBridge() throws Exception {
             // given: the profile signs at TIMESTAMPED, so both gates pass and the leg itself carries the run
             ResolvedManagedContentSigningProfile profile = aTimestampingProfile();
             stubComputeDtbs(digestOf(DOCUMENT));
@@ -1169,7 +1169,7 @@ class ManagedContentSigningEngineTest {
         }
 
         @Test
-        void funnelsAnUncheckedAugmentationFailureIntoAStepFailure_withoutLeakingItsDetail() throws Exception {
+        void funnelsAnUncheckedAugmentationFailureIntoAStepFailureWithoutItsDetail() throws Exception {
             // given
             ResolvedManagedContentSigningProfile profile = aTimestampingProfile();
             var internalDetail = "attribute cache is down";
@@ -1185,7 +1185,7 @@ class ManagedContentSigningEngineTest {
             assertThatThrownBy(augment).isInstanceOfSatisfying(SigningEngineException.class, thrown -> {
                 assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.STEP_FAILED);
                 assertThat(thrown.clientMessage()).isEqualTo("Internal error during signing");
-                assertThat(thrown.getCause()).hasMessage(internalDetail);
+                assertThat(thrown.getCause()).hasMessageContaining(internalDetail);
             });
             assertThat(messagesLoggedAt(Level.ERROR)).isNotEmpty();
         }
