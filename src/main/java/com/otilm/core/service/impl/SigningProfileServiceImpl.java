@@ -102,6 +102,7 @@ import com.otilm.core.service.writer.SigningProfileWriter;
 import com.otilm.core.signing.contentsigning.declaration.ContentSigningDeclarations;
 import com.otilm.core.signing.contentsigning.formatting.ContentSigningFormattingAttributes;
 import com.otilm.core.signing.contentsigning.formatting.ContentSigningFormattingDefinitions;
+import com.otilm.core.signing.contentsigning.formatting.RequestAttributesCheck;
 import com.otilm.core.signing.contentsigning.profile.ContentSigningWorkflowValidator;
 import com.otilm.core.signing.contentsigning.profile.TimestampSourceRequests;
 import com.otilm.core.signing.engine.error.SigningEngineException;
@@ -310,7 +311,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         ContentSigningFormattingDefinitions definitions = contentSigningFormattingAttributes
                 .aggregate(connectorService.getConnectorForApiClient(connectorUuid), level);
         return new ContentSigningFormattingAttributesDto(definitions.profileAttributes(),
-                definitions.requestAttributes());
+                List.copyOf(definitions.requestAttributes()));
     }
 
     @Override
@@ -457,7 +458,8 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         validateSigningSchemeCoherence(request.getSigningScheme());
         attributeEngine.validateCustomAttributesContent(Resource.SIGNING_PROFILE, request.getCustomAttributes());
         validateContentSigningWorkflow(request, null);
-        List<BaseAttribute> formattingDefinitions = fetchFormattingAttributeDefinitions(request.getWorkflow());
+        List<BaseAttribute> formattingDefinitions = fetchFormattingAttributeDefinitions(request.getWorkflow(),
+                request.getSigningScheme().getSigningScheme());
         AttributesWithOwner signingSchema = fetchValidatedSigningOperationSchema(request.getSigningScheme());
         SigningProfileDto created = self.persistCreate(request, formattingDefinitions, signingSchema);
         evictSigningProfileCache(created.getName());
@@ -508,7 +510,8 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         validateSigningSchemeCoherence(request.getSigningScheme());
         attributeEngine.validateCustomAttributesContent(Resource.SIGNING_PROFILE, request.getCustomAttributes());
         validateContentSigningWorkflow(request, uuid.getValue());
-        List<BaseAttribute> formattingDefinitions = fetchFormattingAttributeDefinitions(request.getWorkflow());
+        List<BaseAttribute> formattingDefinitions = fetchFormattingAttributeDefinitions(request.getWorkflow(),
+                request.getSigningScheme().getSigningScheme());
         AttributesWithOwner signingSchema = fetchValidatedSigningOperationSchema(request.getSigningScheme());
         return self.persistUpdate(uuid, request, formattingDefinitions, signingSchema);
     }
@@ -1399,22 +1402,37 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
      * later inside the transaction by {@link #persistSignatureFormattingConnectorAttributes} via
      * {@link AttributeEngine#validateUpdateDataAttributes}, which keeps the definition upsert and content write atomic.
      */
-    private List<BaseAttribute> fetchFormattingAttributeDefinitions(WorkflowRequestDto workflow)
-            throws ConnectorException, NotFoundException {
+    private List<BaseAttribute> fetchFormattingAttributeDefinitions(WorkflowRequestDto workflow,
+            SigningScheme signingScheme) throws ConnectorException, NotFoundException {
         return switch (workflow) {
-            case ContentSigningWorkflowRequestDto w ->
-                w.getSignatureFormattingConnectorUuid() == null
-                        ? List.of()
-                        : contentSigningFormattingAttributes
-                                .aggregate(
-                                        connectorService
-                                                .getConnectorForApiClient(w.getSignatureFormattingConnectorUuid()),
-                                        w.getLevel())
-                                .all();
+            case ContentSigningWorkflowRequestDto w when signingScheme == SigningScheme.MANAGED ->
+                fetchContentSigningDefinitionsCheckingAllowedNames(w);
+            case ContentSigningWorkflowRequestDto ignored -> List.of();
             case TimestampingWorkflowRequestDto w ->
                 fetchTimestampingFormattingDefinitions(w.getSignatureFormattingConnectorUuid());
             default -> List.of();
         };
+    }
+
+    /** The formatter's listing decides which names a profile may allow. */
+    private List<BaseAttribute> fetchContentSigningDefinitionsCheckingAllowedNames(ContentSigningWorkflowRequestDto w)
+            throws ConnectorException, NotFoundException {
+        ContentSigningFormattingDefinitions definitions = contentSigningFormattingAttributes
+                .aggregate(connectorService.getConnectorForApiClient(w.getSignatureFormattingConnectorUuid()),
+                        w.getLevel());
+        requireDeclaredAllowedNames(definitions, w.getAllowedRequestAttributes());
+        return definitions.all();
+    }
+
+    private static void requireDeclaredAllowedNames(ContentSigningFormattingDefinitions definitions,
+            Set<String> allowed) {
+        List<String> undeclared = RequestAttributesCheck
+                .undeclaredAllowedNames(definitions, Objects.requireNonNullElse(allowed, Set.of()));
+        if (!undeclared.isEmpty()) {
+            throw new ValidationException(ValidationError
+                    .create("Allowed request attributes name neither a declared group nor an ungrouped request attribute: {}",
+                            undeclared));
+        }
     }
 
     private List<BaseAttribute> fetchTimestampingFormattingDefinitions(UUID connectorUuid)

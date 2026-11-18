@@ -1433,7 +1433,8 @@ class ManagedContentSigningEngineTest {
             var request = new ContentSigningRequest(DocumentTransferMode.INLINE, DigestAlgorithm.SHA_256,
                     List
                             .of(inlineItemNamed("first"),
-                                    new ContentSigningItem(truncated, documentNamed(truncated), truncatedDigest)));
+                                    new ContentSigningItem(truncated, documentNamed(truncated), truncatedDigest)),
+                    List.of());
 
             // when
             ThrowingCallable sign = () -> engine
@@ -1455,7 +1456,8 @@ class ManagedContentSigningEngineTest {
             var request = new ContentSigningRequest(DocumentTransferMode.DIGEST_ONLY, DigestAlgorithm.SHA_256,
                     List
                             .of(digestOnlyItemNamed("first"),
-                                    new ContentSigningItem(sentWhole, wholeDocument, digestOf(wholeDocument))));
+                                    new ContentSigningItem(sentWhole, wholeDocument, digestOf(wholeDocument))),
+                    List.of());
 
             // when
             ThrowingCallable sign = () -> engine
@@ -1728,7 +1730,7 @@ class ManagedContentSigningEngineTest {
     private static ContentSigningRequest requestFor(DocumentTransferMode transferMode) {
         byte[] content = transferMode == DocumentTransferMode.INLINE ? DOCUMENT : digestOf(DOCUMENT);
         ContentSigningItem item = new ContentSigningItem(DOCUMENT_IDENTIFIER, content, digestOf(DOCUMENT));
-        return new ContentSigningRequest(transferMode, DigestAlgorithm.SHA_256, List.of(item));
+        return new ContentSigningRequest(transferMode, DigestAlgorithm.SHA_256, List.of(item), List.of());
     }
 
     private static ContentSigningRequest batchOf(String... identifiers) {
@@ -1737,7 +1739,7 @@ class ManagedContentSigningEngineTest {
                 .map(identifier -> new ContentSigningItem(identifier, documentNamed(identifier),
                         digestOf(documentNamed(identifier))))
                 .toList();
-        return new ContentSigningRequest(DocumentTransferMode.INLINE, DigestAlgorithm.SHA_256, items);
+        return new ContentSigningRequest(DocumentTransferMode.INLINE, DigestAlgorithm.SHA_256, items, List.of());
     }
 
     private static ContentSigningItem inlineItemNamed(String identifier) {
