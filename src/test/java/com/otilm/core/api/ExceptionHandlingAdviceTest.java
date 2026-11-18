@@ -13,6 +13,7 @@ import com.otilm.api.model.common.AuthenticationServiceExceptionDto;
 import com.otilm.api.model.common.ErrorMessageDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.attribute.engine.ReferenceAccessDeniedException;
+import com.otilm.core.exception.PreconditionFailedException;
 import com.otilm.core.util.AuthHelper;
 import java.sql.SQLException;
 import java.util.List;
@@ -31,6 +32,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.BeanPropertyBindingResult;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
@@ -254,6 +256,32 @@ class ExceptionHandlingAdviceTest {
                         .filter(event -> event.getLevel() == Level.ERROR)
                         .anyMatch(event -> event.getFormattedMessage().contains("uq_crypto_asset_identity_key")),
                 "scrubbing the row must not cost the constraint name, which is the actionable datum");
+    }
+
+    @Test
+    void answersWithItsMessage_whenAPreconditionFailed() {
+        // given
+        var failureMessage = "Provider 'x' was changed since it was read.";
+        var failure = new PreconditionFailedException(failureMessage);
+
+        // when
+        ErrorMessageDto body = advice.handlePreconditionFailedException(failure);
+
+        // then
+        assertThat(body.getMessage()).isEqualTo(failureMessage);
+    }
+
+    @Test
+    void respondsWithPreconditionFailedStatus_whenAPreconditionFailed() throws Exception {
+        // given
+        var handlerMethod = ExceptionHandlingAdvice.class
+                .getMethod("handlePreconditionFailedException", PreconditionFailedException.class);
+
+        // when
+        ResponseStatus status = handlerMethod.getAnnotation(ResponseStatus.class);
+
+        // then
+        assertThat(status.value()).isEqualTo(HttpStatus.PRECONDITION_FAILED);
     }
 
     /**

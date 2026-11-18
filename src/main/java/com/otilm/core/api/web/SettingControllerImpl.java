@@ -21,8 +21,11 @@ import com.otilm.api.model.core.settings.logging.LoggingSettingsDto;
 import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.logging.LogResource;
 import com.otilm.core.service.SettingExternalService;
+import com.otilm.core.service.TaggedOAuth2ProviderSettings;
 import com.otilm.core.util.converter.SettingsSectionCodeConverter;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.WebDataBinder;
 import org.springframework.web.bind.annotation.InitBinder;
 import org.springframework.web.bind.annotation.RestController;
@@ -107,9 +110,14 @@ public class SettingControllerImpl implements SettingController {
     @AuditLogged(module = Module.CORE, resource = Resource.SETTINGS,
             affiliatedResource = Resource.AUTHENTICATION_PROVIDER, operation = Operation.DETAIL,
             name = "authentication")
-    public OAuth2ProviderSettingsResponseDto getOAuth2ProviderSettings(
+    public ResponseEntity<OAuth2ProviderSettingsResponseDto> getOAuth2ProviderSettings(
             @LogResource(name = true, affiliated = true) String providerName) {
-        return settingService.getOAuth2ProviderSettings(providerName, false);
+        TaggedOAuth2ProviderSettings tagged = settingService.getTaggedOAuth2ProviderSettings(providerName);
+        ResponseEntity.BodyBuilder response = ResponseEntity.ok();
+        if (tagged.entityTag() != null) {
+            response.header(HttpHeaders.ETAG, tagged.entityTag());
+        }
+        return response.body(tagged.settings());
     }
 
     @Override
@@ -117,8 +125,8 @@ public class SettingControllerImpl implements SettingController {
             affiliatedResource = Resource.AUTHENTICATION_PROVIDER, operation = Operation.UPDATE,
             name = "authentication")
     public void updateOAuth2ProviderSettings(@LogResource(name = true, affiliated = true) String providerName,
-            OAuth2ProviderSettingsUpdateDto oauth2SettingsDto) {
-        settingService.updateOAuth2ProviderSettings(providerName, oauth2SettingsDto);
+            String ifMatch, OAuth2ProviderSettingsUpdateDto oauth2SettingsDto) {
+        settingService.updateOAuth2ProviderSettings(providerName, ifMatch, oauth2SettingsDto);
     }
 
     @Override
