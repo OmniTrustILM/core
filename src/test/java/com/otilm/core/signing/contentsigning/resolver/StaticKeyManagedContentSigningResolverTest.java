@@ -215,7 +215,7 @@ class StaticKeyManagedContentSigningResolverTest {
         }
 
         @Test
-        void resolvesFamilyMaxLevelAndTimestampSource_whenProfileIsTimestamped() throws Exception {
+        void resolvesFamilyLevelAndTimestampSource_whenProfileIsTimestamped() throws Exception {
             // given
             UUID timestampSourceUuid = UUID.fromString("44444444-4444-4444-4444-444444444444");
             SigningProfileModel<?, ?> model = aManagedContentSigningProfile(SignatureFamilyFixtures.PADES,
@@ -228,7 +228,7 @@ class StaticKeyManagedContentSigningResolverTest {
 
             // then
             assertThat(resolved.family()).isEqualTo(SignatureFamilyFixtures.PADES);
-            assertThat(resolved.maxLevel()).isEqualTo(SignatureLevel.TIMESTAMPED);
+            assertThat(resolved.level()).isEqualTo(SignatureLevel.TIMESTAMPED);
             assertThat(resolved.timestampSourceProfileName()).isEqualTo("internal-tsa");
         }
 
@@ -262,10 +262,10 @@ class StaticKeyManagedContentSigningResolverTest {
         return aManagedContentSigningProfile(SignatureFamilyFixtures.CADES, SignatureLevel.SIGNED, null);
     }
 
-    private static SigningProfileModel<?, ?> aManagedContentSigningProfile(String family, SignatureLevel maxLevel,
+    private static SigningProfileModel<?, ?> aManagedContentSigningProfile(String family, SignatureLevel level,
             UUID timestampSourceProfileUuid) {
         return aProfile(new ManagedContentSigningWorkflow(FORMATTING_CONNECTOR_UUID, List.of(A_FORMAT_ATTRIBUTE),
-                family, maxLevel, timestampSourceProfileUuid, CertificatePurposeRequirements.NONE, Set.of()));
+                family, level, timestampSourceProfileUuid, CertificatePurposeRequirements.NONE, Set.of()));
     }
 
     private static SigningProfileModel<?, ?> aManagedTimestampingProfile() {

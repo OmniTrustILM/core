@@ -61,13 +61,13 @@ public class StaticKeyManagedContentSigningResolver implements SigningProfileRes
                 .all();
         FormattingAttributesCheck
                 .requireValid(model.name(), formattingDefinitions, workflow.signatureFormattingConnectorAttributes());
-        String timestampSourceProfileName = workflow.maxLevel() == SignatureLevel.SIGNED
+        String timestampSourceProfileName = workflow.level() == SignatureLevel.SIGNED
                 ? null
                 : timestampSourceResolver.profileNameFor(workflow.timestampSourceProfileUuid());
 
         return new ResolvedManagedContentSigningProfile(model.uuid(), model.name(), model.description(),
                 model.version(), model.enabled(), model.enabledProtocols(),
-                workflow.signatureFormattingConnectorAttributes(), familyDeclaration, workflow.maxLevel(),
+                workflow.signatureFormattingConnectorAttributes(), familyDeclaration, workflow.level(),
                 timestampSourceProfileName, workflow.certificatePurpose(), connector, resolvedScheme);
     }
 

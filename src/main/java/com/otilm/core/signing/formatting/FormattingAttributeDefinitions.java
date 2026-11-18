@@ -81,13 +81,13 @@ public class FormattingAttributeDefinitions {
         return published.getDefinitions();
     }
 
-    /** A content-signing formatter's definitions for the operations reached by the workflow's maximum level. */
+    /** A content-signing formatter's definitions for the operations the workflow's level reaches. */
     public ContentSigningFormattingDefinitions forContentSigning(ApiClientConnectorInfo formatter,
             ManagedContentSigningWorkflow workflow) throws SigningEngineException {
         DefinitionsKey key = DefinitionsKey.of(formatter, workflow);
         return definitionsCache.getOrLoad(key, () -> {
             ContentSigningFormattingDefinitions published = fetched(key.connectorUuid(),
-                    () -> contentSigningFormattingAttributes.aggregate(formatter, workflow.maxLevel()));
+                    () -> contentSigningFormattingAttributes.aggregate(formatter, workflow.level()));
             store(key.connectorUuid(), published.all());
             return published;
         });

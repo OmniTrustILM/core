@@ -138,7 +138,7 @@ class ManagedContentSigningEngineTest {
     class SignedPath {
 
         @Test
-        void signsToSignedLevel_throughComputeAndEmbed() throws Exception {
+        void signsThroughComputeAndEmbed() throws Exception {
             // given
             ResolvedManagedContentSigningProfile profile = aSignedOnlyProfile();
             stubComputeDtbs(digestOf(DOCUMENT));
@@ -149,7 +149,7 @@ class ManagedContentSigningEngineTest {
 
             // when
             SignedContent signed = engine
-                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API)
+                    .sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API)
                     .getFirst()
                     .content();
 
@@ -169,7 +169,7 @@ class ManagedContentSigningEngineTest {
             stubEmbedSignatureValue("signed document".getBytes());
 
             // when
-            engine.sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+            engine.sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             ArgumentCaptor<ComputeDtbsRequestDto> captured = ArgumentCaptor.forClass(ComputeDtbsRequestDto.class);
@@ -190,7 +190,7 @@ class ManagedContentSigningEngineTest {
             stubEmbedSignatureValue("signed document".getBytes());
 
             // when
-            engine.sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+            engine.sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             ArgumentCaptor<ComputeDtbsRequestDto> captured = ArgumentCaptor.forClass(ComputeDtbsRequestDto.class);
@@ -208,7 +208,7 @@ class ManagedContentSigningEngineTest {
             stubEmbedSignatureValue("signed document".getBytes());
 
             // when
-            engine.sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+            engine.sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             ArgumentCaptor<EmbedSignatureValueRequestDto> captured = ArgumentCaptor
@@ -228,7 +228,7 @@ class ManagedContentSigningEngineTest {
             stubEmbedSignatureValue("signed document".getBytes());
 
             // when
-            engine.sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+            engine.sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             ArgumentCaptor<ComputeDtbsRequestDto> compute = ArgumentCaptor.forClass(ComputeDtbsRequestDto.class);
@@ -249,7 +249,7 @@ class ManagedContentSigningEngineTest {
             stubEmbedSignatureValue("signed document".getBytes());
 
             // when
-            engine.sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+            engine.sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             verify(acquisitions).signatureAlgorithm(profile);
@@ -269,7 +269,7 @@ class ManagedContentSigningEngineTest {
 
             // when
             ThrowingCallable sign = () -> engine
-                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+                    .sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, thrown -> {
@@ -292,7 +292,7 @@ class ManagedContentSigningEngineTest {
 
             // when
             ThrowingCallable sign = () -> engine
-                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+                    .sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, thrown -> {
@@ -314,7 +314,7 @@ class ManagedContentSigningEngineTest {
 
             // when
             ThrowingCallable sign = () -> engine
-                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+                    .sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, thrown -> {
@@ -331,14 +331,14 @@ class ManagedContentSigningEngineTest {
             when(unencodable.getBasicConstraints()).thenReturn(-1);
             when(unencodable.getEncoded()).thenThrow(new CertificateEncodingException("unencodable"));
             ResolvedManagedContentSigningProfile profile = aResolvedContentSigningProfile()
-                    .withMaxLevel(SignatureLevel.SIGNED)
+                    .withLevel(SignatureLevel.SIGNED)
                     .withResolvedScheme(new ResolvedStaticKeyManagedSigning(SigningCertificateBuilder.valid(),
                             List.of(), CertificateChain.of(unencodable), List.of()))
                     .build();
 
             // when
             ThrowingCallable sign = () -> engine
-                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+                    .sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, thrown -> {
@@ -356,8 +356,8 @@ class ManagedContentSigningEngineTest {
     class TimestampedPath {
 
         @Test
-        void raisesTheSignatureToTimestamped_throughTheInProcessBridge() throws Exception {
-            // given: the ceiling admits TIMESTAMPED, so both gates pass and the leg itself carries the run
+        void raisesTheSignatureToTimestampedThroughTheInProcessBridge() throws Exception {
+            // given: the profile signs at TIMESTAMPED, so both gates pass and the leg itself carries the run
             ResolvedManagedContentSigningProfile profile = aTimestampingProfile();
             stubComputeDtbs(digestOf(DOCUMENT));
             when(acquisitions.signDtbs(any(), any())).thenReturn(List.of("signature".getBytes()));
@@ -370,8 +370,7 @@ class ManagedContentSigningEngineTest {
 
             // when
             SignedContent signed = engine
-                    .sign(request(SignatureLevel.TIMESTAMPED), aSigningProfile().build(), profile,
-                            SigningProtocol.CSC_API)
+                    .sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API)
                     .getFirst()
                     .content();
 
@@ -395,9 +394,7 @@ class ManagedContentSigningEngineTest {
             stubEmbedSignatureTimestamp("timestamped document".getBytes());
 
             // when
-            engine
-                    .sign(request(SignatureLevel.TIMESTAMPED), aSigningProfile().build(), profile,
-                            SigningProtocol.CSC_API);
+            engine.sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             ArgumentCaptor<TimestampImprint> captured = ArgumentCaptor.forClass(TimestampImprint.class);
@@ -419,9 +416,7 @@ class ManagedContentSigningEngineTest {
             stubEmbedSignatureTimestamp("timestamped document".getBytes());
 
             // when
-            engine
-                    .sign(request(SignatureLevel.TIMESTAMPED), aSigningProfile().build(), profile,
-                            SigningProtocol.CSC_API);
+            engine.sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             ArgumentCaptor<EmbedTimestampRequestDto> captured = ArgumentCaptor.forClass(EmbedTimestampRequestDto.class);
@@ -429,25 +424,6 @@ class ManagedContentSigningEngineTest {
             assertThat(captured.getValue().getTimestampToken()).isEqualTo("token".getBytes());
             assertThat(captured.getValue().getSignedDocument()).isEqualTo(signedDocument);
             assertThat(captured.getValue().getFamily()).isEqualTo(profile.family());
-        }
-
-        @Test
-        void stopsAtSigned_whenThatIsWhatWasAskedForOnATimestampingProfile() throws Exception {
-            // given: the ceiling permits TIMESTAMPED but the request asks for SIGNED
-            ResolvedManagedContentSigningProfile profile = aTimestampingProfile();
-            stubComputeDtbs(digestOf(DOCUMENT));
-            when(acquisitions.signDtbs(any(), any())).thenReturn(List.of("signature".getBytes()));
-            stubEmbedSignatureValue("signed document".getBytes());
-
-            // when
-            SignedContent signed = engine
-                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API)
-                    .getFirst()
-                    .content();
-
-            // then
-            assertThat(signed.level()).isEqualTo(SignatureLevel.SIGNED);
-            verify(acquisitions, never()).timestampSignature(any(), any(), any());
         }
 
         @Test
@@ -465,8 +441,8 @@ class ManagedContentSigningEngineTest {
 
             // when
             engine
-                    .sign(requestFor(SignatureLevel.TIMESTAMPED, DocumentTransferMode.DIGEST_ONLY),
-                            aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+                    .sign(requestFor(DocumentTransferMode.DIGEST_ONLY), aSigningProfile().build(), profile,
+                            SigningProtocol.CSC_API);
 
             // then
             ArgumentCaptor<SignedDocumentRequestDto> captured = ArgumentCaptor.forClass(SignedDocumentRequestDto.class);
@@ -486,9 +462,7 @@ class ManagedContentSigningEngineTest {
             stubEmbedSignatureTimestamp("timestamped document".getBytes());
 
             // when
-            engine
-                    .sign(request(SignatureLevel.TIMESTAMPED), aSigningProfile().build(), profile,
-                            SigningProtocol.CSC_API);
+            engine.sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             ArgumentCaptor<SignedDocumentRequestDto> captured = ArgumentCaptor.forClass(SignedDocumentRequestDto.class);
@@ -507,8 +481,7 @@ class ManagedContentSigningEngineTest {
 
             // when
             ThrowingCallable sign = () -> engine
-                    .sign(request(SignatureLevel.TIMESTAMPED), aSigningProfile().build(), profile,
-                            SigningProtocol.CSC_API);
+                    .sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, thrown -> {
@@ -530,8 +503,7 @@ class ManagedContentSigningEngineTest {
 
             // when
             ThrowingCallable sign = () -> engine
-                    .sign(request(SignatureLevel.TIMESTAMPED), aSigningProfile().build(), profile,
-                            SigningProtocol.CSC_API);
+                    .sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, thrown -> {
@@ -554,8 +526,7 @@ class ManagedContentSigningEngineTest {
 
             // when
             ThrowingCallable sign = () -> engine
-                    .sign(request(SignatureLevel.TIMESTAMPED), aSigningProfile().build(), profile,
-                            SigningProtocol.CSC_API);
+                    .sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, thrown -> {
@@ -578,8 +549,8 @@ class ManagedContentSigningEngineTest {
 
             // when
             ThrowingCallable sign = () -> engine
-                    .sign(requestFor(SignatureLevel.SIGNED, refusedByPades), aSigningProfile().build(),
-                            aSignedOnlyProfile(), SigningProtocol.CSC_API);
+                    .sign(requestFor(refusedByPades), aSigningProfile().build(), aSignedOnlyProfile(),
+                            SigningProtocol.CSC_API);
 
             // then
             assertThatThrownBy(sign)
@@ -614,9 +585,8 @@ class ManagedContentSigningEngineTest {
 
             // when
             engine
-                    .sign(requestFor(SignatureLevel.SIGNED, DocumentTransferMode.DIGEST_ONLY),
-                            aSigningProfile().build(), aSignedOnlyProfileOf(SignatureFamilyFixtures.CADES),
-                            SigningProtocol.CSC_API);
+                    .sign(requestFor(DocumentTransferMode.DIGEST_ONLY), aSigningProfile().build(),
+                            aSignedOnlyProfileOf(SignatureFamilyFixtures.CADES), SigningProtocol.CSC_API);
 
             // then
             ArgumentCaptor<ComputeDtbsRequestDto> captured = ArgumentCaptor.forClass(ComputeDtbsRequestDto.class);
@@ -629,7 +599,7 @@ class ManagedContentSigningEngineTest {
         void refusesAnInlineDocumentBeforeResolvingTheSigner_whenTheFamilyDeclaresOnlyDigestOnly() {
             // given
             ResolvedManagedContentSigningProfile profile = aResolvedContentSigningProfile()
-                    .withMaxLevel(SignatureLevel.SIGNED)
+                    .withLevel(SignatureLevel.SIGNED)
                     .withFamilyDeclaration(aFamilyDeclaration("mrtd")
                             .withTransferModes(Set.of(DocumentTransferMode.DIGEST_ONLY))
                             .build())
@@ -637,7 +607,7 @@ class ManagedContentSigningEngineTest {
 
             // when
             ThrowingCallable sign = () -> engine
-                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+                    .sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             assertThatThrownBy(sign)
@@ -663,7 +633,7 @@ class ManagedContentSigningEngineTest {
 
             // when
             ThrowingCallable sign = () -> engine
-                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+                    .sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then: the binding violation is its own failure class, and no key was used
             assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, thrown -> {
@@ -685,7 +655,7 @@ class ManagedContentSigningEngineTest {
 
             // when
             ThrowingCallable sign = () -> engine
-                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+                    .sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then: the connector broke its contract, and no key was used
             assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, thrown -> {
@@ -704,7 +674,7 @@ class ManagedContentSigningEngineTest {
 
             // when
             ThrowingCallable sign = () -> engine
-                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+                    .sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, thrown -> {
@@ -725,7 +695,7 @@ class ManagedContentSigningEngineTest {
 
             // when
             ThrowingCallable sign = () -> engine
-                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+                    .sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, thrown -> {
@@ -748,7 +718,7 @@ class ManagedContentSigningEngineTest {
 
             // when
             ThrowingCallable sign = () -> engine
-                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+                    .sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, thrown -> {
@@ -756,64 +726,6 @@ class ManagedContentSigningEngineTest {
                 assertThat(thrown.itemIdentifier()).isEqualTo(DOCUMENT_IDENTIFIER);
             });
             verify(acquisitions, never()).signDtbs(any(), any());
-        }
-
-        @Test
-        void refuses_whenTheTargetIsAboveTheProfileCeiling() throws Exception {
-            // given
-            ResolvedManagedContentSigningProfile profile = aSignedOnlyProfile();
-            var aboveTheCeiling = SignatureLevel.TIMESTAMPED;
-
-            // when
-            ThrowingCallable sign = () -> engine
-                    .sign(request(aboveTheCeiling), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
-
-            // then
-            assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, thrown -> {
-                assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.INVALID_INPUT);
-                assertThat(thrown.clientMessage()).contains(aboveTheCeiling.name());
-            });
-            verify(formattingClient, never()).computeDtbs(any(), any());
-        }
-
-        @Test
-        void refuses_whenTheTargetIsAboveTheRungsTheEngineExecutes() throws Exception {
-            // given: a profile whose ceiling is LONG_TERM, which no step reaches yet
-            var unreachedLevel = SignatureLevel.LONG_TERM;
-            ResolvedManagedContentSigningProfile profile = aResolvedContentSigningProfile()
-                    .withMaxLevel(unreachedLevel)
-                    .build();
-
-            // when
-            ThrowingCallable sign = () -> engine
-                    .sign(request(unreachedLevel), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
-
-            // then
-            assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, thrown -> {
-                assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.INVALID_INPUT);
-                assertThat(thrown.clientMessage()).contains(unreachedLevel.name());
-            });
-            verify(formattingClient, never()).computeDtbs(any(), any());
-        }
-
-        @Test
-        void accepts_whenTheTargetIsBelowTheProfileCeiling() throws Exception {
-            // given: a ceiling above the target must not be mistaken for an over-rung request
-            ResolvedManagedContentSigningProfile profile = aResolvedContentSigningProfile()
-                    .withMaxLevel(SignatureLevel.TIMESTAMPED)
-                    .build();
-            stubComputeDtbs(digestOf(DOCUMENT));
-            when(acquisitions.signDtbs(any(), any())).thenReturn(List.of("signature".getBytes()));
-            stubEmbedSignatureValue("signed document".getBytes());
-
-            // when
-            SignedContent signed = engine
-                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API)
-                    .getFirst()
-                    .content();
-
-            // then
-            assertThat(signed.level()).isEqualTo(SignatureLevel.SIGNED);
         }
     }
 
@@ -823,11 +735,11 @@ class ManagedContentSigningEngineTest {
     class DeclarationGate {
 
         @Test
-        void refusesBeforeComputeDtbs_whenTheConnectorNoLongerDeclaresTheProfileCeiling() {
-            // given — a reconnect lowered the family's levels below the profile's ceiling
-            var withdrawnCeiling = SignatureLevel.TIMESTAMPED;
+        void refusesBeforeComputeDtbs_whenTheConnectorNoLongerDeclaresTheProfileLevel() {
+            // given — a reconnect lowered the family's levels below the profile's level
+            var withdrawnLevel = SignatureLevel.TIMESTAMPED;
             ResolvedManagedContentSigningProfile profile = aResolvedContentSigningProfile()
-                    .withMaxLevel(withdrawnCeiling)
+                    .withLevel(withdrawnLevel)
                     .withFamilyDeclaration(aFamilyDeclaration(SignatureFamilyFixtures.PADES)
                             .withHighestLevel(SignatureLevel.SIGNED)
                             .build())
@@ -835,45 +747,22 @@ class ManagedContentSigningEngineTest {
 
             // when
             ThrowingCallable sign = () -> engine
-                    .sign(request(withdrawnCeiling), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+                    .sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, refusal -> {
                 assertThat(refusal.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED);
-                assertThat(refusal.operatorMessage()).contains(withdrawnCeiling.name());
+                assertThat(refusal.operatorMessage()).contains(withdrawnLevel.name());
             });
             verifyNoInteractions(formattingClient, acquisitions);
         }
 
         @Test
-        void refusesBeforeComputeDtbs_whenTheTargetIsBelowTheWithdrawnCeiling() {
-            // given — a reconnect lowered the family's levels to SIGNED, which the request still targets
-            var withdrawnCeiling = SignatureLevel.TIMESTAMPED;
-            ResolvedManagedContentSigningProfile profile = aResolvedContentSigningProfile()
-                    .withMaxLevel(withdrawnCeiling)
-                    .withFamilyDeclaration(aFamilyDeclaration(SignatureFamilyFixtures.PADES)
-                            .withHighestLevel(SignatureLevel.SIGNED)
-                            .build())
-                    .build();
-
-            // when
-            ThrowingCallable sign = () -> engine
-                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
-
-            // then
-            assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, refusal -> {
-                assertThat(refusal.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED);
-                assertThat(refusal.operatorMessage()).contains(withdrawnCeiling.name());
-            });
-            verifyNoInteractions(formattingClient, acquisitions);
-        }
-
-        @Test
-        void refusesToAugment_whenTheConnectorNoLongerDeclaresTheProfileCeiling() {
+        void refusesToAugment_whenTheConnectorNoLongerDeclaresTheProfileLevel() {
             // given
-            var withdrawnCeiling = SignatureLevel.TIMESTAMPED;
+            var withdrawnLevel = SignatureLevel.TIMESTAMPED;
             ResolvedManagedContentSigningProfile profile = aResolvedContentSigningProfile()
-                    .withMaxLevel(withdrawnCeiling)
+                    .withLevel(withdrawnLevel)
                     .withFamilyDeclaration(aFamilyDeclaration(SignatureFamilyFixtures.PADES)
                             .withHighestLevel(SignatureLevel.SIGNED)
                             .build())
@@ -881,13 +770,13 @@ class ManagedContentSigningEngineTest {
 
             // when
             ThrowingCallable augment = () -> engine
-                    .augment(new AugmentationRequest(withdrawnCeiling, "foreign document".getBytes(), null),
-                            aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+                    .augment(new AugmentationRequest("foreign document".getBytes(), null), aSigningProfile().build(),
+                            profile, SigningProtocol.CSC_API);
 
             // then
             assertThatThrownBy(augment).isInstanceOfSatisfying(SigningEngineException.class, refusal -> {
                 assertThat(refusal.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED);
-                assertThat(refusal.operatorMessage()).contains(withdrawnCeiling.name());
+                assertThat(refusal.operatorMessage()).contains(withdrawnLevel.name());
             });
             verifyNoInteractions(formattingClient, acquisitions);
         }
@@ -897,7 +786,7 @@ class ManagedContentSigningEngineTest {
             // given
             var onlyAcceptedAlgorithm = SignatureAlgorithm.SHA512_WITH_RSA;
             ResolvedManagedContentSigningProfile profile = aResolvedContentSigningProfile()
-                    .withMaxLevel(SignatureLevel.SIGNED)
+                    .withLevel(SignatureLevel.SIGNED)
                     .withFamilyDeclaration(aFamilyDeclaration(SignatureFamilyFixtures.PADES)
                             .withSignatureAlgorithms(Set.of(onlyAcceptedAlgorithm))
                             .build())
@@ -905,7 +794,7 @@ class ManagedContentSigningEngineTest {
 
             // when
             ThrowingCallable sign = () -> engine
-                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+                    .sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, refusal -> {
@@ -920,7 +809,7 @@ class ManagedContentSigningEngineTest {
         void signs_whenTheFamilyAcceptsTheSignersAlgorithm() throws Exception {
             // given
             ResolvedManagedContentSigningProfile profile = aResolvedContentSigningProfile()
-                    .withMaxLevel(SignatureLevel.SIGNED)
+                    .withLevel(SignatureLevel.SIGNED)
                     .withFamilyDeclaration(aFamilyDeclaration(SignatureFamilyFixtures.PADES)
                             .withSignatureAlgorithms(Set.of(SIGNATURE_ALGORITHM))
                             .build())
@@ -931,7 +820,7 @@ class ManagedContentSigningEngineTest {
 
             // when
             SignedContent signed = engine
-                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API)
+                    .sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API)
                     .getFirst()
                     .content();
 
@@ -956,8 +845,8 @@ class ManagedContentSigningEngineTest {
 
             // when
             SignedContent signed = engine
-                    .augment(new AugmentationRequest(SignatureLevel.TIMESTAMPED, "foreign document".getBytes(), null),
-                            aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+                    .augment(new AugmentationRequest("foreign document".getBytes(), null), aSigningProfile().build(),
+                            profile, SigningProtocol.CSC_API);
 
             // then: the profile's key signed nothing and no DTBS was computed
             assertThat(signed.level()).isEqualTo(SignatureLevel.TIMESTAMPED);
@@ -978,8 +867,8 @@ class ManagedContentSigningEngineTest {
 
             // when
             SignedContent signed = engine
-                    .augment(new AugmentationRequest(SignatureLevel.TIMESTAMPED, "foreign document".getBytes(), null),
-                            aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+                    .augment(new AugmentationRequest("foreign document".getBytes(), null), aSigningProfile().build(),
+                            profile, SigningProtocol.CSC_API);
 
             // then
             assertThat(signed.level()).isEqualTo(SignatureLevel.TIMESTAMPED);
@@ -998,8 +887,8 @@ class ManagedContentSigningEngineTest {
 
             // when
             engine
-                    .augment(new AugmentationRequest(SignatureLevel.TIMESTAMPED, "foreign document".getBytes(), null),
-                            aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+                    .augment(new AugmentationRequest("foreign document".getBytes(), null), aSigningProfile().build(),
+                            profile, SigningProtocol.CSC_API);
 
             // then
             verify(signingRecordStrategy).recordSigning(any(), eq(List.of(recordSource)));
@@ -1018,45 +907,29 @@ class ManagedContentSigningEngineTest {
 
             // when
             SignedContent signed = engine
-                    .augment(new AugmentationRequest(SignatureLevel.TIMESTAMPED, "foreign document".getBytes(), null),
-                            aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+                    .augment(new AugmentationRequest("foreign document".getBytes(), null), aSigningProfile().build(),
+                            profile, SigningProtocol.CSC_API);
 
             // then
             assertThat(signed.signedDocument()).isEqualTo(timestamped);
         }
 
         @Test
-        void refuses_whenTheAugmentationTargetIsSignedAndTheDocumentAlreadyIs() {
-            // given
-            ResolvedManagedContentSigningProfile profile = aTimestampingProfile();
+        void refuses_whenTheProfileSignsAtSigned() {
+            // given: a SIGNED profile adds nothing to a document that is already signed
+            ResolvedManagedContentSigningProfile profile = aSignedOnlyProfile();
 
             // when
             ThrowingCallable augment = () -> engine
-                    .augment(new AugmentationRequest(SignatureLevel.SIGNED, "foreign document".getBytes(), null),
-                            aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+                    .augment(new AugmentationRequest("foreign document".getBytes(), null), aSigningProfile().build(),
+                            profile, SigningProtocol.CSC_API);
 
             // then
             assertThatThrownBy(augment).isInstanceOfSatisfying(SigningEngineException.class, thrown -> {
                 assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.INVALID_INPUT);
+                assertThat(thrown.clientMessage()).contains("SIGNED");
             });
-        }
-
-        @Test
-        void refuses_whenTheAugmentationTargetIsAboveTheRungsTheEngineExecutes() {
-            // given
-            ResolvedManagedContentSigningProfile profile = aResolvedContentSigningProfile()
-                    .withMaxLevel(SignatureLevel.ARCHIVAL)
-                    .build();
-
-            // when
-            ThrowingCallable augment = () -> engine
-                    .augment(new AugmentationRequest(SignatureLevel.ARCHIVAL, "foreign document".getBytes(), null),
-                            aSigningProfile().build(), profile, SigningProtocol.CSC_API);
-
-            // then
-            assertThatThrownBy(augment).isInstanceOfSatisfying(SigningEngineException.class, thrown -> {
-                assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.INVALID_INPUT);
-            });
+            verifyNoInteractions(formattingClient, acquisitions);
         }
     }
 
@@ -1081,7 +954,7 @@ class ManagedContentSigningEngineTest {
 
             // when
             ThrowingCallable sign = () -> engine
-                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+                    .sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             assertThatThrownBy(sign)
@@ -1097,7 +970,7 @@ class ManagedContentSigningEngineTest {
 
             // when
             ThrowingCallable sign = () -> engine
-                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+                    .sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             assertThatThrownBy(sign)
@@ -1118,7 +991,7 @@ class ManagedContentSigningEngineTest {
 
             // when
             ThrowingCallable sign = () -> engine
-                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+                    .sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             assertThatThrownBy(sign)
@@ -1135,7 +1008,7 @@ class ManagedContentSigningEngineTest {
 
             // when
             ThrowingCallable sign = () -> engine
-                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+                    .sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             assertThatThrownBy(sign)
@@ -1152,7 +1025,7 @@ class ManagedContentSigningEngineTest {
 
             // when
             ThrowingCallable sign = () -> engine
-                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+                    .sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             assertThatThrownBy(sign)
@@ -1168,7 +1041,7 @@ class ManagedContentSigningEngineTest {
 
             // when
             ThrowingCallable sign = () -> engine
-                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+                    .sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             assertThatThrownBy(sign).isInstanceOf(SigningEngineException.class);
@@ -1210,7 +1083,6 @@ class ManagedContentSigningEngineTest {
         void logsTheStepLevelAndSerial_whenAFailureFollowsTheKeySigning() throws Exception {
             // given: the run dies embedding a timestamp that has already been issued
             ResolvedManagedContentSigningProfile profile = aTimestampingProfile();
-            var targetLevel = SignatureLevel.TIMESTAMPED;
             stubComputeDtbs(digestOf(DOCUMENT));
             when(acquisitions.signDtbs(any(), any())).thenReturn(List.of("signature".getBytes()));
             stubEmbedSignatureValue("signed document".getBytes());
@@ -1221,7 +1093,7 @@ class ManagedContentSigningEngineTest {
 
             // when
             ThrowingCallable sign = () -> engine
-                    .sign(request(targetLevel), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+                    .sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             assertThatThrownBy(sign).isInstanceOf(SigningEngineException.class);
@@ -1229,7 +1101,7 @@ class ManagedContentSigningEngineTest {
                     .anySatisfy(message -> assertThat(message)
                             .contains(profile.name())
                             .contains("embedSignatureTimestamp")
-                            .contains(targetLevel.name())
+                            .contains(profile.level().name())
                             .contains(issuedSerial.toString(16)));
         }
 
@@ -1244,8 +1116,7 @@ class ManagedContentSigningEngineTest {
 
             // when
             ThrowingCallable sign = () -> engine
-                    .sign(batchOf(SignatureLevel.TIMESTAMPED, "first", "second"), aSigningProfile().build(), profile,
-                            SigningProtocol.CSC_API);
+                    .sign(batchOf("first", "second"), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             assertThatThrownBy(sign).isInstanceOf(SigningEngineException.class);
@@ -1262,8 +1133,8 @@ class ManagedContentSigningEngineTest {
 
             // when
             ThrowingCallable augment = () -> engine
-                    .augment(new AugmentationRequest(SignatureLevel.TIMESTAMPED, foreignDocument.getBytes(), null),
-                            aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+                    .augment(new AugmentationRequest(foreignDocument.getBytes(), null), aSigningProfile().build(),
+                            profile, SigningProtocol.CSC_API);
 
             // then: the augmentation path logs, and never the bytes it was handed
             assertThatThrownBy(augment).isInstanceOf(SigningEngineException.class);
@@ -1287,8 +1158,7 @@ class ManagedContentSigningEngineTest {
 
             // when
             ThrowingCallable sign = () -> engine
-                    .sign(request(SignatureLevel.TIMESTAMPED), aSigningProfile().build(), profile,
-                            SigningProtocol.CSC_API);
+                    .sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             assertThatThrownBy(sign).isInstanceOf(SigningEngineException.class);
@@ -1299,7 +1169,7 @@ class ManagedContentSigningEngineTest {
         }
 
         @Test
-        void funnelsAnUncheckedAugmentationFailureIntoAStepFailure_withoutLeakingItsDetail() throws Exception {
+        void funnelsAnUncheckedAugmentationFailureIntoAStepFailureWithoutItsDetail() throws Exception {
             // given
             ResolvedManagedContentSigningProfile profile = aTimestampingProfile();
             var internalDetail = "attribute cache is down";
@@ -1308,46 +1178,44 @@ class ManagedContentSigningEngineTest {
 
             // when
             ThrowingCallable augment = () -> engine
-                    .augment(new AugmentationRequest(SignatureLevel.TIMESTAMPED, "foreign document".getBytes(), null),
-                            aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+                    .augment(new AugmentationRequest("foreign document".getBytes(), null), aSigningProfile().build(),
+                            profile, SigningProtocol.CSC_API);
 
             // then
             assertThatThrownBy(augment).isInstanceOfSatisfying(SigningEngineException.class, thrown -> {
                 assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.STEP_FAILED);
                 assertThat(thrown.clientMessage()).isEqualTo("Internal error during signing");
-                assertThat(thrown.getCause()).hasMessage(internalDetail);
+                assertThat(thrown.getCause()).hasMessageContaining(internalDetail);
             });
             assertThat(messagesLoggedAt(Level.ERROR)).isNotEmpty();
         }
 
-        /** A ceiling a request overshot is the caller's mistake, not a platform fault, so it must not page anyone. */
+        /** A refusal is a configuration or input mistake rather than a platform fault, so it must not page anyone. */
         @Test
         void logsARefusalAsAWarning() {
             // given
-            ResolvedManagedContentSigningProfile profile = aSignedOnlyProfile();
-            var aboveTheCeiling = SignatureLevel.TIMESTAMPED;
+            ResolvedManagedContentSigningProfile profile = aProfileWhoseLevelWasWithdrawn();
 
             // when
             ThrowingCallable sign = () -> engine
-                    .sign(request(aboveTheCeiling), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+                    .sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             assertThatThrownBy(sign).isInstanceOf(SigningEngineException.class);
             assertThat(messagesLoggedAt(Level.WARN))
                     .anySatisfy(
-                            message -> assertThat(message).contains(profile.name()).contains(aboveTheCeiling.name()));
+                            message -> assertThat(message).contains(profile.name()).contains(profile.level().name()));
             assertThat(messagesLoggedAt(Level.ERROR)).isEmpty();
         }
 
         @Test
         void namesTheWholeBatch_whenABatchWideGateRefuses() {
-            // given: a target above the ceiling every document shares
-            ResolvedManagedContentSigningProfile profile = aSignedOnlyProfile();
+            // given: a withdrawn level, which every document of the batch shares
+            ResolvedManagedContentSigningProfile profile = aProfileWhoseLevelWasWithdrawn();
 
             // when
             ThrowingCallable sign = () -> engine
-                    .sign(batchOf(SignatureLevel.TIMESTAMPED, "first", "second"), aSigningProfile().build(), profile,
-                            SigningProtocol.CSC_API);
+                    .sign(batchOf("first", "second"), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             assertThatThrownBy(sign).isInstanceOf(SigningEngineException.class);
@@ -1385,7 +1253,7 @@ class ManagedContentSigningEngineTest {
             var recordSource = stubRecordSource();
 
             // when
-            engine.sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+            engine.sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             verify(signingRecordStrategy).recordSigning(any(), eq(List.of(recordSource)));
@@ -1400,7 +1268,7 @@ class ManagedContentSigningEngineTest {
             stubEmbedSignatureValue("signed document".getBytes());
 
             // when
-            engine.sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+            engine.sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             ArgumentCaptor<Instant> captured = ArgumentCaptor.forClass(Instant.class);
@@ -1423,8 +1291,7 @@ class ManagedContentSigningEngineTest {
 
             // when
             List<SignedItem> signed = engine
-                    .sign(batchOf(SignatureLevel.SIGNED, "first", "second"), aSigningProfile().build(), profile,
-                            SigningProtocol.CSC_API);
+                    .sign(batchOf("first", "second"), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             assertThat(signed).extracting(SignedItem::signingRecordUuid).containsExactly(firstRecord, secondRecord);
@@ -1443,8 +1310,7 @@ class ManagedContentSigningEngineTest {
 
             // when
             List<SignedItem> signed = engine
-                    .sign(batchOf(SignatureLevel.SIGNED, "first", "second"), aSigningProfile().build(), profile,
-                            SigningProtocol.CSC_API);
+                    .sign(batchOf("first", "second"), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             assertThat(signed).extracting(SignedItem::signingRecordUuid).containsOnlyNulls();
@@ -1462,8 +1328,7 @@ class ManagedContentSigningEngineTest {
 
             // when
             ThrowingCallable sign = () -> engine
-                    .sign(batchOf(SignatureLevel.TIMESTAMPED, "first", "second"), aSigningProfile().build(), profile,
-                            SigningProtocol.CSC_API);
+                    .sign(batchOf("first", "second"), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             assertThatThrownBy(sign).isInstanceOf(SigningEngineException.class);
@@ -1482,7 +1347,7 @@ class ManagedContentSigningEngineTest {
 
             // when
             ThrowingCallable sign = () -> engine
-                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+                    .sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, thrown -> {
@@ -1510,7 +1375,7 @@ class ManagedContentSigningEngineTest {
 
             // when
             List<SignedItem> signed = engine
-                    .sign(batchOf(SignatureLevel.SIGNED, "first", "second"), bestEffortRecording, aSignedOnlyProfile(),
+                    .sign(batchOf("first", "second"), bestEffortRecording, aSignedOnlyProfile(),
                             SigningProtocol.CSC_API);
 
             // then
@@ -1535,8 +1400,7 @@ class ManagedContentSigningEngineTest {
 
             // when
             List<SignedItem> signed = engine
-                    .sign(batchOf(SignatureLevel.SIGNED, "first", "second"), aSigningProfile().build(), profile,
-                            SigningProtocol.CSC_API);
+                    .sign(batchOf("first", "second"), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             assertThat(signed).extracting(SignedItem::identifier).containsExactly("first", "second");
@@ -1551,8 +1415,7 @@ class ManagedContentSigningEngineTest {
 
             // when
             ThrowingCallable sign = () -> engine
-                    .sign(batchOf(SignatureLevel.SIGNED, repeated, repeated), aSigningProfile().build(), profile,
-                            SigningProtocol.CSC_API);
+                    .sign(batchOf(repeated, repeated), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, thrown -> {
@@ -1567,8 +1430,7 @@ class ManagedContentSigningEngineTest {
             // given
             var truncated = "second";
             byte[] truncatedDigest = Arrays.copyOf(digestOf(documentNamed(truncated)), 31);
-            var request = new ContentSigningRequest(SignatureLevel.SIGNED, DocumentTransferMode.INLINE,
-                    DigestAlgorithm.SHA_256,
+            var request = new ContentSigningRequest(DocumentTransferMode.INLINE, DigestAlgorithm.SHA_256,
                     List
                             .of(inlineItemNamed("first"),
                                     new ContentSigningItem(truncated, documentNamed(truncated), truncatedDigest)));
@@ -1590,8 +1452,7 @@ class ManagedContentSigningEngineTest {
             // given
             var sentWhole = "second";
             byte[] wholeDocument = documentNamed(sentWhole);
-            var request = new ContentSigningRequest(SignatureLevel.SIGNED, DocumentTransferMode.DIGEST_ONLY,
-                    DigestAlgorithm.SHA_256,
+            var request = new ContentSigningRequest(DocumentTransferMode.DIGEST_ONLY, DigestAlgorithm.SHA_256,
                     List
                             .of(digestOnlyItemNamed("first"),
                                     new ContentSigningItem(sentWhole, wholeDocument, digestOf(wholeDocument))));
@@ -1618,8 +1479,7 @@ class ManagedContentSigningEngineTest {
 
             // when
             ThrowingCallable sign = () -> engine
-                    .sign(batchOf(SignatureLevel.SIGNED, "first", foreignEchoed), aSigningProfile().build(), profile,
-                            SigningProtocol.CSC_API);
+                    .sign(batchOf("first", foreignEchoed), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, thrown -> {
@@ -1641,8 +1501,8 @@ class ManagedContentSigningEngineTest {
 
             // when
             ThrowingCallable sign = () -> engine
-                    .sign(batchOf(SignatureLevel.TIMESTAMPED, "first", failingDocument), aSigningProfile().build(),
-                            profile, SigningProtocol.CSC_API);
+                    .sign(batchOf("first", failingDocument), aSigningProfile().build(), profile,
+                            SigningProtocol.CSC_API);
 
             // then
             assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, thrown -> {
@@ -1665,7 +1525,7 @@ class ManagedContentSigningEngineTest {
 
             // when
             ThrowingCallable sign = () -> engine
-                    .sign(batchOf(SignatureLevel.SIGNED, "first", brokenDocument), aSigningProfile().build(), profile,
+                    .sign(batchOf("first", brokenDocument), aSigningProfile().build(), profile,
                             SigningProtocol.CSC_API);
 
             // then
@@ -1688,7 +1548,7 @@ class ManagedContentSigningEngineTest {
 
             // when
             ThrowingCallable sign = () -> engine
-                    .sign(batchOf(SignatureLevel.SIGNED, "first", unsignedDocument), aSigningProfile().build(), profile,
+                    .sign(batchOf("first", unsignedDocument), aSigningProfile().build(), profile,
                             SigningProtocol.CSC_API);
 
             // then
@@ -1714,8 +1574,7 @@ class ManagedContentSigningEngineTest {
 
             // when
             List<SignedItem> signed = engine
-                    .sign(batchOf(SignatureLevel.TIMESTAMPED, "first", "second"), aSigningProfile().build(), profile,
-                            SigningProtocol.CSC_API);
+                    .sign(batchOf("first", "second"), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             assertThat(signed)
@@ -1733,8 +1592,7 @@ class ManagedContentSigningEngineTest {
 
             // when
             List<SignedItem> signed = engine
-                    .sign(batchOf(SignatureLevel.SIGNED, "first", "second"), aSigningProfile().build(), profile,
-                            SigningProtocol.CSC_API);
+                    .sign(batchOf("first", "second"), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             assertThat(signed)
@@ -1752,9 +1610,7 @@ class ManagedContentSigningEngineTest {
             stubRecordSource();
 
             // when
-            engine
-                    .sign(batchOf(SignatureLevel.SIGNED, "first", "second"), aSigningProfile().build(), profile,
-                            SigningProtocol.CSC_API);
+            engine.sign(batchOf("first", "second"), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             verifyRecordedWithItsOwnSignature("first");
@@ -1809,7 +1665,17 @@ class ManagedContentSigningEngineTest {
     }
 
     private static ResolvedManagedContentSigningProfile aSignedOnlyProfileOf(String family) {
-        return aResolvedContentSigningProfile().withMaxLevel(SignatureLevel.SIGNED).withFamily(family).build();
+        return aResolvedContentSigningProfile().withLevel(SignatureLevel.SIGNED).withFamily(family).build();
+    }
+
+    /** A reconnect lowered the family's levels below the TIMESTAMPED level the profile signs at. */
+    private static ResolvedManagedContentSigningProfile aProfileWhoseLevelWasWithdrawn() {
+        return aResolvedContentSigningProfile()
+                .withLevel(SignatureLevel.TIMESTAMPED)
+                .withFamilyDeclaration(aFamilyDeclaration(SignatureFamilyFixtures.PADES)
+                        .withHighestLevel(SignatureLevel.SIGNED)
+                        .build())
+                .build();
     }
 
     private static ResolvedManagedContentSigningProfile aTimestampingProfile() {
@@ -1818,7 +1684,7 @@ class ManagedContentSigningEngineTest {
 
     private static ResolvedManagedContentSigningProfile aTimestampingProfileOf(String family) {
         return aResolvedContentSigningProfile()
-                .withMaxLevel(SignatureLevel.TIMESTAMPED)
+                .withLevel(SignatureLevel.TIMESTAMPED)
                 .withTimestampSourceProfileName("internal-tsa")
                 .withFamily(family)
                 .build();
@@ -1847,31 +1713,31 @@ class ManagedContentSigningEngineTest {
     private static ResolvedManagedContentSigningProfile profileWithKeyItems(SigningCertificate certificate,
             List<CryptographicKeyItemOperationModel> keyItems, CertificatePurposeRequirements certificatePurpose) {
         return aResolvedContentSigningProfile()
-                .withMaxLevel(SignatureLevel.TIMESTAMPED)
+                .withLevel(SignatureLevel.TIMESTAMPED)
                 .withTimestampSourceProfileName("internal-tsa")
                 .withCertificatePurpose(certificatePurpose)
                 .withResolvedScheme(new ResolvedStaticKeyManagedSigning(certificate, keyItems, null, List.of()))
                 .build();
     }
 
-    private static ContentSigningRequest request(SignatureLevel target) {
-        return requestFor(target, DocumentTransferMode.INLINE);
+    private static ContentSigningRequest request() {
+        return requestFor(DocumentTransferMode.INLINE);
     }
 
     /** The document travels inline, or as its SHA-256 digest. */
-    private static ContentSigningRequest requestFor(SignatureLevel target, DocumentTransferMode transferMode) {
+    private static ContentSigningRequest requestFor(DocumentTransferMode transferMode) {
         byte[] content = transferMode == DocumentTransferMode.INLINE ? DOCUMENT : digestOf(DOCUMENT);
         ContentSigningItem item = new ContentSigningItem(DOCUMENT_IDENTIFIER, content, digestOf(DOCUMENT));
-        return new ContentSigningRequest(target, transferMode, DigestAlgorithm.SHA_256, List.of(item));
+        return new ContentSigningRequest(transferMode, DigestAlgorithm.SHA_256, List.of(item));
     }
 
-    private static ContentSigningRequest batchOf(SignatureLevel target, String... identifiers) {
+    private static ContentSigningRequest batchOf(String... identifiers) {
         List<ContentSigningItem> items = Arrays
                 .stream(identifiers)
                 .map(identifier -> new ContentSigningItem(identifier, documentNamed(identifier),
                         digestOf(documentNamed(identifier))))
                 .toList();
-        return new ContentSigningRequest(target, DocumentTransferMode.INLINE, DigestAlgorithm.SHA_256, items);
+        return new ContentSigningRequest(DocumentTransferMode.INLINE, DigestAlgorithm.SHA_256, items);
     }
 
     private static ContentSigningItem inlineItemNamed(String identifier) {
