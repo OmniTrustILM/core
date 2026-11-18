@@ -46,8 +46,10 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -241,10 +243,11 @@ class SecurityConfigITest extends BaseSpringBootTestNoAuth {
         });
 
         // when
-        MvcResult result = mvc.perform(unauthenticatedRequest).andExpect(status().isUnauthorized()).andReturn();
+        ResultActions response = mvc.perform(unauthenticatedRequest);
 
         // then
-        Assertions.assertEquals(EXPECTED_CHALLENGE, result.getResponse().getHeader(HttpHeaders.WWW_AUTHENTICATE));
+        response.andExpect(status().isUnauthorized());
+        assertThat(challengeOf(response)).isEqualTo(EXPECTED_CHALLENGE);
     }
 
     @Test
@@ -252,18 +255,17 @@ class SecurityConfigITest extends BaseSpringBootTestNoAuth {
         // given
         var refusedToken = "not-a-valid-token";
         when(jwtDecoder.decode(refusedToken)).thenThrow(new BadJwtException("refused"));
+        var requestWithRefusedToken = get("/v1/auth/profile").header("Authorization", "Bearer " + refusedToken);
 
         // when
-        MvcResult result = mvc
-                .perform(get("/v1/auth/profile").header("Authorization", "Bearer " + refusedToken))
-                .andExpect(status().isUnauthorized())
-                .andReturn();
+        ResultActions response = mvc.perform(requestWithRefusedToken);
 
         // then
-        String challenge = result.getResponse().getHeader(HttpHeaders.WWW_AUTHENTICATE);
-        Assertions.assertTrue(challenge.startsWith("Bearer error=\"invalid_token\""), challenge);
-        Assertions.assertTrue(challenge.endsWith(", resource_metadata=\"" + METADATA_URL + "\""), challenge);
-        Assertions.assertEquals(1, challenge.split("resource_metadata=", -1).length - 1, challenge);
+        response.andExpect(status().isUnauthorized());
+        assertThat(challengeOf(response))
+                .startsWith("Bearer error=\"invalid_token\"")
+                .endsWith(", resource_metadata=\"" + METADATA_URL + "\"")
+                .containsOnlyOnce("resource_metadata=");
     }
 
     @Test
@@ -271,28 +273,28 @@ class SecurityConfigITest extends BaseSpringBootTestNoAuth {
         // given
         var refusedToken = "not-a-valid-token";
         when(jwtDecoder.decode(refusedToken)).thenThrow(new BadJwtException("refused"));
-
-        // when
         var metadataRequest = get("/.well-known/oauth-protected-resource/api")
                 .header("Authorization", "Bearer " + refusedToken);
 
+        // when
+        ResultActions response = mvc.perform(metadataRequest);
+
         // then
-        mvc.perform(metadataRequest).andExpect(status().isOk());
+        response.andExpect(status().isOk());
     }
 
     @Test
     void challengesWithProtectedResourceMetadata_whenForwardedCertificateIsRejected() throws Exception {
         // given
         var malformedCertificate = ":dGVzdA==:";
+        var requestWithMalformedCertificate = get("/v1/auth/profile").header("X-APP-CERTIFICATE", malformedCertificate);
 
         // when
-        MvcResult result = mvc
-                .perform(get("/v1/auth/profile").header("X-APP-CERTIFICATE", malformedCertificate))
-                .andExpect(status().isUnauthorized())
-                .andReturn();
+        ResultActions response = mvc.perform(requestWithMalformedCertificate);
 
         // then
-        Assertions.assertEquals(EXPECTED_CHALLENGE, result.getResponse().getHeader(HttpHeaders.WWW_AUTHENTICATE));
+        response.andExpect(status().isUnauthorized());
+        assertThat(challengeOf(response)).isEqualTo(EXPECTED_CHALLENGE);
     }
 
     private void enableValidBearer() {
@@ -305,6 +307,10 @@ class SecurityConfigITest extends BaseSpringBootTestNoAuth {
                 .assertNull(cacheManager
                         .getCache(com.otilm.core.config.cache.CacheConfig.CERTIFICATE_AUTH_CACHE)
                         .get(com.otilm.core.security.authn.ForwardedCertificateFixtures.THUMBPRINT));
+    }
+
+    private static String challengeOf(ResultActions response) {
+        return response.andReturn().getResponse().getHeader(HttpHeaders.WWW_AUTHENTICATE);
     }
 
     @Test

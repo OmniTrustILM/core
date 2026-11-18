@@ -21,6 +21,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.oauth2.jwt.Jwt;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 class PlatformJwtConvertorITest extends BaseSpringBootTest {
 
     @Autowired
@@ -107,7 +109,8 @@ class PlatformJwtConvertorITest extends BaseSpringBootTest {
     }
 
     @Test
-    void testAddingClaimsFromUserInfo() {
+    void takesUsernameFromUserInfo_whenUserInfoUrlIsConfigured() {
+        // given
         providerSettings.setUserInfoUrl("http://localhost:" + authMockServer.port() + "/userinfo");
         settingService.updateOAuth2ProviderSettings("provider", null, providerSettings);
 
@@ -149,15 +152,28 @@ class PlatformJwtConvertorITest extends BaseSpringBootTest {
                                 }
                                 """)));
 
+        // when
         PlatformAuthenticationToken authenticationToken = (PlatformAuthenticationToken) jwtAuthenticationConverter
                 .convert(jwt);
-        Assertions.assertEquals("userInfoUser", authenticationToken.getPrincipal().getUsername());
 
+        // then
+        assertThat(authenticationToken.getPrincipal().getUsername()).isEqualTo("userInfoUser");
+    }
+
+    @Test
+    void takesUsernameFromToken_whenUserInfoUrlIsRemoved() {
+        // given
+        providerSettings.setUserInfoUrl("http://localhost:" + authMockServer.port() + "/userinfo");
+        settingService.updateOAuth2ProviderSettings("provider", null, providerSettings);
         providerSettings.setUserInfoUrl(null);
         settingService.updateOAuth2ProviderSettings("provider", null, providerSettings);
 
-        authenticationToken = (PlatformAuthenticationToken) jwtAuthenticationConverter.convert(jwt);
-        Assertions.assertEquals("user2", authenticationToken.getPrincipal().getUsername());
+        // when
+        PlatformAuthenticationToken authenticationToken = (PlatformAuthenticationToken) jwtAuthenticationConverter
+                .convert(jwt);
+
+        // then
+        assertThat(authenticationToken.getPrincipal().getUsername()).isEqualTo("user2");
     }
 
 }

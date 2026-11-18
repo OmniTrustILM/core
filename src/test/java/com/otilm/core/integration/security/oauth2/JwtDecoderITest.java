@@ -33,6 +33,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -46,6 +47,8 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest
 class JwtDecoderITest extends BaseSpringBootTest {
@@ -188,20 +191,29 @@ class JwtDecoderITest extends BaseSpringBootTest {
     }
 
     @Test
-    void testMalformedOAuth2ProviderSettings() {
-        Setting setting = settingRepository
-                .findBySectionAndCategoryAndName(SettingsSection.AUTHENTICATION,
-                        SettingsSectionCategory.OAUTH2_PROVIDER.getCode(), PROVIDER_NAME);
-        setting.setValue("WRONG-DATA");
-        settingRepository.save(setting);
+    void throwsValidationException_whenReadingMalformedProviderSettings() {
+        // given
+        corruptStoredProviderSettings();
 
+        // when
+        ThrowingCallable read = () -> settingService.getOAuth2ProviderSettings(PROVIDER_NAME, false);
+
+        // then
+        assertThatThrownBy(read).isInstanceOf(ValidationException.class);
+    }
+
+    @Test
+    void throwsValidationException_whenUpdatingMalformedProviderSettings() {
+        // given
+        corruptStoredProviderSettings();
         providerSettings.setClientSecret(null);
-        Assertions
-                .assertThrows(ValidationException.class,
-                        () -> settingService.getOAuth2ProviderSettings(PROVIDER_NAME, false));
-        Assertions
-                .assertThrows(ValidationException.class,
-                        () -> settingService.updateOAuth2ProviderSettings(PROVIDER_NAME, null, providerSettings));
+
+        // when
+        ThrowingCallable update = () -> settingService
+                .updateOAuth2ProviderSettings(PROVIDER_NAME, null, providerSettings);
+
+        // then
+        assertThatThrownBy(update).isInstanceOf(ValidationException.class);
     }
 
     @Test
@@ -216,46 +228,75 @@ class JwtDecoderITest extends BaseSpringBootTest {
     }
 
     @Test
-    void testJwtDecoderOnExpiredTokenWithoutAudiences() throws JOSEException {
+    void throwsExpired_whenTokenIsExpiredAndSkewIsZero() throws Exception {
+        // given
         providerSettings.setSkew(0);
         settingService.updateOAuth2ProviderSettings(PROVIDER_NAME, null, providerSettings);
-
         SecurityContextHolder.clearContext();
-        String expiredToken = OAuth2TestUtil.createJwtTokenValue(keyPair.getPrivate(), 1, ISSUER_URL, AUDIENCE, "");
-        Exception exception = Assertions
-                .assertThrows(PlatformAuthenticationException.class, () -> jwtDecoder.decode(expiredToken));
-        Assertions.assertTrue(exception.getMessage().contains("Jwt expired"));
+        var expiredToken = OAuth2TestUtil.createJwtTokenValue(keyPair.getPrivate(), 1, ISSUER_URL, AUDIENCE, "");
+
+        // when
+        ThrowingCallable decode = () -> jwtDecoder.decode(expiredToken);
+
+        // then
+        assertThatThrownBy(decode)
+                .isInstanceOf(PlatformAuthenticationException.class)
+                .hasMessageContaining("Jwt expired");
     }
 
     @Test
-    void testJwtDecoderOnTokenWithValidAudiences() {
+    void decodesToken_whenAudienceIsAccepted() {
+        // given
         providerSettings.setAudiences(List.of(AUDIENCE));
         settingService.updateOAuth2ProviderSettings(PROVIDER_NAME, null, providerSettings);
-
         SecurityContextHolder.clearContext();
-        Assertions.assertInstanceOf(Jwt.class, jwtDecoder.decode(tokenValue));
+
+        // when
+        Jwt decoded = jwtDecoder.decode(tokenValue);
+
+        // then
+        assertThat(decoded).isInstanceOf(Jwt.class);
     }
 
     @Test
-    void testJwtDecoderOnTokenWithInvalidAudiences() {
+    void throwsInvalidAudience_whenTokenAudienceIsNotAccepted() {
+        // given
         providerSettings.setAudiences(List.of("different-audience"));
         settingService.updateOAuth2ProviderSettings(PROVIDER_NAME, null, providerSettings);
         SecurityContextHolder.clearContext();
-        Exception exception = Assertions
-                .assertThrows(PlatformAuthenticationException.class, () -> jwtDecoder.decode(tokenValue));
-        Assertions.assertTrue(exception.getMessage().contains("The aud claim is not valid"));
+
+        // when
+        ThrowingCallable decode = () -> jwtDecoder.decode(tokenValue);
+
+        // then
+        assertThatThrownBy(decode)
+                .isInstanceOf(PlatformAuthenticationException.class)
+                .hasMessageContaining("The aud claim is not valid");
     }
 
     @Test
-    void testJwkSetFromInput() {
-        providerSettings.setJwkSetUrl(null);
-        providerSettings.setJwkSet(Base64.getEncoder().encodeToString(jwkSetJson.getBytes()));
-        settingService.updateOAuth2ProviderSettings(PROVIDER_NAME, null, providerSettings);
-        ResponseEntity<String> response = loginController.getJwkSet(PROVIDER_NAME);
-        Assertions.assertEquals(jwkSetJson, response.getBody());
+    void servesEmbeddedJwkSet_whenProviderHoldsOneInsteadOfAUrl() {
+        // given
+        storeEmbeddedJwkSet();
 
+        // when
+        ResponseEntity<String> response = loginController.getJwkSet(PROVIDER_NAME);
+
+        // then
+        assertThat(response.getBody()).isEqualTo(jwkSetJson);
+    }
+
+    @Test
+    void decodesToken_whenProviderHoldsAnEmbeddedJwkSet() {
+        // given
+        storeEmbeddedJwkSet();
         SecurityContextHolder.clearContext();
-        Assertions.assertInstanceOf(Jwt.class, jwtDecoder.decode(tokenValue));
+
+        // when
+        Jwt decoded = jwtDecoder.decode(tokenValue);
+
+        // then
+        assertThat(decoded).isInstanceOf(Jwt.class);
     }
 
     @Test
@@ -282,13 +323,18 @@ class JwtDecoderITest extends BaseSpringBootTest {
     }
 
     @Test
-    void testUnreachableJwkUrl() {
+    void throwsAuthenticationException_whenJwkSetUrlIsUnreachable() {
+        // given
         providerSettings.setJwkSetUrl(ISSUER_URL + "/protocol/openid-connect/certs");
         settingService.updateOAuth2ProviderSettings(PROVIDER_NAME, null, providerSettings);
-
         mockServer.resetAll();
         SecurityContextHolder.clearContext();
-        Assertions.assertThrows(PlatformAuthenticationException.class, () -> jwtDecoder.decode(tokenValue));
+
+        // when
+        ThrowingCallable decode = () -> jwtDecoder.decode(tokenValue);
+
+        // then
+        assertThatThrownBy(decode).isInstanceOf(PlatformAuthenticationException.class);
     }
 
     @Test
@@ -305,6 +351,20 @@ class JwtDecoderITest extends BaseSpringBootTest {
         Exception exception = Assertions
                 .assertThrows(PlatformAuthenticationException.class, () -> jwtDecoder.decode(tokenValue));
         Assertions.assertTrue(exception.getMessage().contains("Token is not an instance of Signed JWT"));
+    }
+
+    private void corruptStoredProviderSettings() {
+        Setting setting = settingRepository
+                .findBySectionAndCategoryAndName(SettingsSection.AUTHENTICATION,
+                        SettingsSectionCategory.OAUTH2_PROVIDER.getCode(), PROVIDER_NAME);
+        setting.setValue("WRONG-DATA");
+        settingRepository.save(setting);
+    }
+
+    private void storeEmbeddedJwkSet() {
+        providerSettings.setJwkSetUrl(null);
+        providerSettings.setJwkSet(Base64.getEncoder().encodeToString(jwkSetJson.getBytes()));
+        settingService.updateOAuth2ProviderSettings(PROVIDER_NAME, null, providerSettings);
     }
 
     private String convertRSAPrivateKeyToJWK(RSAPublicKey publicKey) throws JsonProcessingException {

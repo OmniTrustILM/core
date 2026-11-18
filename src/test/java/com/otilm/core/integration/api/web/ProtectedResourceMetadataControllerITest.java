@@ -25,6 +25,7 @@ import org.springframework.session.web.http.SessionRepositoryFilter;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -77,7 +78,7 @@ class ProtectedResourceMetadataControllerITest extends BaseSpringBootTestNoAuth 
     @Test
     void returnsEmptyLists_whenNoProviderIsEnabledForApplications() throws Exception {
         // given
-        cacheProviders(provider("disabled", "https://disabled.example.com", null));
+        cacheProviders(createProvider("disabled", "https://disabled.example.com", null));
 
         // when
         JsonNode document = fetchDocument();
@@ -91,11 +92,11 @@ class ProtectedResourceMetadataControllerITest extends BaseSpringBootTestNoAuth 
     @Test
     void listsExactlyTheEnabledProviders_whenSeveralAreConfigured() throws Exception {
         // given
-        var configured = applications(true);
+        var configured = createApplications(true);
         configured.setClientId("public-client");
         configured.setScopes(List.of("openid"));
-        cacheProviders(provider("enabled", "https://enabled.example.com", configured),
-                provider("disabled", "https://disabled.example.com", applications(false)));
+        cacheProviders(createProvider("enabled", "https://enabled.example.com", configured),
+                createProvider("disabled", "https://disabled.example.com", createApplications(false)));
 
         // when
         JsonNode document = fetchDocument();
@@ -114,7 +115,7 @@ class ProtectedResourceMetadataControllerITest extends BaseSpringBootTestNoAuth 
     @Test
     void carriesOnlyTheDocumentKeysAndNoSecret_whenAProviderIsEnabled() throws Exception {
         // given
-        var provider = provider("enabled", "https://enabled.example.com", applications(true));
+        var provider = createProvider("enabled", "https://enabled.example.com", createApplications(true));
         provider.setClientSecret(CLIENT_SECRET);
         provider.setJwkSetUrl("https://internal.example.com/jwks");
         cacheProviders(provider);
@@ -123,7 +124,7 @@ class ProtectedResourceMetadataControllerITest extends BaseSpringBootTestNoAuth 
         String body = fetchBody();
 
         // then
-        assertThat(keysOf(mapper.readTree(body)))
+        assertThat(extractKeys(mapper.readTree(body)))
                 .containsExactlyInAnyOrder("resource", "resource_name", "authorization_servers",
                         "bearer_methods_supported", "otilm_authorization_servers");
         assertThat(body).doesNotContain(CLIENT_SECRET).doesNotContain("internal.example.com");
@@ -135,7 +136,7 @@ class ProtectedResourceMetadataControllerITest extends BaseSpringBootTestNoAuth 
         var anonymousWrite = post(PATH);
 
         // when
-        var result = mvc.perform(anonymousWrite);
+        ResultActions result = mvc.perform(anonymousWrite);
 
         // then
         result.andExpect(status().is4xxClientError());
@@ -161,13 +162,13 @@ class ProtectedResourceMetadataControllerITest extends BaseSpringBootTestNoAuth 
         settingsCache.cacheSettings(SettingsSection.AUTHENTICATION, settings);
     }
 
-    private static Set<String> keysOf(JsonNode node) {
+    private static Set<String> extractKeys(JsonNode node) {
         var keys = new ArrayList<String>();
         node.fieldNames().forEachRemaining(keys::add);
         return Set.copyOf(keys);
     }
 
-    private static OAuth2ProviderSettingsDto provider(String name, String issuerUrl,
+    private static OAuth2ProviderSettingsDto createProvider(String name, String issuerUrl,
             OAuth2ApplicationSettingsDto applications) {
         var provider = new OAuth2ProviderSettingsDto();
         provider.setName(name);
@@ -176,7 +177,7 @@ class ProtectedResourceMetadataControllerITest extends BaseSpringBootTestNoAuth 
         return provider;
     }
 
-    private static OAuth2ApplicationSettingsDto applications(boolean enabled) {
+    private static OAuth2ApplicationSettingsDto createApplications(boolean enabled) {
         var applications = new OAuth2ApplicationSettingsDto();
         applications.setEnabled(enabled);
         return applications;

@@ -1,5 +1,6 @@
 package com.otilm.core.service.impl;
 
+import com.otilm.api.model.core.auth.ProtectedResourceAuthorizationServerDto;
 import com.otilm.api.model.core.auth.ProtectedResourceMetadataDto;
 import com.otilm.api.model.core.settings.authentication.OAuth2ApplicationSettingsDto;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
@@ -15,8 +16,8 @@ class ProtectedResourceMetadataBuilderTest {
     @Test
     void listsNoAuthorizationServer_whenNoProviderIsEnabledForApplications() {
         // given
-        var disabled = provider("a", "https://a.example.com", null);
-        var explicitlyDisabled = provider("b", "https://b.example.com", applications(false));
+        var disabled = createProvider("a", "https://a.example.com", null);
+        var explicitlyDisabled = createProvider("b", "https://b.example.com", createApplications(false));
 
         // when
         ProtectedResourceMetadataDto metadata = ProtectedResourceMetadataBuilder
@@ -33,9 +34,9 @@ class ProtectedResourceMetadataBuilderTest {
     @Test
     void listsEnabledProvidersSortedByName_whenSeveralAreConfigured() {
         // given
-        var second = provider("zeta", "https://zeta.example.com", applications(true));
-        var skipped = provider("middle", "https://middle.example.com", applications(false));
-        var first = provider("alpha", "https://alpha.example.com", applications(true));
+        var second = createProvider("zeta", "https://zeta.example.com", createApplications(true));
+        var skipped = createProvider("middle", "https://middle.example.com", createApplications(false));
+        var first = createProvider("alpha", "https://alpha.example.com", createApplications(true));
 
         // when
         ProtectedResourceMetadataDto metadata = ProtectedResourceMetadataBuilder
@@ -52,13 +53,13 @@ class ProtectedResourceMetadataBuilderTest {
     @Test
     void fallsBackToProviderNameAndOmitsUnsetFields_whenApplicationsSetNothingElse() {
         // given
-        var provider = provider("keycloak", "https://kc.example.com", applications(true));
+        var provider = createProvider("keycloak", "https://kc.example.com", createApplications(true));
 
         // when
         ProtectedResourceMetadataDto metadata = ProtectedResourceMetadataBuilder.build(RESOURCE, List.of(provider));
 
         // then
-        var server = metadata.getOtilmAuthorizationServers().getFirst();
+        ProtectedResourceAuthorizationServerDto server = metadata.getOtilmAuthorizationServers().getFirst();
         assertThat(server.getName()).isEqualTo("keycloak");
         assertThat(server.getClientId()).isNull();
         assertThat(server.getResource()).isNull();
@@ -68,12 +69,12 @@ class ProtectedResourceMetadataBuilderTest {
     @Test
     void carriesApplicationSettingsOnly_whenTheyAreSet() {
         // given
-        var applications = applications(true);
+        var applications = createApplications(true);
         applications.setName("Sign in with Keycloak");
         applications.setClientId("public-client");
         applications.setResource("https://ilm.example.com/api");
         applications.setScopes(List.of("openid", "profile"));
-        var provider = provider("keycloak", "https://kc.example.com", applications);
+        var provider = createProvider("keycloak", "https://kc.example.com", applications);
         provider.setClientId("confidential-client");
         provider.setClientSecret("secret");
 
@@ -81,7 +82,7 @@ class ProtectedResourceMetadataBuilderTest {
         ProtectedResourceMetadataDto metadata = ProtectedResourceMetadataBuilder.build(RESOURCE, List.of(provider));
 
         // then
-        var server = metadata.getOtilmAuthorizationServers().getFirst();
+        ProtectedResourceAuthorizationServerDto server = metadata.getOtilmAuthorizationServers().getFirst();
         assertThat(server.getName()).isEqualTo("Sign in with Keycloak");
         assertThat(server.getClientId()).isEqualTo("public-client");
         assertThat(server.getResource()).isEqualTo("https://ilm.example.com/api");
@@ -90,7 +91,7 @@ class ProtectedResourceMetadataBuilderTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static OAuth2ProviderSettingsDto provider(String name, String issuerUrl,
+    private static OAuth2ProviderSettingsDto createProvider(String name, String issuerUrl,
             OAuth2ApplicationSettingsDto applications) {
         var provider = new OAuth2ProviderSettingsDto();
         provider.setName(name);
@@ -99,7 +100,7 @@ class ProtectedResourceMetadataBuilderTest {
         return provider;
     }
 
-    private static OAuth2ApplicationSettingsDto applications(boolean enabled) {
+    private static OAuth2ApplicationSettingsDto createApplications(boolean enabled) {
         var applications = new OAuth2ApplicationSettingsDto();
         applications.setEnabled(enabled);
         return applications;

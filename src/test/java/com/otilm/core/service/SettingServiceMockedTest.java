@@ -16,7 +16,6 @@ import com.otilm.core.settings.SettingsCache;
 import java.util.List;
 import java.util.stream.Stream;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Named;
 import org.junit.jupiter.api.Test;
@@ -123,23 +122,25 @@ class SettingServiceMockedTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"http://example.com:-1/jwks", "http://example.com:+1/jwks"})
-    void anOAuth2ProviderUpdateRejectsAJwkSetUrlWithASignedPort(String jwkSetUrl) {
-        OAuth2ProviderSettingsUpdateDto providerSettings = new OAuth2ProviderSettingsUpdateDto();
+    void rejectsJwkSetUrl_whenPortIsSigned(String jwkSetUrl) {
+        // given
+        var providerSettings = new OAuth2ProviderSettingsUpdateDto();
         providerSettings.setJwkSetUrl(jwkSetUrl);
 
-        ValidationException exception = Assertions
-                .assertThrows(ValidationException.class, () -> settingService
-                        .updateOAuth2ProviderSettings("signed-port-jwk-url", null, providerSettings));
+        // when
+        ThrowingCallable update = () -> settingService
+                .updateOAuth2ProviderSettings("signed-port-jwk-url", null, providerSettings);
 
-        Assertions
-                .assertEquals("JWK Set URL is invalid: Illegal character in port number at index 19.",
-                        exception.getMessage());
+        // then
+        assertThatThrownBy(update)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("JWK Set URL is invalid: Illegal character in port number at index 19.");
     }
 
     @Test
     void refusesApplications_whenEnabledWithoutIssuerUrl() {
         // given
-        var providerSettings = providerWithApplications(applications(true));
+        var providerSettings = createProviderWithApplications(createApplications(true));
 
         // when
         ThrowingCallable update = () -> settingService
@@ -155,9 +156,9 @@ class SettingServiceMockedTest {
     void refusesApplications_whenClientIdEqualsTheProvidersClientId() {
         // given
         var sharedClientId = "ilm-browser-login";
-        var applications = applications(false);
+        var applications = createApplications(false);
         applications.setClientId(sharedClientId);
-        var providerSettings = providerWithApplications(applications);
+        var providerSettings = createProviderWithApplications(applications);
         providerSettings.setClientId(sharedClientId);
 
         // when
@@ -173,9 +174,9 @@ class SettingServiceMockedTest {
     @Test
     void refusesApplications_whenScopesContainABlankEntry() {
         // given
-        var applications = applications(false);
+        var applications = createApplications(false);
         applications.setScopes(List.of("openid", "  "));
-        var providerSettings = providerWithApplications(applications);
+        var providerSettings = createProviderWithApplications(applications);
 
         // when
         ThrowingCallable update = () -> settingService
@@ -191,9 +192,9 @@ class SettingServiceMockedTest {
     @ValueSource(strings = {"ilm.example.com/api", "ftp://ilm.example.com/api", "/api", "https://", "https://a b"})
     void refusesApplications_whenResourceIsNotAnAbsoluteHttpUri(String resource) {
         // given
-        var applications = applications(false);
+        var applications = createApplications(false);
         applications.setResource(resource);
-        var providerSettings = providerWithApplications(applications);
+        var providerSettings = createProviderWithApplications(applications);
 
         // when
         ThrowingCallable update = () -> settingService
@@ -208,9 +209,9 @@ class SettingServiceMockedTest {
     @Test
     void refusesApplications_whenResourceHasAFragment() {
         // given
-        var applications = applications(false);
+        var applications = createApplications(false);
         applications.setResource("https://ilm.example.com/api#part");
-        var providerSettings = providerWithApplications(applications);
+        var providerSettings = createProviderWithApplications(applications);
 
         // when
         ThrowingCallable update = () -> settingService.updateOAuth2ProviderSettings("fragment", null, providerSettings);
@@ -225,9 +226,9 @@ class SettingServiceMockedTest {
     void refusesApplications_whenResourceCarriesCredentials() {
         // given
         var resourceWithCredentials = "https://user:secret@ilm.example.com/api";
-        var applications = applications(false);
+        var applications = createApplications(false);
         applications.setResource(resourceWithCredentials);
-        var providerSettings = providerWithApplications(applications);
+        var providerSettings = createProviderWithApplications(applications);
 
         // when
         ThrowingCallable update = () -> settingService
@@ -243,7 +244,7 @@ class SettingServiceMockedTest {
     @MethodSource("unpublishableIssuers")
     void refusesApplications_whenEnabledIssuerUrlCannotBePublished(String unpublishableIssuer) {
         // given
-        var providerSettings = providerWithApplications(applications(true));
+        var providerSettings = createProviderWithApplications(createApplications(true));
         providerSettings.setIssuerUrl(unpublishableIssuer);
 
         // when
@@ -264,13 +265,14 @@ class SettingServiceMockedTest {
                         named("not a URI", "https://idp.example.com/realm with space"));
     }
 
-    private static OAuth2ApplicationSettingsDto applications(boolean enabled) {
+    private static OAuth2ApplicationSettingsDto createApplications(boolean enabled) {
         var applications = new OAuth2ApplicationSettingsDto();
         applications.setEnabled(enabled);
         return applications;
     }
 
-    private static OAuth2ProviderSettingsUpdateDto providerWithApplications(OAuth2ApplicationSettingsDto applications) {
+    private static OAuth2ProviderSettingsUpdateDto createProviderWithApplications(
+            OAuth2ApplicationSettingsDto applications) {
         var providerSettings = new OAuth2ProviderSettingsUpdateDto();
         providerSettings.setApplications(applications);
         return providerSettings;

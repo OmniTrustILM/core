@@ -14,7 +14,7 @@ class ProtectedResourceMetadataBearerTokenResolverTest {
     @Test
     void resolvesNoToken_whenGettingTheMetadata() {
         // given
-        var request = aRequest("GET", ProtectedResourceChallenge.METADATA_PATH);
+        var request = createRequest("GET", ProtectedResourceChallenge.METADATA_PATH);
 
         // when
         String token = resolver.resolve(request);
@@ -26,7 +26,7 @@ class ProtectedResourceMetadataBearerTokenResolverTest {
     @Test
     void resolvesToken_whenGettingAnotherPath() {
         // given
-        var request = aRequest("GET", OTHER_PATH);
+        var request = createRequest("GET", OTHER_PATH);
 
         // when
         String token = resolver.resolve(request);
@@ -38,7 +38,7 @@ class ProtectedResourceMetadataBearerTokenResolverTest {
     @Test
     void resolvesToken_whenPostingToTheMetadataPath() {
         // given
-        var request = aRequest("POST", ProtectedResourceChallenge.METADATA_PATH);
+        var request = createRequest("POST", ProtectedResourceChallenge.METADATA_PATH);
 
         // when
         String token = resolver.resolve(request);
@@ -49,7 +49,7 @@ class ProtectedResourceMetadataBearerTokenResolverTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static MockHttpServletRequest aRequest(String method, String path) {
+    private static MockHttpServletRequest createRequest(String method, String path) {
         var request = new MockHttpServletRequest(method, path);
         request.setServletPath(path);
         request.addHeader("Authorization", "Bearer x");

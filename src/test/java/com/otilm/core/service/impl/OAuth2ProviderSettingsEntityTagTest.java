@@ -17,6 +17,8 @@ class OAuth2ProviderSettingsEntityTagTest {
 
     private static final String STORED = "{\"name\":\"p\",\"issuerUrl\":\"https://issuer\",\"clientSecret\":\"s1\"}";
 
+    // ── TagComputation ─────────────────────────────────────────────────────────
+
     @Nested
     class TagComputation {
 
@@ -99,6 +101,8 @@ class OAuth2ProviderSettingsEntityTagTest {
             assertThatThrownBy(compute).isInstanceOf(JsonProcessingException.class);
         }
     }
+
+    // ── Matching ───────────────────────────────────────────────────────────────
 
     @Nested
     class Matching {

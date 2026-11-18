@@ -258,6 +258,32 @@ class ExceptionHandlingAdviceTest {
                 "scrubbing the row must not cost the constraint name, which is the actionable datum");
     }
 
+    @Test
+    void answersWithItsMessage_whenAPreconditionFailed() {
+        // given
+        var failureMessage = "Provider 'x' was changed since it was read.";
+        var failure = new PreconditionFailedException(failureMessage);
+
+        // when
+        ErrorMessageDto body = advice.handlePreconditionFailedException(failure);
+
+        // then
+        assertThat(body.getMessage()).isEqualTo(failureMessage);
+    }
+
+    @Test
+    void respondsWithPreconditionFailedStatus_whenAPreconditionFailed() throws Exception {
+        // given
+        var handlerMethod = ExceptionHandlingAdvice.class
+                .getMethod("handlePreconditionFailedException", PreconditionFailedException.class);
+
+        // when
+        ResponseStatus status = handlerMethod.getAnnotation(ResponseStatus.class);
+
+        // then
+        assertThat(status.value()).isEqualTo(HttpStatus.PRECONDITION_FAILED);
+    }
+
     /**
      * Renders the event the way an encoder would -- formatted message plus the whole throwable chain. Asserting only on
      * {@code getFormattedMessage()} would pass while the key sat in an attached stack trace, which is exactly how this
@@ -269,20 +295,5 @@ class ExceptionHandlingAdviceTest {
             rendered.append(' ').append(proxy.getClassName()).append(' ').append(proxy.getMessage());
         }
         return rendered.toString();
-    }
-
-    @Test
-    void answersWithItsMessage_whenAPreconditionFailed() throws Exception {
-        // given
-        var failure = new PreconditionFailedException("Provider 'x' was changed since it was read.");
-        var handlerMethod = ExceptionHandlingAdvice.class
-                .getMethod("handlePreconditionFailedException", PreconditionFailedException.class);
-
-        // when
-        ErrorMessageDto body = advice.handlePreconditionFailedException(failure);
-
-        // then
-        assertThat(body.getMessage()).isEqualTo("Provider 'x' was changed since it was read.");
-        assertThat(handlerMethod.getAnnotation(ResponseStatus.class).value()).isEqualTo(HttpStatus.PRECONDITION_FAILED);
     }
 }
