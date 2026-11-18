@@ -29,6 +29,7 @@ import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.attribute.engine.ReferenceAccessDeniedException;
 import com.otilm.core.dao.CryptoAssetConstraintTranslator;
 import com.otilm.core.exception.DanglingReferenceException;
+import com.otilm.core.exception.PreconditionFailedException;
 import com.otilm.core.exception.UnsupportedAuthorityVersionException;
 import com.otilm.core.exception.UnsupportedCryptographyProviderVersionException;
 import com.otilm.core.exception.UnsupportedDiscoveryVersionException;
@@ -738,6 +739,19 @@ public class ExceptionHandlingAdvice {
             }
         }
         return Optional.empty();
+    }
+
+    /**
+     * Handler for {@link PreconditionFailedException}. The message is authored by the platform, so it is safe to
+     * expose.
+     *
+     * @return {@link ErrorMessageDto}
+     */
+    @ExceptionHandler(PreconditionFailedException.class)
+    @ResponseStatus(HttpStatus.PRECONDITION_FAILED)
+    public ErrorMessageDto handlePreconditionFailedException(PreconditionFailedException ex) {
+        LOG.info("HTTP 412: {}", ex.getMessage());
+        return ErrorMessageDto.getInstance(ex.getMessage());
     }
 
     /**

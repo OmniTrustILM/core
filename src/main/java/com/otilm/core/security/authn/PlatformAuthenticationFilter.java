@@ -58,7 +58,7 @@ public class PlatformAuthenticationFilter extends OncePerRequestFilter {
                     log
                             .warn("Certificate authentication request for '{}' rejected: certificate was not authenticated.",
                                     request.getRequestURI());
-                    rejectCertificate(response);
+                    rejectCertificate(request, response);
                     return;
                 }
 
@@ -78,7 +78,7 @@ public class PlatformAuthenticationFilter extends OncePerRequestFilter {
                     log
                             .warn("Certificate authentication request for '{}' failed: {}", request.getRequestURI(),
                                     PlatformAuthenticationClient.certificateFailureReason(e));
-                    rejectCertificate(response);
+                    rejectCertificate(request, response);
                     return;
                 }
                 if (e instanceof PlatformAuthenticationException) {
@@ -91,10 +91,10 @@ public class PlatformAuthenticationFilter extends OncePerRequestFilter {
         filterChain.doFilter(request, response);
     }
 
-    private static void rejectCertificate(HttpServletResponse response) throws IOException {
+    private static void rejectCertificate(HttpServletRequest request, HttpServletResponse response) throws IOException {
         SecurityContextHolder.clearContext();
         LoggingHelper.clearActorInfo();
-        response.sendError(HttpServletResponse.SC_UNAUTHORIZED);
+        ProtectedResourceChallenge.rejectWithChallenge(request, response);
     }
 
     private static void updateSecurityContext(Authentication authentication) {
