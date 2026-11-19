@@ -14,10 +14,13 @@ import com.otilm.api.model.client.certificate.DiscoveryResponseDto;
 import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
+import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.client.discovery.DiscoveryCertificateResponseDto;
 import com.otilm.api.model.client.discovery.DiscoveryDetailDto;
 import com.otilm.api.model.client.discovery.DiscoveryDto;
 import com.otilm.api.model.client.discovery.DiscoveryListDto;
+import com.otilm.api.model.client.discovery.DiscoveryWindowDto;
+import com.otilm.api.model.client.discovery.DiscoveryWindowMode;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.PaginationResponseDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
@@ -80,6 +83,7 @@ import com.otilm.core.service.DiscoveryExternalService;
 import com.otilm.core.service.DiscoveryInternalService;
 import com.otilm.core.service.ResourceInternalService;
 import com.otilm.core.service.TriggerInternalService;
+import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.handler.discovery.DiscoveryDetailCounts;
 import com.otilm.core.service.handler.discovery.DiscoveryProviderAdapter;
 import com.otilm.core.service.handler.discovery.DiscoveryProviderAdapterFactory;
@@ -162,6 +166,12 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     private DiscoveryMessageRepository discoveryMessageRepository;
     private ConnectorInterfaceRepository connectorInterfaceRepository;
     private DiscoveryItemRepository discoveryItemRepository;
+    private ConnectorCapabilityService capabilityService;
+
+    @Autowired
+    public void setCapabilityService(ConnectorCapabilityService capabilityService) {
+        this.capabilityService = capabilityService;
+    }
 
     @Autowired
     public void setDiscoveryItemRepository(DiscoveryItemRepository discoveryItemRepository) {
@@ -625,6 +635,21 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
         }
     }
 
+    private void validateWindow(DiscoveryDto request, ConnectorInterfaceEntity discoveryInterface, boolean scheduled) {
+        DiscoveryWindowDto window = request.getWindow();
+        if (window == null || window.getMode() == null || window.getMode() == DiscoveryWindowMode.FULL) {
+            return;
+        }
+        if (discoveryInterface == null
+                || !capabilityService.supports(discoveryInterface, FeatureFlag.DISCOVERY_INCREMENTAL)) {
+            throw new ValidationException(
+                    "a discovery window needs a connector whose discovery interface advertises discoveryIncremental");
+        }
+        if (window.getMode() == DiscoveryWindowMode.SINCE_LAST_SUCCESSFUL_RUN && !scheduled) {
+            throw new ValidationException("sinceLastSuccessfulRun is available only for a scheduled discovery");
+        }
+    }
+
     /** What the connector says it can discover right now. Never persisted, so every caller asks. */
     private List<Resource> liveSupportedResources(UUID connectorUuid) throws NotFoundException, ConnectorException {
         ApiClientConnectorInfo connector = connectorService.getConnectorForApiClient(connectorUuid);
@@ -905,7 +930,8 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     // hold a transaction open -- a slow or hostile connector would pin a pooled connection for its whole timeout.
     // Everything this method then persists commits as one unit, in DiscoveryRunWriter's own transaction.
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public DiscoveryDetailDto createDiscovery(final DiscoveryDto request, final boolean saveEntity)
+    public DiscoveryDetailDto createDiscovery(final DiscoveryDto request, final boolean saveEntity,
+            final boolean scheduled)
             throws AlreadyExistException, ConnectorException, AttributeException, NotFoundException {
         if (discoveryRepository.findByName(request.getName()).isPresent()) {
             throw new AlreadyExistException(Discovery.class, request.getName());
@@ -928,6 +954,7 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
                     .enforce(Resource.CONNECTOR, ResourceAction.ANY, SecuredUUID.fromUUID(connector.getUuid()));
         }
         validateRequestedResources(request, connector, discoveryInterface);
+        validateWindow(request, discoveryInterface, scheduled);
         validateRunAttributes(request, connector, discoveryInterface);
         Map<Resource, List<BaseAttribute>> resourceDefinitions = fetchResourceDefinitions(request, connector);
         if (discoveryInterface != null) {
@@ -953,6 +980,10 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
         discovery.setConnectorStatus(DiscoveryStatus.IN_PROGRESS);
         discovery.setConnectorUuid(connector.getUuid());
         discovery.setKind(request.getKind());
+        if (request.getWindow() != null) {
+            discovery.setWindowMode(request.getWindow().getMode());
+            discovery.setWindowLookback(request.getWindow().getLookback());
+        }
 
         if (saveEntity) {
             return discoveryRunWriter.createRun(discovery, request, connector.getUuid(), resourceDefinitions);

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.api.model.client.discovery.DiscoveryDetailDto;
 import com.otilm.api.model.client.discovery.DiscoveryListDto;
+import com.otilm.api.model.client.discovery.DiscoveryWindowDto;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredItemPayloadDto;
@@ -73,6 +74,8 @@ public class DiscoveryDtoMapper {
         dto.setProgress(discovery.getProgress());
         dto.setConnectorInterface(connectorInterfaceOf(discovery));
         dto.setDeliveryMode(deliveryModeOf(discovery));
+        dto.setWindow(windowOf(discovery));
+        dto.setDiscoverSince(discovery.getDiscoverSince());
         // Drain cursor: sequences are dense per run, so the highest received is how many items the connector sent.
         // An unstageable, malformed or repeated item advances it without adding a row. Null for a v1 run, which never
         // moves it, and for a run its connector's delete released before any item arrived.
@@ -113,6 +116,17 @@ public class DiscoveryDtoMapper {
         boolean isV2Run = discovery.getConnectorInterfaceUuid() != null || discovery.getStoppable() != null
                 || discovery.getLastAppliedSequence() > 0;
         return isV2Run ? DiscoveryDeliveryMode.BUFFERED : null;
+    }
+
+    /** The window the run was asked to cover; null for a run that predates it. */
+    private static DiscoveryWindowDto windowOf(Discovery discovery) {
+        if (discovery.getWindowMode() == null) {
+            return null;
+        }
+        DiscoveryWindowDto window = new DiscoveryWindowDto();
+        window.setMode(discovery.getWindowMode());
+        window.setLookback(discovery.getWindowLookback());
+        return window;
     }
 
     /** The interface driving the run; null for a v1 run, and for an ended v2 run whose connector was deleted. */

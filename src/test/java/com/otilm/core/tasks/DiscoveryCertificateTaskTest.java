@@ -46,7 +46,7 @@ class DiscoveryCertificateTaskTest {
         task.setTransactionManager(transactionManager);
         task.setDiscoveryService(discoveryService);
         when(transactionManager.getTransaction(any())).thenReturn(transactionStatus);
-        when(discoveryService.createDiscovery(any(DiscoveryDto.class), eq(true)))
+        when(discoveryService.createDiscovery(any(DiscoveryDto.class), eq(true), eq(true)))
                 .thenThrow(new DataIntegrityViolationException(
                         "ERROR: duplicate key value violates unique constraint \"discovery_name_key\""));
         DiscoveryDto request = new DiscoveryDto();
@@ -69,7 +69,7 @@ class DiscoveryCertificateTaskTest {
         task.setTransactionManager(transactionManager);
         task.setDiscoveryService(discoveryService);
         when(transactionManager.getTransaction(any())).thenReturn(transactionStatus);
-        when(discoveryService.createDiscovery(any(DiscoveryDto.class), eq(true)))
+        when(discoveryService.createDiscovery(any(DiscoveryDto.class), eq(true), eq(true)))
                 .thenThrow(new IllegalStateException("stop after naming"));
         var request = new DiscoveryDto();
         request.setName("nightly");
@@ -83,11 +83,31 @@ class DiscoveryCertificateTaskTest {
 
         // then
         var created = ArgumentCaptor.forClass(DiscoveryDto.class);
-        verify(discoveryService, times(2)).createDiscovery(created.capture(), eq(true));
+        verify(discoveryService, times(2)).createDiscovery(created.capture(), eq(true), eq(true));
         List<String> names = created.getAllValues().stream().map(DiscoveryDto::getName).toList();
         assertThat(names.get(0))
                 .isNotEqualTo(names.get(1))
                 .matches("nightly_\\d{4}-\\d{2}-\\d{2}_\\d{2}-\\d{2}-\\d{2}\\.\\d{3}_" + firstExecution);
         assertThat(names.get(1)).endsWith("_" + secondExecution);
+    }
+
+    @Test
+    void passesScheduledFlag_whenTaskCreatesDiscovery() throws Exception {
+        // given
+        DiscoveryCertificateTask task = new DiscoveryCertificateTask();
+        task.setMapper(new ObjectMapper());
+        task.setTransactionManager(transactionManager);
+        task.setDiscoveryService(discoveryService);
+        when(transactionManager.getTransaction(any())).thenReturn(transactionStatus);
+        when(discoveryService.createDiscovery(any(DiscoveryDto.class), eq(true), eq(true)))
+                .thenThrow(new IllegalStateException("stop after creation"));
+        DiscoveryDto request = new DiscoveryDto();
+        request.setName("nightly");
+
+        // when
+        task.performJob(new ScheduledJobInfo("nightly-job"), request);
+
+        // then
+        verify(discoveryService).createDiscovery(any(DiscoveryDto.class), eq(true), eq(true));
     }
 }

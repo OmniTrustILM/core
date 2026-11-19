@@ -1,12 +1,15 @@
 package com.otilm.core.dao.entity;
 
 import com.fasterxml.jackson.annotation.JsonBackReference;
+import com.otilm.api.model.client.discovery.DiscoveryWindowMode;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryDeliveryMode;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryProgressDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.core.dao.converter.DiscoveryDeliveryModeConverter;
+import com.otilm.core.dao.converter.DiscoveryWindowModeConverter;
+import com.otilm.core.dao.converter.DurationIsoConverter;
 import com.otilm.core.dao.converter.ReplaceOnlyMutability;
 import com.otilm.core.dao.entity.workflows.Trigger;
 import jakarta.persistence.Column;
@@ -25,6 +28,7 @@ import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import java.io.Serial;
 import java.io.Serializable;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -167,6 +171,22 @@ public class Discovery extends UniquelyIdentifiedAndAudited implements Serializa
     // status answer that arrives out of order be recognised and dropped. Null until the first answer, and on a v1 run.
     @Column(name = "connector_highest_sequence")
     private Long connectorHighestSequence;
+
+    // ---- How much of the target it covers ----
+
+    // The window the run was asked to cover. Null on a run that predates it, which covered the whole target.
+    @Column(name = "window_mode")
+    @Convert(converter = DiscoveryWindowModeConverter.class)
+    private DiscoveryWindowMode windowMode;
+
+    // How far back from the start of the run to discover; set only for the lookback mode.
+    @Column(name = "window_lookback")
+    @Convert(converter = DurationIsoConverter.class)
+    private Duration windowLookback;
+
+    // The instant the window opened at, as resolved when the run started. Null when the run covers the whole target.
+    @Column(name = "discover_since")
+    private OffsetDateTime discoverSince;
 
     // ---- What it found ----
 

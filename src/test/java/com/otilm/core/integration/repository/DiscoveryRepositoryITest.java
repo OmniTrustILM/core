@@ -1,5 +1,6 @@
 package com.otilm.core.integration.repository;
 
+import com.otilm.api.model.client.discovery.DiscoveryWindowMode;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryProgressDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryResourceProgressDto;
 import com.otilm.api.model.core.auth.Resource;
@@ -14,6 +15,7 @@ import com.otilm.core.util.DiscoveryCheckpointFixture;
 import com.otilm.core.util.DiscoveryInterfaceFixture;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
@@ -114,5 +116,31 @@ class DiscoveryRepositoryITest extends BaseSpringBootTest {
         assertThat(back.getStoppable()).isTrue();
         // Compared as instants: the driver may hand the timestamptz back under a different zone offset.
         assertThat(back.getStoppedAt().toInstant()).isEqualTo(stoppedAt.toInstant());
+    }
+
+    @Test
+    void persistsWindowAndDiscoverSince() {
+        // given
+        var lookback = Duration.ofHours(36);
+        var discoverSince = OffsetDateTime.now(ZoneOffset.UTC).minus(lookback).truncatedTo(ChronoUnit.MICROS);
+        Discovery run = new Discovery();
+        run.setName("windowed-" + UUID.randomUUID());
+        run.setStatus(DiscoveryStatus.IN_PROGRESS);
+        run.setConnectorStatus(DiscoveryStatus.IN_PROGRESS);
+        run.setConnectorUuid(UUID.randomUUID());
+        run.setConnectorName("network-discovery");
+        run.setWindowMode(DiscoveryWindowMode.LOOKBACK);
+        run.setWindowLookback(lookback);
+        run.setDiscoverSince(discoverSince);
+
+        // when
+        UUID runUuid = discoveryRepository.saveAndFlush(run).getUuid();
+        entityManager.clear();
+        Discovery back = discoveryRepository.findById(runUuid).orElseThrow();
+
+        // then
+        assertThat(back.getWindowMode()).isEqualTo(DiscoveryWindowMode.LOOKBACK);
+        assertThat(back.getWindowLookback()).isEqualTo(lookback);
+        assertThat(back.getDiscoverSince().toInstant()).isEqualTo(discoverSince.toInstant());
     }
 }

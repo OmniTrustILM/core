@@ -20,6 +20,8 @@ import com.otilm.api.model.client.discovery.DiscoveryCertificateResponseDto;
 import com.otilm.api.model.client.discovery.DiscoveryDetailDto;
 import com.otilm.api.model.client.discovery.DiscoveryDto;
 import com.otilm.api.model.client.discovery.DiscoveryListDto;
+import com.otilm.api.model.client.discovery.DiscoveryWindowDto;
+import com.otilm.api.model.client.discovery.DiscoveryWindowMode;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.PaginationResponseDto;
 import com.otilm.api.model.common.attribute.common.AttributeType;
@@ -90,6 +92,7 @@ import com.otilm.core.util.DiscoveryCheckpointFixture;
 import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.MetaDefinitions;
 import com.otilm.core.util.RefusedDefinitionInserts;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -420,7 +423,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         request.setAttributes(List.of());
         request.setKind("ApiKey");
 
-        DiscoveryDetailDto dto = discoveryService.createDiscovery(request, true);
+        DiscoveryDetailDto dto = discoveryService.createDiscovery(request, true, false);
         Assertions.assertNotNull(dto);
         Assertions.assertEquals(request.getName(), dto.getName());
         Assertions.assertEquals(discovery.getConnectorUuid().toString(), dto.getConnectorUuid());
@@ -431,7 +434,8 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         DiscoveryDto request = new DiscoveryDto();
         request.setName("Demo");
         // connector uui not set
-        Assertions.assertThrows(ValidationException.class, () -> discoveryService.createDiscovery(request, true));
+        Assertions
+                .assertThrows(ValidationException.class, () -> discoveryService.createDiscovery(request, true, false));
     }
 
     @Test
@@ -439,7 +443,9 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         DiscoveryDto request = new DiscoveryDto();
         request.setName(DISCOVERY_NAME); // discovery with same name exist
 
-        Assertions.assertThrows(AlreadyExistException.class, () -> discoveryService.createDiscovery(request, true));
+        Assertions
+                .assertThrows(AlreadyExistException.class,
+                        () -> discoveryService.createDiscovery(request, true, false));
     }
 
     @Test
@@ -496,7 +502,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         dto.setConnectorUuid(connector.getUuid().toString());
         dto.setAttributes(List.of());
 
-        UUID discoveryUuid = UUID.fromString(discoveryService.createDiscovery(dto, true).getUuid());
+        UUID discoveryUuid = UUID.fromString(discoveryService.createDiscovery(dto, true, false).getUuid());
 
         Discovery persisted = discoveryRepository.findByUuid(discoveryUuid).orElseThrow();
         persisted.setConnectorUuid(UUID.randomUUID());
@@ -518,7 +524,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         dto.setConnectorUuid(connector.getUuid().toString());
         dto.setAttributes(List.of());
 
-        UUID discoveryUuid = UUID.fromString(discoveryService.createDiscovery(dto, true).getUuid());
+        UUID discoveryUuid = UUID.fromString(discoveryService.createDiscovery(dto, true, false).getUuid());
 
         mockServer.resetMappings();
 
@@ -819,7 +825,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         // fails with a checked exception -- which Spring does not roll back on by default.
         request.setTriggers(List.of(UUID.randomUUID()));
 
-        Assertions.assertThrows(NotFoundException.class, () -> discoveryService.createDiscovery(request, true));
+        Assertions.assertThrows(NotFoundException.class, () -> discoveryService.createDiscovery(request, true, false));
 
         Assertions
                 .assertTrue(discoveryRepository.findByName(request.getName()).isEmpty(),
@@ -979,7 +985,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
                 [{"resource":"certificates"},{"resource":"keys"}]""");
 
         DiscoveryDetailDto created = discoveryService
-                .createDiscovery(v2Request(List.of(Resource.CRYPTOGRAPHIC_KEY)), true);
+                .createDiscovery(v2Request(List.of(Resource.CRYPTOGRAPHIC_KEY)), true, false);
 
         // Without the association the run is a v1 run whatever the connector implements, so every later operation
         // routes to the wrong adapter.
@@ -994,7 +1000,8 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
 
         // A v2 connector discovers several kinds and cannot guess which was meant.
         DiscoveryDto request = v2Request(null);
-        Assertions.assertThrows(ValidationException.class, () -> discoveryService.createDiscovery(request, true));
+        Assertions
+                .assertThrows(ValidationException.class, () -> discoveryService.createDiscovery(request, true, false));
     }
 
     /**
@@ -1010,7 +1017,9 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         denyResourceAccess(Resource.CONNECTOR, ResourceAction.ANY);
         DiscoveryDto request = v2Request(List.of(Resource.CERTIFICATE));
 
-        Assertions.assertThrows(AccessDeniedException.class, () -> discoveryService.createDiscovery(request, true));
+        Assertions
+                .assertThrows(AccessDeniedException.class,
+                        () -> discoveryService.createDiscovery(request, true, false));
 
         mockServer.verify(0, WireMock.anyRequestedFor(WireMock.urlPathMatching("/v2/discoveryProvider/.*")));
     }
@@ -1029,7 +1038,9 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         DiscoveryDto request = v2Request(List.of(Resource.CERTIFICATE));
         request.setAttributes(List.of(credentialReference(aCredential())));
 
-        Assertions.assertThrows(AccessDeniedException.class, () -> discoveryService.createDiscovery(request, true));
+        Assertions
+                .assertThrows(AccessDeniedException.class,
+                        () -> discoveryService.createDiscovery(request, true, false));
 
         Assertions
                 .assertTrue(discoveryRepository.findByName(request.getName()).isEmpty(),
@@ -1049,7 +1060,9 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         DiscoveryDto request = v2Request(List.of(Resource.CERTIFICATE));
         request.setResourceAttributes(Map.of(Resource.CERTIFICATE, List.of(credentialReference(aCredential()))));
 
-        Assertions.assertThrows(AccessDeniedException.class, () -> discoveryService.createDiscovery(request, true));
+        Assertions
+                .assertThrows(AccessDeniedException.class,
+                        () -> discoveryService.createDiscovery(request, true, false));
 
         Assertions.assertTrue(discoveryRepository.findByName(request.getName()).isEmpty());
     }
@@ -1063,7 +1076,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         DiscoveryDto request = v2Request(List.of(Resource.CERTIFICATE));
         request.setAttributes(List.of(credentialReference(aCredential())));
 
-        DiscoveryDetailDto created = discoveryService.createDiscovery(request, true);
+        DiscoveryDetailDto created = discoveryService.createDiscovery(request, true, false);
 
         Assertions.assertNotNull(created.getUuid());
     }
@@ -1079,7 +1092,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         DiscoveryDto request = v2Request(List.of(Resource.CERTIFICATE));
         request.setAttributes(List.of(resourceReference(aCredential())));
 
-        DiscoveryDetailDto created = discoveryService.createDiscovery(request, true);
+        DiscoveryDetailDto created = discoveryService.createDiscovery(request, true, false);
 
         Assertions.assertNotNull(created.getUuid());
     }
@@ -1101,7 +1114,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
                                 List.of(new StringAttributeContentV2("10.0.0.1")))));
 
         ValidationException refused = Assertions
-                .assertThrows(ValidationException.class, () -> discoveryService.createDiscovery(request, true));
+                .assertThrows(ValidationException.class, () -> discoveryService.createDiscovery(request, true, false));
 
         Assertions.assertTrue(refused.getMessage().contains("data_hosts"), refused.getMessage());
         Assertions.assertTrue(refused.getMessage().contains("v3"), refused.getMessage());
@@ -1131,7 +1144,9 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
                                          "detail":"data_hosts entry \\"10.0.0.999\\" is not valid",
                                          "errorCode":"VALIDATION_FAILED","retryable":false}""")));
         UUID created = UUID
-                .fromString(discoveryService.createDiscovery(v2Request(List.of(Resource.CERTIFICATE)), true).getUuid());
+                .fromString(discoveryService
+                        .createDiscovery(v2Request(List.of(Resource.CERTIFICATE)), true, false)
+                        .getUuid());
 
         ConnectorProblemException refused = Assertions
                 .assertThrows(ConnectorProblemException.class, () -> discoveryService.startDiscovery(created));
@@ -1205,7 +1220,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         DiscoveryDto request = v2Request(List.of(Resource.VAULT));
 
         ValidationException refused = Assertions
-                .assertThrows(ValidationException.class, () -> discoveryService.createDiscovery(request, true));
+                .assertThrows(ValidationException.class, () -> discoveryService.createDiscovery(request, true, false));
 
         // Refused at create, where a caller is present. Accepted, it would open a run that fails at ingest instead.
         Assertions.assertTrue(refused.getMessage().contains("cannot report"), refused.getMessage());
@@ -1219,7 +1234,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         request.setResourceAttributes(Map.of(Resource.CERTIFICATE, List.of()));
 
         ValidationException refused = Assertions
-                .assertThrows(ValidationException.class, () -> discoveryService.createDiscovery(request, true));
+                .assertThrows(ValidationException.class, () -> discoveryService.createDiscovery(request, true, false));
         // The message, not just the type: unvalidated, the request reaches a v2 client call against a v1 connector,
         // which also fails -- but for a reason the caller cannot act on.
         Assertions.assertTrue(refused.getMessage().contains("per-resource attributes"), refused.getMessage());
@@ -1236,7 +1251,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         // The connector discovers keys, so the key is legal in itself -- it is this run that does not target them,
         // and filing attributes against it would store content nothing ever reads back.
         ValidationException refused = Assertions
-                .assertThrows(ValidationException.class, () -> discoveryService.createDiscovery(request, true));
+                .assertThrows(ValidationException.class, () -> discoveryService.createDiscovery(request, true, false));
         Assertions.assertTrue(refused.getMessage().contains("does not target"), refused.getMessage());
     }
 
@@ -1244,7 +1259,8 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
     void creatingAgainstAV1ConnectorRefusesResources() {
         // Accepting the field would let a caller believe they had selected something a v1 connector cannot honour.
         DiscoveryDto request = v2Request(List.of(Resource.CERTIFICATE));
-        Assertions.assertThrows(ValidationException.class, () -> discoveryService.createDiscovery(request, true));
+        Assertions
+                .assertThrows(ValidationException.class, () -> discoveryService.createDiscovery(request, true, false));
     }
 
     @Test
@@ -1255,7 +1271,8 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
 
         // Caught now, at one connector call, rather than by a run that opens and immediately fails.
         DiscoveryDto request = v2Request(List.of(Resource.CRYPTOGRAPHIC_KEY));
-        Assertions.assertThrows(ValidationException.class, () -> discoveryService.createDiscovery(request, true));
+        Assertions
+                .assertThrows(ValidationException.class, () -> discoveryService.createDiscovery(request, true, false));
     }
 
     @Test
@@ -1270,7 +1287,8 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         // which generation drives a run. Keying create on "v2" instead would leave a v9-only connector looking
         // like a legacy connector and silently drive it through the v1 adapter.
         DiscoveryDto request = v2Request(List.of(Resource.CERTIFICATE));
-        Assertions.assertThrows(ValidationException.class, () -> discoveryService.createDiscovery(request, true));
+        Assertions
+                .assertThrows(ValidationException.class, () -> discoveryService.createDiscovery(request, true, false));
     }
 
     @Test
@@ -1289,7 +1307,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
 
         DiscoveryDto request = v2Request(List.of(Resource.CERTIFICATE));
         request.setInterfaceUuid(chosen.getUuid());
-        DiscoveryDetailDto created = discoveryService.createDiscovery(request, true);
+        DiscoveryDetailDto created = discoveryService.createDiscovery(request, true, false);
 
         // Named explicitly, so the ambiguity that would otherwise be refused is resolved by the caller -- and the
         // detail says which interface drives the run rather than leaving a client to infer the generation.
@@ -1303,7 +1321,8 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
 
         DiscoveryDto request = v2Request(List.of(Resource.CERTIFICATE));
         request.setInterfaceUuid(UUID.randomUUID());
-        Assertions.assertThrows(ValidationException.class, () -> discoveryService.createDiscovery(request, true));
+        Assertions
+                .assertThrows(ValidationException.class, () -> discoveryService.createDiscovery(request, true, false));
     }
 
     @Test
@@ -1318,10 +1337,133 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         // Picking one silently would decide how the run is driven for its whole life, on no input from the caller.
         DiscoveryDto request = v2Request(List.of(Resource.CERTIFICATE));
         ValidationException refused = Assertions
-                .assertThrows(ValidationException.class, () -> discoveryService.createDiscovery(request, true));
+                .assertThrows(ValidationException.class, () -> discoveryService.createDiscovery(request, true, false));
         Assertions
                 .assertTrue(refused.getMessage().contains("interfaceUuid"),
                         "the refusal says how to resolve it: " + refused.getMessage());
+    }
+
+    @Test
+    void rejectsWindow_whenInterfaceLacksIncrementalFlag() {
+        // given
+        giveConnectorAV2DiscoveryInterface();
+        stubSupportedResources("""
+                [{"resource":"certificates"}]""");
+        DiscoveryDto request = v2Request(List.of(Resource.CERTIFICATE));
+        request.setWindow(aWindow(DiscoveryWindowMode.LOOKBACK, Duration.ofDays(1)));
+
+        // when
+        ThrowingCallable create = () -> discoveryService.createDiscovery(request, true, false);
+
+        // then
+        assertThatThrownBy(create)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("advertises discoveryIncremental");
+    }
+
+    @Test
+    void rejectsWindow_whenDiscoveryIsV1() {
+        // given — the connector of this test declares no discovery interface, so the run is a v1 run
+        DiscoveryDto request = new DiscoveryDto();
+        request.setName("created-" + UUID.randomUUID());
+        request.setConnectorUuid(connector.getUuid().toString());
+        request.setKind("IpAndPort");
+        request.setAttributes(List.of());
+        request.setWindow(aWindow(DiscoveryWindowMode.LOOKBACK, Duration.ofDays(1)));
+
+        // when
+        ThrowingCallable create = () -> discoveryService.createDiscovery(request, true, false);
+
+        // then
+        assertThatThrownBy(create)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("advertises discoveryIncremental");
+    }
+
+    @Test
+    void rejectsSinceLastSuccessfulRun_whenNotScheduled() {
+        // given
+        giveConnectorAnIncrementalV2DiscoveryInterface();
+        stubSupportedResources("""
+                [{"resource":"certificates"}]""");
+        DiscoveryDto request = v2Request(List.of(Resource.CERTIFICATE));
+        request.setWindow(aWindow(DiscoveryWindowMode.SINCE_LAST_SUCCESSFUL_RUN, null));
+
+        // when
+        ThrowingCallable create = () -> discoveryService.createDiscovery(request, true, false);
+
+        // then
+        assertThatThrownBy(create)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("sinceLastSuccessfulRun is available only for a scheduled discovery");
+    }
+
+    @Test
+    void acceptsSinceLastSuccessfulRun_whenScheduled() throws Exception {
+        // given
+        giveConnectorAnIncrementalV2DiscoveryInterface();
+        stubSupportedResources("""
+                [{"resource":"certificates"}]""");
+        DiscoveryDto request = v2Request(List.of(Resource.CERTIFICATE));
+        request.setWindow(aWindow(DiscoveryWindowMode.SINCE_LAST_SUCCESSFUL_RUN, null));
+
+        // when
+        DiscoveryDetailDto created = discoveryService.createDiscovery(request, true, true);
+
+        // then
+        Discovery stored = discoveryRepository.findByUuid(UUID.fromString(created.getUuid())).orElseThrow();
+        assertThat(stored.getWindowMode()).isEqualTo(DiscoveryWindowMode.SINCE_LAST_SUCCESSFUL_RUN);
+        assertThat(stored.getWindowLookback()).isNull();
+    }
+
+    @Test
+    void storesLookbackWindow_whenInterfaceAdvertisesIncrementalFlag() throws Exception {
+        // given
+        giveConnectorAnIncrementalV2DiscoveryInterface();
+        stubSupportedResources("""
+                [{"resource":"certificates"}]""");
+        DiscoveryDto request = v2Request(List.of(Resource.CERTIFICATE));
+        request.setWindow(aWindow(DiscoveryWindowMode.LOOKBACK, Duration.ofHours(6)));
+
+        // when
+        DiscoveryDetailDto created = discoveryService.createDiscovery(request, true, false);
+
+        // then
+        Discovery stored = discoveryRepository.findByUuid(UUID.fromString(created.getUuid())).orElseThrow();
+        assertThat(stored.getWindowMode()).isEqualTo(DiscoveryWindowMode.LOOKBACK);
+        assertThat(stored.getWindowLookback()).isEqualTo(Duration.ofHours(6));
+    }
+
+    @Test
+    void acceptsFullWindow_whenInterfaceLacksIncrementalFlag() throws Exception {
+        // given
+        giveConnectorAV2DiscoveryInterface();
+        stubSupportedResources("""
+                [{"resource":"certificates"}]""");
+        DiscoveryDto request = v2Request(List.of(Resource.CERTIFICATE));
+        request.setWindow(aWindow(DiscoveryWindowMode.FULL, null));
+
+        // when
+        DiscoveryDetailDto created = discoveryService.createDiscovery(request, true, false);
+
+        // then
+        assertThat(created.getUuid()).isNotNull();
+    }
+
+    private void giveConnectorAnIncrementalV2DiscoveryInterface() {
+        ConnectorInterfaceEntity iface = new ConnectorInterfaceEntity();
+        iface.setConnectorUuid(connector.getUuid());
+        iface.setInterfaceCode(ConnectorInterface.DISCOVERY);
+        iface.setVersion("v2");
+        iface.setFeatures(List.of(FeatureFlag.DISCOVERY_INCREMENTAL));
+        connectorInterfaceRepository.save(iface);
+    }
+
+    private static DiscoveryWindowDto aWindow(DiscoveryWindowMode mode, Duration lookback) {
+        DiscoveryWindowDto window = new DiscoveryWindowDto();
+        window.setMode(mode);
+        window.setLookback(lookback);
+        return window;
     }
 
     private DiscoveryDto v2Request(List<Resource> resources) {
@@ -1406,7 +1548,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         stubSupportedResources("""
                 [{"resource":"certificates"}]""");
 
-        discoveryService.createDiscovery(v2Request(List.of(Resource.CERTIFICATE)), true);
+        discoveryService.createDiscovery(v2Request(List.of(Resource.CERTIFICATE)), true, false);
 
         // The v1 kind-scoped endpoint is what mergeAndValidateAttributes reads, and a v2-only connector does not
         // implement it; the run-level schema comes from the v2 relay instead.
@@ -1432,7 +1574,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         DiscoveryDto request = v2Request(List.of(Resource.CERTIFICATE));
 
         Assertions
-                .assertThrows(ValidationException.class, () -> discoveryService.createDiscovery(request, true),
+                .assertThrows(ValidationException.class, () -> discoveryService.createDiscovery(request, true, false),
                         "a run targeting a resource whose schema requires an attribute must not be created without it");
         Assertions
                 .assertTrue(discoveryRepository.findByName(request.getName()).isEmpty(),
@@ -1632,7 +1774,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         dto.setConnectorUuid(connector.getUuid().toString());
         dto.setAttributes(List.of());
 
-        UUID discoveryUuid = UUID.fromString(discoveryService.createDiscovery(dto, true).getUuid());
+        UUID discoveryUuid = UUID.fromString(discoveryService.createDiscovery(dto, true, false).getUuid());
         Assertions
                 .assertEquals(List.of(Resource.CERTIFICATE),
                         discoveryRepository.findByUuid(discoveryUuid).orElseThrow().getResources());
@@ -1652,7 +1794,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         dto.setConnectorUuid(connector.getUuid().toString());
         dto.setAttributes(List.of());
 
-        UUID discoveryUuid = UUID.fromString(discoveryService.createDiscovery(dto, true).getUuid());
+        UUID discoveryUuid = UUID.fromString(discoveryService.createDiscovery(dto, true, false).getUuid());
 
         discoveryInternalService.runDiscovery(discoveryUuid, null);
 
@@ -1677,7 +1819,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         Assertions.assertEquals(DiscoveryStatus.COMPLETED, persisted.getStatus());
 
         dto.setName("RunDiscoveryDuplicated-" + UUID.randomUUID());
-        discoveryUuid = UUID.fromString(discoveryService.createDiscovery(dto, true).getUuid());
+        discoveryUuid = UUID.fromString(discoveryService.createDiscovery(dto, true, false).getUuid());
         discoveryInternalService.runDiscovery(discoveryUuid, null);
 
         persisted = discoveryRepository.findByUuid(discoveryUuid).orElseThrow();
@@ -1721,7 +1863,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
                         .willReturn(WireMock.okJson(discoveryDataResponse)));
 
         dto.setName("RunDiscoveryLongRunning-" + UUID.randomUUID());
-        discoveryUuid = UUID.fromString(discoveryService.createDiscovery(dto, true).getUuid());
+        discoveryUuid = UUID.fromString(discoveryService.createDiscovery(dto, true, false).getUuid());
 
         discoveryInternalService.runDiscovery(discoveryUuid, null);
 
@@ -1746,7 +1888,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
                         .willReturn(WireMock.okJson(discoveryStartResponse)));
 
         dto.setName("RunDiscoveryLongRunning2-" + UUID.randomUUID());
-        discoveryUuid = UUID.fromString(discoveryService.createDiscovery(dto, true).getUuid());
+        discoveryUuid = UUID.fromString(discoveryService.createDiscovery(dto, true, false).getUuid());
 
         persisted = discoveryRepository.findByUuid(discoveryUuid).orElseThrow();
         persisted.setStartTime(OffsetDateTime.now().minusDays(7));
@@ -1790,7 +1932,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         dto.setKind("IpAndPort");
         dto.setConnectorUuid(connector.getUuid().toString());
         dto.setAttributes(List.of());
-        return UUID.fromString(discoveryService.createDiscovery(dto, true).getUuid());
+        return UUID.fromString(discoveryService.createDiscovery(dto, true, false).getUuid());
     }
 
     /** Registered after {@code setUp}'s defaults, so it wins for the start endpoint. */
@@ -2079,7 +2221,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
                         .of(new RequestAttributeV2(UUID.fromString("7f7f0000-0000-4000-8000-000000000002"),
                                 "credential", AttributeContentType.CREDENTIAL,
                                 List.of(new CredentialAttributeContentV2("broken-reference", identity)))));
-        UUID discoveryUuid = UUID.fromString(discoveryService.createDiscovery(dto, true).getUuid());
+        UUID discoveryUuid = UUID.fromString(discoveryService.createDiscovery(dto, true, false).getUuid());
 
         discoveryInternalService.runDiscovery(discoveryUuid, null);
 
