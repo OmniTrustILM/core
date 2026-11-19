@@ -5,6 +5,7 @@ import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.SignatureInputMode;
 import com.otilm.api.model.core.signing.SigningProtocol;
+import com.otilm.core.aop.OutsideTransaction;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.resolved.ResolvedManagedRawSigningProfile;
 import com.otilm.core.model.signing.resolved.ResolvedManagedScheme;
@@ -60,6 +61,7 @@ public class ManagedRawSigningEngine {
      * @param protocol how the run was initiated, which is what its signing records will carry
      * @return the signatures in request order
      */
+    @OutsideTransaction
     public RawSigningResult sign(RawSigningRequest request, SigningProfileModel<?, ?> model,
             ResolvedManagedRawSigningProfile profile, SigningProtocol protocol) throws SigningEngineException {
         try {
