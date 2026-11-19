@@ -5,23 +5,33 @@ import com.otilm.api.model.core.scheduler.ScheduleDiscoveryDto;
 import com.otilm.core.service.DiscoveryExternalService;
 import com.otilm.core.service.SchedulerExternalService;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+@ExtendWith(MockitoExtension.class)
 class DiscoveryControllerImplTest {
 
-    private final DiscoveryExternalService discoveryService = mock(DiscoveryExternalService.class);
-    private final SchedulerExternalService schedulerService = mock(SchedulerExternalService.class);
-    private final DiscoveryControllerImpl controller = new DiscoveryControllerImpl();
+    @Mock
+    private DiscoveryExternalService discoveryService;
 
-    DiscoveryControllerImplTest() {
+    @Mock
+    private SchedulerExternalService schedulerService;
+
+    private DiscoveryControllerImpl controller;
+
+    @BeforeEach
+    void wireController() {
+        controller = new DiscoveryControllerImpl();
         controller.setDiscoveryService(discoveryService);
         controller.setSchedulerService(schedulerService);
     }
