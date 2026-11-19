@@ -483,8 +483,9 @@ class ExternalAuthorizationCoreTest {
     }
 
     @Test
-    void grantsWithoutAskingOpa_whenThePrincipalMayUseEveryResourceOutsideASnapshot() {
+    void asksOpa_whenThePrincipalMayUseEveryResourceOutsideASnapshot() {
         // given
+        when(opaClient.checkResourceAccess(any(), any(), any(), any())).thenReturn(accessGranted());
         Authentication authentication = PrincipalFixtures
                 .authentication(PrincipalFixtures.adminProfile(UUID.randomUUID().toString(), "admin"));
         AuthorizationRequest request = AuthorizationRequest
@@ -496,7 +497,7 @@ class ExternalAuthorizationCoreTest {
 
         // then
         assertThat(decision.isGranted()).isTrue();
-        verifyNoInteractions(opaClient);
+        verify(opaClient).checkResourceAccess(any(), any(), any(), any());
     }
 
     @Test

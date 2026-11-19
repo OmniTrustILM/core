@@ -100,7 +100,7 @@ class ExternalAuthorizationCore {
 
     private AllResourcesGrant grantFor(String principal) {
         AssociationSnapshot active = snapshot.get();
-        return active != null && active.hasRawData(principal) ? active.grant() : AllResourcesGrant.of(om, principal);
+        return active != null && active.hasRawData(principal) ? active.grant() : AllResourcesGrant.NONE;
     }
 
     AuthorizationDecision decide(Authentication authentication, AuthorizationRequest request) {
