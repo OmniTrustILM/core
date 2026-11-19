@@ -3226,7 +3226,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
             X509Certificate certifiedByA = crossCertify(keyPairA, "CN=Issuer Cycle A", keyPairB, "CN=Issuer Cycle B");
             Certificate certificateA = uploadCertificate(Base64.getEncoder().encodeToString(certifiedByB.getEncoded()));
             Certificate certificateB = uploadCertificate(Base64.getEncoder().encodeToString(certifiedByA.getEncoded()));
-            // validating B links it to A; validating A then links A to B, which closes the cycle
+            // validating B links it to A; validating A then links A to B
             certificateService.validate(loadAsValidationListenerDoes(certificateB));
             Certificate cycleMember = loadAsValidationListenerDoes(certificateA);
 

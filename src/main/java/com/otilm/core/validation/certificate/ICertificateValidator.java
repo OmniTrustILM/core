@@ -9,11 +9,11 @@ import java.util.List;
 public interface ICertificateValidator {
 
     /**
-     * Validates a certificate along the chain the caller built for it and stores the result for every certificate in
-     * the chain; an issued certificate that OCSP or a CRL reports as revoked is marked revoked.
+     * Validates the chain's first certificate and stores a result for every certificate in the chain, marking an issued
+     * certificate revoked when OCSP or a CRL reports it.
      *
-     * @param certificateChain the certificate under validation first, then each issuer in turn; validate along this
-     * chain, not along the certificates' issuer links
+     * @param certificateChain the certificate to validate, then each issuer in turn; follow this chain, not the
+     * certificates' issuer links
      * @param isCompleteChain whether the chain ends in a self-signed certificate
      * @return the validation status of the first certificate in the chain
      */
