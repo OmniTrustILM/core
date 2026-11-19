@@ -9,8 +9,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Runs a method that waits on an external system with no transaction and without the request's open-in-view
- * EntityManager, so each short transaction inside releases its connection when it commits. A caller's transaction is
- * only suspended and keeps its connection.
+ * EntityManager, so each short transaction inside runs on an EntityManager of its own and flushes nothing the request
+ * has read. A caller's transaction is only suspended and keeps its connection.
  */
 @Target(ElementType.METHOD)
 @Retention(RetentionPolicy.RUNTIME)

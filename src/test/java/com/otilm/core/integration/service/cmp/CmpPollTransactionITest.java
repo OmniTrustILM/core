@@ -320,8 +320,8 @@ class CmpPollTransactionITest extends BaseSpringBootTest {
     }
 
     /**
-     * The request's EntityManager keeps the connection its first read takes. A transaction that needs a second one
-     * waits for the pool while holding the first, and when every request does that the pool deadlocks.
+     * The revocation's transaction runs on the request's EntityManager. On a second one, while the request's still held
+     * a connection, it would wait for the pool holding the first, and when every request does that the pool deadlocks.
      */
     @Test
     void revokesOnTheRequestsOwnConnection_whenTheRequestAlreadyHoldsOne() throws Exception {

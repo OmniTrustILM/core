@@ -322,6 +322,11 @@ spring:
     properties:
       hibernate:
         default_schema: ${DB_SCHEMA:core}
+        # Return the connection when a transaction ends, and after each read outside one, instead of when the
+        # EntityManager closes. Held until then, a read in a NOT_SUPPORTED scope keeps its connection while the
+        # transactions the scope starts take another, and enough concurrent requests deadlock the pool.
+        connection:
+          handling_mode: DELAYED_ACQUISITION_AND_RELEASE_AFTER_TRANSACTION
         jdbc:
           batch_size: 500
         order_inserts: true

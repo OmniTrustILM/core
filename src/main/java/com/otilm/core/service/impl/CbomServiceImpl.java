@@ -389,11 +389,9 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
      *
      * <p>
      * That second gate asks the authorization service over HTTP, so nothing here may hold a database connection while
-     * it does. {@code NOT_SUPPORTED} keeps the class-level transaction off, and the CBOM is looked up only after the
-     * listing: under open-in-view the request's EntityManager keeps the connection its first read takes until the
-     * response is written, so a lookup ahead of the gate would hold that connection across the call. An unknown CBOM is
-     * still a 404 -- the listing scoped to it is empty, and the lookup then refuses it -- except to a caller who may
-     * not list assets, whom that gate refuses first.
+     * it does: {@code NOT_SUPPORTED} keeps the class-level transaction off. The CBOM is looked up after the listing,
+     * and an unknown CBOM is still a 404 -- the listing scoped to it is empty, and the lookup then refuses it -- except
+     * to a caller who may not list assets, whom that gate refuses first.
      */
     @Override
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
