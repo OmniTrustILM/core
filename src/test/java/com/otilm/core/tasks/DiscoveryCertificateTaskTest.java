@@ -1,11 +1,16 @@
 package com.otilm.core.tasks;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.otilm.api.model.client.discovery.DiscoveryDto;
+import com.otilm.api.model.client.discovery.DiscoveryWindowDto;
+import com.otilm.api.model.client.discovery.DiscoveryWindowMode;
 import com.otilm.api.model.scheduler.SchedulerJobExecutionStatus;
 import com.otilm.core.model.ScheduledTaskResult;
 import com.otilm.core.service.DiscoveryExternalService;
+import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -109,5 +114,35 @@ class DiscoveryCertificateTaskTest {
 
         // then
         verify(discoveryService).createDiscovery(any(DiscoveryDto.class), eq(true), eq(true));
+    }
+
+    @Test
+    void keepsLookbackWindow_whenStoredJobDataCarriesOne() throws Exception {
+        // given
+        var mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        DiscoveryCertificateTask task = new DiscoveryCertificateTask();
+        task.setMapper(mapper);
+        task.setTransactionManager(transactionManager);
+        task.setDiscoveryService(discoveryService);
+        when(transactionManager.getTransaction(any())).thenReturn(transactionStatus);
+        when(discoveryService.createDiscovery(any(DiscoveryDto.class), eq(true), eq(true)))
+                .thenThrow(new IllegalStateException("stop after creation"));
+        var threeDays = Duration.ofDays(3);
+        var window = new DiscoveryWindowDto();
+        window.setMode(DiscoveryWindowMode.LOOKBACK);
+        window.setLookback(threeDays);
+        var request = new DiscoveryDto();
+        request.setName("nightly");
+        request.setWindow(window);
+        Object storedJobData = mapper.convertValue(request, Map.class);
+
+        // when
+        task.performJob(new ScheduledJobInfo("nightly-job"), storedJobData);
+
+        // then
+        var created = ArgumentCaptor.forClass(DiscoveryDto.class);
+        verify(discoveryService).createDiscovery(created.capture(), eq(true), eq(true));
+        assertThat(created.getValue().getWindow().getMode()).isEqualTo(DiscoveryWindowMode.LOOKBACK);
+        assertThat(created.getValue().getWindow().getLookback()).isEqualTo(threeDays);
     }
 }

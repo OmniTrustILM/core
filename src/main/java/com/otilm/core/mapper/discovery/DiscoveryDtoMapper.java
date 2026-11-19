@@ -118,7 +118,7 @@ public class DiscoveryDtoMapper {
         return isV2Run ? DiscoveryDeliveryMode.BUFFERED : null;
     }
 
-    /** The window the run was asked to cover; null for a run that predates it. */
+    /** The window the run was asked to cover; null when the run was created without one. */
     private static DiscoveryWindowDto windowOf(Discovery discovery) {
         if (discovery.getWindowMode() == null) {
             return null;

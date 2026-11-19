@@ -54,6 +54,9 @@ public class DiscoveryWindowResolver {
         return Optional.of(now.minus(lookback));
     }
 
+    /**
+     * A run that ended WARNING counts: the scheduler records it as SUCCESS, so what it missed waits for a full run.
+     */
     private Optional<OffsetDateTime> lastSuccessfulRun(ScheduledJobInfo jobInfo) {
         if (jobInfo == null || jobInfo.jobUuid() == null) {
             return Optional.empty();

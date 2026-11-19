@@ -88,12 +88,12 @@ class DiscoveryDtoMapperTest {
     }
 
     @Test
-    void omitsWindow_whenRunPredatesIt() {
+    void omitsWindow_whenRunHasNone() {
         // given
-        Discovery predating = run();
+        Discovery withoutWindow = run();
 
         // when
-        DiscoveryDetailDto dto = DiscoveryDtoMapper.toDetailDto(predating, noCounts());
+        DiscoveryDetailDto dto = DiscoveryDtoMapper.toDetailDto(withoutWindow, noCounts());
 
         // then
         assertThat(dto.getWindow()).isNull();

@@ -174,7 +174,7 @@ public class Discovery extends UniquelyIdentifiedAndAudited implements Serializa
 
     // ---- How much of the target it covers ----
 
-    // The window the run was asked to cover. Null on a run that predates it, which covered the whole target.
+    // The window the run was asked to cover. Null when the request gave none; the run then covers the whole target.
     @Column(name = "window_mode")
     @Convert(converter = DiscoveryWindowModeConverter.class)
     private DiscoveryWindowMode windowMode;
