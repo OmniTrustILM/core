@@ -15,6 +15,7 @@ import com.otilm.core.messaging.jms.configuration.StatusPollProperties;
 import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.writer.discovery.DiscoveryRunWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
+import com.otilm.core.tasks.ScheduledJobInfo;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -92,7 +93,7 @@ class DiscoveryProviderV2AdapterStartTest {
     }
 
     @Test
-    void recordsDiscoverSince_onInitiatedRun() throws Exception {
+    void recordsDiscoverSince_whenRunIsInitiated() throws Exception {
         // given
         var resolvedStart = OffsetDateTime.parse("2026-11-01T10:15:30Z");
         Discovery run = aWindowedRun(DiscoveryWindowMode.LOOKBACK);
@@ -128,6 +129,7 @@ class DiscoveryProviderV2AdapterStartTest {
 
         // then
         assertThatThrownBy(start).isInstanceOf(IllegalStateException.class);
+        verify(client, never()).supportedResources(any());
         verify(client, never()).initiate(any());
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Function<Discovery, DiscoveryRunTerminator.Ending>> ending = ArgumentCaptor
@@ -153,6 +155,7 @@ class DiscoveryProviderV2AdapterStartTest {
 
         // then
         assertThatThrownBy(start).isInstanceOf(IllegalStateException.class);
+        verify(client, never()).supportedResources(any());
         verify(client, never()).initiate(any());
         verify(terminator).endWith(eq(runUuid), any());
     }
@@ -174,6 +177,79 @@ class DiscoveryProviderV2AdapterStartTest {
         assertThatThrownBy(start).isInstanceOf(IllegalStateException.class);
         verifyNoInteractions(windowResolver);
         verify(client).initiate(run);
+    }
+
+    @Test
+    void startsFullRunWithoutResolvingWindow_whenFullWindowOnInterfaceWithoutIncrementalFlag() throws Exception {
+        // given
+        Discovery run = aWindowedRun(DiscoveryWindowMode.FULL);
+        when(capabilityService.supports(any(ConnectorInterfaceEntity.class), eq(FeatureFlag.DISCOVERY_INCREMENTAL)))
+                .thenReturn(false);
+        when(client.initiate(run)).thenReturn(emptyInitiateResponse());
+        when(discoveryRepository.findWithLockByUuid(run.getUuid())).thenReturn(Optional.of(copyOf(run)));
+        when(detailCounts.forRun(any())).thenThrow(new IllegalStateException("counts unavailable"));
+        when(terminator.endWith(eq(run.getUuid()), any())).thenReturn(true);
+        UUID runUuid = run.getUuid();
+
+        // when
+        ThrowingCallable start = () -> adapter.start(runUuid, null);
+
+        // then
+        assertThatThrownBy(start).isInstanceOf(IllegalStateException.class);
+        verifyNoInteractions(windowResolver);
+        verify(client).initiate(run);
+    }
+
+    @Test
+    void sendsAndRecordsLastSuccessfulRun_whenScheduledJobStartsIncrementalRun() throws Exception {
+        // given
+        var lastSuccessfulRun = OffsetDateTime.parse("2026-11-18T02:00:00Z");
+        var jobInfo = new ScheduledJobInfo("nightly-job", UUID.randomUUID(), UUID.randomUUID());
+        Discovery run = aWindowedRun(DiscoveryWindowMode.SINCE_LAST_SUCCESSFUL_RUN);
+        Discovery locked = copyOf(run);
+        when(discoveryRepository.findWithLockByUuid(run.getUuid())).thenReturn(Optional.of(locked));
+        when(windowResolver.resolve(DiscoveryWindowMode.SINCE_LAST_SUCCESSFUL_RUN, null, jobInfo))
+                .thenReturn(Optional.of(lastSuccessfulRun));
+        when(client.initiate(run)).thenReturn(emptyInitiateResponse());
+        when(detailCounts.forRun(any())).thenThrow(new IllegalStateException("counts unavailable"));
+        when(terminator.endWith(eq(run.getUuid()), any())).thenReturn(true);
+        UUID runUuid = run.getUuid();
+
+        // when
+        ThrowingCallable start = () -> adapter.start(runUuid, jobInfo);
+
+        // then
+        assertThatThrownBy(start).isInstanceOf(IllegalStateException.class);
+        var sent = ArgumentCaptor.forClass(Discovery.class);
+        verify(client).initiate(sent.capture());
+        assertThat(sent.getValue().getDiscoverSince()).isEqualTo(lastSuccessfulRun);
+        assertThat(locked.getDiscoverSince()).isEqualTo(lastSuccessfulRun);
+    }
+
+    @Test
+    void keepsResolvedDiscoverSince_whenInitiateFails() throws Exception {
+        // given
+        var resolvedStart = OffsetDateTime.parse("2026-11-01T10:15:30Z");
+        Discovery run = aWindowedRun(DiscoveryWindowMode.LOOKBACK);
+        when(windowResolver.resolve(eq(DiscoveryWindowMode.LOOKBACK), eq(run.getWindowLookback()), isNull()))
+                .thenReturn(Optional.of(resolvedStart));
+        when(client.initiate(run)).thenThrow(new IllegalStateException("initiate timed out"));
+        when(detailCounts.forRun(any())).thenThrow(new IllegalStateException("counts unavailable"));
+        when(terminator.endWith(eq(run.getUuid()), any())).thenReturn(true);
+        UUID runUuid = run.getUuid();
+
+        // when
+        ThrowingCallable start = () -> adapter.start(runUuid, null);
+
+        // then
+        assertThatThrownBy(start).isInstanceOf(IllegalStateException.class);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Function<Discovery, DiscoveryRunTerminator.Ending>> ending = ArgumentCaptor
+                .forClass(Function.class);
+        verify(terminator).endWith(eq(runUuid), ending.capture());
+        Discovery failed = copyOf(run);
+        ending.getValue().apply(failed);
+        assertThat(failed.getDiscoverSince()).isEqualTo(resolvedStart);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

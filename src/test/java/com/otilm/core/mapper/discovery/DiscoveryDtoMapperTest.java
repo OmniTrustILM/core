@@ -55,7 +55,7 @@ class DiscoveryDtoMapperTest {
     }
 
     @Test
-    void mapsWindow_whenRunHasOne() {
+    void mapsLookbackAndDiscoverSince_whenRunHasLookbackWindow() {
         // given
         var oneDay = Duration.ofDays(1);
         var since = OffsetDateTime.parse("2026-11-17T10:15:30Z");
@@ -63,19 +63,28 @@ class DiscoveryDtoMapperTest {
         lookback.setWindowMode(DiscoveryWindowMode.LOOKBACK);
         lookback.setWindowLookback(oneDay);
         lookback.setDiscoverSince(since);
+
+        // when
+        DiscoveryDetailDto dto = DiscoveryDtoMapper.toDetailDto(lookback, noCounts());
+
+        // then
+        assertThat(dto.getWindow().getMode()).isEqualTo(DiscoveryWindowMode.LOOKBACK);
+        assertThat(dto.getWindow().getLookback()).isEqualTo(oneDay);
+        assertThat(dto.getDiscoverSince()).isEqualTo(since);
+    }
+
+    @Test
+    void mapsModeWithoutLookback_whenRunHasSinceLastSuccessfulRunWindow() {
+        // given
         Discovery sinceLastRun = run();
         sinceLastRun.setWindowMode(DiscoveryWindowMode.SINCE_LAST_SUCCESSFUL_RUN);
 
         // when
-        DiscoveryDetailDto lookbackDto = DiscoveryDtoMapper.toDetailDto(lookback, noCounts());
-        DiscoveryDetailDto sinceLastRunDto = DiscoveryDtoMapper.toDetailDto(sinceLastRun, noCounts());
+        DiscoveryDetailDto dto = DiscoveryDtoMapper.toDetailDto(sinceLastRun, noCounts());
 
         // then
-        assertThat(lookbackDto.getWindow().getMode()).isEqualTo(DiscoveryWindowMode.LOOKBACK);
-        assertThat(lookbackDto.getWindow().getLookback()).isEqualTo(oneDay);
-        assertThat(lookbackDto.getDiscoverSince()).isEqualTo(since);
-        assertThat(sinceLastRunDto.getWindow().getMode()).isEqualTo(DiscoveryWindowMode.SINCE_LAST_SUCCESSFUL_RUN);
-        assertThat(sinceLastRunDto.getWindow().getLookback()).isNull();
+        assertThat(dto.getWindow().getMode()).isEqualTo(DiscoveryWindowMode.SINCE_LAST_SUCCESSFUL_RUN);
+        assertThat(dto.getWindow().getLookback()).isNull();
     }
 
     @Test

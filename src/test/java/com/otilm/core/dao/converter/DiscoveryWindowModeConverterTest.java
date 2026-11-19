@@ -24,16 +24,25 @@ class DiscoveryWindowModeConverterTest {
     }
 
     @Test
-    void keepsNull_whenNothingIsStoredOrRead() {
+    void storesNull_whenNothingIsStored() {
         // given
         DiscoveryWindowMode absent = null;
 
         // when
         String stored = converter.convertToDatabaseColumn(absent);
-        DiscoveryWindowMode read = converter.convertToEntityAttribute(null);
 
         // then
         assertThat(stored).isNull();
+    }
+
+    @Test
+    void readsNull_whenColumnIsNull() {
+        // given — the column holds no value
+
+        // when
+        DiscoveryWindowMode read = converter.convertToEntityAttribute(null);
+
+        // then
         assertThat(read).isNull();
     }
 }

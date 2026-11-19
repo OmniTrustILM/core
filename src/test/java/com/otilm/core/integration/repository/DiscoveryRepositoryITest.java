@@ -119,7 +119,7 @@ class DiscoveryRepositoryITest extends BaseSpringBootTest {
     }
 
     @Test
-    void persistsWindowAndDiscoverSince() {
+    void restoresWindowAndDiscoverSince_whenRunIsReloaded() {
         // given
         var lookback = Duration.ofHours(36);
         var discoverSince = OffsetDateTime.now(ZoneOffset.UTC).minus(lookback).truncatedTo(ChronoUnit.MICROS);

@@ -108,11 +108,11 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
         Discovery run = runToStart(discoveryUuid);
         try {
             // Outside any transaction, by DiscoveryV2Client's own NOT_SUPPORTED boundary.
-            validateResources(run);
             resolveWindow(run, scheduledJobInfo);
+            validateResources(run);
             return recordOrDrop(run, client.initiate(run), scheduledJobInfo);
         } catch (Exception e) {
-            return failStart(discoveryUuid, e);
+            return failStart(discoveryUuid, run.getDiscoverSince(), e);
         }
     }
 
@@ -121,8 +121,8 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
         Discovery run = runToStart(discoveryUuid);
         DiscoveryInitiateResponseDto response;
         try {
-            validateResources(run);
             resolveWindow(run, null);
+            validateResources(run);
             response = client.initiate(run);
         } catch (Exception e) {
             if (DiscoveryConnectorErrors.isConfigurationRefused(e)) {
@@ -131,12 +131,12 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
                 runWriter.discardUnstartedRun(discoveryUuid);
                 throw (ConnectorProblemException) e;
             }
-            return failStart(discoveryUuid, e);
+            return failStart(discoveryUuid, run.getDiscoverSince(), e);
         }
         try {
             return recordOrDrop(run, response, null);
         } catch (Exception e) {
-            return failStart(discoveryUuid, e);
+            return failStart(discoveryUuid, run.getDiscoverSince(), e);
         }
     }
 
@@ -151,7 +151,8 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
         return run;
     }
 
-    private DiscoveryDetailDto failStart(UUID discoveryUuid, Exception e) {
+    /** Ends a run that could not be started, keeping the instant it resolved so the detail shows what was asked. */
+    private DiscoveryDetailDto failStart(UUID discoveryUuid, OffsetDateTime discoverSince, Exception e) {
         if (e instanceof InterruptedException) {
             Thread.currentThread().interrupt();
         }
@@ -160,6 +161,7 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
             // Whoever asked for the run is still on the thread and reports this failure to the scheduler itself;
             // announcing it here as well would finalize the same job history twice.
             failing.setScheduledJobHistoryUuid(null);
+            failing.setDiscoverSince(discoverSince);
             return new DiscoveryRunTerminator.Ending(DiscoveryStatus.FAILED, startFailureReason(e));
         });
         return detailOf(discoveryUuid);

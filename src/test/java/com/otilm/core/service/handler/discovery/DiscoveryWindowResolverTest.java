@@ -16,6 +16,9 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.NullSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -38,23 +41,23 @@ class DiscoveryWindowResolverTest {
         resolver = new DiscoveryWindowResolver(historyRepository, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
-    @Test
-    void resolvesNone_whenModeIsFullOrNull() {
+    @ParameterizedTest
+    @NullSource
+    @EnumSource(value = DiscoveryWindowMode.class, names = "FULL")
+    void resolvesNone_whenModeIsFullOrUnset(DiscoveryWindowMode fullOrUnset) {
         // given
         var jobInfo = new ScheduledJobInfo("job", UUID.randomUUID(), UUID.randomUUID());
 
         // when
-        Optional<OffsetDateTime> full = resolver.resolve(DiscoveryWindowMode.FULL, Duration.ofDays(1), jobInfo);
-        Optional<OffsetDateTime> unset = resolver.resolve(null, Duration.ofDays(1), jobInfo);
+        Optional<OffsetDateTime> since = resolver.resolve(fullOrUnset, Duration.ofDays(1), jobInfo);
 
         // then
-        assertThat(full).isEmpty();
-        assertThat(unset).isEmpty();
+        assertThat(since).isEmpty();
         verifyNoInteractions(historyRepository);
     }
 
     @Test
-    void resolvesNowMinusLookback() {
+    void resolvesNowMinusLookback_whenModeIsLookback() {
         // given
         var lookback = Duration.ofDays(1);
 
@@ -78,7 +81,7 @@ class DiscoveryWindowResolverTest {
     }
 
     @Test
-    void resolvesLastSuccessfulJobExecution() {
+    void resolvesLastSuccessfulJobExecution_whenJobHasSucceededBefore() {
         // given
         var jobInfo = new ScheduledJobInfo("job", UUID.randomUUID(), UUID.randomUUID());
         var lastSuccess = new ScheduledJobHistory();

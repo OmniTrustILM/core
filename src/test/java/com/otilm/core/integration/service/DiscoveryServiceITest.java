@@ -1359,6 +1359,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         assertThatThrownBy(create)
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("advertises discoveryIncremental");
+        mockServer.verify(0, WireMock.anyRequestedFor(WireMock.urlPathMatching("/v2/discoveryProvider/.*")));
     }
 
     @Test
@@ -1448,22 +1449,6 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
 
         // then
         assertThat(created.getUuid()).isNotNull();
-    }
-
-    private void giveConnectorAnIncrementalV2DiscoveryInterface() {
-        ConnectorInterfaceEntity iface = new ConnectorInterfaceEntity();
-        iface.setConnectorUuid(connector.getUuid());
-        iface.setInterfaceCode(ConnectorInterface.DISCOVERY);
-        iface.setVersion("v2");
-        iface.setFeatures(List.of(FeatureFlag.DISCOVERY_INCREMENTAL));
-        connectorInterfaceRepository.save(iface);
-    }
-
-    private static DiscoveryWindowDto aWindow(DiscoveryWindowMode mode, Duration lookback) {
-        DiscoveryWindowDto window = new DiscoveryWindowDto();
-        window.setMode(mode);
-        window.setLookback(lookback);
-        return window;
     }
 
     private DiscoveryDto v2Request(List<Resource> resources) {
@@ -2298,5 +2283,21 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
                 .stream()
                 .map(MetadataAttribute::getName)
                 .toList();
+    }
+
+    private void giveConnectorAnIncrementalV2DiscoveryInterface() {
+        ConnectorInterfaceEntity iface = new ConnectorInterfaceEntity();
+        iface.setConnectorUuid(connector.getUuid());
+        iface.setInterfaceCode(ConnectorInterface.DISCOVERY);
+        iface.setVersion("v2");
+        iface.setFeatures(List.of(FeatureFlag.DISCOVERY_INCREMENTAL));
+        connectorInterfaceRepository.save(iface);
+    }
+
+    private static DiscoveryWindowDto aWindow(DiscoveryWindowMode mode, Duration lookback) {
+        DiscoveryWindowDto window = new DiscoveryWindowDto();
+        window.setMode(mode);
+        window.setLookback(lookback);
+        return window;
     }
 }

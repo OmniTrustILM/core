@@ -953,8 +953,8 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
             authorizationEnforcer
                     .enforce(Resource.CONNECTOR, ResourceAction.ANY, SecuredUUID.fromUUID(connector.getUuid()));
         }
-        validateRequestedResources(request, connector, discoveryInterface);
         validateWindow(request, discoveryInterface, scheduled);
+        validateRequestedResources(request, connector, discoveryInterface);
         validateRunAttributes(request, connector, discoveryInterface);
         Map<Resource, List<BaseAttribute>> resourceDefinitions = fetchResourceDefinitions(request, connector);
         if (discoveryInterface != null) {

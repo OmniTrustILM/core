@@ -34,16 +34,25 @@ class DurationIsoConverterTest {
     }
 
     @Test
-    void keepsNull_whenNothingIsStoredOrRead() {
+    void storesNull_whenNothingIsStored() {
         // given
         Duration absent = null;
 
         // when
         String stored = converter.convertToDatabaseColumn(absent);
-        Duration read = converter.convertToEntityAttribute(null);
 
         // then
         assertThat(stored).isNull();
+    }
+
+    @Test
+    void readsNull_whenColumnIsNull() {
+        // given — the column holds no value
+
+        // when
+        Duration read = converter.convertToEntityAttribute(null);
+
+        // then
         assertThat(read).isNull();
     }
 }

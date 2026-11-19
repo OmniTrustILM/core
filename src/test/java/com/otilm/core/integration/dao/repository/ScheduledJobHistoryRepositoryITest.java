@@ -24,11 +24,14 @@ class ScheduledJobHistoryRepositoryITest extends BaseSpringBootTest {
     private ScheduledJobHistoryRepository historyRepository;
 
     @Test
-    void findsLatestSuccess_excludingCurrentExecution() {
+    void findsLatestSuccessOfTheJob_whenCurrentExecutionIsExcluded() {
         // given
-        var job = createJob();
-        var earlierSuccess = createRun(job, SchedulerJobExecutionStatus.SUCCESS, "2026-11-18T10:00:00Z");
+        var job = createJob("nightly-discovery");
+        var otherJob = createJob("other-discovery");
+        createRun(job, SchedulerJobExecutionStatus.SUCCESS, "2026-11-18T09:00:00Z");
+        var latestSuccess = createRun(job, SchedulerJobExecutionStatus.SUCCESS, "2026-11-18T10:00:00Z");
         createRun(job, SchedulerJobExecutionStatus.FAILED, "2026-11-18T11:00:00Z");
+        createRun(otherJob, SchedulerJobExecutionStatus.SUCCESS, "2026-11-18T11:30:00Z");
         var currentRun = createRun(job, SchedulerJobExecutionStatus.SUCCESS, "2026-11-18T12:00:00Z");
 
         // when
@@ -37,14 +40,14 @@ class ScheduledJobHistoryRepositoryITest extends BaseSpringBootTest {
                         SchedulerJobExecutionStatus.SUCCESS, currentRun.getUuid());
 
         // then
-        assertThat(found).map(ScheduledJobHistory::getUuid).contains(earlierSuccess.getUuid());
+        assertThat(found).map(ScheduledJobHistory::getUuid).contains(latestSuccess.getUuid());
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private ScheduledJob createJob() {
+    private ScheduledJob createJob(String jobName) {
         var job = new ScheduledJob();
-        job.setJobName(CbomSyncTask.NAME);
+        job.setJobName(jobName);
         job.setJobClassName(CbomSyncTask.class.getName());
         job.setCronExpression("0 0 * ? * *");
         job.setEnabled(true);
