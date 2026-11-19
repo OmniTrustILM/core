@@ -7,14 +7,12 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Returns a session's connection to the pool when each transaction ends and after each query outside one. Spring's
- * default holds it until the EntityManager closes: a read in a {@code NOT_SUPPORTED} scope then keeps its connection
- * while each transaction the scope starts takes another, and enough concurrent requests leave every pooled connection
- * waiting for a second one. Set in code, not in {@code application.yml}, so that tests run with it too.
+ * Returns a session's connection to the pool when each transaction ends and after each query outside one. Under
+ * Spring's default, which holds it until the EntityManager closes, a {@code NOT_SUPPORTED} read keeps its connection
+ * while the scope's transactions take another, and concurrent requests deadlock the pool. Set in code so tests use it.
  * <p>
- * Spring applies a transaction's isolation level and read-only flag to the connection only under its default. Here it
- * refuses an {@code isolation} on {@code @Transactional}, and {@code readOnly} only stops flushes. A transaction that
- * needs another isolation level sets it with its first statement, as
+ * Cost: Spring refuses {@code isolation} on {@code @Transactional}, and {@code readOnly} only stops flushes. Set
+ * another isolation level with the transaction's first statement, as
  * {@code SigningRecordRepository.readUnderOneSnapshot} does.
  */
 @Configuration(proxyBeanMethods = false)

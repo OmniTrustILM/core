@@ -26,8 +26,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 
 /**
- * Every thread first takes a pooled connection and then asks for the database again, so with as many threads as the
- * pool has connections, a thread that kept its first connection while waiting for another would wait for good.
+ * Each thread holds a pooled connection and then asks for another. With as many threads as the pool has connections, a
+ * thread that keeps its first connection while it waits never gets a second.
  */
 class DatabaseConnectionHandlingITest extends BaseSpringBootTest {
 

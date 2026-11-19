@@ -167,8 +167,7 @@ class AcmeFinalizeTransactionITest extends BaseSpringBootTest {
     }
 
     /**
-     * The request's EntityManager returns its connection after each read and each transaction, so none of the pool's
-     * connections may still be out once the request is queued, whether idle or in a transaction. Only this context's
+     * No pooled connection may still be out, idle or in a transaction, once the request is queued. Only this context's
      * pool is counted: the test database is shared with every cached context.
      */
     @Test
