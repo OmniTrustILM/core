@@ -1,6 +1,7 @@
 package com.otilm.core.signing.contentsigning.formatting;
 
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.attribute.common.DataAttribute;
 import java.util.List;
 import java.util.stream.Stream;
 
@@ -9,7 +10,7 @@ import java.util.stream.Stream;
  * may set only the request attributes.
  */
 public record ContentSigningFormattingDefinitions(List<BaseAttribute> profileAttributes,
-        List<BaseAttribute> requestAttributes) {
+        List<DataAttribute> requestAttributes) {
 
     public ContentSigningFormattingDefinitions {
         profileAttributes = List.copyOf(profileAttributes);
@@ -18,6 +19,6 @@ public record ContentSigningFormattingDefinitions(List<BaseAttribute> profileAtt
 
     /** Both kinds of attribute, since the operator sets profile values for each. */
     public List<BaseAttribute> all() {
-        return Stream.concat(profileAttributes.stream(), requestAttributes.stream()).toList();
+        return Stream.<BaseAttribute>concat(profileAttributes.stream(), requestAttributes.stream()).toList();
     }
 }

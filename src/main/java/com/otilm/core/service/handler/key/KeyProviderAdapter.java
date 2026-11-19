@@ -21,9 +21,9 @@ import com.otilm.core.model.crypto.CryptographicKeyFullModel;
 import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.crypto.KeyImportAttempt;
 import com.otilm.core.model.crypto.KeyImportTerms;
+import com.otilm.core.model.crypto.ProviderKeyEntry;
+import com.otilm.core.model.crypto.ProviderKeyEntryPage;
 import com.otilm.core.model.crypto.ProviderKeyItem;
-import com.otilm.core.model.crypto.ProviderKeyPairPage;
-import com.otilm.core.model.crypto.ProviderKeyPairResolution;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
@@ -69,15 +69,16 @@ public interface KeyProviderAdapter {
     List<TransferableKeyType> listImportableKeyTypes(TokenProfileFullModel tokenProfile) throws ConnectorException;
 
     /**
-     * One page of the key pairs the token holds, whoever created them.
+     * One page of the token's key entries, whoever created the keys. Each entry takes a position, whether or not it
+     * carries a key pair.
      *
      * @throws ConnectorException if the connector fails or its page breaks the contract
      */
-    ProviderKeyPairPage listKeyPairs(TokenProfileFullModel tokenProfile, int offset, int limit)
+    ProviderKeyEntryPage listKeyPairs(TokenProfileFullModel tokenProfile, int offset, int limit)
             throws ConnectorException;
 
     /** The token's answer for each key pair handle, one per handle, in handle order. */
-    List<ProviderKeyPairResolution> resolveKeyPairs(TokenProfileFullModel tokenProfile,
+    List<ProviderKeyEntry> resolveKeyPairs(TokenProfileFullModel tokenProfile,
             List<List<MetadataAttribute>> keyPairMetas) throws ConnectorException;
 
     /** Lists the attribute schema for creating a secret key or key pair. */

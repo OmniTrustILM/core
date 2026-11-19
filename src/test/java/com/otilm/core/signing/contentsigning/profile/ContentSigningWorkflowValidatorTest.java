@@ -52,10 +52,10 @@ class ContentSigningWorkflowValidatorTest {
     }
 
     @Nested
-    class FamilyAndCeiling {
+    class FamilyAndLevel {
 
         @Test
-        void accepts_whenTheConnectorServesTheFamilyAtItsCeiling() {
+        void accepts_whenTheConnectorServesTheFamilyAtTheLevel() {
             // given: a PAdES connector that reaches TIMESTAMPED, and a compliant TSA profile
             Connector connector = connectorDeclaring(SignatureFamilyFixtures.PADES, SignatureLevel.TIMESTAMPED);
             UUID tsaProfileUuid = UUID.randomUUID();
@@ -102,7 +102,7 @@ class ContentSigningWorkflowValidatorTest {
         }
 
         @Test
-        void rejects_whenMaxLevelIsAboveTheConnectorsDeclaredCeiling() {
+        void rejects_whenTheLevelIsAboveTheConnectorsDeclaredLevels() {
             // given: the connector declares PAdES only up to SIGNED
             Connector connector = connectorDeclaring(SignatureFamilyFixtures.PADES, SignatureLevel.SIGNED);
             UUID tsaProfileUuid = UUID.randomUUID();
@@ -130,9 +130,8 @@ class ContentSigningWorkflowValidatorTest {
             assertThatCode(validate).doesNotThrowAnyException();
         }
 
-        /** A ceiling the engine cannot execute must not be persisted, however far the connector reaches. */
         @Test
-        void rejects_whenTheLongTermCeilingIsOneTheEngineCannotExecute() {
+        void rejects_whenTheEngineCannotExecuteLongTerm() {
             // given: a connector that declares LONG_TERM
             Connector connector = connectorDeclaring(SignatureFamilyFixtures.PADES, SignatureLevel.LONG_TERM);
             UUID tsaProfileUuid = UUID.randomUUID();
@@ -150,7 +149,7 @@ class ContentSigningWorkflowValidatorTest {
         }
 
         @Test
-        void rejects_whenLongTermIsAboveTheConnectorsDeclaredCeiling() {
+        void rejects_whenLongTermIsAboveTheConnectorsDeclaredLevels() {
             // given: the connector reaches TIMESTAMPED but not LONG_TERM
             Connector connector = connectorDeclaring(SignatureFamilyFixtures.PADES, SignatureLevel.TIMESTAMPED);
             UUID tsaProfileUuid = UUID.randomUUID();
@@ -167,7 +166,7 @@ class ContentSigningWorkflowValidatorTest {
         }
 
         @Test
-        void rejects_whenTheArchivalCeilingIsOneTheEngineCannotExecute() {
+        void rejects_whenTheEngineCannotExecuteArchival() {
             // given: a connector that declares every level, including ARCHIVAL
             Connector connector = connectorDeclaring(SignatureFamilyFixtures.PADES, SignatureLevel.ARCHIVAL);
             UUID tsaProfileUuid = UUID.randomUUID();
@@ -184,7 +183,7 @@ class ContentSigningWorkflowValidatorTest {
         }
 
         @Test
-        void rejects_whenArchivalIsAboveTheConnectorsDeclaredCeiling() {
+        void rejects_whenArchivalIsAboveTheConnectorsDeclaredLevels() {
             // given: the connector reaches LONG_TERM but not ARCHIVAL
             Connector connector = connectorDeclaring(SignatureFamilyFixtures.PADES, SignatureLevel.LONG_TERM);
             UUID tsaProfileUuid = UUID.randomUUID();
@@ -214,7 +213,7 @@ class ContentSigningWorkflowValidatorTest {
         }
 
         @Test
-        void rejects_whenNoMaxLevelIsGiven() {
+        void rejects_whenNoLevelIsGiven() {
             // given
             Connector connector = connectorDeclaring(SignatureFamilyFixtures.PADES, SignatureLevel.SIGNED);
 
@@ -223,7 +222,9 @@ class ContentSigningWorkflowValidatorTest {
                     .validate(request(SignatureFamilyFixtures.PADES, null, null), connector, SIGNATURE_ALGORITHM, null);
 
             // then
-            assertThatThrownBy(validate).isInstanceOf(ValidationException.class).hasMessageContaining("maxLevel");
+            assertThatThrownBy(validate)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("level is required");
         }
     }
 
@@ -430,12 +431,12 @@ class ContentSigningWorkflowValidatorTest {
         }
     }
 
-    private static ContentSigningWorkflowRequestDto request(String family, SignatureLevel maxLevel,
+    private static ContentSigningWorkflowRequestDto request(String family, SignatureLevel level,
             UUID timestampSourceUuid) {
         ContentSigningWorkflowRequestDto dto = new ContentSigningWorkflowRequestDto();
         dto.setSignatureFormattingConnectorUuid(UUID.randomUUID());
         dto.setFamily(family);
-        dto.setMaxLevel(maxLevel);
+        dto.setLevel(level);
         if (timestampSourceUuid != null) {
             dto.setTimestampSource(new InternalTimestampSourceRequestDto(timestampSourceUuid));
         }

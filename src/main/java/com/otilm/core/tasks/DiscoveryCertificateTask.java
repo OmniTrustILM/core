@@ -10,8 +10,9 @@ import com.otilm.core.model.ScheduledTaskResult;
 import com.otilm.core.model.discovery.DiscoveryRunLifecycle;
 import com.otilm.core.service.DiscoveryExternalService;
 import com.otilm.core.service.DiscoveryInternalService;
-import java.text.SimpleDateFormat;
-import java.util.Date;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.UUID;
 import lombok.NoArgsConstructor;
 import org.slf4j.Logger;
@@ -39,7 +40,7 @@ public class DiscoveryCertificateTask implements ScheduledJobTask {
 
     private PlatformTransactionManager transactionManager;
 
-    private final SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss.FFF");
+    private static final DateTimeFormatter RUN_TIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss.SSS");
 
     @Autowired
     public void setMapper(ObjectMapper mapper) {
@@ -81,7 +82,7 @@ public class DiscoveryCertificateTask implements ScheduledJobTask {
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public ScheduledTaskResult performJob(final ScheduledJobInfo scheduledJobInfo, final Object taskData) {
         final DiscoveryDto discoveryDto = mapper.convertValue(taskData, DiscoveryDto.class);
-        discoveryDto.setName(discoveryDto.getName() + prepareTimeSuffix());
+        discoveryDto.setName(discoveryDto.getName() + prepareRunSuffix(scheduledJobInfo));
 
         // Define a new transaction
         DiscoveryDetailDto discovery = null;
@@ -117,7 +118,15 @@ public class DiscoveryCertificateTask implements ScheduledJobTask {
         return null;
     }
 
-    private String prepareTimeSuffix() {
-        return "_" + sdf.format(new Date());
+    /**
+     * After downtime the scheduler delivers a job's missed executions together, within the same millisecond, so the
+     * time alone does not tell the runs apart: the execution's own history UUID does.
+     */
+    private static String prepareRunSuffix(final ScheduledJobInfo scheduledJobInfo) {
+        final String suffix = "_" + RUN_TIME_FORMAT.format(LocalDateTime.now(ZoneId.systemDefault()));
+        if (scheduledJobInfo == null || scheduledJobInfo.jobHistoryUuid() == null) {
+            return suffix;
+        }
+        return suffix + "_" + scheduledJobInfo.jobHistoryUuid();
     }
 }

@@ -17,7 +17,7 @@ public class ContentSigningWorkflowRequestDtoBuilder {
     private UUID signatureFormattingConnectorUuid = null;
     private List<RequestAttribute> signatureFormattingConnectorAttributes = new ArrayList<>();
     private String family = null;
-    private SignatureLevel maxLevel = null;
+    private SignatureLevel level = null;
     private TimestampSourceRequestDto timestampSource = null;
     private Boolean requireNonRepudiation;
     private Set<String> requiredExtendedKeyUsageOids = new LinkedHashSet<>();
@@ -43,8 +43,8 @@ public class ContentSigningWorkflowRequestDtoBuilder {
         return this;
     }
 
-    public ContentSigningWorkflowRequestDtoBuilder withMaxLevel(SignatureLevel maxLevel) {
-        this.maxLevel = maxLevel;
+    public ContentSigningWorkflowRequestDtoBuilder withLevel(SignatureLevel level) {
+        this.level = level;
         return this;
     }
 
@@ -73,7 +73,7 @@ public class ContentSigningWorkflowRequestDtoBuilder {
         dto.setSignatureFormattingConnectorUuid(signatureFormattingConnectorUuid);
         dto.setSignatureFormattingConnectorAttributes(signatureFormattingConnectorAttributes);
         dto.setFamily(family);
-        dto.setMaxLevel(maxLevel);
+        dto.setLevel(level);
         dto.setTimestampSource(timestampSource);
         dto.setRequireNonRepudiation(requireNonRepudiation);
         dto.setRequiredExtendedKeyUsageOids(requiredExtendedKeyUsageOids);

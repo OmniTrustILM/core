@@ -2,7 +2,6 @@ package com.otilm.core.signing.contentsigning;
 
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.signature.DocumentTransferMode;
-import com.otilm.api.model.common.signature.SignatureLevel;
 import com.otilm.api.model.connector.signatures.contentsigning.common.DigestOnlyDocumentTransferDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.DocumentTransferDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.InlineDocumentTransferDto;
@@ -59,8 +58,8 @@ class ContentSigningRequestTest {
     void sendsTheDigestUnderTheBatchAlgorithm_whenTheBatchTravelsAsDigests() {
         // given
         var item = new ContentSigningItem("first", SHA512_DIGEST, SHA512_DIGEST);
-        var request = new ContentSigningRequest(SignatureLevel.SIGNED, DocumentTransferMode.DIGEST_ONLY,
-                DigestAlgorithm.SHA_512, List.of(item));
+        var request = new ContentSigningRequest(DocumentTransferMode.DIGEST_ONLY, DigestAlgorithm.SHA_512,
+                List.of(item), List.of());
 
         // when
         DocumentTransferDto transfer = request.transferOf(item);
@@ -73,8 +72,8 @@ class ContentSigningRequestTest {
     void returnsTheAuthorizedDigestUnderTheBatchAlgorithm_whenTheBatchUsesSha512() {
         // given
         var item = new ContentSigningItem("first", DOCUMENT, SHA512_DIGEST);
-        var request = new ContentSigningRequest(SignatureLevel.SIGNED, DocumentTransferMode.INLINE,
-                DigestAlgorithm.SHA_512, List.of(item));
+        var request = new ContentSigningRequest(DocumentTransferMode.INLINE, DigestAlgorithm.SHA_512, List.of(item),
+                List.of());
 
         // when
         DocumentDigest authorized = request.authorizedDigestOf(item);
@@ -86,8 +85,7 @@ class ContentSigningRequestTest {
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static ContentSigningRequest inlineRequestOf(List<ContentSigningItem> items) {
-        return new ContentSigningRequest(SignatureLevel.SIGNED, DocumentTransferMode.INLINE, DigestAlgorithm.SHA_256,
-                items);
+        return new ContentSigningRequest(DocumentTransferMode.INLINE, DigestAlgorithm.SHA_256, items, List.of());
     }
 
     private static ContentSigningItem itemNamed(String identifier) {

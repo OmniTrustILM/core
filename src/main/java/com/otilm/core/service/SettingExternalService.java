@@ -56,7 +56,15 @@ public interface SettingExternalService {
 
     OAuth2ProviderSettingsResponseDto getOAuth2ProviderSettings(String providerName, boolean withClientSecret);
 
-    void updateOAuth2ProviderSettings(String providerName, OAuth2ProviderSettingsUpdateDto providerSettings);
+    TaggedOAuth2ProviderSettings getTaggedOAuth2ProviderSettings(String providerName);
+
+    /**
+     * @param ifMatch the entity tag the caller read, {@code *} for any existing provider, or blank for no precondition
+     * @throws com.otilm.core.exception.PreconditionFailedException when {@code ifMatch} does not match the stored
+     * provider
+     */
+    void updateOAuth2ProviderSettings(String providerName, String ifMatch,
+            OAuth2ProviderSettingsUpdateDto providerSettings);
 
     void removeOAuth2Provider(String providerName);
 

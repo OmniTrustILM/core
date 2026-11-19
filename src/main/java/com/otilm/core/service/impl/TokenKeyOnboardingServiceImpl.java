@@ -10,10 +10,12 @@ import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.cryptography.key.OnboardTokenKeysRequestDto;
 import com.otilm.api.model.client.cryptography.key.TokenKeySelectionDto;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
+import com.otilm.api.model.connector.cryptography.v2.key.KeyEntryStatus;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.cryptography.key.OnboardTokenKeysResponseDto;
 import com.otilm.api.model.core.cryptography.key.TokenKeyDto;
 import com.otilm.api.model.core.cryptography.key.TokenKeyListResponseDto;
+import com.otilm.api.model.core.cryptography.key.TokenKeyOnboardingOutcome;
 import com.otilm.api.model.core.cryptography.key.TokenKeyOnboardingResultDto;
 import com.otilm.api.model.core.cryptography.key.TokenKeyStatus;
 import com.otilm.core.aop.AuditOperationDataOverride;
@@ -26,10 +28,9 @@ import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.crypto.CryptographicKeyBasicModel;
 import com.otilm.core.model.crypto.OnboardedKeys;
 import com.otilm.core.model.crypto.OnboardedKeys.OnboardedKey;
+import com.otilm.core.model.crypto.ProviderKeyEntry;
+import com.otilm.core.model.crypto.ProviderKeyEntryPage;
 import com.otilm.core.model.crypto.ProviderKeyPair;
-import com.otilm.core.model.crypto.ProviderKeyPairPage;
-import com.otilm.core.model.crypto.ProviderKeyPairResolution;
-import com.otilm.core.model.crypto.ProviderUnusableKey;
 import com.otilm.core.model.crypto.PublicKeyHolder.Holding;
 import com.otilm.core.model.crypto.PublicKeyHolderSummary;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
@@ -75,22 +76,25 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
     private static final Logger logger = LoggerFactory.getLogger(TokenKeyOnboardingServiceImpl.class);
 
     static final String GONE = "The key storage no longer holds this key pair.";
-    static final String AMBIGUOUS_PAIR = "The key storage holds more than one key pair under this handle.";
+    static final String UNADDRESSABLE_PAIR = "The connector cannot address this key pair by its handle alone.";
     static final String HELD = "Key '%s' already holds this key pair.";
     static final String NOT_ACTIVE = "Key '%s' holds this public key without a token instance, but it is not active, so "
             + "the private key cannot join it.";
     static final String PUBLIC_KEY_MISSING = "The key storage holds no public key for this key pair.";
-    static final String NO_USABLE_ID = "The key storage holds this key without an ID the platform can address it by.";
+    static final String UNADDRESSABLE_KEY = "The connector cannot address this key alone.";
+    static final String REFUSED_KEY = "The connector refuses to let the platform onboard this key.";
     static final String UNSUPPORTED_KEY_TYPE = "The connector cannot operate a key of this type.";
     static final String UNREADABLE_KEY = "The connector cannot read this key.";
     static final String UNREADABLE_PAIR = "The connector cannot read this key pair.";
     static final String UNRECOGNISED_HANDLE = "The connector does not recognise this handle.";
     static final String HELD_MEANWHILE = "The inventory came to hold this key pair while it was being onboarded.";
+    static final String PUBLIC_KEY_TAKEN_MEANWHILE = "Another key came to hold this public key while the key pair was "
+            + "being onboarded. List the key storage again.";
     static final String RECORD_CHANGED = "The key holding this public key changed while the private key was joining "
             + "it. List the key storage again.";
     static final String IMPORTING = "An import of this key pair is still in progress.";
     static final String PAGE_BEYOND_LAST_OFFSET = "The page must start at most " + Integer.MAX_VALUE
-            + " key pairs into the listing.";
+            + " entries into the listing.";
     static final String ONBOARDING_FAILED = "Failed to onboard the key pair.";
     private static final String FALLBACK_NAME = "Onboarded key";
     private static final int FINGERPRINT_PREFIX_LENGTH = 8;
@@ -129,16 +133,13 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
             int itemsPerPage) throws ConnectorException, NotFoundException {
         TokenProfileFullModel profile = keyListGates.requireListable(tokenInstanceUuid, tokenProfileUuid);
         TokenKeyPage page = TokenKeyPage.of(pageNumber, itemsPerPage);
-        ProviderKeyPairPage listed = keyProviderAdapterFactory
+        ProviderKeyEntryPage listed = keyProviderAdapterFactory
                 .forToken(profile.tokenInstance())
                 .listKeyPairs(profile, page.offset(), page.itemsPerPage());
-        Inventory inventory = inventoryOf(listed.keyPairs(), Set.of());
+        Inventory inventory = inventoryOf(listed.entries(), Set.of());
         List<TokenKeyDto> entries = new ArrayList<>();
-        for (ProviderKeyPair pair : listed.keyPairs()) {
-            entries.add(describe(pair, inventory));
-        }
-        for (ProviderUnusableKey key : listed.unusableKeys()) {
-            entries.add(describe(key));
+        for (ProviderKeyEntry entry : listed.entries()) {
+            entries.add(describe(entry, inventory));
         }
         return page.response(entries, listed.totalItems());
     }
@@ -157,16 +158,11 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
                         customAttributePermissions);
         Set<String> importingBeforeResolution = importingOn(profile);
         List<List<MetadataAttribute>> handles = selections.stream().map(TokenKeySelectionDto::getKeyPairMeta).toList();
-        List<ProviderKeyPairResolution> resolutions = keyProviderAdapterFactory
+        List<ProviderKeyEntry> resolutions = keyProviderAdapterFactory
                 .forToken(profile.tokenInstance())
                 .resolveKeyPairs(profile, handles);
-        List<ProviderKeyPair> found = resolutions
-                .stream()
-                .map(ProviderKeyPairResolution::keyPair)
-                .filter(Objects::nonNull)
-                .toList();
-        Onboarding onboarding = new Onboarding(profile, inventoryOf(found, importingBeforeResolution), customAttributes,
-                customAttributePermissions, new ArrayList<>());
+        Onboarding onboarding = new Onboarding(profile, inventoryOf(resolutions, importingBeforeResolution),
+                customAttributes, customAttributePermissions, new ArrayList<>());
         OnboardTokenKeysResponseDto response = new OnboardTokenKeysResponseDto();
         try {
             for (int index = 0; index < selections.size(); index++) {
@@ -182,20 +178,32 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
     }
 
     private TokenKeyOnboardingResultDto onboardOrReportFailure(Onboarding onboarding, int index,
-            TokenKeySelectionDto selection, ProviderKeyPairResolution resolution) {
+            TokenKeySelectionDto selection, ProviderKeyEntry resolution) {
+        TokenKeyOnboardingResultDto result;
         try {
-            return onboard(onboarding, selection, resolution);
+            result = onboard(onboarding, selection, resolution);
         } catch (AttributeException | NotFoundException | DataIntegrityViolationException e) {
-            ProviderKeyPair pair = resolution.keyPair();
             logger
                     .warn("Selection {}, key pair stored as {} with fingerprint {}, could not be onboarded to {}",
-                            index, pair.storageName(), fingerprintOf(pair), onboarding.profile().toIdentifierString(),
-                            e);
-            TokenKeyOnboardingResultDto.TokenKeyOnboardingResultDtoBuilder result = TokenKeyOnboardingResultDto
-                    .builder()
-                    .keyPairMeta(selection.getKeyPairMeta());
-            return skipped(result, PlatformException.safeMessage(e, ONBOARDING_FAILED));
+                            index, resolution.storageName(), publicKeyFingerprint(resolution),
+                            onboarding.profile().toIdentifierString(), e);
+            result = failed(resultOf(selection), PlatformException.safeMessage(e, ONBOARDING_FAILED));
         }
+        return withDiagnosticUnlessOnboarded(result, resolution);
+    }
+
+    /** A connector's diagnostic names the cause behind a key that was not onboarded. */
+    private static TokenKeyOnboardingResultDto withDiagnosticUnlessOnboarded(TokenKeyOnboardingResultDto result,
+            ProviderKeyEntry resolution) {
+        if (!isOnboarded(result.getOutcome())) {
+            result.setDiagnostic(resolution.diagnostic());
+        }
+        return result;
+    }
+
+    private static boolean isOnboarded(TokenKeyOnboardingOutcome outcome) {
+        return outcome == TokenKeyOnboardingOutcome.ONBOARDED
+                || outcome == TokenKeyOnboardingOutcome.JOINED_EXISTING_KEY;
     }
 
     /**
@@ -234,40 +242,51 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
                                 KeyImportState.UNSETTLED));
     }
 
-    private TokenKeyDto describe(ProviderKeyPair pair, Inventory inventory) {
-        Standing standing = standingOf(pair, inventory);
-        TokenKeyDto.TokenKeyDtoBuilder entry = TokenKeyDto
+    private TokenKeyDto describe(ProviderKeyEntry entry, Inventory inventory) {
+        return entry.keyPair() == null ? describeWithoutKeyPair(entry) : describeKeyPair(entry, inventory);
+    }
+
+    private TokenKeyDto describeKeyPair(ProviderKeyEntry entry, Inventory inventory) {
+        ProviderKeyPair pair = entry.keyPair();
+        Standing standing = withConnectorVerdict(standingOf(pair, inventory), entry);
+        TokenKeyDto.TokenKeyDtoBuilder tokenKey = TokenKeyDto
                 .builder()
                 .keyPairMeta(pair.keyPairMeta())
-                .storageName(pair.storageName())
+                .storageName(entry.storageName())
                 .keyAlgorithm(pair.privateKey().algorithm())
                 .length(pair.privateKey().length())
                 .status(standing.status())
                 .fingerprint(standing.fingerprint())
-                .reason(standing.refusal());
+                .reason(standing.refusal())
+                .diagnostic(entry.diagnostic());
         PublicKeyHolderSummary visibleHolder = standing.visibleHolder();
         if (visibleHolder != null) {
-            entry.inventoryKeyUuid(visibleHolder.keyUuid()).inventoryKeyName(visibleHolder.keyName());
+            tokenKey.inventoryKeyUuid(visibleHolder.keyUuid()).inventoryKeyName(visibleHolder.keyName());
         }
         if (standing.status() == TokenKeyStatus.ONBOARDABLE) {
-            entry.suggestedName(inventory.suggestName(pair.storageName(), standing.fingerprint()));
+            tokenKey.suggestedName(inventory.suggestName(entry.storageName(), standing.fingerprint()));
         }
-        return entry.build();
+        return tokenKey.build();
     }
 
-    /** An unusable key is listed for information only, under the connector's reason. */
-    private static TokenKeyDto describe(ProviderUnusableKey key) {
-        TokenKeyDto.TokenKeyDtoBuilder entry = TokenKeyDto
+    /** An entry without a key pair is listed for information only, under the connector's status. */
+    private static TokenKeyDto describeWithoutKeyPair(ProviderKeyEntry entry) {
+        TokenKeyDto.TokenKeyDtoBuilder tokenKey = TokenKeyDto
                 .builder()
-                .storageName(key.storageName())
-                .keyAlgorithm(key.algorithm())
-                .length(key.length());
-        return switch (key.reason()) {
-            case UNADDRESSABLE -> entry.status(TokenKeyStatus.NO_USABLE_ID).reason(NO_USABLE_ID).build();
+                .storageName(entry.storageName())
+                .keyAlgorithm(entry.algorithm())
+                .length(entry.length())
+                .diagnostic(entry.diagnostic());
+        return switch (entry.status()) {
+            case UNADDRESSABLE -> tokenKey.status(TokenKeyStatus.UNADDRESSABLE).reason(UNADDRESSABLE_KEY).build();
             case UNSUPPORTED_TYPE ->
-                entry.status(TokenKeyStatus.UNSUPPORTED_KEY_TYPE).reason(UNSUPPORTED_KEY_TYPE).build();
-            case UNREADABLE -> entry.status(TokenKeyStatus.UNREADABLE).reason(UNREADABLE_KEY).build();
-            case NOT_FOUND -> entry.status(TokenKeyStatus.GONE).reason(GONE).build();
+                tokenKey.status(TokenKeyStatus.UNSUPPORTED_KEY_TYPE).reason(UNSUPPORTED_KEY_TYPE).build();
+            case UNREADABLE -> tokenKey.status(TokenKeyStatus.UNREADABLE).reason(UNREADABLE_KEY).build();
+            case NOT_FOUND -> tokenKey.status(TokenKeyStatus.GONE).reason(GONE).build();
+            case AVAILABLE, REFUSED ->
+                throw new IllegalStateException("The connector listed a key without its key pair as " + entry.status());
+            case INVALID_HANDLE -> throw new IllegalStateException(
+                    "The connector listed a key as " + entry.status().getCode() + ", which only a resolution reports");
         };
     }
 
@@ -276,13 +295,14 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
      *
      * @param importingAlready fingerprints of unsettled imports read earlier, which count as importing too
      */
-    private Inventory inventoryOf(List<ProviderKeyPair> pairs, Set<String> importingAlready) {
-        Set<String> fingerprints = pairs
+    private Inventory inventoryOf(List<ProviderKeyEntry> entries, Set<String> importingAlready) {
+        List<ProviderKeyEntry> carryingKeyPair = entriesCarryingKeyPair(entries);
+        Set<String> fingerprints = carryingKeyPair
                 .stream()
-                .map(TokenKeyOnboardingServiceImpl::fingerprintOf)
+                .map(entry -> publicKeyFingerprint(entry.keyPair()))
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
-        Set<String> likelyNames = pairs
+        Set<String> likelyNames = carryingKeyPair
                 .stream()
                 .flatMap(TokenKeyOnboardingServiceImpl::likelyNamesOf)
                 .collect(Collectors.toSet());
@@ -300,9 +320,9 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
     }
 
     private Standing standingOf(ProviderKeyPair pair, Inventory inventory) {
-        String fingerprint = fingerprintOf(pair);
+        String fingerprint = publicKeyFingerprint(pair);
         if (fingerprint == null) {
-            return new Standing(TokenKeyStatus.NO_PUBLIC_KEY, null, null, false, PUBLIC_KEY_MISSING);
+            return new Standing(TokenKeyStatus.PUBLIC_KEY_UNAVAILABLE, null, null, false, PUBLIC_KEY_MISSING);
         }
         if (inventory.importing().contains(fingerprint)) {
             return new Standing(TokenKeyStatus.IMPORT_IN_PROGRESS, fingerprint, null, false, IMPORTING);
@@ -321,6 +341,18 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
         };
     }
 
+    /**
+     * The connector's refusal outranks every standing but {@code IN_INVENTORY}. No change on the platform's side lifts
+     * a refusal. {@code IN_INVENTORY} names the token key that already holds the key pair.
+     */
+    private static Standing withConnectorVerdict(Standing standing, ProviderKeyEntry entry) {
+        if (entry.status() == KeyEntryStatus.REFUSED && standing.status() != TokenKeyStatus.IN_INVENTORY) {
+            return new Standing(TokenKeyStatus.REFUSED, standing.fingerprint(), standing.holder(),
+                    standing.holderVisible(), REFUSED_KEY);
+        }
+        return standing;
+    }
+
     /** The holder takes the private key exactly when an import into it could go on. */
     private Standing standingAsImported(TokenKeyStatus refusedStatus, String fingerprint, PublicKeyHolderSummary holder,
             boolean visible) {
@@ -336,7 +368,15 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
         return new Standing(status, fingerprint, holder, visible, refusal);
     }
 
-    private static String fingerprintOf(ProviderKeyPair pair) {
+    private static List<ProviderKeyEntry> entriesCarryingKeyPair(List<ProviderKeyEntry> entries) {
+        return entries.stream().filter(entry -> entry.keyPair() != null).toList();
+    }
+
+    private static String publicKeyFingerprint(ProviderKeyEntry entry) {
+        return entry.keyPair() == null ? null : publicKeyFingerprint(entry.keyPair());
+    }
+
+    private static String publicKeyFingerprint(ProviderKeyPair pair) {
         return pair.publicKey() == null ? null : CryptographyUtil.calculateKeyFingerprint(pair.publicKey().material());
     }
 
@@ -344,16 +384,19 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
         return storageName != null && !storageName.isBlank();
     }
 
-    /** The names a key pair is most likely suggested: its storage name and its shortest fingerprinted name. */
-    private static Stream<String> likelyNamesOf(ProviderKeyPair pair) {
-        String fingerprint = fingerprintOf(pair);
+    /**
+     * The names an entry's key pair is most likely suggested under: its storage name and its shortest fingerprinted
+     * name, or none when the pair has no public key.
+     */
+    private static Stream<String> likelyNamesOf(ProviderKeyEntry entry) {
+        String fingerprint = publicKeyFingerprint(entry);
         if (fingerprint == null) {
             return Stream.empty();
         }
-        String shortestFingerprinted = withFingerprintPrefix(pair.storageName(), fingerprint,
-                FINGERPRINT_PREFIX_LENGTH);
-        return isGiven(pair.storageName())
-                ? Stream.of(pair.storageName().strip(), shortestFingerprinted)
+        String storageName = entry.storageName();
+        String shortestFingerprinted = withFingerprintPrefix(storageName, fingerprint, FINGERPRINT_PREFIX_LENGTH);
+        return isGiven(storageName)
+                ? Stream.of(storageName.strip(), shortestFingerprinted)
                 : Stream.of(shortestFingerprinted);
     }
 
@@ -366,40 +409,46 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
      * Onboards one selection, or reports in its result why it was refused. The other selections then still proceed.
      */
     private TokenKeyOnboardingResultDto onboard(Onboarding onboarding, TokenKeySelectionDto selection,
-            ProviderKeyPairResolution resolution) throws AttributeException, NotFoundException {
-        TokenKeyOnboardingResultDto.TokenKeyOnboardingResultDtoBuilder result = TokenKeyOnboardingResultDto
-                .builder()
-                .keyPairMeta(selection.getKeyPairMeta());
-        return switch (resolution.outcome()) {
-            case FOUND -> onboardFoundPair(onboarding, selection, resolution.keyPair(), result);
-            case NOT_FOUND -> skipped(result, GONE);
-            case AMBIGUOUS -> skipped(result, AMBIGUOUS_PAIR);
-            case UNSUPPORTED_TYPE -> skipped(result, UNSUPPORTED_KEY_TYPE);
-            case UNREADABLE -> skipped(result, UNREADABLE_PAIR);
-            case INVALID_HANDLE -> skipped(result, UNRECOGNISED_HANDLE);
+            ProviderKeyEntry resolution) throws AttributeException, NotFoundException {
+        TokenKeyOnboardingResultDto.TokenKeyOnboardingResultDtoBuilder result = resultOf(selection);
+        return switch (resolution.status()) {
+            case AVAILABLE, REFUSED -> onboardFoundPair(onboarding, selection, resolution, result);
+            case NOT_FOUND -> blocked(result, TokenKeyStatus.GONE, GONE);
+            case UNADDRESSABLE -> blocked(result, TokenKeyStatus.UNADDRESSABLE, UNADDRESSABLE_PAIR);
+            case UNSUPPORTED_TYPE -> blocked(result, TokenKeyStatus.UNSUPPORTED_KEY_TYPE, UNSUPPORTED_KEY_TYPE);
+            case UNREADABLE -> blocked(result, TokenKeyStatus.UNREADABLE, UNREADABLE_PAIR);
+            case INVALID_HANDLE -> blockedByInvalidHandle(result);
         };
     }
 
+    /** A fresh result, so a failure reports none of the fields an attempt set before it failed. */
+    private static TokenKeyOnboardingResultDto.TokenKeyOnboardingResultDtoBuilder resultOf(
+            TokenKeySelectionDto selection) {
+        return TokenKeyOnboardingResultDto.builder().keyPairMeta(selection.getKeyPairMeta());
+    }
+
     private TokenKeyOnboardingResultDto onboardFoundPair(Onboarding onboarding, TokenKeySelectionDto selection,
-            ProviderKeyPair pair, TokenKeyOnboardingResultDto.TokenKeyOnboardingResultDtoBuilder result)
+            ProviderKeyEntry resolution, TokenKeyOnboardingResultDto.TokenKeyOnboardingResultDtoBuilder result)
             throws AttributeException, NotFoundException {
-        Standing standing = standingOf(pair, onboarding.inventory());
+        ProviderKeyPair pair = resolution.keyPair();
+        Standing standing = withConnectorVerdict(standingOf(pair, onboarding.inventory()), resolution);
         return switch (standing.status()) {
-            case ONBOARDABLE -> onboardAsKeyOfItsOwn(onboarding, selection, pair, standing, result);
+            case ONBOARDABLE -> onboardAsKeyOfItsOwn(onboarding, selection, resolution, standing, result);
             case ONBOARDABLE_INTO_KEY -> onboardIntoRecord(onboarding, pair, standing, result);
-            default -> refused(result, standing);
+            default -> blockedByStanding(result, standing);
         };
     }
 
     private TokenKeyOnboardingResultDto onboardAsKeyOfItsOwn(Onboarding onboarding, TokenKeySelectionDto selection,
-            ProviderKeyPair pair, Standing standing,
+            ProviderKeyEntry resolution, Standing standing,
             TokenKeyOnboardingResultDto.TokenKeyOnboardingResultDtoBuilder result)
             throws AttributeException, NotFoundException {
+        ProviderKeyPair pair = resolution.keyPair();
         String name = selection.getName() == null || selection.getName().isBlank()
-                ? onboarding.inventory().suggestedName(pair.storageName(), standing.fingerprint())
+                ? onboarding.inventory().suggestedName(resolution.storageName(), standing.fingerprint())
                 : selection.getName().strip();
         if (cryptographicKeyRepository.existsByName(name)) {
-            return skipped(result, CryptographicKeyWriter.NAME_TAKEN.formatted(name));
+            return nameTaken(result, CryptographicKeyWriter.NAME_TAKEN.formatted(name));
         }
         TokenProfileFullModel profile = onboarding.profile();
         Optional<CryptographicKeyBasicModel> onboarded;
@@ -411,14 +460,30 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
             if (!UniqueViolations.isUniqueViolation(e)) {
                 throw e;
             }
-            return skipped(result, HELD_MEANWHILE);
+            return afterLosingThePublicKey(result, standing.fingerprint());
         }
         if (onboarded.isEmpty()) {
-            return skipped(result, IMPORTING);
+            return blocked(result, TokenKeyStatus.IMPORT_IN_PROGRESS, IMPORTING);
         }
         CryptographicKeyBasicModel key = onboarded.get();
         onboarding.registered(standing.fingerprint(), heldAsKeyPair(key.uuid(), key.name(), profile), false);
         return onboardedAsNewKey(result, key);
+    }
+
+    /**
+     * Another key took the public key's unique fingerprint first. Only a key holding the whole pair blocks the
+     * onboarding, because a retry can join a record that holds the public key alone.
+     */
+    private TokenKeyOnboardingResultDto afterLosingThePublicKey(
+            TokenKeyOnboardingResultDto.TokenKeyOnboardingResultDtoBuilder result, String fingerprint) {
+        PublicKeyHolderSummary holder = cryptographicKeyWriter.holdersOf(Set.of(fingerprint)).get(fingerprint);
+        if (holder != null && holder.holding() == Holding.KEY_PAIR) {
+            if (keyImportGates.maySeeInDetail(holder.keyUuid(), holder.tokenInstanceUuid())) {
+                result.keyUuid(holder.keyUuid()).keyName(holder.keyName());
+            }
+            return blocked(result, TokenKeyStatus.IN_INVENTORY, HELD_MEANWHILE);
+        }
+        return failed(result, PUBLIC_KEY_TAKEN_MEANWHILE);
     }
 
     /**
@@ -436,14 +501,14 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
                     .onboardIntoRecordUnlessImporting(publicKeyRecord.keyUuid(), profile, standing.fingerprint(),
                             pair.toOnboardedItems(publicKeyRecord.keyName()));
         } catch (ValidationException changedMeanwhile) {
-            return skipped(result, RECORD_CHANGED);
+            return failed(result, RECORD_CHANGED);
         }
         if (onboarded.isEmpty()) {
-            return skipped(result, IMPORTING);
+            return blocked(result, TokenKeyStatus.IMPORT_IN_PROGRESS, IMPORTING);
         }
         CryptographicKeyBasicModel key = onboarded.get();
         onboarding.registered(standing.fingerprint(), heldAsKeyPair(key.uuid(), key.name(), profile), true);
-        result.onboarded(true).intoExistingKey(true);
+        result.outcome(TokenKeyOnboardingOutcome.JOINED_EXISTING_KEY);
         if (standing.holderVisible()) {
             result.keyUuid(key.uuid()).keyName(key.name());
         }
@@ -452,7 +517,7 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
 
     private static TokenKeyOnboardingResultDto onboardedAsNewKey(
             TokenKeyOnboardingResultDto.TokenKeyOnboardingResultDtoBuilder result, CryptographicKeyBasicModel key) {
-        return result.onboarded(true).intoExistingKey(false).keyUuid(key.uuid()).keyName(key.name()).build();
+        return result.outcome(TokenKeyOnboardingOutcome.ONBOARDED).keyUuid(key.uuid()).keyName(key.name()).build();
     }
 
     /** The key an onboarding registered the key pair in, which holds it with its private key on the profile's token. */
@@ -462,18 +527,36 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
                 active);
     }
 
-    private static TokenKeyOnboardingResultDto refused(
+    private static TokenKeyOnboardingResultDto blockedByStanding(
             TokenKeyOnboardingResultDto.TokenKeyOnboardingResultDtoBuilder result, Standing standing) {
         PublicKeyHolderSummary visibleHolder = standing.visibleHolder();
         if (visibleHolder != null) {
             result.keyUuid(visibleHolder.keyUuid()).keyName(visibleHolder.keyName());
         }
-        return skipped(result, standing.refusal());
+        return blocked(result, standing.status(), standing.refusal());
     }
 
-    private static TokenKeyOnboardingResultDto skipped(
+    /** The key's state stops onboarding until it changes. */
+    private static TokenKeyOnboardingResultDto blocked(
+            TokenKeyOnboardingResultDto.TokenKeyOnboardingResultDtoBuilder result, TokenKeyStatus status,
+            String reason) {
+        return result.outcome(TokenKeyOnboardingOutcome.BLOCKED).status(status).reason(reason).build();
+    }
+
+    private static TokenKeyOnboardingResultDto blockedByInvalidHandle(
+            TokenKeyOnboardingResultDto.TokenKeyOnboardingResultDtoBuilder result) {
+        return result.outcome(TokenKeyOnboardingOutcome.BLOCKED).reason(UNRECOGNISED_HANDLE).build();
+    }
+
+    private static TokenKeyOnboardingResultDto nameTaken(
             TokenKeyOnboardingResultDto.TokenKeyOnboardingResultDtoBuilder result, String reason) {
-        return result.onboarded(false).reason(reason).build();
+        return result.outcome(TokenKeyOnboardingOutcome.NAME_TAKEN).reason(reason).build();
+    }
+
+    /** A retry may onboard the key. */
+    private static TokenKeyOnboardingResultDto failed(
+            TokenKeyOnboardingResultDto.TokenKeyOnboardingResultDtoBuilder result, String reason) {
+        return result.outcome(TokenKeyOnboardingOutcome.FAILED).reason(reason).build();
     }
 
     /**

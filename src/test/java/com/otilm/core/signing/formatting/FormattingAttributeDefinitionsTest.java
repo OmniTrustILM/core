@@ -7,6 +7,7 @@ import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.interfaces.client.v2.AttributesSyncApiClient;
 import com.otilm.api.model.client.connector.v2.attribute.AttributeDefinitionsDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.common.signature.SignatureLevel;
 import com.otilm.api.model.core.connector.AuthType;
 import com.otilm.api.model.core.connector.ConnectorStatus;
@@ -155,16 +156,16 @@ class FormattingAttributeDefinitionsTest {
         }
 
         @Test
-        void readsTheOperationsUpToTheMaximumLevel_whenTheProfileSignsContent() throws Exception {
+        void readsTheOperationsTheLevelReaches_whenTheProfileSignsContent() throws Exception {
             // given
-            var maxLevel = SignatureLevel.TIMESTAMPED;
+            var level = SignatureLevel.TIMESTAMPED;
             when(contentSigningFormattingAttributes.aggregate(any(), any())).thenReturn(NO_DEFINITIONS);
 
             // when
-            definitions.forContentSigning(formatter, contentSigningWorkflowAt(maxLevel));
+            definitions.forContentSigning(formatter, contentSigningWorkflowAt(level));
 
             // then
-            verify(contentSigningFormattingAttributes).aggregate(formatter, maxLevel);
+            verify(contentSigningFormattingAttributes).aggregate(formatter, level);
         }
     }
 
@@ -177,7 +178,7 @@ class FormattingAttributeDefinitionsTest {
         void storesTheRequestAttributesWithTheProfileAttributes_whenTheProfileSignsContent() throws Exception {
             // given
             BaseAttribute profileAttribute = aDataAttribute().withName("data_formattingPolicy").build();
-            BaseAttribute requestAttribute = aDataAttribute().withName("data_formattingLocation").build();
+            DataAttributeV3 requestAttribute = aDataAttribute().withName("data_formattingLocation").build();
             when(contentSigningFormattingAttributes.aggregate(any(), any()))
                     .thenReturn(new ContentSigningFormattingDefinitions(List.of(profileAttribute),
                             List.of(requestAttribute)));
@@ -302,7 +303,7 @@ class FormattingAttributeDefinitionsTest {
                 AuthType.NONE, List.of(), null);
     }
 
-    private ManagedContentSigningWorkflow contentSigningWorkflowAt(SignatureLevel maxLevel) {
-        return new ManagedContentSigningWorkflow(connectorUuid, List.of(), null, maxLevel, null, null, null);
+    private ManagedContentSigningWorkflow contentSigningWorkflowAt(SignatureLevel level) {
+        return new ManagedContentSigningWorkflow(connectorUuid, List.of(), null, level, null, null, null);
     }
 }
