@@ -3202,7 +3202,6 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         void storesValid_whenAnotherRequestLinksTheIssuerAfterTheCertificateWasLoaded() throws Exception {
             // given
             Certificate leaf = issueLeafWithoutIssuerLink();
-            // the validation listener's copy, loaded before CMP or an ACME download links the issuer
             Certificate loadedBeforeTheLink = loadAsValidationListenerDoes(leaf);
             OffsetDateTime previousValidation = loadedBeforeTheLink.getStatusValidationTimestamp();
             // CMP's caPubs lookup links the issuer as a side effect of reading the chain
