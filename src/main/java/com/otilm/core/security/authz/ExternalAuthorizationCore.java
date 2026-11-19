@@ -48,6 +48,7 @@ class ExternalAuthorizationCore {
     private static final String ACTION_PROP_NAME = AuthorizationProperties.ACTION;
     private static final String PARENT_NAME_PROP_NAME = AuthorizationProperties.PARENT_NAME;
     private static final String PARENT_ACTION_PROP_NAME = AuthorizationProperties.PARENT_ACTION;
+    private static final String LOCAL_ALL_RESOURCES_GRANT = "AllResourcesGrant (evaluated in Core)";
 
     private final OpaClient opaClient;
     private final ObjectMapper om;
@@ -68,24 +69,24 @@ class ExternalAuthorizationCore {
 
     /**
      * Runs {@code body} with an {@link AssociationSnapshot} for the caller, so the authorization checks inside it share
-     * one set of association reads, starting with the {@code prefetch} objects. Only a platform user with a UUID gets a
-     * snapshot; a nested call for the same principal adds its objects to the active one.
+     * one set of association reads, starting with the {@code prefetch} objects. Only a platform user gets a snapshot; a
+     * nested call for the same principal adds its objects to the active one.
      */
     <T> T withAssociationSnapshot(Authentication authentication, Map<Resource, ? extends Collection<UUID>> prefetch,
             Supplier<T> body) {
+        if (!(authentication instanceof PlatformAuthenticationToken token)) {
+            return body.get();
+        }
         AssociationSnapshot active = snapshot.get();
         if (active != null) {
-            if (authentication instanceof PlatformAuthenticationToken token && active.isFor(token.getPrincipal())) {
+            if (active.isFor(token.getPrincipal())) {
                 prefetch.forEach(active::prefetch);
             }
             return body.get();
         }
-        Optional<AssociationSnapshot> created = createSnapshot(authentication);
-        if (created.isEmpty()) {
-            return body.get();
-        }
-        prefetch.forEach(created.get()::prefetch);
-        snapshot.set(created.get());
+        AssociationSnapshot created = new AssociationSnapshot(entityManagerFactory, om, token.getPrincipal());
+        prefetch.forEach(created::prefetch);
+        snapshot.set(created);
         try {
             return body.get();
         } finally {
@@ -93,23 +94,13 @@ class ExternalAuthorizationCore {
         }
     }
 
-    private Optional<AssociationSnapshot> createSnapshot(Authentication authentication) {
-        if (!(authentication instanceof PlatformAuthenticationToken token)
-                || token.getPrincipal().getUserUuid() == null) {
-            return Optional.empty();
-        }
-        try {
-            return Optional.of(new AssociationSnapshot(entityManagerFactory, om, token.getPrincipal()));
-        } catch (IllegalArgumentException e) {
-            log
-                    .trace("Principal user UUID is not a UUID, so its associations are read per decision: "
-                            + e.getMessage());
-            return Optional.empty();
-        }
-    }
-
     private Optional<AssociationSnapshot> snapshotFor(PlatformUserDetails principal) {
         return Optional.ofNullable(snapshot.get()).filter(active -> active.isFor(principal));
+    }
+
+    private AllResourcesGrant grantFor(String principal) {
+        AssociationSnapshot active = snapshot.get();
+        return active != null && active.hasRawData(principal) ? active.grant() : AllResourcesGrant.of(om, principal);
     }
 
     AuthorizationDecision decide(Authentication authentication, AuthorizationRequest request) {
@@ -221,9 +212,8 @@ class ExternalAuthorizationCore {
     }
 
     private OpaResourceAccessResult checkAccess(String principal, OpaRequestedResource resource) {
-        AssociationSnapshot active = snapshot.get();
-        if (active != null && active.grantsAllOf(principal, resource.getProperties().get(NAME_PROP_NAME))) {
-            return new OpaResourceAccessResult(true, List.of("AllResourcesAllowed"));
+        if (grantFor(principal).grants(resource.getProperties().get(NAME_PROP_NAME))) {
+            return new OpaResourceAccessResult(true, List.of(LOCAL_ALL_RESOURCES_GRANT));
         }
         try {
             return this.opaClient
@@ -276,25 +266,21 @@ class ExternalAuthorizationCore {
     }
 
     private boolean ownsAll(PlatformUserDetails principal, Resource resource, List<UUID> requestedUuids) {
-        Optional<AssociationSnapshot> active = snapshotFor(principal);
-        if (active.isPresent()) {
-            return active.get().ownsAll(resource, requestedUuids);
-        }
-        long ownedCount = ownerAssociationRepository
-                .countOwnedObjects(UUID.fromString(principal.getUserUuid()), resource, requestedUuids);
-        return ownedCount == requestedUuids.size();
+        return snapshotFor(principal)
+                .map(active -> active.ownsAll(resource, requestedUuids))
+                .orElseGet(() -> ownerAssociationRepository
+                        .countOwnedObjects(UUID.fromString(principal.getUserUuid()), resource,
+                                requestedUuids) == requestedUuids.size());
     }
 
     private List<String> groupsOf(PlatformUserDetails principal, Resource resource, UUID objectUuid) {
-        Optional<AssociationSnapshot> active = snapshotFor(principal);
-        if (active.isPresent()) {
-            return active.get().groupsOf(resource, objectUuid);
-        }
-        return groupAssociationRepository
-                .findByResourceAndObjectUuid(resource, objectUuid)
-                .stream()
-                .map(g -> g.getGroupUuid().toString())
-                .toList();
+        return snapshotFor(principal)
+                .map(active -> active.groupsOf(resource, objectUuid))
+                .orElseGet(() -> groupAssociationRepository
+                        .findByResourceAndObjectUuid(resource, objectUuid)
+                        .stream()
+                        .map(g -> g.getGroupUuid().toString())
+                        .toList());
     }
 
     /**

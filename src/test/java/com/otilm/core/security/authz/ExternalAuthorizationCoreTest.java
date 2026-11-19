@@ -483,9 +483,8 @@ class ExternalAuthorizationCoreTest {
     }
 
     @Test
-    void asksOpa_whenThePrincipalMayUseEveryResourceOutsideASnapshot() {
+    void grantsWithoutAskingOpa_whenThePrincipalMayUseEveryResourceOutsideASnapshot() {
         // given
-        when(opaClient.checkResourceAccess(any(), any(), any(), any())).thenReturn(accessGranted());
         Authentication authentication = PrincipalFixtures
                 .authentication(PrincipalFixtures.adminProfile(UUID.randomUUID().toString(), "admin"));
         AuthorizationRequest request = AuthorizationRequest
@@ -497,7 +496,7 @@ class ExternalAuthorizationCoreTest {
 
         // then
         assertThat(decision.isGranted()).isTrue();
-        verify(opaClient).checkResourceAccess(any(), any(), any(), any());
+        verifyNoInteractions(opaClient);
     }
 
     @Test
@@ -594,35 +593,26 @@ class ExternalAuthorizationCoreTest {
     }
 
     @Test
-    void asksOpa_whenAnEarlierSnapshotOnTheThreadHasEnded() {
+    void readsOwnershipThroughTheRepository_whenAnEarlierSnapshotOnTheThreadHasEnded() {
         // given
-        when(opaClient.checkResourceAccess(any(), any(), any(), any())).thenReturn(accessGranted());
-        Authentication authentication = PrincipalFixtures
-                .authentication(PrincipalFixtures.adminProfile(UUID.randomUUID().toString(), "admin"));
-        AuthorizationRequest request = AuthorizationRequest
-                .forDirectCheck(Resource.TOKEN, ResourceAction.UPDATE,
-                        List.of(SecuredUUID.fromUUID(UUID.randomUUID())));
-        core.withAssociationSnapshot(authentication, Map.of(), () -> core.decide(authentication, request));
+        Authentication authentication = operatorDeniedByOpa();
+        AuthorizationRequest request = ownedCertificateArchive();
+        core.withAssociationSnapshot(authentication, Map.of(), () -> null);
 
         // when
         AuthorizationDecision decision = core.decide(authentication, request);
 
         // then
         assertThat(decision.isGranted()).isTrue();
-        verify(opaClient).checkResourceAccess(any(), any(), any(), any());
+        verifyNoInteractions(entityManagerFactory);
     }
 
     @Test
-    void asksOpa_whenAnEarlierSnapshotOnTheThreadEndedByThrowing() {
+    void readsOwnershipThroughTheRepository_whenAnEarlierSnapshotOnTheThreadEndedByThrowing() {
         // given
-        when(opaClient.checkResourceAccess(any(), any(), any(), any())).thenReturn(accessGranted());
-        Authentication authentication = PrincipalFixtures
-                .authentication(PrincipalFixtures.adminProfile(UUID.randomUUID().toString(), "admin"));
-        AuthorizationRequest request = AuthorizationRequest
-                .forDirectCheck(Resource.TOKEN, ResourceAction.UPDATE,
-                        List.of(SecuredUUID.fromUUID(UUID.randomUUID())));
+        Authentication authentication = operatorDeniedByOpa();
+        AuthorizationRequest request = ownedCertificateArchive();
         ThrowingCallable failingScope = () -> core.withAssociationSnapshot(authentication, Map.of(), () -> {
-            core.decide(authentication, request);
             throw new IllegalStateException("scope body failed");
         });
         assertThatThrownBy(failingScope).isInstanceOf(IllegalStateException.class);
@@ -632,10 +622,24 @@ class ExternalAuthorizationCoreTest {
 
         // then
         assertThat(decision.isGranted()).isTrue();
-        verify(opaClient).checkResourceAccess(any(), any(), any(), any());
+        verifyNoInteractions(entityManagerFactory);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private Authentication operatorDeniedByOpa() {
+        when(opaClient.checkResourceAccess(any(), any(), any(), any()))
+                .thenReturn(OpaResourceAccessResult.unauthorized());
+        return PrincipalFixtures
+                .authentication(PrincipalFixtures.operatorProfile(UUID.randomUUID().toString(), "operator"));
+    }
+
+    private AuthorizationRequest ownedCertificateArchive() {
+        when(ownerAssociationRepository.countOwnedObjects(any(), eq(Resource.CERTIFICATE), any())).thenReturn(1L);
+        return AuthorizationRequest
+                .forDirectCheck(Resource.CERTIFICATE, ResourceAction.ARCHIVE,
+                        List.of(SecuredUUID.fromUUID(UUID.randomUUID())));
+    }
 
     @SuppressWarnings("unchecked")
     private TypedQuery<UUID> stubOwnedQueryReturning(List<UUID> owned) {
