@@ -67,7 +67,7 @@ class ExternalMethodAuthorizationManagerTest {
     TestClass target = new TestClass();
 
     @BeforeEach
-    void setUpManager() {
+    void createAuthorizationManager() {
         core = new ExternalAuthorizationCore(opaClient, om, groupAssociationRepository, ownerAssociationRepository,
                 entityManagerFactory);
         manager = new ExternalMethodAuthorizationManager(metadataExtractor, core);
