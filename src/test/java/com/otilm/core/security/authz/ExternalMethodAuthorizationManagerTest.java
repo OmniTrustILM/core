@@ -5,8 +5,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.otilm.core.config.OpaSecuredAnnotationMetadataExtractor;
-import com.otilm.core.dao.repository.GroupAssociationRepository;
-import com.otilm.core.dao.repository.OwnerAssociationRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authn.PlatformAuthenticationToken;
 import com.otilm.core.security.authn.PlatformUserDetails;
@@ -16,7 +14,6 @@ import com.otilm.core.security.authz.opa.dto.AnonymousPrincipal;
 import com.otilm.core.security.authz.opa.dto.OpaRequestedResource;
 import com.otilm.core.security.authz.opa.dto.OpaResourceAccessResult;
 import com.otilm.core.util.AuthenticationTokenTestHelper;
-import jakarta.persistence.EntityManagerFactory;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -37,6 +34,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -49,13 +47,7 @@ class ExternalMethodAuthorizationManagerTest {
     OpaSecuredAnnotationMetadataExtractor metadataExtractor;
 
     @Mock
-    GroupAssociationRepository groupAssociationRepository;
-
-    @Mock
-    OwnerAssociationRepository ownerAssociationRepository;
-
-    @Mock
-    EntityManagerFactory entityManagerFactory;
+    AuthorizationScope scope;
 
     @Spy
     ObjectMapper om = new ObjectMapper();
@@ -68,8 +60,8 @@ class ExternalMethodAuthorizationManagerTest {
 
     @BeforeEach
     void createAuthorizationManager() {
-        core = new ExternalAuthorizationCore(opaClient, om, groupAssociationRepository, ownerAssociationRepository,
-                entityManagerFactory);
+        lenient().when(scope.grantFor(any())).thenReturn(AllResourcesGrant.NONE);
+        core = new ExternalAuthorizationCore(opaClient, om, scope);
         manager = new ExternalMethodAuthorizationManager(metadataExtractor, core);
     }
 

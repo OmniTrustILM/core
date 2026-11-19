@@ -8,9 +8,11 @@ import com.otilm.core.security.authn.PlatformUserDetails;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
 import com.otilm.core.security.authn.client.PlatformAuthenticationClient;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Lazy;
@@ -26,11 +28,13 @@ public class AuthorizationEnforcerImpl implements AuthorizationEnforcer {
     private static final Logger logger = LoggerFactory.getLogger(AuthorizationEnforcerImpl.class);
 
     private final ExternalAuthorizationCore core;
+    private final AuthorizationScope scope;
     private final PlatformAuthenticationClient authenticationClient;
 
-    public AuthorizationEnforcerImpl(ExternalAuthorizationCore core,
+    public AuthorizationEnforcerImpl(ExternalAuthorizationCore core, AuthorizationScope scope,
             @Lazy PlatformAuthenticationClient authenticationClient) {
         this.core = core;
+        this.scope = scope;
         this.authenticationClient = authenticationClient;
     }
 
@@ -81,6 +85,14 @@ public class AuthorizationEnforcerImpl implements AuthorizationEnforcer {
         }
         AuthorizationRequest request = AuthorizationRequest.forDirectCheck(resource, action, List.of(objectUuid));
         return core.decide(authentication, request).isGranted();
+    }
+
+    @Override
+    public <T> T batched(Resource resource, Collection<UUID> objectUuids, Supplier<T> body) {
+        if (SecurityContextHolder.getContext().getAuthentication() instanceof PlatformAuthenticationToken token) {
+            return scope.batched(token.getPrincipal(), resource, objectUuids, body);
+        }
+        return body.get();
     }
 
     /** The current authentication when it is the user's own, so a decision for the signed-in user asks nobody else. */

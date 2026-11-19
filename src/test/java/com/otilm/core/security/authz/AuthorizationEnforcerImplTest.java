@@ -36,6 +36,9 @@ import static org.mockito.Mockito.when;
 class AuthorizationEnforcerImplTest {
 
     @Mock
+    AuthorizationScope scope;
+
+    @Mock
     ExternalAuthorizationCore core;
 
     @Mock
@@ -45,7 +48,7 @@ class AuthorizationEnforcerImplTest {
 
     @BeforeEach
     void setUp() {
-        enforcer = new AuthorizationEnforcerImpl(core, authenticationClient);
+        enforcer = new AuthorizationEnforcerImpl(core, scope, authenticationClient);
         SecurityContextHolder.getContext().setAuthentication(platformAuth());
     }
 
@@ -221,6 +224,33 @@ class AuthorizationEnforcerImplTest {
     private AuthenticationInfo resolvableUser() {
         return new AuthenticationInfo(AuthMethod.USER_PROXY, UUID.randomUUID().toString(), "other-user", List.of(),
                 "{\"user\":{\"username\":\"other-user\"}}");
+    }
+
+    @Test
+    void runsTheBodyAsABatch_whenTheCallerIsAPlatformUser() {
+        // given
+        UUID objectUuid = UUID.randomUUID();
+        when(scope.<String>batched(any(), eq(Resource.CERTIFICATE), eq(List.of(objectUuid)), any()))
+                .thenReturn("batched");
+
+        // when
+        String result = enforcer.batched(Resource.CERTIFICATE, List.of(objectUuid), () -> "direct");
+
+        // then
+        assertThat(result).isEqualTo("batched");
+    }
+
+    @Test
+    void runsTheBodyDirectly_whenTheCallerIsNotAPlatformUser() {
+        // given
+        SecurityContextHolder.clearContext();
+
+        // when
+        String result = enforcer.batched(Resource.CERTIFICATE, List.of(UUID.randomUUID()), () -> "direct");
+
+        // then
+        assertThat(result).isEqualTo("direct");
+        verifyNoInteractions(scope);
     }
 
     private PlatformAuthenticationToken platformAuth() {
