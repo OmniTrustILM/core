@@ -96,7 +96,7 @@ class DiscoveryProviderV2AdapterStartTest {
     void recordsDiscoverSince_whenRunIsInitiated() throws Exception {
         // given
         var resolvedStart = OffsetDateTime.parse("2026-11-01T10:15:30Z");
-        Discovery run = createWindowedRun(DiscoveryWindowMode.LOOKBACK);
+        Discovery run = stubWindowedRun(DiscoveryWindowMode.LOOKBACK);
         Discovery locked = copyOf(run);
         when(discoveryRepository.findWithLockByUuid(run.getUuid())).thenReturn(Optional.of(locked));
         when(windowResolver.resolve(eq(DiscoveryWindowMode.LOOKBACK), eq(run.getWindowLookback()), isNull()))
@@ -117,7 +117,7 @@ class DiscoveryProviderV2AdapterStartTest {
     @Test
     void failsStart_whenIncrementalFlagWithdrawn() throws Exception {
         // given
-        Discovery run = createWindowedRun(DiscoveryWindowMode.LOOKBACK);
+        Discovery run = stubWindowedRun(DiscoveryWindowMode.LOOKBACK);
         when(capabilityService.supports(any(ConnectorInterfaceEntity.class), eq(FeatureFlag.DISCOVERY_INCREMENTAL)))
                 .thenReturn(false);
         when(detailCounts.forRun(any())).thenThrow(new IllegalStateException("counts unavailable"));
@@ -143,7 +143,7 @@ class DiscoveryProviderV2AdapterStartTest {
     @Test
     void failsStartForCaller_whenIncrementalFlagWithdrawn() throws Exception {
         // given
-        Discovery run = createWindowedRun(DiscoveryWindowMode.LOOKBACK);
+        Discovery run = stubWindowedRun(DiscoveryWindowMode.LOOKBACK);
         when(capabilityService.supports(any(ConnectorInterfaceEntity.class), eq(FeatureFlag.DISCOVERY_INCREMENTAL)))
                 .thenReturn(false);
         when(detailCounts.forRun(any())).thenThrow(new IllegalStateException("counts unavailable"));
@@ -163,7 +163,7 @@ class DiscoveryProviderV2AdapterStartTest {
     @Test
     void startsFullRunWithoutResolvingWindow_whenRunHasNoWindow() throws Exception {
         // given
-        Discovery run = createWindowedRun(null);
+        Discovery run = stubWindowedRun(null);
         when(client.initiate(run)).thenReturn(createEmptyInitiateResponse());
         when(discoveryRepository.findWithLockByUuid(run.getUuid())).thenReturn(Optional.of(copyOf(run)));
         when(detailCounts.forRun(any())).thenThrow(new IllegalStateException("counts unavailable"));
@@ -182,7 +182,7 @@ class DiscoveryProviderV2AdapterStartTest {
     @Test
     void startsFullRunWithoutResolvingWindow_whenFullWindowOnInterfaceWithoutIncrementalFlag() throws Exception {
         // given
-        Discovery run = createWindowedRun(DiscoveryWindowMode.FULL);
+        Discovery run = stubWindowedRun(DiscoveryWindowMode.FULL);
         when(capabilityService.supports(any(ConnectorInterfaceEntity.class), eq(FeatureFlag.DISCOVERY_INCREMENTAL)))
                 .thenReturn(false);
         when(client.initiate(run)).thenReturn(createEmptyInitiateResponse());
@@ -205,7 +205,7 @@ class DiscoveryProviderV2AdapterStartTest {
         // given
         var lastSuccessfulRun = OffsetDateTime.parse("2026-11-18T02:00:00Z");
         var jobInfo = new ScheduledJobInfo("nightly-job", UUID.randomUUID(), UUID.randomUUID());
-        Discovery run = createWindowedRun(DiscoveryWindowMode.SINCE_LAST_SUCCESSFUL_RUN);
+        Discovery run = stubWindowedRun(DiscoveryWindowMode.SINCE_LAST_SUCCESSFUL_RUN);
         Discovery locked = copyOf(run);
         when(discoveryRepository.findWithLockByUuid(run.getUuid())).thenReturn(Optional.of(locked));
         when(windowResolver.resolve(DiscoveryWindowMode.SINCE_LAST_SUCCESSFUL_RUN, null, jobInfo))
@@ -230,7 +230,7 @@ class DiscoveryProviderV2AdapterStartTest {
     void keepsResolvedDiscoverSince_whenInitiateFails() throws Exception {
         // given
         var resolvedStart = OffsetDateTime.parse("2026-11-01T10:15:30Z");
-        Discovery run = createWindowedRun(DiscoveryWindowMode.LOOKBACK);
+        Discovery run = stubWindowedRun(DiscoveryWindowMode.LOOKBACK);
         when(windowResolver.resolve(eq(DiscoveryWindowMode.LOOKBACK), eq(run.getWindowLookback()), isNull()))
                 .thenReturn(Optional.of(resolvedStart));
         when(client.initiate(run)).thenThrow(new IllegalStateException("initiate timed out"));
@@ -254,7 +254,7 @@ class DiscoveryProviderV2AdapterStartTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private Discovery createWindowedRun(DiscoveryWindowMode mode) throws Exception {
+    private Discovery stubWindowedRun(DiscoveryWindowMode mode) throws Exception {
         Discovery run = new Discovery();
         run.setUuid(UUID.randomUUID());
         run.setStatus(DiscoveryStatus.IN_PROGRESS);

@@ -1415,7 +1415,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         stubSupportedResources("""
                 [{"resource":"certificates"}]""");
         DiscoveryDto request = v2Request(List.of(Resource.CERTIFICATE));
-        request.setWindow(aWindow(DiscoveryWindowMode.LOOKBACK, Duration.ofDays(1)));
+        request.setWindow(createWindow(DiscoveryWindowMode.LOOKBACK, Duration.ofDays(1)));
 
         // when
         ThrowingCallable create = () -> discoveryService.createDiscovery(request, true, false);
@@ -1435,7 +1435,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         request.setConnectorUuid(connector.getUuid().toString());
         request.setKind("IpAndPort");
         request.setAttributes(List.of());
-        request.setWindow(aWindow(DiscoveryWindowMode.LOOKBACK, Duration.ofDays(1)));
+        request.setWindow(createWindow(DiscoveryWindowMode.LOOKBACK, Duration.ofDays(1)));
 
         // when
         ThrowingCallable create = () -> discoveryService.createDiscovery(request, true, false);
@@ -1453,7 +1453,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         stubSupportedResources("""
                 [{"resource":"certificates"}]""");
         DiscoveryDto request = v2Request(List.of(Resource.CERTIFICATE));
-        request.setWindow(aWindow(DiscoveryWindowMode.SINCE_LAST_SUCCESSFUL_RUN, null));
+        request.setWindow(createWindow(DiscoveryWindowMode.SINCE_LAST_SUCCESSFUL_RUN, null));
 
         // when
         ThrowingCallable create = () -> discoveryService.createDiscovery(request, true, false);
@@ -1471,7 +1471,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         stubSupportedResources("""
                 [{"resource":"certificates"}]""");
         DiscoveryDto request = v2Request(List.of(Resource.CERTIFICATE));
-        request.setWindow(aWindow(DiscoveryWindowMode.SINCE_LAST_SUCCESSFUL_RUN, null));
+        request.setWindow(createWindow(DiscoveryWindowMode.SINCE_LAST_SUCCESSFUL_RUN, null));
 
         // when
         DiscoveryDetailDto created = discoveryService.createDiscovery(request, true, true);
@@ -1489,7 +1489,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         stubSupportedResources("""
                 [{"resource":"certificates"}]""");
         DiscoveryDto request = v2Request(List.of(Resource.CERTIFICATE));
-        request.setWindow(aWindow(DiscoveryWindowMode.LOOKBACK, Duration.ofHours(6)));
+        request.setWindow(createWindow(DiscoveryWindowMode.LOOKBACK, Duration.ofHours(6)));
 
         // when
         DiscoveryDetailDto created = discoveryService.createDiscovery(request, true, false);
@@ -1507,7 +1507,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         stubSupportedResources("""
                 [{"resource":"certificates"}]""");
         DiscoveryDto request = v2Request(List.of(Resource.CERTIFICATE));
-        request.setWindow(aWindow(DiscoveryWindowMode.FULL, null));
+        request.setWindow(createWindow(DiscoveryWindowMode.FULL, null));
 
         // when
         DiscoveryDetailDto created = discoveryService.createDiscovery(request, true, false);
@@ -2319,7 +2319,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         connectorInterfaceRepository.save(iface);
     }
 
-    private static DiscoveryWindowDto aWindow(DiscoveryWindowMode mode, Duration lookback) {
+    private static DiscoveryWindowDto createWindow(DiscoveryWindowMode mode, Duration lookback) {
         DiscoveryWindowDto window = new DiscoveryWindowDto();
         window.setMode(mode);
         window.setLookback(lookback);
