@@ -4,8 +4,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.core.auth.Resource;
-import com.otilm.core.dao.repository.GroupAssociationRepository;
-import com.otilm.core.dao.repository.OwnerAssociationRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authn.PlatformAuthenticationToken;
 import com.otilm.core.security.authn.PlatformUserDetails;
@@ -15,14 +13,11 @@ import com.otilm.core.security.authz.opa.dto.OpaRequestDetails;
 import com.otilm.core.security.authz.opa.dto.OpaRequestedResource;
 import com.otilm.core.security.authz.opa.dto.OpaResourceAccessResult;
 import com.otilm.core.util.AuthHelper;
-import jakarta.persistence.EntityManagerFactory;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.function.Supplier;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
@@ -48,59 +43,15 @@ class ExternalAuthorizationCore {
     private static final String ACTION_PROP_NAME = AuthorizationProperties.ACTION;
     private static final String PARENT_NAME_PROP_NAME = AuthorizationProperties.PARENT_NAME;
     private static final String PARENT_ACTION_PROP_NAME = AuthorizationProperties.PARENT_ACTION;
-    private static final String LOCAL_ALL_RESOURCES_GRANT = "AllResourcesGrant (evaluated in Core)";
 
     private final OpaClient opaClient;
     private final ObjectMapper om;
-    private final GroupAssociationRepository groupAssociationRepository;
-    private final OwnerAssociationRepository ownerAssociationRepository;
-    private final EntityManagerFactory entityManagerFactory;
-    private final ThreadLocal<AssociationSnapshot> snapshot = new ThreadLocal<>();
+    private final AuthorizationScope scope;
 
-    ExternalAuthorizationCore(OpaClient opaClient, ObjectMapper om,
-            GroupAssociationRepository groupAssociationRepository,
-            OwnerAssociationRepository ownerAssociationRepository, EntityManagerFactory entityManagerFactory) {
+    ExternalAuthorizationCore(OpaClient opaClient, ObjectMapper om, AuthorizationScope scope) {
         this.opaClient = opaClient;
         this.om = om;
-        this.groupAssociationRepository = groupAssociationRepository;
-        this.ownerAssociationRepository = ownerAssociationRepository;
-        this.entityManagerFactory = entityManagerFactory;
-    }
-
-    /**
-     * Runs {@code body} with an {@link AssociationSnapshot} for the caller, so the authorization checks inside it share
-     * one set of association reads, starting with the {@code prefetch} objects. Only a platform user gets a snapshot; a
-     * nested call for the same principal adds its objects to the active one.
-     */
-    <T> T withAssociationSnapshot(Authentication authentication, Map<Resource, ? extends Collection<UUID>> prefetch,
-            Supplier<T> body) {
-        if (!(authentication instanceof PlatformAuthenticationToken token)) {
-            return body.get();
-        }
-        AssociationSnapshot active = snapshot.get();
-        if (active != null) {
-            if (active.isFor(token.getPrincipal())) {
-                prefetch.forEach(active::prefetch);
-            }
-            return body.get();
-        }
-        AssociationSnapshot created = new AssociationSnapshot(entityManagerFactory, om, token.getPrincipal());
-        prefetch.forEach(created::prefetch);
-        snapshot.set(created);
-        try {
-            return body.get();
-        } finally {
-            snapshot.remove();
-        }
-    }
-
-    private Optional<AssociationSnapshot> snapshotFor(PlatformUserDetails principal) {
-        return Optional.ofNullable(snapshot.get()).filter(active -> active.isFor(principal));
-    }
-
-    private AllResourcesGrant grantFor(String principal) {
-        AssociationSnapshot active = snapshot.get();
-        return active != null && active.hasRawData(principal) ? active.grant() : AllResourcesGrant.NONE;
+        this.scope = scope;
     }
 
     AuthorizationDecision decide(Authentication authentication, AuthorizationRequest request) {
@@ -111,10 +62,12 @@ class ExternalAuthorizationCore {
             return new AuthorizationDecision(false);
         }
         if (authentication instanceof PlatformAuthenticationToken token) {
-            AuthorizationDecision result = check(token.getPrincipal().getRawData(), request);
+            PlatformUserDetails principal = token.getPrincipal();
+            AllResourcesGrant grant = scope.grantFor(principal);
+            AuthorizationDecision result = check(principal.getRawData(), grant, request);
             if (!result.isGranted()) {
                 try {
-                    return checkGroupOwnerAssociations(token.getPrincipal(), request);
+                    return checkGroupOwnerAssociations(principal, grant, request);
                 } catch (Exception e) {
                     log
                             .error("Unable to evaluate group/owner associations for '%s'. Voting to deny access."
@@ -125,7 +78,8 @@ class ExternalAuthorizationCore {
             return result;
         }
         try {
-            return check(om.writeValueAsString(new AnonymousPrincipal(authentication.getName())), request);
+            return check(om.writeValueAsString(new AnonymousPrincipal(authentication.getName())),
+                    AllResourcesGrant.NONE, request);
         } catch (JsonProcessingException e) {
             log
                     .error("An error occurred during authorization on '%s'. Access will be denied."
@@ -134,12 +88,13 @@ class ExternalAuthorizationCore {
         }
     }
 
-    private AuthorizationDecision check(String principal, AuthorizationRequest request) {
+    private AuthorizationDecision check(String principal, AllResourcesGrant grant, AuthorizationRequest request) {
         try {
             Map<String, String> properties = new HashMap<>(request.properties());
             Optional<ParentUUIDGetter> parentUUIDGetter = instantiateParentUUIDGetter(request.parentUuidGetterClass());
             if (!Resource.NONE.getCode().equals(properties.get(PARENT_NAME_PROP_NAME))) {
-                AuthorizationDecision result = checkResource(principal, request, properties, parentUUIDGetter, true);
+                AuthorizationDecision result = checkResource(principal, grant, request, properties, parentUUIDGetter,
+                        true);
                 if (!result.isGranted()) {
                     AuthHelper
                             .setDeniedPermissionResourceAction(properties.get(PARENT_NAME_PROP_NAME),
@@ -147,14 +102,14 @@ class ExternalAuthorizationCore {
                     return result;
                 }
             }
-            return checkResource(principal, request, properties, parentUUIDGetter, false);
+            return checkResource(principal, grant, request, properties, parentUUIDGetter, false);
         } catch (Exception e) {
             log.error("Unable verify access to '%s'. Voting to deny access.".formatted(request.contextLabel()), e);
             return new AuthorizationDecision(false);
         }
     }
 
-    private AuthorizationDecision checkResource(String principal, AuthorizationRequest request,
+    private AuthorizationDecision checkResource(String principal, AllResourcesGrant grant, AuthorizationRequest request,
             Map<String, String> properties, Optional<ParentUUIDGetter> parentUUIDGetter, boolean parentResource) {
         Map<String, String> checkProperties = properties;
         if (parentResource) {
@@ -192,6 +147,12 @@ class ExternalAuthorizationCore {
                             objectUUIDs.stream().map(u -> u.getValue() == null ? "NULL" : u.toString()).toList());
         }
 
+        if (grant.grants(checkProperties.get(NAME_PROP_NAME))) {
+            log
+                    .trace("Access to '%s' has been granted by the principal's all-resources permission without asking OPA."
+                            .formatted(request.contextLabel()));
+            return new AuthorizationDecision(true);
+        }
         OpaResourceAccessResult result = checkAccess(principal, resource);
         return decideBasedOnOpaResult(request, result, checkProperties);
     }
@@ -212,9 +173,6 @@ class ExternalAuthorizationCore {
     }
 
     private OpaResourceAccessResult checkAccess(String principal, OpaRequestedResource resource) {
-        if (grantFor(principal).grants(resource.getProperties().get(NAME_PROP_NAME))) {
-            return new OpaResourceAccessResult(true, List.of(LOCAL_ALL_RESOURCES_GRANT));
-        }
         try {
             return this.opaClient
                     .checkResourceAccess(OpaPolicy.METHOD.policyName, resource, principal, new OpaRequestDetails(null));
@@ -226,7 +184,7 @@ class ExternalAuthorizationCore {
         }
     }
 
-    private AuthorizationDecision checkGroupOwnerAssociations(PlatformUserDetails principal,
+    private AuthorizationDecision checkGroupOwnerAssociations(PlatformUserDetails principal, AllResourcesGrant grant,
             AuthorizationRequest request) {
         Map<String, String> properties = new HashMap<>(request.properties());
         Resource resource;
@@ -253,34 +211,17 @@ class ExternalAuthorizationCore {
             return new AuthorizationDecision(true);
         }
 
+        AssociationReader associations = scope.associationsFor(principal);
         if (resource.hasOwner() && objectUUIDs.stream().allMatch(u -> u.getValue() != null)) {
             // Distinct on both sides, so neither a repeated UUID nor a duplicate owner row shifts the count
             List<UUID> requestedUuids = objectUUIDs.stream().map(SecuredUUID::getValue).distinct().toList();
-            if (ownsAll(principal, resource, requestedUuids)) {
+            if (associations.ownsAll(resource, requestedUuids)) {
                 return new AuthorizationDecision(true);
             }
         }
 
-        return evaluateGroupMembersPermissions(principal, request, resource, resourceAction, properties, objectUUIDs)
-                .orElseGet(() -> new AuthorizationDecision(false));
-    }
-
-    private boolean ownsAll(PlatformUserDetails principal, Resource resource, List<UUID> requestedUuids) {
-        return snapshotFor(principal)
-                .map(active -> active.ownsAll(resource, requestedUuids))
-                .orElseGet(() -> ownerAssociationRepository
-                        .countOwnedObjects(UUID.fromString(principal.getUserUuid()), resource,
-                                requestedUuids) == requestedUuids.size());
-    }
-
-    private List<String> groupsOf(PlatformUserDetails principal, Resource resource, UUID objectUuid) {
-        return snapshotFor(principal)
-                .map(active -> active.groupsOf(resource, objectUuid))
-                .orElseGet(() -> groupAssociationRepository
-                        .findByResourceAndObjectUuid(resource, objectUuid)
-                        .stream()
-                        .map(g -> g.getGroupUuid().toString())
-                        .toList());
+        return evaluateGroupMembersPermissions(principal, grant, associations, request, resource, resourceAction,
+                properties, objectUUIDs).orElseGet(() -> new AuthorizationDecision(false));
     }
 
     /**
@@ -288,8 +229,8 @@ class ExternalAuthorizationCore {
      * is not eligible for group-based access.
      */
     private Optional<AuthorizationDecision> evaluateGroupMembersPermissions(PlatformUserDetails principal,
-            AuthorizationRequest request, Resource resource, ResourceAction resourceAction,
-            Map<String, String> properties, List<SecuredUUID> objectUUIDs) {
+            AllResourcesGrant grant, AssociationReader associations, AuthorizationRequest request, Resource resource,
+            ResourceAction resourceAction, Map<String, String> properties, List<SecuredUUID> objectUUIDs) {
         if (resource.hasGroups()
                 && (resourceAction == ResourceAction.LIST || resourceAction == ResourceAction.DETAIL)) {
             properties.clear();
@@ -297,15 +238,15 @@ class ExternalAuthorizationCore {
             properties.put(ACTION_PROP_NAME, ResourceAction.MEMBERS.getCode());
 
             for (SecuredUUID objectUuid : objectUUIDs) {
-                List<String> groupUuids = groupsOf(principal, resource, objectUuid.getValue());
+                List<String> groupUuids = associations.groupsOf(resource, objectUuid.getValue());
                 if (groupUuids.isEmpty()) {
                     return Optional.of(new AuthorizationDecision(false));
                 }
                 OpaRequestedResource opaRequest = new OpaRequestedResource(properties);
                 opaRequest.setObjectUUIDs(groupUuids);
 
-                OpaResourceAccessResult result = checkAccess(principal.getRawData(), opaRequest);
-                if (!result.isAuthorized()) {
+                if (!grant.grants(Resource.GROUP.getCode())
+                        && !checkAccess(principal.getRawData(), opaRequest).isAuthorized()) {
                     log
                             .trace("Access to '%s' object has been denied by missing group member permissions."
                                     .formatted(request.contextLabel()));

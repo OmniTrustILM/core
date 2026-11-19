@@ -39,7 +39,6 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Stream;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
 /**
@@ -53,14 +52,11 @@ public class ObjectActionResolver {
 
     private final AuthorizationEnforcer authorizationEnforcer;
 
-    private final ExternalAuthorizationCore authorizationCore;
-
     private final EntityManagerFactory entityManagerFactory;
 
-    ObjectActionResolver(AuthorizationEnforcer authorizationEnforcer, ExternalAuthorizationCore authorizationCore,
+    public ObjectActionResolver(AuthorizationEnforcer authorizationEnforcer,
             EntityManagerFactory entityManagerFactory) {
         this.authorizationEnforcer = authorizationEnforcer;
-        this.authorizationCore = authorizationCore;
         this.entityManagerFactory = entityManagerFactory;
     }
 
@@ -83,9 +79,8 @@ public class ObjectActionResolver {
         Call call = new Call();
         Set<UUID> requested = new LinkedHashSet<>(objectUuids);
         Set<UUID> existing = call.load(resource, objects, requested);
-        return authorizationCore
-                .withAssociationSnapshot(SecurityContextHolder.getContext().getAuthentication(),
-                        Map.of(resource, existing), () -> allowedActions(call, resource, objects, requested, existing));
+        return authorizationEnforcer
+                .batched(resource, existing, () -> allowedActions(call, resource, objects, requested, existing));
     }
 
     private static List<ObjectAllowedActionsDto> allowedActions(Call call, Resource resource, ResourceObjects objects,
@@ -290,18 +285,8 @@ public class ObjectActionResolver {
                     .findFirst();
         }
 
-        /**
-         * Reads through an EntityManager of its own, closed after the read, so no connection is held across the
-         * authorization calls between reads, as the request's EntityManager would hold one until the response is
-         * written.
-         */
         private <T> T read(Function<EntityManager, T> query) {
-            EntityManager reader = entityManagerFactory.createEntityManager();
-            try {
-                return query.apply(reader);
-            } finally {
-                reader.close();
-            }
+            return DetachedReads.read(entityManagerFactory, query);
         }
 
         private static String key(Resource resource, String attribute, UUID objectUuid) {
