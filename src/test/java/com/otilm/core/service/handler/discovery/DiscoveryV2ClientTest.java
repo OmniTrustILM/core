@@ -45,6 +45,7 @@ import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.service.handler.OperationAttributeResolver;
 import com.otilm.core.util.DiscoveryCheckpointFixture;
 import java.net.URI;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -742,6 +743,36 @@ class DiscoveryV2ClientTest {
 
         // The divergence that cannot repair itself: only an explicit resume moves Core out of STOPPED.
         assertThat(client.resume(run).getCheckpoint()).isEqualTo(echo.getCheckpoint());
+    }
+
+    @Test
+    void sendsDiscoverSince_whenResolved() throws Exception {
+        // given
+        var resolvedStart = OffsetDateTime.parse("2026-11-01T10:15:30Z");
+        run.setDiscoverSince(resolvedStart);
+        when(apiClient.initiate(any(), any())).thenReturn(new DiscoveryInitiateResponseDto());
+
+        // when
+        client.initiate(run);
+
+        // then
+        ArgumentCaptor<DiscoveryInitiateRequestDto> sent = ArgumentCaptor.forClass(DiscoveryInitiateRequestDto.class);
+        verify(apiClient).initiate(any(ConnectorDto.class), sent.capture());
+        assertThat(sent.getValue().getDiscoverSince()).isEqualTo(resolvedStart);
+    }
+
+    @Test
+    void omitsDiscoverSince_whenFull() throws Exception {
+        // given — a run with no resolved window start
+        when(apiClient.initiate(any(), any())).thenReturn(new DiscoveryInitiateResponseDto());
+
+        // when
+        client.initiate(run);
+
+        // then
+        ArgumentCaptor<DiscoveryInitiateRequestDto> sent = ArgumentCaptor.forClass(DiscoveryInitiateRequestDto.class);
+        verify(apiClient).initiate(any(ConnectorDto.class), sent.capture());
+        assertThat(sent.getValue().getDiscoverSince()).isNull();
     }
 
     /** A run whose attributes carry a resource reference Core expands into a real secret before the call. */
