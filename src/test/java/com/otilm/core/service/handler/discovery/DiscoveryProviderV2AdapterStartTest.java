@@ -96,12 +96,12 @@ class DiscoveryProviderV2AdapterStartTest {
     void recordsDiscoverSince_whenRunIsInitiated() throws Exception {
         // given
         var resolvedStart = OffsetDateTime.parse("2026-11-01T10:15:30Z");
-        Discovery run = aWindowedRun(DiscoveryWindowMode.LOOKBACK);
+        Discovery run = createWindowedRun(DiscoveryWindowMode.LOOKBACK);
         Discovery locked = copyOf(run);
         when(discoveryRepository.findWithLockByUuid(run.getUuid())).thenReturn(Optional.of(locked));
         when(windowResolver.resolve(eq(DiscoveryWindowMode.LOOKBACK), eq(run.getWindowLookback()), isNull()))
                 .thenReturn(Optional.of(resolvedStart));
-        when(client.initiate(run)).thenReturn(emptyInitiateResponse());
+        when(client.initiate(run)).thenReturn(createEmptyInitiateResponse());
         when(detailCounts.forRun(any())).thenThrow(new IllegalStateException("counts unavailable"));
         when(terminator.endWith(eq(run.getUuid()), any())).thenReturn(true);
         UUID runUuid = run.getUuid();
@@ -117,7 +117,7 @@ class DiscoveryProviderV2AdapterStartTest {
     @Test
     void failsStart_whenIncrementalFlagWithdrawn() throws Exception {
         // given
-        Discovery run = aWindowedRun(DiscoveryWindowMode.LOOKBACK);
+        Discovery run = createWindowedRun(DiscoveryWindowMode.LOOKBACK);
         when(capabilityService.supports(any(ConnectorInterfaceEntity.class), eq(FeatureFlag.DISCOVERY_INCREMENTAL)))
                 .thenReturn(false);
         when(detailCounts.forRun(any())).thenThrow(new IllegalStateException("counts unavailable"));
@@ -143,7 +143,7 @@ class DiscoveryProviderV2AdapterStartTest {
     @Test
     void failsStartForCaller_whenIncrementalFlagWithdrawn() throws Exception {
         // given
-        Discovery run = aWindowedRun(DiscoveryWindowMode.LOOKBACK);
+        Discovery run = createWindowedRun(DiscoveryWindowMode.LOOKBACK);
         when(capabilityService.supports(any(ConnectorInterfaceEntity.class), eq(FeatureFlag.DISCOVERY_INCREMENTAL)))
                 .thenReturn(false);
         when(detailCounts.forRun(any())).thenThrow(new IllegalStateException("counts unavailable"));
@@ -163,8 +163,8 @@ class DiscoveryProviderV2AdapterStartTest {
     @Test
     void startsFullRunWithoutResolvingWindow_whenRunHasNoWindow() throws Exception {
         // given
-        Discovery run = aWindowedRun(null);
-        when(client.initiate(run)).thenReturn(emptyInitiateResponse());
+        Discovery run = createWindowedRun(null);
+        when(client.initiate(run)).thenReturn(createEmptyInitiateResponse());
         when(discoveryRepository.findWithLockByUuid(run.getUuid())).thenReturn(Optional.of(copyOf(run)));
         when(detailCounts.forRun(any())).thenThrow(new IllegalStateException("counts unavailable"));
         when(terminator.endWith(eq(run.getUuid()), any())).thenReturn(true);
@@ -182,10 +182,10 @@ class DiscoveryProviderV2AdapterStartTest {
     @Test
     void startsFullRunWithoutResolvingWindow_whenFullWindowOnInterfaceWithoutIncrementalFlag() throws Exception {
         // given
-        Discovery run = aWindowedRun(DiscoveryWindowMode.FULL);
+        Discovery run = createWindowedRun(DiscoveryWindowMode.FULL);
         when(capabilityService.supports(any(ConnectorInterfaceEntity.class), eq(FeatureFlag.DISCOVERY_INCREMENTAL)))
                 .thenReturn(false);
-        when(client.initiate(run)).thenReturn(emptyInitiateResponse());
+        when(client.initiate(run)).thenReturn(createEmptyInitiateResponse());
         when(discoveryRepository.findWithLockByUuid(run.getUuid())).thenReturn(Optional.of(copyOf(run)));
         when(detailCounts.forRun(any())).thenThrow(new IllegalStateException("counts unavailable"));
         when(terminator.endWith(eq(run.getUuid()), any())).thenReturn(true);
@@ -205,12 +205,12 @@ class DiscoveryProviderV2AdapterStartTest {
         // given
         var lastSuccessfulRun = OffsetDateTime.parse("2026-11-18T02:00:00Z");
         var jobInfo = new ScheduledJobInfo("nightly-job", UUID.randomUUID(), UUID.randomUUID());
-        Discovery run = aWindowedRun(DiscoveryWindowMode.SINCE_LAST_SUCCESSFUL_RUN);
+        Discovery run = createWindowedRun(DiscoveryWindowMode.SINCE_LAST_SUCCESSFUL_RUN);
         Discovery locked = copyOf(run);
         when(discoveryRepository.findWithLockByUuid(run.getUuid())).thenReturn(Optional.of(locked));
         when(windowResolver.resolve(DiscoveryWindowMode.SINCE_LAST_SUCCESSFUL_RUN, null, jobInfo))
                 .thenReturn(Optional.of(lastSuccessfulRun));
-        when(client.initiate(run)).thenReturn(emptyInitiateResponse());
+        when(client.initiate(run)).thenReturn(createEmptyInitiateResponse());
         when(detailCounts.forRun(any())).thenThrow(new IllegalStateException("counts unavailable"));
         when(terminator.endWith(eq(run.getUuid()), any())).thenReturn(true);
         UUID runUuid = run.getUuid();
@@ -230,7 +230,7 @@ class DiscoveryProviderV2AdapterStartTest {
     void keepsResolvedDiscoverSince_whenInitiateFails() throws Exception {
         // given
         var resolvedStart = OffsetDateTime.parse("2026-11-01T10:15:30Z");
-        Discovery run = aWindowedRun(DiscoveryWindowMode.LOOKBACK);
+        Discovery run = createWindowedRun(DiscoveryWindowMode.LOOKBACK);
         when(windowResolver.resolve(eq(DiscoveryWindowMode.LOOKBACK), eq(run.getWindowLookback()), isNull()))
                 .thenReturn(Optional.of(resolvedStart));
         when(client.initiate(run)).thenThrow(new IllegalStateException("initiate timed out"));
@@ -254,7 +254,7 @@ class DiscoveryProviderV2AdapterStartTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private Discovery aWindowedRun(DiscoveryWindowMode mode) throws Exception {
+    private Discovery createWindowedRun(DiscoveryWindowMode mode) throws Exception {
         Discovery run = new Discovery();
         run.setUuid(UUID.randomUUID());
         run.setStatus(DiscoveryStatus.IN_PROGRESS);
@@ -280,7 +280,7 @@ class DiscoveryProviderV2AdapterStartTest {
         return copy;
     }
 
-    private static DiscoveryInitiateResponseDto emptyInitiateResponse() {
+    private static DiscoveryInitiateResponseDto createEmptyInitiateResponse() {
         DiscoveryInitiateResponseDto response = new DiscoveryInitiateResponseDto();
         response.setCheckpoint(List.of());
         return response;
