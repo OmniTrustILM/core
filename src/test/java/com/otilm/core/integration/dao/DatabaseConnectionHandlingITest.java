@@ -48,10 +48,11 @@ class DatabaseConnectionHandlingITest extends BaseSpringBootTest {
     @Test
     void completesEveryTransaction_whenEveryThreadFirstReadOutsideATransaction() throws Exception {
         // given
-        int everyConnection = poolSize();
+        int everyConnection = readPoolSize();
         CyclicBarrier allHaveRead = new CyclicBarrier(everyConnection);
-        TransactionTemplate outsideATransaction = transactionWith(TransactionDefinition.PROPAGATION_NOT_SUPPORTED);
-        TransactionTemplate submission = transactionWith(TransactionDefinition.PROPAGATION_REQUIRED);
+        TransactionTemplate outsideATransaction = createTransactionTemplate(
+                TransactionDefinition.PROPAGATION_NOT_SUPPORTED);
+        TransactionTemplate submission = createTransactionTemplate(TransactionDefinition.PROPAGATION_REQUIRED);
         // A declared query method runs in no transaction of its own, unlike the inherited count()
         Callable<Long> readThenSubmit = () -> outsideATransaction.execute(status -> {
             settingRepository.findBySection(SettingsSection.PLATFORM);
@@ -69,9 +70,9 @@ class DatabaseConnectionHandlingITest extends BaseSpringBootTest {
     @Test
     void completesEveryKeyLookup_whenEveryThreadHoldsATransaction() throws Exception {
         // given
-        int everyConnection = poolSize();
+        int everyConnection = readPoolSize();
         CyclicBarrier allInATransaction = new CyclicBarrier(everyConnection);
-        TransactionTemplate submission = transactionWith(TransactionDefinition.PROPAGATION_REQUIRED);
+        TransactionTemplate submission = createTransactionTemplate(TransactionDefinition.PROPAGATION_REQUIRED);
         Callable<UUID> lookUpTheRequestKey = () -> submission.execute(status -> {
             settingRepository.count();
             awaitOthers(allInATransaction);
@@ -87,11 +88,11 @@ class DatabaseConnectionHandlingITest extends BaseSpringBootTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private int poolSize() throws SQLException {
+    private int readPoolSize() throws SQLException {
         return dataSource.unwrap(HikariDataSource.class).getMaximumPoolSize();
     }
 
-    private TransactionTemplate transactionWith(int propagation) {
+    private TransactionTemplate createTransactionTemplate(int propagation) {
         TransactionTemplate template = new TransactionTemplate(transactionManager);
         template.setPropagationBehavior(propagation);
         return template;

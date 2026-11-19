@@ -152,9 +152,6 @@ spring:
       ddl-auto: create-drop
     properties:
       hibernate:
-        # As in the main application.yml, which tests do not load
-        connection:
-          handling_mode: DELAYED_ACQUISITION_AND_RELEASE_AFTER_TRANSACTION
         jdbc:
           batch_size: 50
         order_inserts: true

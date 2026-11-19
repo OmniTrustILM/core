@@ -417,7 +417,7 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
     @ExternalAuthorization(resource = Resource.CBOM, action = ResourceAction.CREATE)
     public CbomDto createCbom(CbomUploadRequestDto request)
             throws AlreadyExistException, CbomRepositoryException, ValidationException {
-        // Each short transaction must own its EntityManager to release its connection before the next HTTP call.
+        // Each short transaction runs on an EntityManager of its own, so it flushes nothing the request has read.
         Object requestEntityManager = TransactionSynchronizationManager.unbindResourceIfPossible(entityManagerFactory);
         try {
             return uploadCbom(request);

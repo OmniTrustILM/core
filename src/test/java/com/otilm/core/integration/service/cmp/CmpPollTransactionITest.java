@@ -320,11 +320,11 @@ class CmpPollTransactionITest extends BaseSpringBootTest {
     }
 
     /**
-     * The revocation's transaction runs on the request's EntityManager. On a second one, while the request's still held
-     * a connection, it would wait for the pool holding the first, and when every request does that the pool deadlocks.
+     * Inside the revocation's transaction, the request's EntityManager holds that transaction's connection: the
+     * revocation runs on the request's EntityManager, not on one of its own.
      */
     @Test
-    void revokesOnTheRequestsOwnConnection_whenTheRequestAlreadyHoldsOne() throws Exception {
+    void revokesOnTheRequestsEntityManager_whenAnsweringARevocationRequest() throws Exception {
         // given
         Certificate certificate = seedIssuedCertificate(ISSUED_SERIAL);
         AtomicLong revokingBackend = new AtomicLong();
