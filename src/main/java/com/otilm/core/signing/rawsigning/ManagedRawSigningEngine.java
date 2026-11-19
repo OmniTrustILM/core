@@ -115,7 +115,7 @@ public class ManagedRawSigningEngine {
         }
     }
 
-    /** The run owns this rule, so every door that reaches it refuses data signing without a check of its own. */
+    /** The run owns this rule, so every entry point that reaches it refuses data signing without a check of its own. */
     private static void requirePrehashedDigests(SignatureInputMode inputMode) throws SigningEngineException {
         if (inputMode != SignatureInputMode.PREHASHED_DIGEST) {
             throw new SigningEngineException(SigningEngineFailure.INVALID_INPUT,

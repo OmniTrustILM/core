@@ -17,16 +17,21 @@ import com.otilm.core.signing.engine.resolver.ManagedSchemeResolver;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Stream;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Named;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningProfile;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Named.named;
 import static org.mockito.BDDMockito.given;
 
 @ExtendWith(MockitoExtension.class)
@@ -46,10 +51,10 @@ class StaticKeyManagedRawSigningResolverTest {
     }
 
     @Test
-    void resolve_carriesTheCertificatePurpose() throws Exception {
+    void carriesTheCertificatePurposeOntoTheResolvedProfile() throws Exception {
         // given
         var purpose = new CertificatePurposeRequirements(true, Set.of("1.3.6.1.5.5.7.3.36"));
-        SigningProfileModel<?, ?> model = aRawProfile(new ManagedRawSigningWorkflow(purpose));
+        SigningProfileModel<?, ?> model = aProfileWith(new ManagedRawSigningWorkflow(purpose));
         var resolvedScheme = new ResolvedStaticKeyManagedSigning(SigningCertificateBuilder.valid(), List.of(), null,
                 List.of());
         given(schemeResolver.resolve(PROFILE_NAME, model.signingScheme())).willReturn(resolvedScheme);
@@ -67,9 +72,9 @@ class StaticKeyManagedRawSigningResolverTest {
     }
 
     @Test
-    void supports_isTrue_forARawWorkflow() {
+    void supportsAManagedRawWorkflow() {
         // given
-        SigningProfileModel<?, ?> model = aRawProfile(new ManagedRawSigningWorkflow(null));
+        SigningProfileModel<?, ?> model = aProfileWith(new ManagedRawSigningWorkflow(null));
 
         // when
         boolean supported = resolver.supports(model);
@@ -78,27 +83,23 @@ class StaticKeyManagedRawSigningResolverTest {
         assertThat(supported).isTrue();
     }
 
-    @Test
-    void supports_isFalse_forContentAndTimestampingWorkflows() {
+    @ParameterizedTest
+    @MethodSource("nonRawWorkflows")
+    void doesNotSupportANonRawWorkflow(SigningWorkflow notRaw) {
         // given
-        SigningWorkflow content = new ManagedContentSigningWorkflow(UUID.randomUUID(), List.of(), null, null, null,
-                CertificatePurposeRequirements.NONE, Set.of());
-        SigningWorkflow timestamping = new ManagedTimestampingWorkflow(UUID.randomUUID(), List.of(), Boolean.TRUE, null,
-                "1.2.3", List.of(), List.of(), Boolean.FALSE);
+        SigningProfileModel<?, ?> model = aProfileWith(notRaw);
 
         // when
-        boolean supportsContent = resolver.supports(aRawProfile(content));
-        boolean supportsTimestamping = resolver.supports(aRawProfile(timestamping));
+        boolean supported = resolver.supports(model);
 
         // then
-        assertThat(supportsContent).isFalse();
-        assertThat(supportsTimestamping).isFalse();
+        assertThat(supported).isFalse();
     }
 
     @Test
-    void resolve_throwsMisconfigured_whenSchemeIsNotStaticKey() throws Exception {
+    void propagatesMisconfigured_whenSchemeResolutionFails() throws Exception {
         // given
-        SigningProfileModel<?, ?> model = aRawProfile(new ManagedRawSigningWorkflow(null));
+        SigningProfileModel<?, ?> model = aProfileWith(new ManagedRawSigningWorkflow(null));
         given(schemeResolver.resolve(PROFILE_NAME, model.signingScheme()))
                 .willThrow(new SigningEngineException(SigningEngineFailure.MISCONFIGURED, "unsupported scheme",
                         "The system is misconfigured."));
@@ -114,7 +115,15 @@ class StaticKeyManagedRawSigningResolverTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static SigningProfileModel<?, ?> aRawProfile(SigningWorkflow workflow) {
+    private static Stream<Named<SigningWorkflow>> nonRawWorkflows() {
+        SigningWorkflow content = new ManagedContentSigningWorkflow(UUID.randomUUID(), List.of(), null, null, null,
+                CertificatePurposeRequirements.NONE, Set.of());
+        SigningWorkflow timestamping = new ManagedTimestampingWorkflow(UUID.randomUUID(), List.of(), Boolean.TRUE, null,
+                "1.2.3", List.of(), List.of(), Boolean.FALSE);
+        return Stream.of(named("content signing", content), named("timestamping", timestamping));
+    }
+
+    private static SigningProfileModel<?, ?> aProfileWith(SigningWorkflow workflow) {
         return aSigningProfile()
                 .withUuid(PROFILE_UUID)
                 .withName(PROFILE_NAME)

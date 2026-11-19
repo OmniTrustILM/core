@@ -48,7 +48,8 @@ public interface SigningProfileVersionRepository extends JpaRepository<SigningPr
      * Names the profiles of the given workflows whose latest version signs with the key, through whichever certificate
      * carries it. Superseded versions do not count: they never sign again.
      *
-     * @param excludedProfileUuid the profile being saved, which may change its own workflow; null on create
+     * @param excludedProfileUuid the profile under check, whose own latest version never counts: the one being saved,
+     * which may change its own workflow (null on create), activated for ILM_NATIVE, or run
      */
     @Query("""
             SELECT DISTINCT v.signingProfile.name FROM SigningProfileVersion v

@@ -154,7 +154,7 @@ class RawSigningEngineITest extends BaseSpringBootTest {
 
     @ParameterizedTest
     @MethodSource("signingKeys")
-    void sign_producesSignaturesThatVerifyAgainstTheirDigests(SigningKey signingKey) throws Exception {
+    void producesSignaturesThatVerifyAgainstTheirDigests(SigningKey signingKey) throws Exception {
         // given
         SigningProfileDto profile = createRawProfile("raw-" + signingKey.signatureAlgorithm().name().toLowerCase(),
                 signingKey);
@@ -176,7 +176,7 @@ class RawSigningEngineITest extends BaseSpringBootTest {
     }
 
     @Test
-    void sign_writesOneRecordPerDigestNamingTheRequester() throws Exception {
+    void writesOneRecordPerDigestNamingTheRequester() throws Exception {
         // given
         SigningProfileDto profile = createRawProfile("raw-recorded", RSA_PKCS1_SHA256);
         var requester = (PlatformUserDetails) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
@@ -212,7 +212,7 @@ class RawSigningEngineITest extends BaseSpringBootTest {
     }
 
     @Test
-    void sign_refusesTheCertificate_whenEkuRequirementIsNotMet() throws Exception {
+    void refusesTheCertificate_whenEkuRequirementIsNotMet() throws Exception {
         // given — profile save refuses a certificate without the demanded EKU, so the demand reaches only the run
         SigningProfileDto profile = createRawProfile("raw-eku-demand", RSA_PKCS1_SHA256);
         ResolvedManagedRawSigningProfile saved = resolvedProfileOf(profile);
@@ -240,7 +240,7 @@ class RawSigningEngineITest extends BaseSpringBootTest {
     }
 
     @Test
-    void sign_throwsMisconfigured_whenTheKeyAlsoSignsForAnotherWorkflow() throws Exception {
+    void throwsMisconfigured_whenTheKeyAlsoSignsForAnotherWorkflow() throws Exception {
         // given — a timestamping profile on the raw profile's key, which no save admits any more
         SigningProfileDto profile = createRawProfile("raw-sharing-its-key", RSA_PKCS1_SHA256);
         SigningProfile timestampingProfile = seedTimestampingProfile("timestamping-on-the-raw-key",

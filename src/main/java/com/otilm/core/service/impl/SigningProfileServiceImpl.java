@@ -1142,9 +1142,9 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     }
 
     /**
-     * Binds every workflow, outside the persistence transaction: a raw profile refuses a key that content-signing or
-     * timestamping profiles sign with, and those profiles refuse a key a raw profile signs with, whichever certificates
-     * carry it. Only a static-key profile names a key ILM signs with.
+     * Refuses a key that a profile of a {@link RawSigningProfileRules#conflictingWorkflows conflicting workflow} signs
+     * with, through any certificate. Runs outside the persistence transaction; only a static-key profile names a key
+     * ILM signs with.
      */
     private void validateSigningKeyWorkflowBinding(SigningProfileRequestDto request, @Nullable UUID targetProfileUuid)
             throws NotFoundException {

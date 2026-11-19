@@ -130,7 +130,7 @@ class IlmNativeProfileResolverTest {
     }
 
     @Test
-    void resolve_loadsARawModel_whenIlmNativeIsActive() throws Exception {
+    void returnsLoadedRawModel_whenIlmNativeIsActive() throws Exception {
         // given
         stubStoredRecord(true, SigningScheme.MANAGED, SigningWorkflowType.RAW_SIGNING);
         SigningProfileModel<?, ?> rawModel = aSigningProfile()

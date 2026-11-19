@@ -140,7 +140,7 @@ class ManagedRawSigningEngineTest {
     }
 
     @Test
-    void sign_returnsSignaturesAndRecordUuidsInRequestOrder_whenProfileRecords() throws Exception {
+    void returnsSignaturesAndRecordUuidsInRequestOrder_whenProfileRecords() throws Exception {
         // given
         when(signer.signAll(anyList(), eq(SignatureInputMode.PREHASHED_DIGEST))).thenReturn(signMessages(IDENTIFIERS));
         List<UUID> recordUuids = List.of(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
@@ -158,7 +158,7 @@ class ManagedRawSigningEngineTest {
     }
 
     @Test
-    void sign_returnsNoRecordUuids_whenProfileDoesNotRecord() throws Exception {
+    void returnsNoRecordUuids_whenProfileDoesNotRecord() throws Exception {
         // given
         SigningProfileModel<?, ?> notRecording = aSigningProfile()
                 .withUuid(PROFILE_UUID)
@@ -180,7 +180,7 @@ class ManagedRawSigningEngineTest {
     }
 
     @Test
-    void sign_throwsInvalidInput_whenModeIsData() throws Exception {
+    void throwsInvalidInput_whenModeIsData() throws Exception {
         // given
         var dataMode = SignatureInputMode.DATA;
         var request = new RawSigningRequest(dataMode, DigestAlgorithm.SHA_256, digestItems(IDENTIFIERS));
@@ -197,7 +197,7 @@ class ManagedRawSigningEngineTest {
     }
 
     @Test
-    void sign_throwsInvalidInput_whenDigestAlgorithmIsNotTheProfiles() throws Exception {
+    void throwsInvalidInput_whenDigestAlgorithmIsNotTheProfiles() throws Exception {
         // given
         var notTheKeysDigest = DigestAlgorithm.SHA_384;
         var request = new RawSigningRequest(SignatureInputMode.PREHASHED_DIGEST, notTheKeysDigest,
@@ -216,7 +216,7 @@ class ManagedRawSigningEngineTest {
     }
 
     @Test
-    void sign_throwsInvalidInputNamingTheItem_whenADigestHasTheWrongLength() throws Exception {
+    void throwsInvalidInputNamingTheItem_whenADigestHasTheWrongLength() throws Exception {
         // given
         var tooShortForSha256 = new byte[31];
         var shortItem = new RawSigningItem("doc-2", tooShortForSha256);
@@ -237,7 +237,7 @@ class ManagedRawSigningEngineTest {
     }
 
     @Test
-    void sign_throwsInvalidInput_whenTheBatchIsEmpty() {
+    void throwsInvalidInput_whenTheBatchIsEmpty() {
         // given
         List<RawSigningItem> noItems = List.of();
         var request = new RawSigningRequest(SignatureInputMode.PREHASHED_DIGEST, DigestAlgorithm.SHA_256, noItems);
@@ -254,7 +254,7 @@ class ManagedRawSigningEngineTest {
     }
 
     @Test
-    void sign_throwsInvalidInput_whenBatchExceedsTheCap() throws Exception {
+    void throwsInvalidInput_whenBatchExceedsTheCap() throws Exception {
         // given
         var cap = 2;
         cacheMaxItemsPerRequest(cap);
@@ -272,7 +272,7 @@ class ManagedRawSigningEngineTest {
     }
 
     @Test
-    void sign_stagesNothing_whenTheSignerFails() throws Exception {
+    void stagesNothing_whenTheSignerFails() throws Exception {
         // given
         var providerRefusal = new SigningEngineException(SigningEngineFailure.SIGNER_FAULT, "provider refused",
                 "Internal signing error");
@@ -288,7 +288,7 @@ class ManagedRawSigningEngineTest {
     }
 
     @Test
-    void sign_throwsNamingTheItem_whenTheProviderFailsOneDigest() throws Exception {
+    void throwsNamingTheItem_whenTheProviderFailsOneDigest() throws Exception {
         // given
         var failedIndex = 1;
         var providerFailure = new ItemSigningException(SigningEngineFailure.SIGNER_FAULT, failedIndex,
@@ -308,7 +308,7 @@ class ManagedRawSigningEngineTest {
     }
 
     @Test
-    void sign_signsAllDigestsInOneCall() throws Exception {
+    void signsAllDigestsInOneCall() throws Exception {
         // given
         when(signer.signAll(anyList(), eq(SignatureInputMode.PREHASHED_DIGEST))).thenReturn(signMessages(IDENTIFIERS));
         when(recordStager.stage(eq(model), anyList())).thenReturn(List.of());
@@ -326,7 +326,7 @@ class ManagedRawSigningEngineTest {
     }
 
     @Test
-    void sign_throwsMisconfigured_whenTheKeyAlgorithmIsOutsideTheBound() throws Exception {
+    void throwsMisconfigured_whenTheKeyAlgorithmIsOutsideTheBound() throws Exception {
         // given
         var signsItsOwnMessage = SignatureAlgorithm.ML_DSA_65;
         when(signer.getSignatureAlgorithm()).thenReturn(signsItsOwnMessage);
@@ -345,7 +345,7 @@ class ManagedRawSigningEngineTest {
     }
 
     @Test
-    void sign_throwsMisconfigured_whenTheKeyAlsoSignsForAnotherWorkflow() throws Exception {
+    void throwsMisconfigured_whenTheKeyAlsoSignsForAnotherWorkflow() throws Exception {
         // given
         var timestampingProfileOnTheKey = "timestamping-profile";
         when(signingProfileVersionRepository
@@ -367,7 +367,7 @@ class ManagedRawSigningEngineTest {
     }
 
     @Test
-    void sign_throwsInvalidInput_whenDigestAlgorithmIsMissing() throws Exception {
+    void throwsInvalidInput_whenDigestAlgorithmIsMissing() throws Exception {
         // given
         DigestAlgorithm noDigestAlgorithm = null;
         var request = new RawSigningRequest(SignatureInputMode.PREHASHED_DIGEST, noDigestAlgorithm,
@@ -386,7 +386,7 @@ class ManagedRawSigningEngineTest {
 
     @ParameterizedTest
     @MethodSource("modelsOfAnotherProfileVersion")
-    void sign_throwsMisconfigured_whenTheModelIsNotOfTheProfile(SigningProfileModel<?, ?> modelOfAnotherProfileVersion)
+    void throwsMisconfigured_whenTheModelIsNotOfTheProfile(SigningProfileModel<?, ?> modelOfAnotherProfileVersion)
             throws Exception {
         // given
         var request = digestRequest(IDENTIFIERS);

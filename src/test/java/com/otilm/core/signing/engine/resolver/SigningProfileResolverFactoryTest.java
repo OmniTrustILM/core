@@ -137,7 +137,7 @@ class SigningProfileResolverFactoryTest {
     }
 
     @Test
-    void returnsTheRawResolver_forARawModel() throws Exception {
+    void resolvesARawModel_throughTheRawResolver() throws Exception {
         // given
         SigningProfileModel<?, ?> rawModel = new SigningProfileModel<>(UUID.randomUUID(), "raw-profile", null, 1, true,
                 List.of(SigningProtocol.ILM_NATIVE), null, new ManagedRawSigningWorkflow(null),
