@@ -44,11 +44,13 @@ import com.otilm.core.dao.repository.CrlRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.events.handlers.CertificateUploadedEventHandler;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
+import com.otilm.core.helpers.TestCertificateAuthority;
 import com.otilm.core.messaging.model.CertificateUploadEventMessageData;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CrlService;
 import com.otilm.core.service.SettingExternalService;
 import com.otilm.core.service.impl.CertificateServiceImpl;
+import com.otilm.core.service.writer.CertificateChainWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateTestUtil;
 import com.otilm.core.util.CertificateUtil;
@@ -144,6 +146,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -196,6 +199,12 @@ public class CertificateValidationITest extends BaseSpringBootTest {
 
     @Autowired
     private CertificateUploadedEventHandler certificateUploadedEventHandler;
+
+    @Autowired
+    private TestCertificateAuthority testCertificateAuthority;
+
+    @Autowired
+    private CertificateChainWriter certificateChainWriter;
 
     private X509CertificateEntity certificate;
 
@@ -3180,6 +3189,68 @@ public class CertificateValidationITest extends BaseSpringBootTest {
             public String getName() {
                 return "ocsp-responder";
             }
+        }
+    }
+
+    // ── ValidationChain ───────────────────────────────────────────────────────
+
+    @Nested
+    class ValidationChain {
+
+        @Test
+        void storesValid_whenAnotherRequestLinksTheIssuerAfterTheCertificateWasLoaded() throws Exception {
+            // given
+            Certificate leaf = issueLeafWithoutIssuerLink();
+            // the validation listener's copy, loaded before CMP or an ACME download links the issuer
+            Certificate loadedBeforeTheLink = certificateRepository
+                    .findAllWithAssociationsByUuidIn(List.of(leaf.getUuid()))
+                    .getFirst();
+            certificateService.getCertificateChain(leaf.getSecuredUuid(), true);
+
+            // when
+            certificateService.validate(loadedBeforeTheLink);
+
+            // then
+            Certificate stored = certificateRepository.findByUuid(leaf.getUuid()).orElseThrow();
+            assertThat(stored.getValidationStatus()).isEqualTo(CertificateValidationStatus.VALID);
+        }
+
+        @Test
+        @Timeout(value = 30, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
+        void finishes_whenTheStoredIssuerLinksFormACycle() throws Exception {
+            // given
+            Certificate certificateA = uploadSelfSignedCa("CN=Issuer Cycle A");
+            Certificate certificateB = uploadSelfSignedCa("CN=Issuer Cycle B");
+            certificateChainWriter
+                    .applyIssuerReference(certificateA.getUuid(), certificateB.getSerialNumber(),
+                            certificateB.getUuid());
+            certificateChainWriter
+                    .applyIssuerReference(certificateB.getUuid(), certificateA.getSerialNumber(),
+                            certificateA.getUuid());
+            Certificate cycleMember = certificateRepository
+                    .findAllWithAssociationsByUuidIn(List.of(certificateA.getUuid()))
+                    .getFirst();
+
+            // when
+            certificateService.validate(cycleMember);
+
+            // then
+            Certificate stored = certificateRepository.findByUuid(certificateA.getUuid()).orElseThrow();
+            assertThat(stored.getValidationStatus()).isEqualTo(CertificateValidationStatus.INVALID);
+        }
+
+        private Certificate uploadSelfSignedCa(String subjectDn) throws Exception {
+            KeyPair keyPair = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+            X509Certificate x509 = CertificateGeneratorHelper.generateCACertificate(keyPair, subjectDn);
+            return uploadCertificate(Base64.getEncoder().encodeToString(x509.getEncoded()));
+        }
+
+        private Certificate issueLeafWithoutIssuerLink() throws Exception {
+            TestCertificateAuthority.TrustedCa ca = testCertificateAuthority.createTrustedCa("CN=Issuer Link Race CA");
+            KeyPair leafKeyPair = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+            Certificate leaf = ca.issueSigningCertificate(leafKeyPair, "CN=issuer-link-race-leaf");
+            certificateChainWriter.clearIssuerReference(leaf.getUuid());
+            return leaf;
         }
     }
 
