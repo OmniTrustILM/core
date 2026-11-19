@@ -88,7 +88,7 @@ public class DiscoveryCertificateTask implements ScheduledJobTask {
         DiscoveryDetailDto discovery = null;
         TransactionStatus status = transactionManager.getTransaction(new DefaultTransactionDefinition());
         try {
-            discovery = discoveryService.createDiscovery(discoveryDto, true);
+            discovery = discoveryService.createDiscovery(discoveryDto, true, true);
             transactionManager.commit(status);
         } catch (Exception e) {
             transactionManager.rollback(status);

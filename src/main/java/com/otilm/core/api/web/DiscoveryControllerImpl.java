@@ -103,7 +103,7 @@ public class DiscoveryControllerImpl implements DiscoveryController {
     @AuditLogged(module = Module.DISCOVERY, resource = Resource.DISCOVERY, operation = Operation.CREATE)
     public ResponseEntity<?> createDiscovery(@RequestBody DiscoveryDto request)
             throws ConnectorException, AlreadyExistException, AttributeException, NotFoundException {
-        final DiscoveryDetailDto modal = discoveryService.createDiscovery(request, true);
+        final DiscoveryDetailDto modal = discoveryService.createDiscovery(request, true, false);
         UUID discoveryUuid = UUID.fromString(modal.getUuid());
         if (modal.getConnectorInterface() == null) {
             discoveryService.runDiscoveryAsync(discoveryUuid);
@@ -129,7 +129,7 @@ public class DiscoveryControllerImpl implements DiscoveryController {
             throws SchedulerException, ConnectorException, AlreadyExistException, AttributeException,
             NotFoundException {
         final DiscoveryDto discoveryDto = scheduleDiscoveryDto.getRequest();
-        discoveryService.createDiscovery(discoveryDto, false);
+        discoveryService.createDiscovery(discoveryDto, false, true);
 
         String jobName;
         if (scheduleDiscoveryDto.getJobName() == null) {

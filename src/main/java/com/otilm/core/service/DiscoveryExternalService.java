@@ -78,7 +78,11 @@ public interface DiscoveryExternalService {
     /** Ends the run and tells the connector to drop it. */
     void cancelDiscovery(SecuredUUID uuid) throws NotFoundException, ConnectorException;
 
-    DiscoveryDetailDto createDiscovery(DiscoveryDto request, boolean saveEntity)
+    /**
+     * @param scheduled whether the request describes a discovery that will run from a schedule, which is the only kind
+     * that has a previous run for a window to start from
+     */
+    DiscoveryDetailDto createDiscovery(DiscoveryDto request, boolean saveEntity, boolean scheduled)
             throws AlreadyExistException, ConnectorException, AttributeException, NotFoundException;
 
     void runDiscoveryAsync(UUID discoveryUuid);
