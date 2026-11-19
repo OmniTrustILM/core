@@ -11,10 +11,10 @@ import java.util.UUID;
 public interface TokenKeyOnboardingExternalService {
 
     /**
-     * A page of the key pairs on the profile's token.
+     * A page of the profile's token keys, one entry per key in the token's order.
      *
      * @param pageNumber page to return, starting at 1
-     * @param itemsPerPage largest number of key pairs on the page
+     * @param itemsPerPage largest number of entries on the page, whether or not an entry carries a key pair
      * @throws NotFoundException if the token has no such profile
      * @throws com.otilm.api.exception.ValidationException if key listing is unavailable on the profile, or the page is
      * out of range
