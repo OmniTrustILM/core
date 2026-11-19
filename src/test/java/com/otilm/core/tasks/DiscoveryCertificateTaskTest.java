@@ -17,9 +17,6 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionStatus;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.times;
@@ -40,7 +37,8 @@ class DiscoveryCertificateTaskTest {
 
     /** The FAILED result's message reaches the scheduler API through the history row; a driver's text must not. */
     @Test
-    void aFailedDiscoveryCreationReportsAShapedMessageNotTheDriversText() throws Exception {
+    void reportsShapedFailureMessage_whenDiscoveryCreationFailsWithDriverText() throws Exception {
+        // given
         DiscoveryCertificateTask task = new DiscoveryCertificateTask();
         task.setMapper(new ObjectMapper());
         task.setTransactionManager(transactionManager);
@@ -52,12 +50,14 @@ class DiscoveryCertificateTaskTest {
         DiscoveryDto request = new DiscoveryDto();
         request.setName("nightly");
 
+        // when
         ScheduledTaskResult result = task.performJob(new ScheduledJobInfo("nightly-job"), request);
 
-        assertEquals(SchedulerJobExecutionStatus.FAILED, result.getStatus());
-        assertTrue(result.getResultMessage().startsWith("Unable to create discovery nightly"),
-                result.getResultMessage());
-        assertFalse(result.getResultMessage().contains("duplicate key"), result.getResultMessage());
+        // then
+        assertThat(result.getStatus()).isEqualTo(SchedulerJobExecutionStatus.FAILED);
+        assertThat(result.getResultMessage())
+                .startsWith("Unable to create discovery nightly")
+                .doesNotContain("duplicate key");
     }
 
     /** After downtime the scheduler delivers a job's missed executions at once; each must get its own discovery. */
