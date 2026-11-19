@@ -83,6 +83,7 @@ import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -3202,9 +3203,9 @@ public class CertificateValidationITest extends BaseSpringBootTest {
             // given
             Certificate leaf = issueLeafWithoutIssuerLink();
             // the validation listener's copy, loaded before CMP or an ACME download links the issuer
-            Certificate loadedBeforeTheLink = certificateRepository
-                    .findAllWithAssociationsByUuidIn(List.of(leaf.getUuid()))
-                    .getFirst();
+            Certificate loadedBeforeTheLink = loadAsValidationListenerDoes(leaf);
+            OffsetDateTime previousValidation = loadedBeforeTheLink.getStatusValidationTimestamp();
+            // CMP's caPubs lookup links the issuer as a side effect of reading the chain
             certificateService.getCertificateChain(leaf.getSecuredUuid(), true);
 
             // when
@@ -3213,36 +3214,46 @@ public class CertificateValidationITest extends BaseSpringBootTest {
             // then
             Certificate stored = certificateRepository.findByUuid(leaf.getUuid()).orElseThrow();
             assertThat(stored.getValidationStatus()).isEqualTo(CertificateValidationStatus.VALID);
+            assertThat(stored.getStatusValidationTimestamp()).isAfter(previousValidation);
         }
 
         @Test
         @Timeout(value = 30, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
-        void finishes_whenTheStoredIssuerLinksFormACycle() throws Exception {
+        void storesInvalid_whenCrossCertifiedCasLinkIntoACycle() throws Exception {
             // given
-            Certificate certificateA = uploadSelfSignedCa("CN=Issuer Cycle A");
-            Certificate certificateB = uploadSelfSignedCa("CN=Issuer Cycle B");
-            certificateChainWriter
-                    .applyIssuerReference(certificateA.getUuid(), certificateB.getSerialNumber(),
-                            certificateB.getUuid());
-            certificateChainWriter
-                    .applyIssuerReference(certificateB.getUuid(), certificateA.getSerialNumber(),
-                            certificateA.getUuid());
-            Certificate cycleMember = certificateRepository
-                    .findAllWithAssociationsByUuidIn(List.of(certificateA.getUuid()))
-                    .getFirst();
+            KeyPair keyPairA = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+            KeyPair keyPairB = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+            X509Certificate certifiedByB = crossCertify(keyPairB, "CN=Issuer Cycle B", keyPairA, "CN=Issuer Cycle A");
+            X509Certificate certifiedByA = crossCertify(keyPairA, "CN=Issuer Cycle A", keyPairB, "CN=Issuer Cycle B");
+            Certificate certificateA = uploadCertificate(Base64.getEncoder().encodeToString(certifiedByB.getEncoded()));
+            Certificate certificateB = uploadCertificate(Base64.getEncoder().encodeToString(certifiedByA.getEncoded()));
+            // validating B links it to A; validating A then links A to B, which closes the cycle
+            certificateService.validate(loadAsValidationListenerDoes(certificateB));
+            Certificate cycleMember = loadAsValidationListenerDoes(certificateA);
 
             // when
             certificateService.validate(cycleMember);
 
             // then
             Certificate stored = certificateRepository.findByUuid(certificateA.getUuid()).orElseThrow();
+            Map<CertificateValidationCheck, CertificateValidationCheckDto> checks = MetaDefinitions
+                    .deserializeValidation(stored.getCertificateValidationResult());
             assertThat(stored.getValidationStatus()).isEqualTo(CertificateValidationStatus.INVALID);
+            assertThat(checks.get(CertificateValidationCheck.CERTIFICATE_CHAIN).getMessage())
+                    .startsWith("Incomplete certificate chain");
         }
 
-        private Certificate uploadSelfSignedCa(String subjectDn) throws Exception {
-            KeyPair keyPair = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
-            X509Certificate x509 = CertificateGeneratorHelper.generateCACertificate(keyPair, subjectDn);
-            return uploadCertificate(Base64.getEncoder().encodeToString(x509.getEncoded()));
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private X509Certificate crossCertify(KeyPair issuerKeyPair, String issuerDn, KeyPair subjectKeyPair,
+                String subjectDn) throws Exception {
+            X509Certificate issuerNameSource = CertificateGeneratorHelper
+                    .generateCACertificate(issuerKeyPair, issuerDn);
+            return generateIntermediateCACertificate(issuerKeyPair, issuerNameSource, subjectKeyPair, subjectDn);
+        }
+
+        private Certificate loadAsValidationListenerDoes(Certificate certificate) {
+            return certificateRepository.findAllWithAssociationsByUuidIn(List.of(certificate.getUuid())).getFirst();
         }
 
         private Certificate issueLeafWithoutIssuerLink() throws Exception {
