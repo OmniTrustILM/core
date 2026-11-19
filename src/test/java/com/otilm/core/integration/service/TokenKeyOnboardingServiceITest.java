@@ -881,6 +881,44 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         }
 
         @Test
+        void listsItAsRefused_whenTheConnectorRefusesAKeyPairARecordTheCallerMayNotUpdateHolds() throws Exception {
+            // given
+            var publicKey = rsaPublicKey();
+            var recordName = "certKey_locked";
+            var publicKeyRecord = recordHolding(recordName, publicKey);
+            denyResourceAccess(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.UPDATE, publicKeyRecord);
+            tokenLists(aListedKeyPair().withPublicKey(publicKey).withStatus(KeyEntryStatus.REFUSED).build());
+
+            // when
+            TokenKeyDto entry = firstListedEntry();
+
+            // then
+            assertThat(entry)
+                    .extracting(TokenKeyDto::getStatus, TokenKeyDto::getReason, TokenKeyDto::getInventoryKeyName)
+                    .containsExactly(TokenKeyStatus.REFUSED,
+                            "The connector refuses to let the platform onboard this key.", recordName);
+        }
+
+        @Test
+        void listsItAsRefused_whenTheConnectorRefusesAKeyPairAnInactiveRecordHolds() throws Exception {
+            // given
+            var publicKey = rsaPublicKey();
+            var recordName = "certKey_inactive";
+            var publicKeyRecord = recordHolding(recordName, publicKey);
+            withItemsIn(publicKeyRecord, KeyState.DEACTIVATED);
+            tokenLists(aListedKeyPair().withPublicKey(publicKey).withStatus(KeyEntryStatus.REFUSED).build());
+
+            // when
+            TokenKeyDto entry = firstListedEntry();
+
+            // then
+            assertThat(entry)
+                    .extracting(TokenKeyDto::getStatus, TokenKeyDto::getReason, TokenKeyDto::getInventoryKeyName)
+                    .containsExactly(TokenKeyStatus.REFUSED,
+                            "The connector refuses to let the platform onboard this key.", recordName);
+        }
+
+        @Test
         void listsItAsInInventory_whenTheConnectorRefusesAKeyPairTheInventoryHolds() throws Exception {
             // given
             var publicKey = rsaPublicKey();

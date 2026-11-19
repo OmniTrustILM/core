@@ -342,11 +342,11 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
     }
 
     /**
-     * The connector's refusal outranks every standing but the inventory holding the key. No change on the platform's
-     * side lifts a refusal, while a held key's status names the key that already holds it.
+     * The connector's refusal outranks every standing but {@code IN_INVENTORY}. No change on the platform's side lifts
+     * a refusal. {@code IN_INVENTORY} names the token key that already holds the key pair.
      */
     private static Standing withConnectorVerdict(Standing standing, ProviderKeyEntry entry) {
-        if (entry.status() == KeyEntryStatus.REFUSED && !standing.inInventory()) {
+        if (entry.status() == KeyEntryStatus.REFUSED && standing.status() != TokenKeyStatus.IN_INVENTORY) {
             return new Standing(TokenKeyStatus.REFUSED, standing.fingerprint(), standing.holder(),
                     standing.holderVisible(), REFUSED_KEY);
         }
@@ -573,10 +573,6 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
         /** The holder, when the caller may see it in detail. */
         PublicKeyHolderSummary visibleHolder() {
             return holderVisible ? holder : null;
-        }
-
-        boolean inInventory() {
-            return status == TokenKeyStatus.IN_INVENTORY || status == TokenKeyStatus.IN_INVENTORY_WITHOUT_TOKEN;
         }
     }
 

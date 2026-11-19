@@ -33,6 +33,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DuplicateKeyException;
 
 import static com.otilm.core.util.builders.ProviderKeyPairBuilder.aProviderKeyPair;
 import static com.otilm.core.util.builders.TokenProfileFullModelBuilder.aTokenProfileSnapshot;
@@ -141,6 +142,34 @@ class TokenKeyOnboardingServiceImplTest {
             assertImportInProgress(result);
             verify(cryptographicKeyWriter)
                     .onboardIntoRecordUnlessImporting(eq(recordUuid), eq(profile), eq(fingerprintOf(pair)), any());
+        }
+
+        @Test
+        void blocksWithoutNamingTheKey_whenTheCallerMayNotSeeTheKeyThatWonTheRace() throws Exception {
+            // given
+            ProviderKeyPair pair = aProviderKeyPair().build();
+            var winnerUuid = UUID.randomUUID();
+            var winnerTokenUuid = UUID.randomUUID();
+            var hiddenWinner = new PublicKeyHolderSummary(winnerUuid, "winner", winnerTokenUuid, Holding.KEY_PAIR,
+                    true);
+            resolves(pair);
+            when(cryptographicKeyWriter.holdersOf(any()))
+                    .thenReturn(Map.of(), Map.of(fingerprintOf(pair), hiddenWinner));
+            when(cryptographicKeyWriter
+                    .onboardUnlessImporting(any(), eq(profile), eq(fingerprintOf(pair)), any(), any(), any()))
+                    .thenThrow(new DuplicateKeyException("public key fingerprint taken"));
+            when(keyImportGates.maySeeInDetail(winnerUuid, winnerTokenUuid)).thenReturn(false);
+
+            // when
+            TokenKeyOnboardingResultDto result = onboard(pair);
+
+            // then
+            assertThat(result)
+                    .extracting(TokenKeyOnboardingResultDto::getOutcome, TokenKeyOnboardingResultDto::getStatus,
+                            TokenKeyOnboardingResultDto::getReason, TokenKeyOnboardingResultDto::getKeyUuid,
+                            TokenKeyOnboardingResultDto::getKeyName)
+                    .containsExactly(TokenKeyOnboardingOutcome.BLOCKED, TokenKeyStatus.IN_INVENTORY,
+                            TokenKeyOnboardingServiceImpl.HELD_MEANWHILE, null, null);
         }
 
         // ── Helpers ───────────────────────────────────────────────────────────
