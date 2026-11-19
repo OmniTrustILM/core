@@ -141,7 +141,7 @@ public class SigningRecordServiceImpl implements SigningRecordExternalService, S
     @Transactional(readOnly = true)
     public SigningRecordStatisticsDto getSigningRecordStatistics(SigningRecordStatisticsPeriod period,
             SecurityFilter filter) {
-        signingRecordRepository.readUnderOneSnapshot();
+        signingRecordWriter.readUnderOneSnapshot();
         filter.setParentRefProperty(SIGNING_PROFILE_PARENT_REF);
         Instant now = Instant.now();
 
