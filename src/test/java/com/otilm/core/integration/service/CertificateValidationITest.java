@@ -2511,7 +2511,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         return certificateRepository.findByFingerprint(fingerprint).orElseThrow();
     }
 
-    private X509Certificate generateIntermediateCACertificate(KeyPair issuerKeyPair, X509Certificate issuerCert,
+    private static X509Certificate generateIntermediateCACertificate(KeyPair issuerKeyPair, X509Certificate issuerCert,
             KeyPair subjectKeyPair, String subjectDn) throws Exception {
         X500Name issuer = new X500Name(issuerCert.getSubjectX500Principal().getName());
         X500Name subject = new X500Name(subjectDn);
@@ -3245,7 +3245,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
 
         // ── Helpers ───────────────────────────────────────────────────────────
 
-        private X509Certificate crossCertify(KeyPair issuerKeyPair, String issuerDn, KeyPair subjectKeyPair,
+        private static X509Certificate crossCertify(KeyPair issuerKeyPair, String issuerDn, KeyPair subjectKeyPair,
                 String subjectDn) throws Exception {
             X509Certificate issuerNameSource = CertificateGeneratorHelper
                     .generateCACertificate(issuerKeyPair, issuerDn);
