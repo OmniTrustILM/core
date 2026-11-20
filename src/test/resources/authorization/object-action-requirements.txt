@@ -308,7 +308,7 @@ credentials:list | CredentialServiceImpl.listCredentialsCallback(SecurityFilter,
 credentials:list | CredentialServiceImpl.listResourceObjects(SecurityFilter, List, PaginationRequestDto) | checks [] | reads []
 credentials:update | CredentialServiceImpl.editCredential(SecuredUUID, CredentialUpdateRequestDto) | checks [ConnectorInternalService.mergeAndValidateAttributes connectors:ANY] | reads [Resource.CREDENTIAL]
 credentials:update | CredentialServiceImpl.evaluatePermissionChain(SecuredUUID) | checks [] | reads []
-discoveries:create | DiscoveryServiceImpl.createDiscovery(DiscoveryDto, boolean) | checks [ConnectorInternalService.mergeAndValidateAttributes connectors:ANY, CredentialInternalService.loadFullCredentialData credentials:detail, enforcer.enforce] | reads [Resource.CONNECTOR, Resource.DISCOVERY, ResourceAction.ANY]
+discoveries:create | DiscoveryServiceImpl.createDiscovery(DiscoveryDto, boolean, boolean) | checks [ConnectorInternalService.mergeAndValidateAttributes connectors:ANY, CredentialInternalService.loadFullCredentialData credentials:detail, enforcer.enforce] | reads [Resource.CONNECTOR, Resource.DISCOVERY, ResourceAction.ANY]
 dynamic list | ResourceServiceImpl.getResourceObjects(SecuredResource, SecurityFilter, List, PaginationRequestDto) | checks [ResourceExtensionService.listResourceObjects acmeProfiles:list] | reads []
 dynamic update | ResourceServiceImpl.updateAttributeContentForObject(SecuredResource, SecuredUUID, UUID, List) | checks [ResourceExtensionService.evaluatePermissionChain acmeProfiles:update] | reads []
 entities:ANY | EntityInstanceServiceImpl.listLocationAttributes(SecuredUUID) | checks [] | reads []

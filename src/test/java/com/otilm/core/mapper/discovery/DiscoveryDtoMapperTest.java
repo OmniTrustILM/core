@@ -2,6 +2,7 @@ package com.otilm.core.mapper.discovery;
 
 import com.otilm.api.model.client.discovery.DiscoveryDetailDto;
 import com.otilm.api.model.client.discovery.DiscoveryListDto;
+import com.otilm.api.model.client.discovery.DiscoveryWindowMode;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredKeyDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryDeliveryMode;
 import com.otilm.api.model.core.auth.Resource;
@@ -10,7 +11,9 @@ import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.repository.DiscoveryItemRow;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.util.CertificateUtil;
+import java.time.Duration;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -49,6 +52,52 @@ class DiscoveryDtoMapperTest {
         assertThat(DiscoveryDtoMapper
                 .toDetailDto(run(), new DiscoveryDtoMapper.DetailCounts(0, 0, 0, 0))
                 .getItemsDiscovered()).isNull();
+    }
+
+    @Test
+    void mapsLookbackAndDiscoverSince_whenRunHasLookbackWindow() {
+        // given
+        var oneDay = Duration.ofDays(1);
+        var since = OffsetDateTime.parse("2026-11-17T10:15:30Z");
+        Discovery lookback = run();
+        lookback.setWindowMode(DiscoveryWindowMode.LOOKBACK);
+        lookback.setWindowLookback(oneDay);
+        lookback.setDiscoverSince(since);
+
+        // when
+        DiscoveryDetailDto dto = DiscoveryDtoMapper.toDetailDto(lookback, noCounts());
+
+        // then
+        assertThat(dto.getWindow().getMode()).isEqualTo(DiscoveryWindowMode.LOOKBACK);
+        assertThat(dto.getWindow().getLookback()).isEqualTo(oneDay);
+        assertThat(dto.getDiscoverSince()).isEqualTo(since);
+    }
+
+    @Test
+    void mapsModeWithoutLookback_whenRunHasSinceLastSuccessfulRunWindow() {
+        // given
+        Discovery sinceLastRun = run();
+        sinceLastRun.setWindowMode(DiscoveryWindowMode.SINCE_LAST_SUCCESSFUL_RUN);
+
+        // when
+        DiscoveryDetailDto dto = DiscoveryDtoMapper.toDetailDto(sinceLastRun, noCounts());
+
+        // then
+        assertThat(dto.getWindow().getMode()).isEqualTo(DiscoveryWindowMode.SINCE_LAST_SUCCESSFUL_RUN);
+        assertThat(dto.getWindow().getLookback()).isNull();
+    }
+
+    @Test
+    void omitsWindow_whenRunHasNone() {
+        // given
+        Discovery withoutWindow = run();
+
+        // when
+        DiscoveryDetailDto dto = DiscoveryDtoMapper.toDetailDto(withoutWindow, noCounts());
+
+        // then
+        assertThat(dto.getWindow()).isNull();
+        assertThat(dto.getDiscoverSince()).isNull();
     }
 
     @Test

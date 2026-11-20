@@ -102,6 +102,7 @@ public class DiscoveryV2Client {
         ConnectorDto connector = connectorOf(run);
         DiscoveryInitiateRequestDto request = new DiscoveryInitiateRequestDto();
         Set<String> sentSecrets = populateForRunReason(request, run, connector);
+        request.setDiscoverSince(run.getDiscoverSince());
         return withoutWordsWhenRefused(
                 () -> connectorApiFactory.getDiscoveryApiClientV2(connector).initiate(connector, request), sentSecrets);
     }

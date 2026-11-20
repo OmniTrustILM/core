@@ -548,7 +548,7 @@ class NestedReferenceResolutionITest extends BaseSpringBootTest {
             WireMock.stubFor(WireMock.post(WireMock.urlPathEqualTo(STATUS_PATH)).willReturn(WireMock.okJson("""
                     {"state":"running","highestSequence":0}""")));
             DiscoveryDto request = aRequestReferringToTheAuthority();
-            discoveryService.createDiscovery(request, true);
+            discoveryService.createDiscovery(request, true, false);
             return discoveryRepository.findByName(request.getName()).orElseThrow();
         }
 
@@ -572,7 +572,7 @@ class NestedReferenceResolutionITest extends BaseSpringBootTest {
             DiscoveryDto request = aRequestReferringToTheAuthority();
 
             // when
-            discoveryService.createDiscovery(request, true);
+            discoveryService.createDiscovery(request, true, false);
 
             // then
             assertThat(discoveryRepository.findByName(request.getName())).isPresent();
@@ -586,7 +586,7 @@ class NestedReferenceResolutionITest extends BaseSpringBootTest {
             DiscoveryDto request = aRequestReferringToTheAuthority();
 
             // when
-            ThrowingCallable create = () -> discoveryService.createDiscovery(request, true);
+            ThrowingCallable create = () -> discoveryService.createDiscovery(request, true, false);
 
             // then
             assertThatThrownBy(create)
@@ -605,7 +605,7 @@ class NestedReferenceResolutionITest extends BaseSpringBootTest {
             request.setAttributes(List.of(authorityReference(foreignAuthority)));
 
             // when
-            ThrowingCallable create = () -> discoveryService.createDiscovery(request, true);
+            ThrowingCallable create = () -> discoveryService.createDiscovery(request, true, false);
 
             // then
             assertThatThrownBy(create)
@@ -630,7 +630,7 @@ class NestedReferenceResolutionITest extends BaseSpringBootTest {
                                     AttributeContentType.RESOURCE, secretInsteadOfAuthority)));
 
             // when
-            ThrowingCallable create = () -> discoveryService.createDiscovery(request, true);
+            ThrowingCallable create = () -> discoveryService.createDiscovery(request, true, false);
 
             // then
             assertThatThrownBy(create)
@@ -657,7 +657,7 @@ class NestedReferenceResolutionITest extends BaseSpringBootTest {
                                     AttributeContentType.RESOURCE, objectInsteadOfReference)));
 
             // when
-            ThrowingCallable create = () -> discoveryService.createDiscovery(request, true);
+            ThrowingCallable create = () -> discoveryService.createDiscovery(request, true, false);
 
             // then
             assertThatThrownBy(create)
