@@ -1500,13 +1500,14 @@ public class CertificateServiceImpl
         List<Certificate> certificateChain = chainService.getCertificateChainInternal(certificate, true);
         boolean isCompleteChain = !certificateChain.isEmpty()
                 && chainService.completeCertificateChain(certificateChain.getLast(), certificateChain);
+        List<Certificate> validatedChain = certificateChain.isEmpty() ? List.of(certificate) : certificateChain;
 
         CertificateValidationStatus newStatus;
         CertificateValidationStatus oldStatus = certificate.getValidationStatus();
         ICertificateValidator certificateValidator = getCertificateValidator(certificate.getCertificateType());
 
         try {
-            newStatus = certificateValidator.validateCertificate(certificate, isCompleteChain);
+            newStatus = certificateValidator.validateCertificate(validatedChain, isCompleteChain);
         } catch (Exception e) {
             log.warn("Unable to validate the certificate {}: {}", certificate, e.getMessage());
             newStatus = CertificateValidationStatus.FAILED;
