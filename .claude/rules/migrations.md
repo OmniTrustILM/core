@@ -1,7 +1,6 @@
 ---
 paths:
   - "src/main/resources/db/migration/**"
-  - "src/main/java/db/migration/**"
 ---
 
 # Database migrations
@@ -12,14 +11,14 @@ Core reaches PostgreSQL through PgBouncer in transaction mode, so each transacti
 
 Flyway and `FlywaySearchPathCallback` set `search_path` inside each migration's transaction. A migration that runs in a transaction therefore finds Core's tables by their bare names.
 
-A migration that runs outside a transaction gets no `search_path` from either. Each of its statements runs with whatever its server connection has: the role's default behind a pooler that resets connections, such as the operator's, or what another client left there behind one that does not.
+For a migration outside a transaction, Flyway sets `search_path` in a transaction of its own. The migration's statements may then run on another server connection: one reset to the role's default behind a pooler that resets connections, such as the operator's, or one holding what another client left there behind a pooler that does not.
 
-A migration runs outside a transaction when its `.conf` sets `executeInTransaction=false`, or when it holds a statement such as `CREATE INDEX CONCURRENTLY`. In such a migration:
+Flyway runs a migration outside a transaction when its `.conf` sets `executeInTransaction=false`, or when all its statements must run outside one, such as `CREATE INDEX CONCURRENTLY`. In such a migration:
 
-- Prefix every object in Core's schema with `"${flyway:defaultSchema}".`.
+- Prefix every table, sequence or function a statement refers to with `"${flyway:defaultSchema}".`. A new index takes its table's schema, so its own name stays bare.
 - Leave `search_path` as it is: a value set there stays on the server connection for the next client.
 - Test the script with a `search_path` that lacks Core's schema.
 
-## A script that a database already ran keeps its checksum
+## A released script keeps its checksum
 
-Core does not start when a script's checksum differs from the one Flyway recorded for it. When a script that some database may already have run has to change, add its version, recorded checksum and new checksum to `CorrectedMigrationChecksumCallback`.
+Flyway stops Core from starting when a script's checksum differs from the one recorded for it. A script may be corrected in place until a release contains it, and the pull request then says how a database that already ran it updates the recorded checksum. A released script stays as it is, and a fix to it is a new migration.
