@@ -2,6 +2,7 @@ package com.otilm.core.security.authz;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.core.config.cache.AuthorizationCacheProperties;
 import com.otilm.core.security.authn.PlatformUserDetails;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
@@ -15,9 +16,9 @@ import org.springframework.stereotype.Component;
 
 /**
  * Supplies the association reader and all-resources grant that an authorization decision uses. Inside a
- * {@link #batched} call they belong to the batch, so its decisions share one set of association reads and an
- * all-resources principal skips OPA. Outside one, associations are read through the request's EntityManager and the
- * grant is {@link AllResourcesGrant#NONE}, so every check asks OPA.
+ * {@link #batched} call they belong to the batch, so its decisions share one set of association reads and, while the
+ * authorization cache is enabled, an all-resources principal skips OPA. Outside one, associations are read through the
+ * request's EntityManager and the grant is {@link AllResourcesGrant#NONE}, so every check asks OPA.
  */
 @Component
 class AuthorizationScope {
@@ -30,10 +31,14 @@ class AuthorizationScope {
 
     private final ObjectMapper objectMapper;
 
-    AuthorizationScope(EntityManagerFactory entityManagerFactory, ObjectMapper objectMapper) {
+    private final AuthorizationCacheProperties cacheProperties;
+
+    AuthorizationScope(EntityManagerFactory entityManagerFactory, ObjectMapper objectMapper,
+            AuthorizationCacheProperties cacheProperties) {
         this.entityManager = SharedEntityManagerCreator.createSharedEntityManager(entityManagerFactory);
         this.entityManagerFactory = entityManagerFactory;
         this.objectMapper = objectMapper;
+        this.cacheProperties = cacheProperties;
     }
 
     /**
@@ -48,9 +53,10 @@ class AuthorizationScope {
         }
         AssociationReader associations = AssociationReader.detached(entityManagerFactory, principal.getUserUuid());
         associations.prefetch(resource, objectUuids);
-        active
-                .set(new Batch(principal.getUserUuid(), principal.getRawData(), associations,
-                        AllResourcesGrant.of(objectMapper, principal.getRawData())));
+        AllResourcesGrant grant = cacheProperties.enabled()
+                ? AllResourcesGrant.of(objectMapper, principal.getRawData())
+                : AllResourcesGrant.NONE;
+        active.set(new Batch(principal.getUserUuid(), principal.getRawData(), associations, grant));
         try {
             return body.get();
         } finally {
@@ -68,7 +74,7 @@ class AuthorizationScope {
         return batchOf(principal).map(Batch::grant).orElse(AllResourcesGrant.NONE);
     }
 
-    /** The running batch, only when it is this principal's: another principal never uses the batch's grant. */
+    /** Another principal never uses the batch's grant. */
     private Optional<Batch> batchOf(PlatformUserDetails principal) {
         return Optional.ofNullable(active.get()).filter(batch -> batch.isFor(principal));
     }

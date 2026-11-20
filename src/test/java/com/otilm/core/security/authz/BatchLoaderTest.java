@@ -77,6 +77,33 @@ class BatchLoaderTest {
     }
 
     @Test
+    void leavesWithdrawnObjectsOutOfTheRead_whenTheyAreNotAskedFor() {
+        // given
+        loader.announce(List.of(owned, notOwned));
+        loader.withdraw(owned::equals);
+
+        // when
+        loader.get(List.of(askedLater));
+
+        // then
+        assertThat(reads).containsExactly(Set.of(askedLater, notOwned));
+    }
+
+    @Test
+    void readsAWithdrawnObject_whenItIsAskedFor() {
+        // given
+        loader.announce(List.of(owned, notOwned));
+        loader.withdraw(owned::equals);
+
+        // when
+        Map<UUID, Boolean> answer = loader.get(List.of(owned));
+
+        // then
+        assertThat(answer).containsExactly(entry(owned, true));
+        assertThat(reads).containsExactly(Set.of(owned, notOwned));
+    }
+
+    @Test
     void answersOnce_whenAnObjectIsAskedTwice() {
         // given — an empty loader
 

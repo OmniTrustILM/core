@@ -565,7 +565,8 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
         Predicate<OpaRequestedResource> surroundings = request -> !resource.getCode().equals(name(request))
                 && SURROUNDINGS.contains(name(request));
         Predicate<OpaRequestedResource> grants = switch (user) {
-            case FULLY_PRIVILEGED -> request -> true;
+            // ALL_RESOURCES as the method policy answers the principal signed in below.
+            case FULLY_PRIVILEGED, ALL_RESOURCES -> request -> true;
             case READ_ONLY -> request -> READ_ACTIONS.contains(action(request));
             case OBJECT_GRANT -> request -> surroundings.test(request)
                     || (resource.getCode().equals(name(request)) && request.getObjectUUIDs() != null
@@ -574,8 +575,6 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
             case GROUP_MEMBER ->
                 request -> surroundings.test(request) || (Resource.GROUP.getCode().equals(name(request))
                         && ResourceAction.MEMBERS.getCode().equals(action(request)));
-            // As the method policy answers the principal signed in below.
-            case ALL_RESOURCES -> request -> true;
             case ALL_RESOURCES_DENYING_UPDATE -> request -> !(resource.getCode().equals(name(request))
                     && ResourceAction.UPDATE.getCode().equals(action(request)) && request.getObjectUUIDs() != null
                     && request.getObjectUUIDs().contains(objectUuid.toString()));

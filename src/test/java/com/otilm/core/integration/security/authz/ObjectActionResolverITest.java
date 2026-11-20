@@ -871,6 +871,70 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
     }
 
     @Test
+    void reportsOnlyCertificatesOfAMemberGroup_whenTheCertificatesBelongToDifferentGroups() {
+        // given
+        RaProfile raProfile = saveRaProfile();
+        UUID memberGroup = saveGroup();
+        UUID otherGroup = saveGroup();
+        List<UUID> inMemberGroup = List.of(saveCertificate(raProfile), saveCertificate(raProfile));
+        List<UUID> inOtherGroup = List.of(saveCertificate(raProfile), saveCertificate(raProfile));
+        inMemberGroup.forEach(certificate -> assignToGroup(Resource.CERTIFICATE, certificate, memberGroup));
+        inOtherGroup.forEach(certificate -> assignToGroup(Resource.CERTIFICATE, certificate, otherGroup));
+        denyEveryCheckOn(Resource.CERTIFICATE);
+        when(opaClient
+                .checkResourceAccess(Mockito.any(),
+                        Mockito
+                                .argThat(req -> isFor(req, Resource.GROUP, ResourceAction.MEMBERS)
+                                        && !List.of(memberGroup.toString()).equals(req.getObjectUUIDs())),
+                        Mockito.any(), Mockito.any()))
+                .thenReturn(denied());
+        Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        boolean statisticsEnabled = statistics.isStatisticsEnabled();
+        statistics.clear();
+        statistics.setStatisticsEnabled(true);
+
+        // when
+        List<ObjectAllowedActionsDto> items;
+        try {
+            items = report(Resource.CERTIFICATE,
+                    Stream.concat(inOtherGroup.stream(), inMemberGroup.stream()).toArray(UUID[]::new));
+        } finally {
+            statistics.setStatisticsEnabled(statisticsEnabled);
+        }
+
+        // then
+        assertThat(items).extracting(ObjectAllowedActionsDto::getUuid).containsExactlyElementsOf(inMemberGroup);
+        assertThat(countExecutions(statistics, "GroupAssociation")).as("group association reads").isEqualTo(1);
+    }
+
+    @Test
+    void readsKeyOwnersOnce_whenKeyOperationsAreCheckedOnTokenProfiles() {
+        // given
+        List<CryptographicKey> keys = List.of(saveKeyWithTokenProfile(), saveKeyWithTokenProfile());
+        keys.forEach(key -> own(Resource.CRYPTOGRAPHIC_KEY, key.getUuid()));
+        denyEveryCheckOn(Resource.CRYPTOGRAPHIC_KEY);
+        Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        boolean statisticsEnabled = statistics.isStatisticsEnabled();
+        statistics.clear();
+        statistics.setStatisticsEnabled(true);
+
+        // when
+        List<ObjectAllowedActionsDto> items;
+        try {
+            items = report(Resource.CRYPTOGRAPHIC_KEY,
+                    keys.stream().map(CryptographicKey::getUuid).toArray(UUID[]::new));
+        } finally {
+            statistics.setStatisticsEnabled(statisticsEnabled);
+        }
+
+        // then
+        assertThat(items).hasSize(keys.size());
+        assertThat(countExecutions(statistics, "OwnerAssociation"))
+                .as("the token profiles the operations are checked on are read with the keys")
+                .isEqualTo(1);
+    }
+
+    @Test
     void leavesOutCertificate_whenAnotherUserOwnsIt() {
         // given
         RaProfile raProfile = saveRaProfile();
@@ -899,19 +963,20 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
 
         // when
         List<ResourceAction> allowed;
+        boolean connected;
         try {
             allowed = actionsOn(Resource.CERTIFICATE, certificate);
+            connected = requestEntityManager
+                    .unwrap(SessionImplementor.class)
+                    .getJdbcCoordinator()
+                    .getLogicalConnection()
+                    .isPhysicallyConnected();
         } finally {
             TransactionSynchronizationManager.unbindResource(entityManagerFactory);
+            requestEntityManager.close();
         }
 
         // then
-        boolean connected = requestEntityManager
-                .unwrap(SessionImplementor.class)
-                .getJdbcCoordinator()
-                .getLogicalConnection()
-                .isPhysicallyConnected();
-        requestEntityManager.close();
         assertThat(allowed).contains(ResourceAction.DETAIL);
         assertThat(connected).as("the request's EntityManager holds no connection").isFalse();
     }

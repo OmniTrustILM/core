@@ -213,7 +213,6 @@ class ExternalAuthorizationCore {
 
         AssociationReader associations = scope.associationsFor(principal);
         if (resource.hasOwner() && objectUUIDs.stream().allMatch(u -> u.getValue() != null)) {
-            // Distinct on both sides, so neither a repeated UUID nor a duplicate owner row shifts the count
             List<UUID> requestedUuids = objectUUIDs.stream().map(SecuredUUID::getValue).distinct().toList();
             if (associations.ownsAll(resource, requestedUuids)) {
                 return new AuthorizationDecision(true);

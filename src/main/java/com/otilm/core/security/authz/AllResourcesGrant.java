@@ -7,12 +7,17 @@ import java.util.HashSet;
 import java.util.Set;
 
 /**
- * The part of the OPA method policy ({@code policies/method_policy.rego} in auth-opa-policies) that needs no request,
- * so Core can answer it without calling OPA. {@code AllResourcesAllowed} allows every check when
- * {@code permissions.allowAllResources} is true, and {@code ActionDeniedForSpecificObject}, the policy's only deny,
- * needs an object of the requested resource with a non-empty {@code deny}. Without such an object OPA authorizes the
- * check whatever it asks. Any permissions shape the policy might read differently counts as a deny, so a grant here is
- * never wider than OPA's; a new deny rule in the policy must be mirrored here.
+ * The part of the OPA method policy ({@code policies/method_policy.rego} in auth-opa-policies) that Core answers
+ * without calling OPA.
+ * <p>
+ * <b>Granted:</b> {@code AllResourcesAllowed} allows every check when {@code permissions.allowAllResources} is true.
+ * {@code ActionDeniedForSpecificObject}, the policy's only deny, needs an object of the requested resource with a
+ * non-empty {@code deny}, so without such an object OPA authorizes the check whatever it asks.
+ * <p>
+ * <b>Deferred to OPA:</b> a resource with a denying object, and any permissions shape the policy might read
+ * differently, so a grant here is never wider than OPA's.
+ * <p>
+ * <b>When the policy changes:</b> a deny rule added to or changed in {@code method_policy.rego} must be mirrored here.
  */
 record AllResourcesGrant(boolean allowAllResources, Set<String> resourcesWithDeny) {
 
