@@ -6,14 +6,20 @@ paths:
 
 # Database migrations
 
-## A migration outside a transaction qualifies every name
+## A migration outside a transaction names Core's schema
 
-Core reaches PostgreSQL through PgBouncer in transaction mode, where a session setting stays on the server connection that ran it and the next transaction may get another one. Flyway and `FlywaySearchPathCallback` set `search_path` inside each migration's transaction, so a transactional migration finds Core's tables by their bare names.
+Core reaches PostgreSQL through PgBouncer in transaction mode, so each transaction may run on a different server connection.
 
-A migration that runs outside a transaction gets none of that: each of its statements sees the `search_path` of whichever server connection runs it. That is the role's default where the pooler resets connections, as the operator's pooler does, and whatever another client left where it does not. Such a migration has `executeInTransaction=false` in its `.conf`, or a statement Flyway runs outside a transaction, such as `CREATE INDEX CONCURRENTLY`.
+Flyway and `FlywaySearchPathCallback` set `search_path` inside each migration's transaction. A migration that runs in a transaction therefore finds Core's tables by their bare names.
 
-There, qualify every object of Core's schema with `"${flyway:defaultSchema}".` rather than setting `search_path`, which would stay on the server connection for the next client. Its migration test runs the script with a `search_path` that lacks the schema.
+A migration that runs outside a transaction gets no `search_path` from either. Each of its statements runs with whatever its server connection has: the role's default behind a pooler that resets connections, such as the operator's, or what another client left there behind one that does not.
 
-## A script a database already applied keeps its checksum
+A migration runs outside a transaction when its `.conf` sets `executeInTransaction=false`, or when it holds a statement such as `CREATE INDEX CONCURRENTLY`. In such a migration:
 
-Flyway refuses to start on a database whose recorded checksum differs from the script's. When a script that some database may already have applied must change, list its version with the recorded and the new checksum in `CorrectedMigrationChecksumCallback`.
+- Prefix every object in Core's schema with `"${flyway:defaultSchema}".`.
+- Leave `search_path` as it is: a value set there stays on the server connection for the next client.
+- Test the script with a `search_path` that lacks Core's schema.
+
+## A script that a database already ran keeps its checksum
+
+Core does not start when a script's checksum differs from the one Flyway recorded for it. When a script that some database may already have run has to change, add its version, recorded checksum and new checksum to `CorrectedMigrationChecksumCallback`.
