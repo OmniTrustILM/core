@@ -425,7 +425,7 @@ class ManagedContentSigningEngineTest {
     class EmbedResponse {
 
         @Test
-        void returnsTheMediaTypeTheSignatureEmbedNamed() throws Exception {
+        void returnsTheMediaTypeTheSignatureEmbedNamed_whenTheProfileOnlySigns() throws Exception {
             // given
             ResolvedManagedContentSigningProfile profile = aSignedOnlyProfile();
             stubComputeDtbs(digestOf(DOCUMENT));
