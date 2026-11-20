@@ -59,8 +59,8 @@ public interface SigningRecordRepository extends SecurityFilterRepository<Signin
     int deleteRetrievedAndFlagged(@Param("limit") int limit);
 
     /**
-     * Makes the calling transaction read under one snapshot; it must be the transaction's first statement. Replaces
-     * {@code @Transactional(isolation = REPEATABLE_READ)}, which {@code DatabaseConnectionHandlingConfig} rules out.
+     * Makes the calling transaction read under one snapshot; it must be the transaction's first statement. Spring
+     * refuses {@code @Transactional(isolation = ...)} under {@code DatabaseConnectionHandlingConfig}.
      */
     @Modifying
     @Query(value = "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ", nativeQuery = true)

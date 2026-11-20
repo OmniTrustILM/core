@@ -205,10 +205,10 @@ public class CmpServiceImpl implements CmpExternalService {
      *
      * <p>
      * Runs without a transaction, so an issue or a revocation waiting out the poll budget keeps no connection idle in
-     * transaction. The validators, handlers and services it calls run their own short transactions on the request's
-     * open-in-view EntityManager, and no handler holds a transaction across a submission. Deliberately not
-     * {@code NOT_SUPPORTED}: there, after the request's first read outside a transaction, every short transaction runs
-     * on an EntityManager of its own.
+     * transaction, and no handler holds one across a submission. The validators' short transactions run on the
+     * request's open-in-view EntityManager, while a {@code NOT_SUPPORTED} submission service can open its transactions
+     * on an EntityManager of its own. Deliberately not {@code NOT_SUPPORTED} itself: there, after the request's first
+     * read outside a transaction, every short transaction runs on an EntityManager of its own.
      * </p>
      *
      * @param profileName specific customer-based configuration/customization

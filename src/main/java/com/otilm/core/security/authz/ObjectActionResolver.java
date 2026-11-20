@@ -272,9 +272,8 @@ public class ObjectActionResolver {
         }
 
         /**
-         * Reads through an EntityManager of its own, closed after the read, so no connection is held across the
-         * authorization calls between reads, as the request's EntityManager would hold one until the response is
-         * written.
+         * Reads through an EntityManager of its own, closed after the read, so each read sees the current rows rather
+         * than entities the request's EntityManager already holds, and leaves nothing managed there.
          */
         private <T> T read(Function<EntityManager, T> query) {
             EntityManager reader = entityManagerFactory.createEntityManager();
