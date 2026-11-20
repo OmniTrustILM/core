@@ -117,6 +117,8 @@ class InterfacesPinGuardTest {
                 .containsExactlyInAnyOrder("compile", "generated");
     }
 
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
     private static Set<String> jobsRunning(Map<String, Object> workflowJobs, Predicate<String> matches) {
         Set<String> detected = new TreeSet<>();
         workflowJobs

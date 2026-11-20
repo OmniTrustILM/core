@@ -105,24 +105,6 @@ class CiTestSplitTest {
         assertThat(duplicates).describedAs("Integration tests must have exactly one manifest entry").isEmpty();
     }
 
-    /** Includes concrete classes whose tests are all inherited. */
-    private static Set<String> concreteIntegrationTests() throws IOException, ClassNotFoundException {
-        Set<String> tests = new TreeSet<>();
-        List<Path> sources;
-        try (Stream<Path> stream = Files.walk(INTEGRATION_ROOT)) {
-            sources = stream.filter(path -> path.getFileName().toString().endsWith("ITest.java")).toList();
-        }
-        for (Path source : sources) {
-            String path = relative(source);
-            String binaryName = path.substring(0, path.length() - ".java".length()).replace('/', '.');
-            Class<?> type = Class.forName(binaryName, false, CiTestSplitTest.class.getClassLoader());
-            if (!Modifier.isAbstract(type.getModifiers())) {
-                tests.add(path);
-            }
-        }
-        return tests;
-    }
-
     @Test
     void usesSurefireDefaultsOutsideIntegrationRoot_whenNonIntegrationProfileIsConfigured() throws Exception {
         // given — the checked-in POM and test sources
@@ -188,24 +170,6 @@ class CiTestSplitTest {
         assertThat(violations)
                 .describedAs("Use @Nested or move the tests to a top-level *ITest listed in a manifest")
                 .isEmpty();
-    }
-
-    private static List<String> nonIntegrationProfilePatterns(String tag) throws Exception {
-        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
-        factory.setNamespaceAware(false);
-        Document pom = factory.newDocumentBuilder().parse(Path.of("pom.xml").toFile());
-        XPath xpath = XPathFactory.newDefaultInstance().newXPath();
-        String expression = "//profile[id='test-non-integration']//plugin[artifactId='maven-surefire-plugin']//" + tag;
-        NodeList nodes = (NodeList) xpath.evaluate(expression, pom, XPathConstants.NODESET);
-        List<String> patterns = new ArrayList<>(nodes.getLength());
-        for (int index = 0; index < nodes.getLength(); index++) {
-            patterns.add(nodes.item(index).getTextContent().trim());
-        }
-        return patterns;
-    }
-
-    private static String relative(Path path) {
-        return TEST_ROOT.relativize(path).toString().replace('\\', '/');
     }
 
     @Test
@@ -301,5 +265,43 @@ class CiTestSplitTest {
         assertThat(violations)
                 .describedAs("Rename these integration tests to *ITest and list them in a manifest")
                 .isEmpty();
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /** Includes concrete classes whose tests are all inherited. */
+    private static Set<String> concreteIntegrationTests() throws IOException, ClassNotFoundException {
+        Set<String> tests = new TreeSet<>();
+        List<Path> sources;
+        try (Stream<Path> stream = Files.walk(INTEGRATION_ROOT)) {
+            sources = stream.filter(path -> path.getFileName().toString().endsWith("ITest.java")).toList();
+        }
+        for (Path source : sources) {
+            String path = relative(source);
+            String binaryName = path.substring(0, path.length() - ".java".length()).replace('/', '.');
+            Class<?> type = Class.forName(binaryName, false, CiTestSplitTest.class.getClassLoader());
+            if (!Modifier.isAbstract(type.getModifiers())) {
+                tests.add(path);
+            }
+        }
+        return tests;
+    }
+
+    private static List<String> nonIntegrationProfilePatterns(String tag) throws Exception {
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setNamespaceAware(false);
+        Document pom = factory.newDocumentBuilder().parse(Path.of("pom.xml").toFile());
+        XPath xpath = XPathFactory.newDefaultInstance().newXPath();
+        String expression = "//profile[id='test-non-integration']//plugin[artifactId='maven-surefire-plugin']//" + tag;
+        NodeList nodes = (NodeList) xpath.evaluate(expression, pom, XPathConstants.NODESET);
+        List<String> patterns = new ArrayList<>(nodes.getLength());
+        for (int index = 0; index < nodes.getLength(); index++) {
+            patterns.add(nodes.item(index).getTextContent().trim());
+        }
+        return patterns;
+    }
+
+    private static String relative(Path path) {
+        return TEST_ROOT.relativize(path).toString().replace('\\', '/');
     }
 }
