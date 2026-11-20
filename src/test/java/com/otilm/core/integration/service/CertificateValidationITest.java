@@ -3248,6 +3248,8 @@ public class CertificateValidationITest extends BaseSpringBootTest {
             assertThat(stored.getStatusValidationTimestamp()).isAfter(previousValidation);
             assertThat(checks.get(CertificateValidationCheck.CERTIFICATE_CHAIN).getMessage())
                     .startsWith("Incomplete certificate chain");
+            assertThat(checks.get(CertificateValidationCheck.SIGNATURE_VERIFICATION).getStatus())
+                    .isEqualTo(CertificateValidationStatus.VALID);
         }
 
         // ── Helpers ───────────────────────────────────────────────────────────

@@ -50,7 +50,10 @@ caching:
 
 certificate:
   chain:
-    max-depth: 20   # Issuer links followed per chain query, not per path; validation does not check revocation of the CA where a cut path ends
+    # Issuer links followed per chain query, not per path. Where a path is cut, validation does not check revocation
+    # of the CA at the cut and stores a fresh result for it, which postpones that CA's own scheduled validation, so
+    # EST can still trust a revoked CA there as an anchor.
+    max-depth: 20
   validation:
     batch-size: 10
 
