@@ -14,8 +14,8 @@ import org.springframework.context.annotation.Configuration;
  * deadlock the pool. Set in code so tests use it.
  * <p>
  * Cost: Spring refuses {@code isolation} on {@code @Transactional}, and {@code readOnly} no longer makes the JDBC
- * connection read-only; it still stops flushes and, on a transaction's own EntityManager, loads entities read-only. Set
- * another isolation level with the transaction's first statement, as
+ * connection read-only; it still suppresses automatic flushes and, on a transaction's own EntityManager, loads entities
+ * read-only. Set another isolation level with the transaction's first statement, as
  * {@code SigningRecordRepository.readUnderOneSnapshot} does.
  */
 @Configuration(proxyBeanMethods = false)

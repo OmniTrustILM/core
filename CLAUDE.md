@@ -75,14 +75,15 @@ public ... someMethod(...) {
 }
 ```
 
-`NOT_SUPPORTED` holds no transaction, but it is still a transaction scope: a step 1 read that runs outside a transaction binds an EntityManager that lives until the method returns, with or without open-in-view (see "Open-in-view keeps what a request reads managed"). It keeps no connection through step 2: `DatabaseConnectionHandlingConfig` returns the connection after each query outside a transaction and when each transaction ends. A lazy load is not a query: outside a transaction it keeps the connection until the next query or until the EntityManager closes, so a lazy load right before step 2 holds the connection through it. Keep the setting; without it the pool deadlocks. Its cost: Spring refuses `isolation` on `@Transactional`, and `readOnly` no longer makes the JDBC connection read-only; it still stops flushes and, on a transaction's own EntityManager, loads entities read-only.
+`NOT_SUPPORTED` holds no transaction, but it is still a transaction scope: a step 1 read that runs outside a transaction binds an EntityManager that closes when the method returns or, under open-in-view, uses the request's, which stays open through the response (see "Open-in-view keeps what a request reads managed"). It keeps no connection through step 2: `DatabaseConnectionHandlingConfig` returns the connection after each query outside a transaction and when each transaction ends. A lazy load is not a query: outside a transaction it keeps the connection until the next query or until the EntityManager closes, so a lazy load right before step 2 holds the connection through it. Keep the setting; without it the pool deadlocks. Its cost: Spring refuses `isolation` on `@Transactional`, and `readOnly` no longer makes the JDBC connection read-only; it still suppresses automatic flushes and, on a transaction's own EntityManager, loads entities read-only.
 
 Symmetrically: when the external call comes AFTER the local commit, commit first then call externally.
 
 Under open-in-view, the transactions a `NOT_SUPPORTED` method starts can run on the request's EntityManager and flush
 what the request has read. A method that calls out between short transactions therefore carries `@OutsideTransaction`
-in place of plain `NOT_SUPPORTED`: it runs the method with `NOT_SUPPORTED` and sets that EntityManager aside, so those
-transactions run on EntityManagers of their own.
+in place of plain `NOT_SUPPORTED`: it runs the method with `NOT_SUPPORTED` and, when no transaction scope is active yet,
+sets that EntityManager aside, so those transactions run on EntityManagers of their own. Inside an active scope, such as
+another `NOT_SUPPORTED` method's, the scope's EntityManager stays bound.
 
 A read-only method that callers run inside their transaction carries `@Transactional(propagation = Propagation.SUPPORTS)` when its class is `NOT_SUPPORTED`, as `CryptographicKeyServiceImpl.findKeyByFingerprint` does: the class-level annotation would suspend the caller's transaction, which keeps its connection, and run the read on another. For the same reason, do not call a `NOT_SUPPORTED` method such as `issueCertificate` from inside a transaction: suspended, that transaction keeps its connection while the method takes others.
 
@@ -131,7 +132,7 @@ PostgreSQL runs a data-modifying CTE exactly once and to completion, and every p
 
 **Claim the rows, and fold them in in key order.** Without a locking clause a second deleter sees the same rows in its own snapshot, folds them in too, and then deletes nothing — one row counted twice. Without an `ORDER BY` on the grouped upsert, two writers carrying rows for the same aggregate keys can take those locks in opposite orders and deadlock. Which clause depends on the caller's contract: a keyed delete **waits** (`FOR UPDATE`), because its caller is told the row is gone and skipping would report success for a row the winner might yet roll back; a batch **skips** (`FOR UPDATE ... SKIP LOCKED`), because it has no per-record contract and waiting lets two sweeps picking overlapping victims in different index orders deadlock. Lock only the table you delete from (`FOR UPDATE OF sr`), never the ones you join for the predicate.
 
-Assemble the figure under one snapshot: a `@Transactional(readOnly = true)` method whose first statement is `SET TRANSACTION ISOLATION LEVEL REPEATABLE READ`, as `SigningRecordRepository.readUnderOneSnapshot` sends it. Spring refuses the `isolation` attribute (see "Transactions and external calls"). Read across the two tables in separate READ COMMITTED statements and a row deleted between them is counted as both live and history.
+Assemble the figure under one snapshot: a `@Transactional(readOnly = true)` method whose transaction opens with `SET TRANSACTION ISOLATION LEVEL REPEATABLE READ`, as `SigningRecordRepository.readUnderOneSnapshot` sends it. PostgreSQL refuses the statement once the transaction has run another, so the method must not join a caller's transaction that has. Spring refuses the `isolation` attribute (see "Transactions and external calls"). Read across the two tables in separate READ COMMITTED statements and a row deleted between them is counted as both live and history.
 
 The aggregate keeps the column its detail rows were access-controlled by, and **no FK to it**: the parent is usually deletable once its detail rows are gone, and the aggregate has to outlive it. Read it back through the parent half of the security filter only — a rolled-up row has no detail identity left for a row-level filter to match on.
 
