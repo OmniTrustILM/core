@@ -82,7 +82,7 @@ class InterfacesPinGuardTest {
     }
 
     @Test
-    void everyTreeBuildingJobPassesTheResolvedOverride() throws IOException {
+    void passesTheResolvedOverride_whenAJobUsesInterfaces() throws IOException {
         Set<String> missing = new TreeSet<>();
         jobs()
                 .forEach((name, job) -> mavenInvocations(job)
@@ -105,7 +105,7 @@ class InterfacesPinGuardTest {
     }
 
     @Test
-    void theDetectionStillRecognisesTheBuildingJobs() throws IOException {
+    void distinguishesCompilingJobs_whenDetectingInterfacesConsumers() throws IOException {
         assertThat(jobsRunning(InterfacesPinGuardTest::usesInterfaces))
                 .describedAs("the override check must keep matching jobs that consume the Interfaces dependency")
                 .containsExactlyInAnyOrderElementsOf(EXPECTED_INTERFACES_JOBS);

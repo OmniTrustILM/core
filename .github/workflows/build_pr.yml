@@ -357,7 +357,7 @@ jobs:
           pattern: jacoco-exec-*
           path: jacoco-shards
 
-      - name: Stage coverage from all five shards
+      - name: Stage coverage from every shard
         run: |
           mkdir -p jacoco-partial
           for group in non-integration integration-{1..4}; do

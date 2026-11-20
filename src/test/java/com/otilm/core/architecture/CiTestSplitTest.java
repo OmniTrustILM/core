@@ -90,7 +90,7 @@ class CiTestSplitTest {
         assertThat(duplicates).describedAs("Integration tests must have exactly one manifest entry").isEmpty();
     }
 
-    /** Checks named, concrete classes even when all their tests are inherited. */
+    /** Collects paths to concrete top-level ITest classes, including classes whose tests are inherited. */
     private static Set<String> concreteIntegrationTests() throws IOException, ClassNotFoundException {
         Set<String> tests = new TreeSet<>();
         List<Path> sources;
@@ -163,7 +163,7 @@ class CiTestSplitTest {
                 .isNotEmpty();
         assertThat(violations)
                 .describedAs(
-                        "Use @Nested for tests inside integration classes or give them their own top-level manifest entry")
+                        "Annotate nested test classes with @Nested, or move each to its own top-level *ITest and list it in an integration manifest")
                 .isEmpty();
     }
 
