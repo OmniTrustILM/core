@@ -51,6 +51,8 @@ import com.otilm.core.model.signing.resolved.ResolvedManagedContentSigningProfil
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
+import com.otilm.core.security.authz.opa.dto.OpaRequestedResource;
+import com.otilm.core.security.authz.opa.dto.OpaResourceAccessResult;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.service.CryptographicKeyExternalService;
 import com.otilm.core.service.SettingExternalService;
@@ -123,8 +125,10 @@ import static com.otilm.core.util.builders.TokenProfileRequestDtoBuilder.aTokenP
 import static com.otilm.core.util.mocks.ContentSigningFormattingMock.requestAttributeDefinition;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 /**
@@ -1321,6 +1325,38 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         }
 
         @Test
+        void answers403NamingTheKeyPermission_whenTheCallerMayNotSignWithTheProfilesKey() throws Exception {
+            // given
+            SigningProfileDto contentProfile = createIlmNativeProfile("native-key-forbidden-pades");
+            denyResourceAccess(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.SIGN);
+
+            // when
+            MockHttpServletResponse response = signDocument(contentProfile.getUuid(), inlineRequest("contract-1"));
+
+            // then
+            assertThat(response.getStatus()).isEqualTo(HttpStatus.FORBIDDEN.value());
+            String message = read(response, "$.message");
+            assertThat(message)
+                    .isEqualTo("Access Denied. Required 'Sign' permission for '%s'"
+                            .formatted(Resource.CRYPTOGRAPHIC_KEY.getLabel()));
+            cryptographyProviderMock.verifyNoDataWasSigned();
+        }
+
+        @Test
+        void answers403_whenTheCallerMaySignWithTheProfileOnly() throws Exception {
+            // given
+            SigningProfileDto contentProfile = createIlmNativeProfile("native-profile-only-pades");
+            grantOnlyResourceAccess(Resource.SIGNING_PROFILE, ResourceAction.SIGN);
+
+            // when
+            MockHttpServletResponse response = signDocument(contentProfile.getUuid(), inlineRequest("contract-1"));
+
+            // then
+            assertThat(response.getStatus()).isEqualTo(HttpStatus.FORBIDDEN.value());
+            cryptographyProviderMock.verifyNoDataWasSigned();
+        }
+
+        @Test
         void auditsTheSigningAgainstItsProfile() throws Exception {
             // given
             SigningProfileDto contentProfile = createIlmNativeProfile("native-audited-pades");
@@ -1365,6 +1401,18 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         }
 
         // ── Helpers ───────────────────────────────────────────────────────────
+
+        private void grantOnlyResourceAccess(Resource resource, ResourceAction action) {
+            when(opaClient.checkResourceAccess(any(), any(), any(), any())).thenAnswer(invocation -> {
+                OpaRequestedResource requested = invocation.getArgument(1);
+                OpaResourceAccessResult result = new OpaResourceAccessResult();
+                result
+                        .setAuthorized(resource.getCode().equals(requested.getProperties().get("name"))
+                                && action.getCode().equals(requested.getProperties().get("action")));
+                result.setAllow(List.of());
+                return result;
+            });
+        }
 
         private SigningProfileDto createIlmNativeProfile(String name) throws Exception {
             return createIlmNativeProfile(name, SignatureFamilyFixtures.PADES);

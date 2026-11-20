@@ -46,6 +46,7 @@ import java.util.List;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Component;
 
 /**
@@ -91,6 +92,9 @@ public class ManagedContentSigningEngine {
         List<BigInteger> serials = new ArrayList<>();
         try {
             return signAtProfileLevel(request, signingProfile, profile, protocol, serials);
+        } catch (AccessDeniedException e) {
+            logDenial(profile, serials, e);
+            throw e;
         } catch (Exception e) {
             throw loggedFailure(profile, serials, e);
         }
@@ -104,7 +108,7 @@ public class ManagedContentSigningEngine {
         List<ComputeDtbsResponseDto> dtbsResponses = boundDtbsResponses(run);
 
         List<byte[]> dtbsList = dtbsResponses.stream().map(ComputeDtbsResponseDto::getDtbs).toList();
-        // The key signs only once the connector has committed to every authorized document.
+        // When the caller authorized digests, the key signs only once the connector has committed to each of them.
         List<byte[]> signatureValues = signDtbs(run, dtbsList);
 
         List<CompletedDocument> documents = completeDocuments(run, dtbsResponses, signatureValues, serials);
@@ -195,11 +199,16 @@ public class ManagedContentSigningEngine {
         return signed;
     }
 
-    /** Lets the caller and the log name the document that broke the batch. */
+    /**
+     * Lets the caller and the log name the document that broke the batch. A denial passes unchanged, so the caller
+     * learns which permission it lacks.
+     */
     private static <T> T attributingFailuresTo(ContentSigningItem item, DocumentWork<T> work)
             throws SigningEngineException {
         try {
             return work.run();
+        } catch (AccessDeniedException e) {
+            throw e;
         } catch (SigningEngineException | RuntimeException e) {
             throw asEngineFailure(e).withItem(item.identifier());
         }
@@ -563,6 +572,14 @@ public class ManagedContentSigningEngine {
                             + "timestamp serials already issued {}: {}", profile.name(), step, scope, profile.level(),
                             TimestampTokenSerialNumbers.hex(serials), e.operatorMessage());
         }
+    }
+
+    private static void logDenial(ResolvedManagedContentSigningProfile profile, List<BigInteger> serials,
+            AccessDeniedException e) {
+        logger
+                .warn("Refusing to sign content for signing profile '{}': the caller lacks a permission the run needs, "
+                        + "timestamp serials already issued {}: {}", profile.name(),
+                        TimestampTokenSerialNumbers.hex(serials), e.getMessage());
     }
 
     private static String failureScope(SigningEngineException e) {

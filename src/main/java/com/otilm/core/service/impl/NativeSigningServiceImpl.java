@@ -27,10 +27,14 @@ import com.otilm.core.signing.engine.resolver.SigningProfileResolverFactory;
 import com.otilm.core.signing.nativesigning.IlmNativeProfileResolver;
 import com.otilm.core.signing.nativesigning.NativeOperation;
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 @Service
 public class NativeSigningServiceImpl implements NativeSigningExternalService {
+
+    private static final Logger LOG = LoggerFactory.getLogger(NativeSigningServiceImpl.class);
 
     private final IlmNativeProfileResolver nativeProfileResolver;
     private final SigningProfileResolverFactory signingProfileResolverFactory;
@@ -58,11 +62,26 @@ public class NativeSigningServiceImpl implements NativeSigningExternalService {
         return signDocumentResponse(signed);
     }
 
+    private ResolvedManagedContentSigningProfile contentSigningProfile(SigningProfileModel<?, ?> signingProfile)
+            throws SigningEngineException {
+        try {
+            return resolvedContentSigningProfile(signingProfile);
+        } catch (SigningEngineException e) {
+            LOG
+                    .error("Native signing could not resolve signing profile '{}': {} {}", signingProfile.name(),
+                            e.failure(), e.operatorMessage(), e);
+            throw e;
+        } catch (RuntimeException e) {
+            LOG.error("Native signing could not resolve signing profile '{}'", signingProfile.name(), e);
+            throw e;
+        }
+    }
+
     /**
      * The native gate already admitted only managed content-signing profiles. Any other resolution is a
      * misconfiguration.
      */
-    private ResolvedManagedContentSigningProfile contentSigningProfile(SigningProfileModel<?, ?> signingProfile)
+    private ResolvedManagedContentSigningProfile resolvedContentSigningProfile(SigningProfileModel<?, ?> signingProfile)
             throws SigningEngineException {
         ResolvedSigningProfile resolved = signingProfileResolverFactory.resolve(signingProfile);
         if (!(resolved instanceof ResolvedManagedContentSigningProfile contentSigningProfile)) {

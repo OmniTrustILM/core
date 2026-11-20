@@ -58,11 +58,6 @@ public record ContentSigningRequest(DocumentTransferMode transferMode, DigestAlg
         return everyItemCarriesAuthorizedDigest(items);
     }
 
-    /** Whether the batch sends or authorizes digests, all of them under its {@code digestAlgorithm}. */
-    public boolean carriesDigests() {
-        return carriesDigests(transferMode, items);
-    }
-
     /** The digest the caller authorized for the item, under the batch's digest algorithm. */
     public DocumentDigest authorizedDigestOf(ContentSigningItem item) {
         if (!bindsAuthorizedDigests()) {
