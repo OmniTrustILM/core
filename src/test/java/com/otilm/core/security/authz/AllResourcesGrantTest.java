@@ -15,9 +15,8 @@ class AllResourcesGrantTest {
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("principals")
-    void grantsCertificatesAsTheMethodPolicyWould_whenParsingThePrincipal(String shape, String principal,
-            boolean granted) {
-        // given — a principal shape and the decision the method policy makes for it, from principals()
+    void decidesWhetherCertificatesSkipOpa_whenParsingThePrincipal(String shape, String principal, boolean granted) {
+        // given — a principal shape and whether its certificate checks can skip OPA, from principals()
 
         // when
         AllResourcesGrant grant = AllResourcesGrant.of(new ObjectMapper(), principal);
