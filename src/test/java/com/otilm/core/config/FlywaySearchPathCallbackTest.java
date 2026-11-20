@@ -258,7 +258,7 @@ class FlywaySearchPathCallbackTest {
     }
 
     // The minimum supported PostgreSQL version is pinned once, in the shared test datasource URL.
-    static String minimumSupportedPostgres() {
+    private static String minimumSupportedPostgres() {
         YamlPropertiesFactoryBean yaml = new YamlPropertiesFactoryBean();
         yaml.setResources(new ClassPathResource("application.yml"));
         Properties properties = yaml.getObject();

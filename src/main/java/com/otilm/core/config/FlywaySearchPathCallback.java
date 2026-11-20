@@ -53,7 +53,7 @@ public class FlywaySearchPathCallback implements Callback {
         return getClass().getSimpleName();
     }
 
-    static String defaultSchema(Configuration configuration) {
+    private static String defaultSchema(Configuration configuration) {
         if (configuration.getDefaultSchema() != null) {
             return configuration.getDefaultSchema();
         }
@@ -61,7 +61,7 @@ public class FlywaySearchPathCallback implements Callback {
         return schemas.length > 0 ? schemas[0] : null;
     }
 
-    static String quoteIdentifier(String identifier) {
+    private static String quoteIdentifier(String identifier) {
         return '"' + identifier.replace("\"", "\"\"") + '"';
     }
 }
