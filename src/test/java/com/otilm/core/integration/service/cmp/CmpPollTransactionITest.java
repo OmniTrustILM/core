@@ -210,23 +210,30 @@ class CmpPollTransactionITest extends BaseSpringBootTest {
         assertThat(singleCertResponse(response).getStatus().getStatus().intValue()).isEqualTo(PKIStatus.WAITING);
     }
 
-    /**
-     * No pooled connection may still be out, idle or in a transaction, once the request is queued. Only this context's
-     * pool is counted: the test database is shared with every cached context.
-     */
     @Test
     void holdsNoConnection_whenQueuingTheCertificateRequest() throws Exception {
         // given
         HikariPoolMXBean pool = dataSource.unwrap(HikariDataSource.class).getHikariPoolMXBean();
         int activeBeforeTheRequest = pool.getActiveConnections();
-        AtomicInteger activeWhileQueuing = new AtomicInteger(-1);
-        doAnswer(invocation -> {
-            activeWhileQueuing.set(pool.getActiveConnections());
-            return null;
-        }).when(actionProducer).produceMessage(any());
+        AtomicInteger activeWhileQueuing = recordActiveConnectionsWhenQueued(pool);
 
         // when
         post(irMessage());
+
+        // then
+        assertThat(activeWhileQueuing.get()).isEqualTo(activeBeforeTheRequest);
+    }
+
+    @Test
+    void holdsNoConnection_whenQueuingTheRekeyRequest() throws Exception {
+        // given
+        Certificate rekeyed = seedRekeyableCertificate(ISSUED_SERIAL);
+        HikariPoolMXBean pool = dataSource.unwrap(HikariDataSource.class).getHikariPoolMXBean();
+        int activeBeforeTheRequest = pool.getActiveConnections();
+        AtomicInteger activeWhileQueuing = recordActiveConnectionsWhenQueued(pool);
+
+        // when
+        post(kurMessage(rekeyed));
 
         // then
         assertThat(activeWhileQueuing.get()).isEqualTo(activeBeforeTheRequest);
@@ -414,6 +421,19 @@ class CmpPollTransactionITest extends BaseSpringBootTest {
         }).when(actionProducer).produceMessage(any());
     }
 
+    /**
+     * Records the pool's active connections when the request is queued; a connection held idle or in a transaction
+     * counts as active. Only this context's pool is counted: the test database is shared with every cached context.
+     */
+    private AtomicInteger recordActiveConnectionsWhenQueued(HikariPoolMXBean pool) {
+        AtomicInteger activeWhileQueuing = new AtomicInteger(-1);
+        doAnswer(invocation -> {
+            activeWhileQueuing.set(pool.getActiveConnections());
+            return null;
+        }).when(actionProducer).produceMessage(any());
+        return activeWhileQueuing;
+    }
+
     private void markIssued(UUID certificateUuid, X509CertificateHolder issued) {
         new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
             CertificateContent content = certificateContentRepository.save(contentOf(issued));
@@ -434,6 +454,14 @@ class CmpPollTransactionITest extends BaseSpringBootTest {
 
     private Certificate seedIssuedCertificate(BigInteger serialNumber) {
         Certificate certificate = CmpEntityUtil.createCertificate(serialNumber, CertificateState.ISSUED, null);
+        certificate.setRaProfile(raProfile);
+        certificate.setRaProfileUuid(raProfile.getUuid());
+        return certificateRepository.saveAndFlush(certificate);
+    }
+
+    private Certificate seedRekeyableCertificate(BigInteger serialNumber) throws Exception {
+        CertificateContent content = certificateContentRepository.save(contentOf(issuedCertificate(serialNumber)));
+        Certificate certificate = CmpEntityUtil.createCertificate(serialNumber, CertificateState.ISSUED, content);
         certificate.setRaProfile(raProfile);
         certificate.setRaProfileUuid(raProfile.getUuid());
         return certificateRepository.saveAndFlush(certificate);
@@ -498,6 +526,13 @@ class CmpPollTransactionITest extends BaseSpringBootTest {
 
     private static PKIMessage rrMessage(Certificate certificate) throws Exception {
         return macProtected(CmpTestUtil.createRevocationBody(new BigInteger(certificate.getSerialNumber(), 16)));
+    }
+
+    private static PKIMessage kurMessage(Certificate rekeyed) throws Exception {
+        KeyPair newKeyPair = CmpTestUtil.generateKeyPairEC();
+        return macProtected(CmpTestUtil
+                .createRegistrationCrmfBody(newKeyPair, 0L, PKIBody.TYPE_KEY_UPDATE_REQ, "CN=user", List.of(),
+                        new BigInteger(rekeyed.getSerialNumber(), 16)));
     }
 
     private static PKIMessage macProtected(PKIBody body) throws Exception {
