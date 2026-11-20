@@ -351,8 +351,7 @@ class CmpPollTransactionITest extends BaseSpringBootTest {
     }
 
     /**
-     * Inside the revocation's transaction, the request's EntityManager holds that transaction's connection: the
-     * revocation runs on the request's EntityManager, not on one of its own.
+     * Inside the revocation's transaction, the request's EntityManager holds that transaction's connection.
      */
     @Test
     void revokesOnTheRequestsEntityManager_whenAnsweringARevocationRequest() throws Exception {
@@ -422,8 +421,8 @@ class CmpPollTransactionITest extends BaseSpringBootTest {
     }
 
     /**
-     * Records the pool's active connections when the request is queued; a connection held idle or in a transaction
-     * counts as active. Only this context's pool is counted: the test database is shared with every cached context.
+     * A connection held idle or in a transaction counts as active. Only this context's pool is counted: the test
+     * database is shared with every cached context.
      */
     private AtomicInteger recordActiveConnectionsWhenQueued(HikariPoolMXBean pool) {
         AtomicInteger activeWhileQueuing = new AtomicInteger(-1);
