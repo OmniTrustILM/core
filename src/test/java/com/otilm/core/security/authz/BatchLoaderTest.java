@@ -28,7 +28,7 @@ class BatchLoaderTest {
     }, false);
 
     @Test
-    void readsTheAnnouncedObjectsInTheFirstReadThatMisses() {
+    void readsTheAnnouncedObjects_whenTheFirstAskedObjectMisses() {
         // given
         loader.announce(List.of(owned, notOwned));
 
@@ -66,19 +66,20 @@ class BatchLoaderTest {
             return Map.of(owned, true);
         }, false);
         failingOnce.announce(List.of(owned, notOwned));
-        ThrowingCallable failingRead = () -> failingOnce.get(List.of(owned));
-        assertThatThrownBy(failingRead).isInstanceOf(IllegalStateException.class);
 
         // when
-        Map<UUID, Boolean> answer = failingOnce.get(List.of(notOwned));
+        ThrowingCallable failingRead = () -> failingOnce.get(List.of(owned));
 
         // then
-        assertThat(answer).containsExactly(entry(notOwned, false));
+        assertThatThrownBy(failingRead).isInstanceOf(IllegalStateException.class);
+        assertThat(failingOnce.get(List.of(notOwned))).containsExactly(entry(notOwned, false));
         assertThat(attempts).containsExactly(Set.of(owned, notOwned), Set.of(owned, notOwned));
     }
 
     @Test
-    void answersARepeatedObjectOnce() {
+    void answersOnce_whenAnObjectIsAskedTwice() {
+        // given — an empty loader
+
         // when
         Map<UUID, Boolean> answer = loader.get(List.of(owned, owned));
 

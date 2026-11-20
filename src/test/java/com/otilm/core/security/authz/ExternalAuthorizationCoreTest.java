@@ -155,7 +155,7 @@ class ExternalAuthorizationCoreTest {
     }
 
     @Test
-    void fallbackSkippedWhenResourceHasNeitherOwnerNorGroups() {
+    void skipsTheFallback_whenTheResourceHasNeitherOwnerNorGroups() {
         // given: TOKEN has no owner/group associations, so the fallback must not consult any repository
         when(opaClient.checkResourceAccess(any(), any(), any(), any()))
                 .thenReturn(OpaResourceAccessResult.unauthorized());
@@ -172,7 +172,7 @@ class ExternalAuthorizationCoreTest {
     }
 
     @Test
-    void ownerFallbackGrantsWhenAllObjectsOwnedByPrincipal() {
+    void grantsByOwnership_whenThePrincipalOwnsEveryObject() {
         // given
         when(opaClient.checkResourceAccess(any(), any(), any(), any()))
                 .thenReturn(OpaResourceAccessResult.unauthorized());
@@ -190,9 +190,9 @@ class ExternalAuthorizationCoreTest {
     }
 
     @Test
-    void groupFallbackGrantsWhenAllGroupsAreAuthorized() {
+    void grantsByGroupMembership_whenEveryGroupIsAuthorized() {
         // given: not owned, but the object's group has the required member permission
-        AuthorizationRequest request = directCheckWithNonMatchingOwner();
+        AuthorizationRequest request = createDirectCheckWithNonMatchingOwner();
         UUID objectUuid = request.objectUuids().getFirst().getValue();
 
         groups.put(objectUuid, List.of(UUID.randomUUID().toString()));
@@ -209,7 +209,7 @@ class ExternalAuthorizationCoreTest {
     }
 
     @Test
-    void ownerFallbackCountsARepeatedObjectOnce() {
+    void grantsByOwnership_whenTheRequestNamesAnOwnedObjectTwice() {
         // given: the principal owns the one object the request names twice
         when(opaClient.checkResourceAccess(any(), any(), any(), any()))
                 .thenReturn(OpaResourceAccessResult.unauthorized());
@@ -228,7 +228,7 @@ class ExternalAuthorizationCoreTest {
     }
 
     @Test
-    void ownerFallbackDoesNotApplyWhenAnObjectUuidIsNull() {
+    void skipsTheOwnershipFallback_whenAnObjectUuidIsNull() {
         // given
         when(opaClient.checkResourceAccess(any(), any(), any(), any()))
                 .thenReturn(OpaResourceAccessResult.unauthorized());
@@ -245,7 +245,7 @@ class ExternalAuthorizationCoreTest {
     }
 
     @Test
-    void resourceWithoutOwnersSkipsTheOwnerLookup() {
+    void skipsTheOwnerLookup_whenTheResourceHasNoOwners() {
         // given: USER has group associations but no owner
         UUID objectUuid = UUID.randomUUID();
         AuthorizationRequest request = AuthorizationRequest
@@ -264,11 +264,11 @@ class ExternalAuthorizationCoreTest {
     }
 
     @Test
-    void groupFallbackDeniesWhenObjectHasNoGroups() {
+    void denies_whenTheObjectHasNoGroups() {
         // given
         when(opaClient.checkResourceAccess(any(), any(), any(), any()))
                 .thenReturn(OpaResourceAccessResult.unauthorized());
-        AuthorizationRequest request = directCheckWithNonMatchingOwner();
+        AuthorizationRequest request = createDirectCheckWithNonMatchingOwner();
 
         // when
         AuthorizationDecision decision = core.decide(platformAuthentication(UUID.randomUUID().toString()), request);
@@ -278,9 +278,9 @@ class ExternalAuthorizationCoreTest {
     }
 
     @Test
-    void groupFallbackDeniesWhenGroupMemberCheckIsDenied() {
+    void denies_whenTheGroupMemberCheckIsRefused() {
         // given
-        AuthorizationRequest request = directCheckWithNonMatchingOwner();
+        AuthorizationRequest request = createDirectCheckWithNonMatchingOwner();
         UUID objectUuid = request.objectUuids().getFirst().getValue();
 
         groups.put(objectUuid, List.of(UUID.randomUUID().toString()));
@@ -509,7 +509,7 @@ class ExternalAuthorizationCoreTest {
     }
 
     /** A direct-check request for CERTIFICATE (has owner + groups) whose owner association never matches. */
-    private AuthorizationRequest directCheckWithNonMatchingOwner() {
+    private static AuthorizationRequest createDirectCheckWithNonMatchingOwner() {
         SecuredUUID objectUuid = SecuredUUID.fromUUID(UUID.randomUUID());
         return AuthorizationRequest.forDirectCheck(Resource.CERTIFICATE, ResourceAction.DETAIL, List.of(objectUuid));
     }
