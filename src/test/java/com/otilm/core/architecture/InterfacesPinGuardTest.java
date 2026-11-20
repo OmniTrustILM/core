@@ -19,15 +19,8 @@ import org.yaml.snakeyaml.Yaml;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Pins what stops an unmerged {@code interfaces} override from reaching {@code main}.
- * <p>
- * Three lines carry the merge block, each removable as a tidy-up: {@code pin-gate} in the aggregate job's
- * {@code needs}; the aggregate's {@code !cancelled()}, without which it is skipped when the gate fails and a skipped
- * required check counts as passing; and its scan failing on a non-successful upstream. A fourth, {@code $MVNARG} on
- * every job using the Interfaces dependency, keeps a coupled pull request from reddening for the wrong reason.
- * <p>
- * All four are silent when they drift, and none surfaces near the edit that caused it. Loads no Spring context, so it
- * does not affect {@link ContextSignatureGuardTest#BASELINE}.
+ * Checks that an active Interfaces override blocks merging and reaches every Interfaces consumer. Build must surface a
+ * failed pin gate because GitHub treats skipped required checks as passing.
  */
 class InterfacesPinGuardTest {
 
@@ -50,7 +43,7 @@ class InterfacesPinGuardTest {
     private static final Set<String> DIRECT_GOALS = Set
             .of("jacoco:prepare-agent", "surefire:test", "jar:jar", "spring-boot:repackage");
 
-    /** The expected jobs prevent the override check from passing with an empty detection result. */
+    /** Prevents the override check from passing if detection finds no jobs. */
     private static final Set<String> EXPECTED_INTERFACES_JOBS = Set.of("compile", "test", "package", "generated");
 
     @Test
@@ -91,10 +84,7 @@ class InterfacesPinGuardTest {
                         .filter(command -> !command.contains(OVERRIDE))
                         .forEach(command -> missing.add(name)));
 
-        assertThat(missing)
-                .describedAs("every job using the Interfaces dependency must pass %s, or a pull request holding an "
-                        + "override uses the mainline interfaces snapshot instead", OVERRIDE)
-                .isEmpty();
+        assertThat(missing).describedAs("Interfaces consumers must pass %s to honor the PR pin", OVERRIDE).isEmpty();
 
         for (String downstream : List.of("test", "package")) {
             assertThat(needsOf(downstream)).contains("compile");
@@ -107,11 +97,11 @@ class InterfacesPinGuardTest {
     @Test
     void distinguishesCompilingJobs_whenDetectingInterfacesConsumers() throws IOException {
         assertThat(jobsRunning(InterfacesPinGuardTest::usesInterfaces))
-                .describedAs("the override check must keep matching jobs that consume the Interfaces dependency")
+                .describedAs("Jobs detected as Interfaces consumers")
                 .containsExactlyInAnyOrderElementsOf(EXPECTED_INTERFACES_JOBS);
 
         assertThat(jobsRunning(InterfacesPinGuardTest::compilesTheTree))
-                .describedAs("only the compile and generated jobs may compile the source tree")
+                .describedAs("Only Compile and Generated may compile sources")
                 .containsExactlyInAnyOrder("compile", "generated");
     }
 

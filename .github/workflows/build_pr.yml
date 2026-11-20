@@ -240,8 +240,7 @@ jobs:
           dependency:copy-dependencies -DincludeGroupIds=com.otilm -DincludeArtifactIds=interfaces
           -DincludeTypes=jar -Dmdep.useBaseVersion=false -DoutputDirectory=target/resolved-interfaces $MVNARG
 
-      # Each downstream job resolves Maven dependencies on its own runner. Pin
-      # Interfaces to the version from this compile, including a snapshot's timestamp.
+      # Pin Interfaces so downstream runners cannot resolve a newer snapshot.
       - name: Record the compiled Interfaces version
         id: interfaces
         run: |
@@ -249,13 +248,13 @@ jobs:
           shopt -s nullglob
           jars=(target/resolved-interfaces/interfaces-*.jar)
           if (( ${#jars[@]} != 1 )); then
-            echo "::error::Expected exactly one resolved Interfaces JAR."
+            echo "::error::Expected one Interfaces JAR, found ${#jars[@]}."
             exit 1
           fi
           version=${jars[0]##*/interfaces-}
           version=${version%.jar}
           if [[ ! "$version" =~ ^[0-9][0-9A-Za-z.-]*$ || "$version" == *-SNAPSHOT ]]; then
-            echo "::error::Expected an immutable Interfaces version after compilation."
+            echo "::error::Expected an Interfaces release or timestamped snapshot."
             exit 1
           fi
           printf 'mvnarg=-Dinterfaces.version=%s\n' "$version" >> "$GITHUB_OUTPUT"
@@ -370,7 +369,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
           MVNARG: ${{ needs.compile.outputs.mvnarg }}
-        # Report against the same class files the shards tested and still verify the executable JAR.
+        # Reuse tested bytecode so JaCoCo class IDs match.
         run: >-
           mvn -B -U -ntp -Pmerge-coverage
           jar:jar@default-jar spring-boot:repackage@repackage

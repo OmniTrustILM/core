@@ -24,7 +24,7 @@ import org.yaml.snakeyaml.Yaml;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** Checks the test partition used by Build PR against Core's test sources. */
+/** Verifies that Build PR shards cover the test sources without overlap. */
 class CiTestSplitTest {
 
     private static final Path TEST_ROOT = Path.of("src/test/java");
@@ -35,7 +35,7 @@ class CiTestSplitTest {
     private static final List<String> INTEGRATION_SHARDS = List
             .of("integration-1", "integration-2", "integration-3", "integration-4");
 
-    /** Surefire's default includes expressed as a regular expression on the file name. */
+    /** Surefire's default includes by source filename. */
     private static final Pattern SUREFIRE_DEFAULT_NAME = Pattern.compile("(?:Test.*|.*Test|.*Tests|.*TestCase)\\.java");
     private static final String INTEGRATION_EXCLUSION = "com/otilm/core/integration/.*ITest.*";
 
@@ -90,7 +90,7 @@ class CiTestSplitTest {
         assertThat(duplicates).describedAs("Integration tests must have exactly one manifest entry").isEmpty();
     }
 
-    /** Collects paths to concrete top-level ITest classes, including classes whose tests are inherited. */
+    /** Includes concrete classes whose tests are all inherited. */
     private static Set<String> concreteIntegrationTests() throws IOException, ClassNotFoundException {
         Set<String> tests = new TreeSet<>();
         List<Path> sources;
@@ -162,8 +162,7 @@ class CiTestSplitTest {
                 .describedAs("The integration tree must contain a nested class that matches Surefire's default naming")
                 .isNotEmpty();
         assertThat(violations)
-                .describedAs(
-                        "Annotate nested test classes with @Nested, or move each to its own top-level *ITest and list it in an integration manifest")
+                .describedAs("Use @Nested or move the tests to a top-level *ITest listed in a manifest")
                 .isEmpty();
     }
 
@@ -254,7 +253,6 @@ class CiTestSplitTest {
                 .isEmpty();
     }
 
-    /** Keeps the manifest naming rule aligned with the integration test taxonomy. */
     @Test
     void integrationRootRunnableTestsMustBeNamedITest() throws IOException {
         assertThat(Files.exists(INTEGRATION_ROOT))
@@ -271,8 +269,7 @@ class CiTestSplitTest {
                     .toList();
         }
         assertThat(violations)
-                .describedAs("Runnable test classes in the integration root whose names don't end with ITest. "
-                        + "Rename them to *ITest and assign them to an integration manifest.")
+                .describedAs("Rename these integration tests to *ITest and list them in a manifest")
                 .isEmpty();
     }
 }

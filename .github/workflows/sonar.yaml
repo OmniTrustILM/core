@@ -5,9 +5,7 @@ on:
     types: [completed]
 
 jobs:
-  # Gated on Package rather than the run conclusion: pin-gate fails by design on
-  # a coupled PR, which would skip Sonar for exactly the PRs that need it most.
-  # Package publishes the code and coverage. Compile publishes the Interfaces version.
+  # Gate on Package so coupled PRs get Sonar even when the pin gate fails.
   gate:
     name: Sonar precondition
     if: github.event.workflow_run.conclusion != 'cancelled'
@@ -163,7 +161,7 @@ jobs:
             exit 1
           fi
           MVNARG=$(cat "$RUNNER_TEMP/mvnarg/mvnarg.txt")
-          # Earlier Build PR runs can publish an empty argument for the default version.
+          # An empty argument selects the POM version for older Build PR runs.
           if [[ -n "$MVNARG" && ! "$MVNARG" =~ ^-Dinterfaces\.version=[0-9][0-9A-Za-z.-]*$ ]]; then
             echo "::error::Invalid Interfaces version argument from Build PR."
             exit 1
