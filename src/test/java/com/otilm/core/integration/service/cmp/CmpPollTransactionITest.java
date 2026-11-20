@@ -350,9 +350,6 @@ class CmpPollTransactionITest extends BaseSpringBootTest {
         mockServer.verify(WireMock.getRequestedFor(WireMock.urlPathMatching(REVOKE_ATTRIBUTES_PATH)));
     }
 
-    /**
-     * Inside the revocation's transaction, the request's EntityManager holds that transaction's connection.
-     */
     @Test
     void revokesOnTheRequestsEntityManager_whenAnsweringARevocationRequest() throws Exception {
         // given

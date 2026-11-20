@@ -81,8 +81,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 /**
- * ACME finalize must hold no database connection while it submits the certificate request, in a transaction or out of
- * one, and must still write the order only under its lock, so that a second finalize submits nothing and a concurrent
+ * ACME finalize writes the order only under its lock, so that a second finalize submits nothing and a concurrent
  * account deactivation is not overwritten. Each finalize runs with an EntityManager bound to the thread, as
  * open-in-view binds one, and the action producer is a mock, so the queued request stays queued.
  */
