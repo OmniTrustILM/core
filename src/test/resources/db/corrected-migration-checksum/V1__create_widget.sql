@@ -1,0 +1,1 @@
+CREATE TABLE widget (id INT PRIMARY KEY);
