@@ -1,12 +1,12 @@
 package com.otilm.core.signing.engine.error;
 
-import com.otilm.api.exception.PlatformException;
+import com.otilm.api.exception.SigningException;
 
 /**
  * The common Signing Engine's checked exception. {@code getMessage()} carries the client-facing text so
  * {@code PlatformException.safeMessage()} stays safe; operator detail lives in {@link #operatorMessage()}.
  */
-public class SigningEngineException extends Exception implements PlatformException {
+public class SigningEngineException extends SigningException {
 
     private final SigningEngineFailure failure;
     private final String operatorMessage;

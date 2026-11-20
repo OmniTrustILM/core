@@ -1,9 +1,12 @@
 package com.otilm.core.integration.signing.contentsigning;
 
+import com.jayway.jsonpath.JsonPath;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
+import com.otilm.api.model.client.signing.nativesigning.SignDocumentItemDto;
+import com.otilm.api.model.client.signing.nativesigning.SignDocumentRequestDto;
 import com.otilm.api.model.client.signing.profile.SigningProfileDto;
 import com.otilm.api.model.client.signing.profile.SigningProfileRequestDto;
 import com.otilm.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
@@ -15,13 +18,22 @@ import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.common.signature.DocumentTransferMode;
 import com.otilm.api.model.common.signature.SignatureLevel;
 import com.otilm.api.model.connector.signatures.contentsigning.common.ContentSigningFormattingOperation;
+import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.connector.v2.ConnectorDetailDto;
 import com.otilm.api.model.core.cryptography.token.TokenInstanceDetailDto;
 import com.otilm.api.model.core.cryptography.tokenprofile.TokenProfileDetailDto;
+import com.otilm.api.model.core.logging.enums.AuditLogOutput;
+import com.otilm.api.model.core.logging.enums.Module;
+import com.otilm.api.model.core.logging.enums.Operation;
+import com.otilm.api.model.core.logging.enums.OperationResult;
+import com.otilm.api.model.core.logging.records.ResourceObjectIdentity;
 import com.otilm.api.model.core.settings.PlatformSettingsDto;
 import com.otilm.api.model.core.settings.PlatformSettingsUpdateDto;
 import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.SigningSettingsDto;
+import com.otilm.api.model.core.settings.logging.AuditLoggingSettingsDto;
+import com.otilm.api.model.core.settings.logging.LoggingSettingsDto;
+import com.otilm.api.model.core.settings.logging.ResourceLoggingSettingsDto;
 import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.api.model.core.signing.signingrecord.SigningRecordListDto;
 import com.otilm.core.config.ConnectorApiClientProperties;
@@ -31,11 +43,14 @@ import com.otilm.core.dao.repository.signing.SigningRecordRepository;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.helpers.SigningAlgorithmSpecs;
 import com.otilm.core.helpers.TestCertificateAuthority;
+import com.otilm.core.messaging.model.AuditLogMessage;
+import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.resolved.ResolvedManagedContentSigningProfile;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
+import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.service.CryptographicKeyExternalService;
 import com.otilm.core.service.SettingExternalService;
 import com.otilm.core.service.SigningProfileExternalService;
@@ -81,7 +96,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -100,16 +120,26 @@ import static com.otilm.core.util.builders.TokenProfileRequestDtoBuilder.aTokenP
 import static com.otilm.core.util.mocks.ContentSigningFormattingMock.requestAttributeDefinition;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hamcrest.Matchers.containsString;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.verify;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * End-to-end test of a managed content-signing run over a real Spring context and Postgres.
  */
+@AutoConfigureMockMvc
 class ContentSigningEngineITest extends BaseSpringBootTest {
 
     private static final String DEFAULT_POLICY_ID = "1.2.3";
 
     @Autowired
     private ManagedContentSigningEngine engine;
+
+    @Autowired
+    private MockMvc mockMvc;
 
     @Autowired
     private SigningProfileExternalService signingProfileService;
@@ -1040,10 +1070,343 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         }
     }
 
+    // ── IlmNativeSignDocument ─────────────────────────────────────────────────
+
+    @Nested
+    class IlmNativeSignDocument {
+
+        private static final byte[] DOCUMENT = "a native document".getBytes(StandardCharsets.UTF_8);
+        private static final String DOCUMENT_BASE64 = Base64.getEncoder().encodeToString(DOCUMENT);
+        private static final UUID LOCATION_UUID = UUID.fromString("0000abcd-1111-2222-3333-444444444444");
+        private static final String LOCATION = "data_location";
+
+        @Test
+        void answersEachItemsOutputAndMediaType_whenTheProfileServesIlmNative() throws Exception {
+            // given
+            SigningProfileDto contentProfile = createIlmNativeProfile("native-signed-pades");
+
+            // when
+            ResultActions response = signDocument(contentProfile.getUuid(), inlineRequest("contract-1"));
+
+            // then
+            response
+                    .andExpectAll(status().isOk(), jsonPath("$.results.length()").value(1),
+                            jsonPath("$.results[0].identifier").value("contract-1"),
+                            jsonPath("$.results[0].mediaType").value("application/pdf"),
+                            jsonPath("$.results[0].output").value(base64("signed-document")),
+                            jsonPath("$.results[0].signingRecordUuid").isNotEmpty());
+            assertThat(recordEntitiesFor(contentProfile))
+                    .singleElement()
+                    .satisfies(signingRecord -> assertThat(signingRecord.getProtocol())
+                            .isEqualTo(SigningProtocol.ILM_NATIVE));
+        }
+
+        @Test
+        void answersEveryResultInRequestOrder_whenTheRequestCarriesABatch() throws Exception {
+            // given
+            cryptographyProviderMock
+                    .stubRealSigning()
+                    .registerSigningKey(signingKeyReference, signingKeyPair.getPrivate(),
+                            SignatureAlgorithm.SHA256_WITH_RSA);
+            SigningProfileDto contentProfile = createIlmNativeProfile("native-batch-pades");
+            String batch = """
+                    {"transferMode":"inline","items":[{"identifier":"second","document":"%1$s"},
+                     {"identifier":"first","document":"%1$s"}]}
+                    """.formatted(DOCUMENT_BASE64);
+
+            // when
+            ResultActions response = signDocument(contentProfile.getUuid(), batch);
+
+            // then
+            response
+                    .andExpectAll(status().isOk(), jsonPath("$.results[0].identifier").value("second"),
+                            jsonPath("$.results[1].identifier").value("first"));
+            assertThat(recordEntitiesFor(contentProfile)).hasSize(2);
+        }
+
+        @Test
+        void answersTheUuidsOfThePersistedRecords_whenTheRequestCarriesABatch() throws Exception {
+            // given
+            cryptographyProviderMock
+                    .stubRealSigning()
+                    .registerSigningKey(signingKeyReference, signingKeyPair.getPrivate(),
+                            SignatureAlgorithm.SHA256_WITH_RSA);
+            SigningProfileDto contentProfile = createIlmNativeProfile("native-record-uuids-pades");
+            String batch = """
+                    {"transferMode":"inline","items":[{"identifier":"first","document":"%1$s"},
+                     {"identifier":"second","document":"%1$s"}]}
+                    """.formatted(DOCUMENT_BASE64);
+
+            // when
+            ResultActions response = signDocument(contentProfile.getUuid(), batch);
+
+            // then
+            List<String> returnedUuids = JsonPath
+                    .read(response.andExpect(status().isOk()).andReturn().getResponse().getContentAsString(),
+                            "$.results[*].signingRecordUuid");
+            List<String> persistedUuids = recordEntitiesFor(contentProfile)
+                    .stream()
+                    .map(signingRecord -> signingRecord.getUuid().toString())
+                    .toList();
+            assertThat(returnedUuids)
+                    .hasSize(2)
+                    .doesNotHaveDuplicates()
+                    .containsExactlyInAnyOrderElementsOf(persistedUuids);
+        }
+
+        @Test
+        void sendsTheRequestedValueToComputeDtbs_whenTheProfileAllowsIt() throws Exception {
+            // given
+            contentSigningFormattingMock.stubComputeDtbsRequestAttributeDefinition(LOCATION_UUID, LOCATION);
+            SigningProfileDto contentProfile = createIlmNativeProfileAllowing("native-location-pades", LOCATION);
+            var requestedLocation = "Prague";
+            String request = inlineRequestSetting(stringValue(LOCATION_UUID, LOCATION, requestedLocation));
+
+            // when
+            ResultActions response = signDocument(contentProfile.getUuid(), request);
+
+            // then
+            response.andExpect(status().isOk());
+            assertThat(contentSigningFormattingMock.requestAttributesReceivedByComputeDtbs())
+                    .singleElement()
+                    .satisfies(attributes -> {
+                        assertThat(attributes.findValuesAsText("name")).containsExactly(LOCATION);
+                        assertThat(attributes.findValuesAsText("data")).containsExactly(requestedLocation);
+                    });
+        }
+
+        @Test
+        void sendsEachDigestInPlaceOfItsDocument_whenTheRequestTravelsAsDigests() throws Exception {
+            // given
+            SigningProfileDto contentProfile = createIlmNativeProfile("native-digest-cades",
+                    SignatureFamilyFixtures.CADES);
+            String documentDigest = Base64
+                    .getEncoder()
+                    .encodeToString(MessageDigest.getInstance("SHA-256").digest(DOCUMENT));
+            String digestRequest = """
+                    {"transferMode":"digestOnly","digestAlgorithm":"SHA-256",
+                     "items":[{"identifier":"contract-1","documentDigest":"%s"}]}
+                    """.formatted(documentDigest);
+
+            // when
+            ResultActions response = signDocument(contentProfile.getUuid(), digestRequest);
+
+            // then
+            response.andExpect(status().isOk());
+            assertThat(contentSigningFormattingMock.documentTransfersReceivedByComputeDtbs())
+                    .singleElement()
+                    .satisfies(transfer -> {
+                        assertThat(transfer.path("transferMode").asText()).isEqualTo("digestOnly");
+                        assertThat(transfer.path("documentDigest").asText()).isEqualTo(documentDigest);
+                    });
+        }
+
+        @Test
+        void answers502NamingTheItem_whenTheFormatterNamesABlankMediaType() throws Exception {
+            // given
+            var blankMediaType = " ";
+            contentSigningFormattingMock.stubEmbedSignatureValueNaming(blankMediaType);
+            SigningProfileDto contentProfile = createIlmNativeProfile("native-blank-media-type-pades");
+
+            // when
+            ResultActions response = signDocument(contentProfile.getUuid(), inlineRequest("contract-1"));
+
+            // then
+            response.andExpectAll(status().isBadGateway(), jsonPath("$.message").value(containsString("contract-1")));
+            assertThat(recordEntitiesFor(contentProfile)).isEmpty();
+        }
+
+        @Test
+        void answers422NamingTheDuplicate_whenTwoItemsShareAnIdentifier() throws Exception {
+            // given
+            SigningProfileDto contentProfile = createIlmNativeProfile("native-duplicate-pades");
+            String duplicates = """
+                    {"transferMode":"inline","items":[{"identifier":"same","document":"%1$s"},
+                     {"identifier":"same","document":"%1$s"}]}
+                    """.formatted(DOCUMENT_BASE64);
+
+            // when
+            ResultActions response = signDocument(contentProfile.getUuid(), duplicates);
+
+            // then
+            response
+                    .andExpectAll(status().isUnprocessableContent(), jsonPath("$[0]")
+                            .value("items[1].identifier identifiers must be unique within the request; duplicates item at index 0"));
+            cryptographyProviderMock.verifyNoDataWasSigned();
+            assertThat(recordEntitiesFor(contentProfile)).isEmpty();
+        }
+
+        @Test
+        void signsAtTheProfilesLevel_whenTheRequestNamesALevel() throws Exception {
+            // given
+            SigningProfileDto contentProfile = createIlmNativeProfile("native-level-pades");
+            String requestNamingALevel = """
+                    {"transferMode":"inline","level":"timestamped",
+                     "items":[{"identifier":"contract-1","document":"%s"}]}
+                    """.formatted(DOCUMENT_BASE64);
+
+            // when
+            ResultActions response = signDocument(contentProfile.getUuid(), requestNamingALevel);
+
+            // then
+            response.andExpectAll(status().isOk(), jsonPath("$.results[0].output").value(base64("signed-document")));
+        }
+
+        @Test
+        void answers422NamingTheField_whenAnInlineItemCarriesNoDocument() throws Exception {
+            // given
+            SigningProfileDto contentProfile = createIlmNativeProfile("native-no-document-pades");
+            String itemWithoutDocument = """
+                    {"transferMode":"inline","items":[{"identifier":"contract-1"}]}
+                    """;
+
+            // when
+            ResultActions response = signDocument(contentProfile.getUuid(), itemWithoutDocument);
+
+            // then
+            response
+                    .andExpectAll(status().isUnprocessableContent(), jsonPath("$[0]")
+                            .value("items[0].document document is required when transferMode is inline"));
+            cryptographyProviderMock.verifyNoDataWasSigned();
+        }
+
+        @Test
+        void answers422_whenTheProfileHasIlmNativeInactive() throws Exception {
+            // given
+            SigningProfileDto contentProfile = createContentSigningProfile("native-inactive-pades",
+                    SignatureFamilyFixtures.PADES, SignatureLevel.SIGNED, null);
+
+            // when
+            ResultActions response = signDocument(contentProfile.getUuid(), inlineRequest("contract-1"));
+
+            // then
+            response
+                    .andExpectAll(status().isUnprocessableContent(),
+                            jsonPath("$[0]").value(containsString("does not have the ILM_NATIVE protocol enabled")));
+            cryptographyProviderMock.verifyNoDataWasSigned();
+        }
+
+        @Test
+        void answers404_whenNoSigningProfileHasTheUuid() throws Exception {
+            // given
+            String unknownUuid = UUID.randomUUID().toString();
+
+            // when
+            ResultActions response = signDocument(unknownUuid, inlineRequest("contract-1"));
+
+            // then
+            response.andExpect(status().isNotFound());
+        }
+
+        @Test
+        void answers403_whenTheCallerMayNotSignWithTheProfile() throws Exception {
+            // given
+            SigningProfileDto contentProfile = createIlmNativeProfile("native-forbidden-pades");
+            denyResourceAccess(Resource.SIGNING_PROFILE, ResourceAction.SIGN,
+                    UUID.fromString(contentProfile.getUuid()));
+
+            // when
+            ResultActions response = signDocument(contentProfile.getUuid(), inlineRequest("contract-1"));
+
+            // then
+            response.andExpect(status().isForbidden());
+            cryptographyProviderMock.verifyNoDataWasSigned();
+        }
+
+        @Test
+        void auditsTheSigningAgainstItsProfile() throws Exception {
+            // given
+            SigningProfileDto contentProfile = createIlmNativeProfile("native-audited-pades");
+            auditEverything();
+
+            // when
+            signDocument(contentProfile.getUuid(), inlineRequest("contract-1")).andExpect(status().isOk());
+
+            // then
+            ArgumentCaptor<AuditLogMessage> messages = ArgumentCaptor.forClass(AuditLogMessage.class);
+            verify(auditLogsProducer, atLeastOnce()).produceMessage(messages.capture());
+            assertThat(messages.getAllValues()).map(AuditLogMessage::getLogRecord).anySatisfy(logRecord -> {
+                assertThat(logRecord.module()).isEqualTo(Module.SIGNING);
+                assertThat(logRecord.operation()).isEqualTo(Operation.SIGN);
+                assertThat(logRecord.operationResult()).isEqualTo(OperationResult.SUCCESS);
+                assertThat(logRecord.resource().type()).isEqualTo(Resource.SIGNING_RECORD);
+                assertThat(logRecord.affiliatedResource().type()).isEqualTo(Resource.SIGNING_PROFILE);
+                assertThat(logRecord.affiliatedResource().objects())
+                        .extracting(ResourceObjectIdentity::uuid)
+                        .containsExactly(UUID.fromString(contentProfile.getUuid()));
+            });
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private SigningProfileDto createIlmNativeProfile(String name) throws Exception {
+            return createIlmNativeProfile(name, SignatureFamilyFixtures.PADES);
+        }
+
+        private SigningProfileDto createIlmNativeProfile(String name, String family) throws Exception {
+            SigningProfileDto contentProfile = createContentSigningProfile(name, family, SignatureLevel.SIGNED, null);
+            return activateIlmNative(contentProfile);
+        }
+
+        private SigningProfileDto createIlmNativeProfileAllowing(String name, String allowed) throws Exception {
+            var workflow = aContentSigningWorkflow()
+                    .withSignatureFormattingConnector(UUID.fromString(contentSigningFormattingConnector.getUuid()))
+                    .withFamily(SignatureFamilyFixtures.PADES)
+                    .withLevel(SignatureLevel.SIGNED)
+                    .withAllowedRequestAttributes(allowed);
+            SigningProfileDto contentProfile = createEnabledSigningProfile(aSigningProfileRequest()
+                    .withName(name)
+                    .withContentSigning(workflow.build())
+                    .withStaticKeyManagedSigning(signingCertificate.getUuid()));
+            return activateIlmNative(contentProfile);
+        }
+
+        private SigningProfileDto activateIlmNative(SigningProfileDto contentProfile) throws Exception {
+            signingProfileService.activateIlmNative(SecuredUUID.fromString(contentProfile.getUuid()));
+            return contentProfile;
+        }
+
+        private ResultActions signDocument(String signingProfileUuid, String requestJson) throws Exception {
+            return mockMvc
+                    .perform(post("/v1/signing/signingProfiles/{signingProfileUuid}/documents/sign", signingProfileUuid)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(requestJson));
+        }
+
+        private static String inlineRequest(String identifier) {
+            return """
+                    {"transferMode":"inline","items":[{"identifier":"%s","document":"%s"}]}
+                    """.formatted(identifier, DOCUMENT_BASE64);
+        }
+
+        private static String inlineRequestSetting(RequestAttribute requestAttribute) throws Exception {
+            SignDocumentRequestDto request = new SignDocumentRequestDto();
+            request.setTransferMode(DocumentTransferMode.INLINE);
+            request.setItems(List.of(new SignDocumentItemDto("contract-1", DOCUMENT, null)));
+            request.setRequestAttributes(List.of(requestAttribute));
+            return ObjectMapperFactory.wire().writeValueAsString(request);
+        }
+
+        private static String base64(String text) {
+            return Base64.getEncoder().encodeToString(text.getBytes(StandardCharsets.UTF_8));
+        }
+
+        private void auditEverything() {
+            AuditLoggingSettingsDto auditLogs = new AuditLoggingSettingsDto();
+            auditLogs.setOutput(AuditLogOutput.ALL);
+            auditLogs.setLogAllModules(true);
+            auditLogs.setLogAllResources(true);
+            LoggingSettingsDto settings = new LoggingSettingsDto();
+            settings.setAuditLogs(auditLogs);
+            settings.setEventLogs(new ResourceLoggingSettingsDto());
+            settingService.updateLoggingSettings(settings);
+        }
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static String documentText(SignedContent signed) {
-        return new String(signed.signedDocument(), StandardCharsets.UTF_8);
+        return new String(signed.output(), StandardCharsets.UTF_8);
     }
 
     private static ContentSigningRequest signingRequest(byte[] document) throws Exception {

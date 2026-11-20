@@ -84,6 +84,12 @@ public class ContentSigningFormattingMock extends BaseConnectorMock {
         return this;
     }
 
+    public ContentSigningFormattingMock stubEmbedSignatureValueNaming(String mediaType) {
+        stubOperation(ContentSigningFormattingOperation.EMBED_SIGNATURE_VALUE,
+                signedDocumentJson("signed-document", mediaType));
+        return this;
+    }
+
     public ContentSigningFormattingMock stubComputeDtbsEchoingForeignDigest() {
         stubComputeDtbs(ComputeDtbsEchoTransformer.FOREIGN_NAME);
         return this;
@@ -159,8 +165,13 @@ public class ContentSigningFormattingMock extends BaseConnectorMock {
     }
 
     private static String signedDocumentJson(String content) {
+        return signedDocumentJson(content, "application/pdf");
+    }
+
+    private static String signedDocumentJson(String content, String mediaType) {
         SignedDocumentResponseDto response = new SignedDocumentResponseDto();
         response.setSignedDocument(content.getBytes(StandardCharsets.UTF_8));
+        response.setMediaType(mediaType);
         return serialize(response, "signed document");
     }
 
@@ -339,6 +350,14 @@ public class ContentSigningFormattingMock extends BaseConnectorMock {
         return bodiesReceivedBy(ContentSigningFormattingOperation.COMPUTE_DTBS)
                 .stream()
                 .map(body -> body.path("requestAttributes"))
+                .toList();
+    }
+
+    /** The {@code document} transfer each computeDtbs request carried, in call order. */
+    public List<JsonNode> documentTransfersReceivedByComputeDtbs() {
+        return bodiesReceivedBy(ContentSigningFormattingOperation.COMPUTE_DTBS)
+                .stream()
+                .map(body -> body.path("document"))
                 .toList();
     }
 

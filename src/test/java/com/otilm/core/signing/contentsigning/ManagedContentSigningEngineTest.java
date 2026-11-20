@@ -102,6 +102,8 @@ class ManagedContentSigningEngineTest {
 
     private static final SignatureAlgorithm SIGNATURE_ALGORITHM = SignatureAlgorithm.SHA256_WITH_RSA_PSS;
 
+    private static final String PDF_MEDIA_TYPE = "application/pdf";
+
     @Mock
     ContentSigningFormattingClient formattingClient;
     @Mock
@@ -154,7 +156,7 @@ class ManagedContentSigningEngineTest {
                     .content();
 
             // then
-            assertThat(signed.signedDocument()).isEqualTo(signedDocument);
+            assertThat(signed.output()).isEqualTo(signedDocument);
             assertThat(signed.level()).isEqualTo(SignatureLevel.SIGNED);
             assertThat(signed.timestampSerials()).isEmpty();
             verify(formattingClient, never()).computeSignatureTimestampImprint(any(), any());
@@ -353,6 +355,141 @@ class ManagedContentSigningEngineTest {
     // ── TimestampedPath ───────────────────────────────────────────────────────
 
     @Nested
+    class RunsWithoutAuthorizedDigests {
+
+        @Test
+        void signsWhatTheCallerSent_whenTheRunCarriesNoAuthorizedDigests() throws Exception {
+            // given: the echo matches nothing the caller authorized, since the caller authorized nothing
+            ResolvedManagedContentSigningProfile profile = aSignedOnlyProfile();
+            stubComputeDtbs(digestOf("whatever the connector hashed".getBytes()));
+            when(acquisitions.signDtbs(any(), any())).thenReturn(List.of("signature".getBytes()));
+            stubEmbedSignatureValue("signed document".getBytes());
+            var request = new ContentSigningRequest(DocumentTransferMode.INLINE, null,
+                    List.of(ContentSigningItem.withoutAuthorizedDigest(DOCUMENT_IDENTIFIER, DOCUMENT)), List.of());
+
+            // when
+            SignedContent signed = engine
+                    .sign(request, aSigningProfile().build(), profile, SigningProtocol.ILM_NATIVE)
+                    .getFirst()
+                    .content();
+
+            // then
+            assertThat(signed.output()).isEqualTo("signed document".getBytes());
+        }
+
+        @Test
+        void refusesBeforeComputeDtbs_whenADigestRunNamesAnotherDigestThanTheSignerSigns() throws Exception {
+            // given
+            ResolvedManagedContentSigningProfile profile = aSignedOnlyProfileOf(SignatureFamilyFixtures.CADES);
+            when(acquisitions.signatureAlgorithm(profile)).thenReturn(SignatureAlgorithm.SHA512_WITH_RSA);
+            var request = new ContentSigningRequest(DocumentTransferMode.DIGEST_ONLY, DigestAlgorithm.SHA_256,
+                    List.of(ContentSigningItem.withoutAuthorizedDigest(DOCUMENT_IDENTIFIER, digestOf(DOCUMENT))),
+                    List.of());
+
+            // when
+            ThrowingCallable sign = () -> engine
+                    .sign(request, aSigningProfile().build(), profile, SigningProtocol.ILM_NATIVE);
+
+            // then
+            assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, thrown -> {
+                assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.INVALID_INPUT);
+                assertThat(thrown.operatorMessage()).contains("SHA512withRSA", "SHA-256");
+            });
+            verify(formattingClient, never()).computeDtbs(any(), any());
+        }
+    }
+
+    // ── EmbedResponse ─────────────────────────────────────────────────────────
+
+    @Nested
+    class EmbedResponse {
+
+        @Test
+        void returnsTheMediaTypeTheSignatureEmbedNamed() throws Exception {
+            // given
+            ResolvedManagedContentSigningProfile profile = aSignedOnlyProfile();
+            stubComputeDtbs(digestOf(DOCUMENT));
+            when(acquisitions.signDtbs(any(), any())).thenReturn(List.of("signature".getBytes()));
+            when(formattingClient.embedSignatureValue(any(), any(EmbedSignatureValueRequestDto.class)))
+                    .thenReturn(signedDocumentResponse("signed document".getBytes(), "application/pkcs7-signature"));
+
+            // when
+            SignedContent signed = engine
+                    .sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API)
+                    .getFirst()
+                    .content();
+
+            // then
+            assertThat(signed.mediaType()).isEqualTo("application/pkcs7-signature");
+        }
+
+        @Test
+        void returnsTheMediaTypeTheLastEmbedNamed_whenTheProfileTimestamps() throws Exception {
+            // given
+            ResolvedManagedContentSigningProfile profile = aTimestampingProfile();
+            stubComputeDtbs(digestOf(DOCUMENT));
+            when(acquisitions.signDtbs(any(), any())).thenReturn(List.of("signature".getBytes()));
+            when(formattingClient.embedSignatureValue(any(), any(EmbedSignatureValueRequestDto.class)))
+                    .thenReturn(signedDocumentResponse("signed document".getBytes(), "application/octet-stream"));
+            stubSignatureTimestampImprint(new byte[32]);
+            stubIssuedTimestamp(BigInteger.ONE);
+            stubEmbedSignatureTimestamp("timestamped document".getBytes());
+
+            // when
+            SignedContent signed = engine
+                    .sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API)
+                    .getFirst()
+                    .content();
+
+            // then
+            assertThat(signed.mediaType()).isEqualTo(PDF_MEDIA_TYPE);
+        }
+
+        @Test
+        void refusesAsConnectorFault_whenTheEmbedNamesNoMediaType() throws Exception {
+            // given
+            ResolvedManagedContentSigningProfile profile = aSignedOnlyProfile();
+            stubComputeDtbs(digestOf(DOCUMENT));
+            when(acquisitions.signDtbs(any(), any())).thenReturn(List.of("signature".getBytes()));
+            when(formattingClient.embedSignatureValue(any(), any(EmbedSignatureValueRequestDto.class)))
+                    .thenReturn(signedDocumentResponse("signed document".getBytes(), null));
+
+            // when
+            ThrowingCallable sign = () -> engine
+                    .sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+
+            // then
+            assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, thrown -> {
+                assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.CONNECTOR_FAULT);
+                assertThat(thrown.operatorMessage()).contains("embedSignatureValue", "media type");
+            });
+        }
+
+        @Test
+        void refusesAsConnectorFault_whenTheEmbedReturnsAnEmptyDocument() throws Exception {
+            // given
+            ResolvedManagedContentSigningProfile profile = aSignedOnlyProfile();
+            stubComputeDtbs(digestOf(DOCUMENT));
+            when(acquisitions.signDtbs(any(), any())).thenReturn(List.of("signature".getBytes()));
+            var emptyDocument = new byte[0];
+            when(formattingClient.embedSignatureValue(any(), any(EmbedSignatureValueRequestDto.class)))
+                    .thenReturn(signedDocumentResponse(emptyDocument, PDF_MEDIA_TYPE));
+
+            // when
+            ThrowingCallable sign = () -> engine
+                    .sign(request(), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+
+            // then
+            assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, thrown -> {
+                assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.CONNECTOR_FAULT);
+                assertThat(thrown.operatorMessage()).contains("embedSignatureValue", "no signed document");
+            });
+        }
+    }
+
+    // ── TimestampedPath ───────────────────────────────────────────────────────
+
+    @Nested
     class TimestampedPath {
 
         @Test
@@ -375,7 +512,7 @@ class ManagedContentSigningEngineTest {
                     .content();
 
             // then: the document is the embed's output and the serial is traceable to its timestamp record
-            assertThat(signed.signedDocument()).isEqualTo(timestampedDocument);
+            assertThat(signed.output()).isEqualTo(timestampedDocument);
             assertThat(signed.level()).isEqualTo(SignatureLevel.TIMESTAMPED);
             assertThat(signed.timestampSerials()).containsExactly(issuedSerial);
         }
@@ -911,7 +1048,7 @@ class ManagedContentSigningEngineTest {
                             profile, SigningProtocol.CSC_API);
 
             // then
-            assertThat(signed.signedDocument()).isEqualTo(timestamped);
+            assertThat(signed.output()).isEqualTo(timestamped);
         }
 
         @Test
@@ -1598,7 +1735,7 @@ class ManagedContentSigningEngineTest {
 
             // then
             assertThat(signed)
-                    .extracting(item -> new String(item.content().signedDocument()))
+                    .extracting(item -> new String(item.content().output()))
                     .containsExactly(signedDocumentOf("first"), signedDocumentOf("second"));
         }
 
@@ -1642,8 +1779,8 @@ class ManagedContentSigningEngineTest {
         private void verifyRecordedWithItsOwnSignature(String identifier) {
             byte[] dtbs = dtbsOf(identifier);
             verify(recordFactory)
-                    .source(any(), any(), argThat(
-                            content -> new String(content.signedDocument()).equals(signedDocumentOf(identifier))),
+                    .source(any(), any(),
+                            argThat(content -> new String(content.output()).equals(signedDocumentOf(identifier))),
                             aryEq(dtbs), aryEq(signatureOver(dtbs)), any(), any());
         }
 
@@ -1869,8 +2006,13 @@ class ManagedContentSigningEngineTest {
     }
 
     private static SignedDocumentResponseDto signedDocumentResponse(byte[] document) {
+        return signedDocumentResponse(document, PDF_MEDIA_TYPE);
+    }
+
+    private static SignedDocumentResponseDto signedDocumentResponse(byte[] document, String mediaType) {
         SignedDocumentResponseDto response = new SignedDocumentResponseDto();
         response.setSignedDocument(document);
+        response.setMediaType(mediaType);
         return response;
     }
 

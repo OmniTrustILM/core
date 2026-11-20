@@ -82,6 +82,111 @@ class ContentSigningRequestTest {
         assertThat(authorized).isEqualTo(new DocumentDigest(DigestAlgorithm.SHA_512, SHA512_DIGEST));
     }
 
+    @Test
+    void bindsNoAuthorizedDigests_whenNoItemCarriesOne() {
+        // given
+        var item = ContentSigningItem.withoutAuthorizedDigest("first", DOCUMENT);
+
+        // when
+        var request = new ContentSigningRequest(DocumentTransferMode.INLINE, null, List.of(item), List.of());
+
+        // then
+        assertThat(request.bindsAuthorizedDigests()).isFalse();
+    }
+
+    @Test
+    void bindsAuthorizedDigests_whenEveryItemCarriesOne() {
+        // given
+        List<ContentSigningItem> items = List.of(itemNamed("first"), itemNamed("second"));
+
+        // when
+        ContentSigningRequest request = inlineRequestOf(items);
+
+        // then
+        assertThat(request.bindsAuthorizedDigests()).isTrue();
+    }
+
+    @Test
+    void refusesABatch_whenOnlyALaterItemCarriesAnAuthorizedDigest() {
+        // given
+        List<ContentSigningItem> items = List
+                .of(ContentSigningItem.withoutAuthorizedDigest("first", DOCUMENT), itemNamed("second"));
+
+        // when
+        ThrowingCallable create = () -> inlineRequestOf(items);
+
+        // then
+        assertThatThrownBy(create)
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("every document or none");
+    }
+
+    @Test
+    void refusesABatch_whenOnlyTheFirstItemCarriesAnAuthorizedDigest() {
+        // given
+        List<ContentSigningItem> items = List
+                .of(itemNamed("first"), ContentSigningItem.withoutAuthorizedDigest("second", DOCUMENT));
+
+        // when
+        ThrowingCallable create = () -> inlineRequestOf(items);
+
+        // then
+        assertThatThrownBy(create)
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("every document or none");
+    }
+
+    @Test
+    void refusesABatchNamingNoDigestAlgorithm_whenItTravelsAsDigests() {
+        // given
+        var item = ContentSigningItem.withoutAuthorizedDigest("first", SHA512_DIGEST);
+
+        // when
+        ThrowingCallable create = () -> new ContentSigningRequest(DocumentTransferMode.DIGEST_ONLY, null, List.of(item),
+                List.of());
+
+        // then
+        assertThatThrownBy(create).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("digestAlgorithm");
+    }
+
+    @Test
+    void refusesABatchNamingNoDigestAlgorithm_whenItsItemsCarryAuthorizedDigests() {
+        // given
+        List<ContentSigningItem> items = List.of(itemNamed("first"));
+
+        // when
+        ThrowingCallable create = () -> new ContentSigningRequest(DocumentTransferMode.INLINE, null, items, List.of());
+
+        // then
+        assertThatThrownBy(create).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("digestAlgorithm");
+    }
+
+    @Test
+    void refusesABatchNamingADigestAlgorithm_whenItCarriesNoDigests() {
+        // given
+        var item = ContentSigningItem.withoutAuthorizedDigest("first", DOCUMENT);
+
+        // when
+        ThrowingCallable create = () -> new ContentSigningRequest(DocumentTransferMode.INLINE, DigestAlgorithm.SHA_256,
+                List.of(item), List.of());
+
+        // then
+        assertThatThrownBy(create).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("digestAlgorithm");
+    }
+
+    @Test
+    void refusesToReturnAnAuthorizedDigest_whenTheBatchBindsNone() {
+        // given
+        var item = ContentSigningItem.withoutAuthorizedDigest("first", DOCUMENT);
+        var request = new ContentSigningRequest(DocumentTransferMode.INLINE, null, List.of(item), List.of());
+
+        // when
+        ThrowingCallable authorizedDigest = () -> request.authorizedDigestOf(item);
+
+        // then
+        assertThatThrownBy(authorizedDigest).isInstanceOf(IllegalStateException.class);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static ContentSigningRequest inlineRequestOf(List<ContentSigningItem> items) {

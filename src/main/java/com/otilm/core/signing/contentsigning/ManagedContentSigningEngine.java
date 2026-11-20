@@ -132,7 +132,9 @@ public class ManagedContentSigningEngine {
         Instant signingTime = clockSource.wallTimeInstant();
         SignatureAlgorithm signatureAlgorithm = acquisitions.signatureAlgorithm(profile);
         requireFamilyAcceptsAlgorithm(signatureAlgorithm, profile);
-        SignatureDigestCoherence.requireCoherent(signatureAlgorithm, request.digestAlgorithm());
+        if (request.carriesDigests()) {
+            SignatureDigestCoherence.requireCoherent(signatureAlgorithm, request.digestAlgorithm());
+        }
         List<byte[]> signerChain = encodedChain(profile);
         return new SigningRun(request, signingProfile, profile, protocol, signingTime, signatureAlgorithm, signerChain);
     }
@@ -213,7 +215,9 @@ public class ManagedContentSigningEngine {
     private ComputeDtbsResponseDto boundDtbsResponse(SigningRun run, ContentSigningItem item)
             throws SigningEngineException {
         ComputeDtbsResponseDto dtbsResponse = requireCompleteDtbsResponse(computeDtbs(run, item));
-        DtbsBindingVerifier.verify(run.request().authorizedDigestOf(item), dtbsResponse);
+        if (run.request().bindsAuthorizedDigests()) {
+            DtbsBindingVerifier.verify(run.request().authorizedDigestOf(item), dtbsResponse);
+        }
         return dtbsResponse;
     }
 
@@ -226,18 +230,18 @@ public class ManagedContentSigningEngine {
             throws SigningEngineException {
         ContentSigningCursor cursor = advance(ContentSigningCursor.DTBS_COMPUTED,
                 ContentSigningCursor.SIGNATURE_ACQUIRED);
-        byte[] signedDocument = embedSignatureValue(run.profile(), dtbsResponse, signatureValue,
+        EmbeddedDocument signed = embedSignatureValue(run.profile(), dtbsResponse, signatureValue,
                 run.signatureAlgorithm());
         cursor = advance(cursor, ContentSigningCursor.SIGNED);
 
         SignatureLevel level = run.profile().level();
         int issuedBefore = serials.size();
         if (level != SignatureLevel.SIGNED) {
-            signedDocument = applySignatureTimestamp(run.profile(), signedDocument,
-                    detachedContentFor(run.request(), item), cursor, serials);
+            signed = applySignatureTimestamp(run.profile(), signed.document(), detachedContentFor(run.request(), item),
+                    cursor, serials);
         }
         List<BigInteger> documentSerials = List.copyOf(serials.subList(issuedBefore, serials.size()));
-        return new SignedContent(signedDocument, level, documentSerials);
+        return new SignedContent(signed.document(), signed.mediaType(), level, documentSerials);
     }
 
     /**
@@ -267,10 +271,11 @@ public class ManagedContentSigningEngine {
         }
         // No certificate or clock gate here: the profile's own key signs nothing on this path, which mints no
         // signingTime claim. The referenced TIMESTAMPING profile gates its own key and its own time.
-        byte[] timestamped = applySignatureTimestamp(profile, request.signedDocument(), request.detachedContent(),
-                ContentSigningCursor.SIGNED, serials);
+        EmbeddedDocument timestamped = applySignatureTimestamp(profile, request.signedDocument(),
+                request.detachedContent(), ContentSigningCursor.SIGNED, serials);
 
-        SignedContent result = new SignedContent(timestamped, profile.level(), serials);
+        SignedContent result = new SignedContent(timestamped.document(), timestamped.mediaType(), profile.level(),
+                serials);
         recordAugmentation(signingProfile, profile, result, protocol);
         return result;
     }
@@ -301,7 +306,9 @@ public class ManagedContentSigningEngine {
     /** A digest whose algorithm never produces its length came from no document, so no connector sees it. */
     private static void requireWellFormedDigests(ContentSigningRequest request) throws SigningEngineException {
         for (ContentSigningItem item : request.items()) {
-            requireWellFormedDigest("authorized digest", request.authorizedDigestOf(item), item);
+            if (request.bindsAuthorizedDigests()) {
+                requireWellFormedDigest("authorized digest", request.authorizedDigestOf(item), item);
+            }
             if (request.transferMode() == DocumentTransferMode.DIGEST_ONLY) {
                 requireWellFormedDigest("digest sent in place of the document",
                         new DocumentDigest(request.digestAlgorithm(), item.content()), item);
@@ -415,7 +422,7 @@ public class ManagedContentSigningEngine {
     /**
      * Replays the algorithm {@code computeDtbs} was given rather than resolving it again, so the pair cannot disagree.
      */
-    private byte[] embedSignatureValue(ResolvedManagedContentSigningProfile profile,
+    private EmbeddedDocument embedSignatureValue(ResolvedManagedContentSigningProfile profile,
             ComputeDtbsResponseDto dtbsResponse, byte[] signatureValue, SignatureAlgorithm signatureAlgorithm)
             throws SigningEngineException {
         EmbedSignatureValueRequestDto embed = new EmbedSignatureValueRequestDto();
@@ -424,7 +431,7 @@ public class ManagedContentSigningEngine {
         embed.setSignatureValue(signatureValue);
         embed.setSignatureAlgorithm(signatureAlgorithm);
         embed.setFormattingContext(dtbsResponse.getFormattingContext());
-        return requireSignedDocument(
+        return requireEmbeddedDocument(
                 formattingClient.embedSignatureValue(profile.signatureFormattingConnector(), embed),
                 "embedSignatureValue");
     }
@@ -433,9 +440,9 @@ public class ManagedContentSigningEngine {
      * Drives {@code computeSignatureTimestampImprint}, the in-process timestamp, and {@code embedSignatureTimestamp}.
      * The serial is collected because it is the only handle a completed operation has on its timestamp record.
      */
-    private byte[] applySignatureTimestamp(ResolvedManagedContentSigningProfile profile, byte[] signedDocument,
-            DocumentTransferDto detachedContent, ContentSigningCursor cursor, List<BigInteger> serials)
-            throws SigningEngineException {
+    private EmbeddedDocument applySignatureTimestamp(ResolvedManagedContentSigningProfile profile,
+            byte[] signedDocument, DocumentTransferDto detachedContent, ContentSigningCursor cursor,
+            List<BigInteger> serials) throws SigningEngineException {
         TimestampImprint imprint = requireImprint(
                 formattingClient
                         .computeSignatureTimestampImprint(profile.signatureFormattingConnector(),
@@ -452,7 +459,7 @@ public class ManagedContentSigningEngine {
         embed.setSignedDocument(signedDocument);
         embed.setDetachedContent(detachedContent);
         embed.setTimestampToken(issued.encoded());
-        byte[] timestamped = requireSignedDocument(
+        EmbeddedDocument timestamped = requireEmbeddedDocument(
                 formattingClient.embedSignatureTimestamp(profile.signatureFormattingConnector(), embed),
                 "embedSignatureTimestamp");
         advance(acquired, ContentSigningTransitions.exitCursorFor(profile.level()));
@@ -493,14 +500,22 @@ public class ManagedContentSigningEngine {
         return new TimestampImprint(response.getDigestAlgorithm(), response.getImprint());
     }
 
-    private static byte[] requireSignedDocument(SignedDocumentResponseDto response, String step)
+    private static EmbeddedDocument requireEmbeddedDocument(SignedDocumentResponseDto response, String step)
             throws SigningEngineException {
-        if (response == null || response.getSignedDocument() == null) {
+        if (response == null || response.getSignedDocument() == null || response.getSignedDocument().length == 0) {
             throw SigningEngineException
                     .stepFailed(SigningEngineFailure.CONNECTOR_FAULT, step, "connector returned no signed document",
                             null, CLIENT_MESSAGE);
         }
-        return response.getSignedDocument();
+        if (response.getMediaType() == null || response.getMediaType().isBlank()) {
+            throw SigningEngineException
+                    .stepFailed(SigningEngineFailure.CONNECTOR_FAULT, step,
+                            "connector named no media type for the signed document", null, CLIENT_MESSAGE);
+        }
+        return new EmbeddedDocument(response.getSignedDocument(), response.getMediaType());
+    }
+
+    private record EmbeddedDocument(byte[] document, String mediaType) {
     }
 
     /**
