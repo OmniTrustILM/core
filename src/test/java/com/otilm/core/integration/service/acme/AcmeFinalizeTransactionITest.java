@@ -166,10 +166,7 @@ class AcmeFinalizeTransactionITest extends BaseSpringBootTest {
         mockServer.stop();
     }
 
-    /**
-     * No pooled connection may still be out, idle or in a transaction, once the request is queued. Only this context's
-     * pool is counted: the test database is shared with every cached context.
-     */
+    /** Only this context's pool is counted: the test database is shared with every cached context. */
     @Test
     void holdsNoConnection_whenQueuingTheCertificateRequest() throws Exception {
         // given

@@ -108,6 +108,14 @@ class DatabaseConnectionHandlingITest extends BaseSpringBootTest {
             return executor.invokeAll(Collections.nCopies(threads, task), WAIT_SECONDS, TimeUnit.SECONDS);
         } finally {
             executor.shutdownNow();
+            awaitTermination(executor);
+        }
+    }
+
+    /** A worker cancelled at the timeout may still be rolling back; the next test must not inherit its connection. */
+    private static void awaitTermination(ExecutorService executor) throws InterruptedException {
+        if (!executor.awaitTermination(WAIT_SECONDS, TimeUnit.SECONDS)) {
+            throw new IllegalStateException("Workers are still running after the timeout");
         }
     }
 
