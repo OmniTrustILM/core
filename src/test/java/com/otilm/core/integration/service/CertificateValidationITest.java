@@ -3206,6 +3206,9 @@ public class CertificateValidationITest extends BaseSpringBootTest {
             OffsetDateTime previousValidation = loadedBeforeTheLink.getStatusValidationTimestamp();
             // CMP's caPubs lookup links the issuer as a side effect of reading the chain
             certificateService.getCertificateChain(leaf.getSecuredUuid(), true);
+            Certificate linkedInTheDatabase = certificateRepository.findByUuid(leaf.getUuid()).orElseThrow();
+            assertThat(loadedBeforeTheLink.getIssuerCertificateUuid()).isNull();
+            assertThat(linkedInTheDatabase.getIssuerCertificateUuid()).isNotNull();
 
             // when
             certificateService.validate(loadedBeforeTheLink);
@@ -3226,9 +3229,13 @@ public class CertificateValidationITest extends BaseSpringBootTest {
             X509Certificate certifiedByA = crossCertify(keyPairA, "CN=Issuer Cycle A", keyPairB, "CN=Issuer Cycle B");
             Certificate certificateA = uploadCertificate(Base64.getEncoder().encodeToString(certifiedByB.getEncoded()));
             Certificate certificateB = uploadCertificate(Base64.getEncoder().encodeToString(certifiedByA.getEncoded()));
-            // validating B links it to A; validating A then links A to B
+            // linking B to A also links A, which has no issuer yet, to B
             certificateService.validate(loadAsValidationListenerDoes(certificateB));
             Certificate cycleMember = loadAsValidationListenerDoes(certificateA);
+            Certificate linkedB = certificateRepository.findByUuid(certificateB.getUuid()).orElseThrow();
+            OffsetDateTime previousValidation = cycleMember.getStatusValidationTimestamp();
+            assertThat(cycleMember.getIssuerCertificateUuid()).isEqualTo(certificateB.getUuid());
+            assertThat(linkedB.getIssuerCertificateUuid()).isEqualTo(certificateA.getUuid());
 
             // when
             certificateService.validate(cycleMember);
@@ -3238,6 +3245,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
             Map<CertificateValidationCheck, CertificateValidationCheckDto> checks = MetaDefinitions
                     .deserializeValidation(stored.getCertificateValidationResult());
             assertThat(stored.getValidationStatus()).isEqualTo(CertificateValidationStatus.INVALID);
+            assertThat(stored.getStatusValidationTimestamp()).isAfter(previousValidation);
             assertThat(checks.get(CertificateValidationCheck.CERTIFICATE_CHAIN).getMessage())
                     .startsWith("Incomplete certificate chain");
         }

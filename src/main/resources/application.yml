@@ -50,7 +50,7 @@ caching:
 
 certificate:
   chain:
-    max-depth: 20
+    max-depth: 20   # Issuer links followed per chain query, not per path; validation does not check revocation of the CA where a cut path ends
   validation:
     batch-size: 10
 
