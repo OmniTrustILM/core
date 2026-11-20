@@ -34,14 +34,18 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
- * Runs Flyway, wired by Spring Boot as in production, through PgBouncer in transaction pool mode (the Helm chart
- * default) with the pool pinning the schema the way {@code spring.datasource.hikari.schema} does.
+ * Runs Flyway, wired by Spring Boot as in production, through PgBouncer in transaction pool mode with the pool pinning
+ * the schema the way {@code spring.datasource.hikari.schema} does: as the Helm chart configures it, and resetting every
+ * server connection as the operator's pooler does.
  */
 @Testcontainers
 class FlywaySearchPathCallbackTest {
 
     private static final String SCHEMA = "core";
     private static final Network NETWORK = Network.newNetwork();
+    private static final String SEARCH_PATH_MIGRATIONS = "classpath:db/flyway-search-path";
+    private static final String NON_TRANSACTIONAL_UNQUALIFIED_MIGRATIONS = "classpath:db/flyway-non-transactional-unqualified";
+    private static final String NON_TRANSACTIONAL_QUALIFIED_MIGRATIONS = "classpath:db/flyway-non-transactional-qualified";
 
     @Container
     private static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>(minimumSupportedPostgres())
@@ -60,6 +64,22 @@ class FlywaySearchPathCallbackTest {
             .withExposedPorts(5432)
             .dependsOn(POSTGRES);
 
+    // The operator's CloudNativePG pooler: every server connection is reset after each transaction.
+    @Container
+    private static final GenericContainer<?> RESETTING_PGBOUNCER = new GenericContainer<>(
+            "edoburu/pgbouncer:v1.24.1-p1")
+            .withNetwork(NETWORK)
+            .withEnv("DB_HOST", "postgres")
+            .withEnv("DB_USER", POSTGRES.getUsername())
+            .withEnv("DB_PASSWORD", POSTGRES.getPassword())
+            .withEnv("AUTH_TYPE", "plain")
+            .withEnv("POOL_MODE", "transaction")
+            .withEnv("MAX_PREPARED_STATEMENTS", "10")
+            .withEnv("SERVER_RESET_QUERY", "DISCARD ALL")
+            .withEnv("SERVER_RESET_QUERY_ALWAYS", "1")
+            .withExposedPorts(5432)
+            .dependsOn(POSTGRES);
+
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(DataSourceAutoConfiguration.class, FlywayAutoConfiguration.class));
 
@@ -69,7 +89,7 @@ class FlywaySearchPathCallbackTest {
         String database = databaseWithWidget();
 
         // when
-        runner.withPropertyValues(properties(database)).run(context -> {
+        runner.withPropertyValues(properties(PGBOUNCER, database, SEARCH_PATH_MIGRATIONS)).run(context -> {
             // then
             assertThat(context).hasFailed();
             assertThat(context.getStartupFailure())
@@ -84,11 +104,49 @@ class FlywaySearchPathCallbackTest {
         String database = databaseWithWidget();
 
         // when
-        runner.withPropertyValues(properties(database)).withBean(FlywaySearchPathCallback.class).run(context -> {
-            // then
-            assertThat(context).hasNotFailed();
-            assertThat(widgetName(database)).isEqualTo("migrated");
-        });
+        runner
+                .withPropertyValues(properties(PGBOUNCER, database, SEARCH_PATH_MIGRATIONS))
+                .withBean(FlywaySearchPathCallback.class)
+                .run(context -> {
+                    // then
+                    assertThat(context).hasNotFailed();
+                    assertThat(widgetName(database)).isEqualTo("migrated");
+                });
+    }
+
+    @Test
+    void failsNonTransactionalMigrationReferencingTablesUnqualified_whenPgBouncerResetsConnections()
+            throws SQLException {
+        // given
+        String database = databaseWithWidget();
+
+        // when
+        runner
+                .withPropertyValues(properties(RESETTING_PGBOUNCER, database, NON_TRANSACTIONAL_UNQUALIFIED_MIGRATIONS))
+                .withBean(FlywaySearchPathCallback.class)
+                .run(context -> {
+                    // then
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .rootCause()
+                            .hasMessageContaining("relation \"widget\" does not exist");
+                });
+    }
+
+    @Test
+    void appliesNonTransactionalMigrationQualifyingTables_whenPgBouncerResetsConnections() throws SQLException {
+        // given
+        String database = databaseWithWidget();
+
+        // when
+        runner
+                .withPropertyValues(properties(RESETTING_PGBOUNCER, database, NON_TRANSACTIONAL_QUALIFIED_MIGRATIONS))
+                .withBean(FlywaySearchPathCallback.class)
+                .run(context -> {
+                    // then
+                    assertThat(context).hasNotFailed();
+                    assertThat(widgetName(database)).isEqualTo("migrated");
+                });
     }
 
     @Test
@@ -174,9 +232,9 @@ class FlywaySearchPathCallbackTest {
         return database;
     }
 
-    private static String[] properties(String database) {
+    private static String[] properties(GenericContainer<?> pgBouncer, String database, String migrations) {
         return new String[]{
-                "spring.datasource.url=jdbc:postgresql://" + PGBOUNCER.getHost() + ":" + PGBOUNCER.getMappedPort(5432)
+                "spring.datasource.url=jdbc:postgresql://" + pgBouncer.getHost() + ":" + pgBouncer.getMappedPort(5432)
                         + "/" + database,
                 "spring.datasource.username=" + POSTGRES.getUsername(),
                 "spring.datasource.password=" + POSTGRES.getPassword(),
@@ -187,7 +245,7 @@ class FlywaySearchPathCallbackTest {
                 "spring.flyway.schemas=" + SCHEMA,
                 "spring.flyway.baseline-on-migrate=true",
                 "spring.flyway.baseline-version=0",
-                "spring.flyway.locations=classpath:db/flyway-search-path"};
+                "spring.flyway.locations=" + migrations};
     }
 
     private static String widgetName(String database) throws SQLException {
@@ -200,7 +258,7 @@ class FlywaySearchPathCallbackTest {
     }
 
     // The minimum supported PostgreSQL version is pinned once, in the shared test datasource URL.
-    private static String minimumSupportedPostgres() {
+    static String minimumSupportedPostgres() {
         YamlPropertiesFactoryBean yaml = new YamlPropertiesFactoryBean();
         yaml.setResources(new ClassPathResource("application.yml"));
         Properties properties = yaml.getObject();
