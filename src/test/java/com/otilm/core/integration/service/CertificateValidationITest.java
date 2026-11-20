@@ -3234,6 +3234,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
             Certificate cycleMember = loadAsValidationListenerDoes(certificateA);
             Certificate linkedB = certificateRepository.findByUuid(certificateB.getUuid()).orElseThrow();
             OffsetDateTime previousValidation = cycleMember.getStatusValidationTimestamp();
+            OffsetDateTime previousValidationOfB = linkedB.getStatusValidationTimestamp();
             assertThat(cycleMember.getIssuerCertificateUuid()).isEqualTo(certificateB.getUuid());
             assertThat(linkedB.getIssuerCertificateUuid()).isEqualTo(certificateA.getUuid());
 
@@ -3249,6 +3250,12 @@ public class CertificateValidationITest extends BaseSpringBootTest {
             assertThat(checks.get(CertificateValidationCheck.CERTIFICATE_CHAIN).getMessage())
                     .startsWith("Incomplete certificate chain");
             assertThat(checks.get(CertificateValidationCheck.SIGNATURE_VERIFICATION).getStatus())
+                    .isEqualTo(CertificateValidationStatus.VALID);
+            Certificate storedB = certificateRepository.findByUuid(certificateB.getUuid()).orElseThrow();
+            Map<CertificateValidationCheck, CertificateValidationCheckDto> checksOfB = MetaDefinitions
+                    .deserializeValidation(storedB.getCertificateValidationResult());
+            assertThat(storedB.getStatusValidationTimestamp()).isAfter(previousValidationOfB);
+            assertThat(checksOfB.get(CertificateValidationCheck.SIGNATURE_VERIFICATION).getStatus())
                     .isEqualTo(CertificateValidationStatus.VALID);
         }
 
