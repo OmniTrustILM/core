@@ -352,7 +352,7 @@ class ManagedContentSigningEngineTest {
         }
     }
 
-    // ── TimestampedPath ───────────────────────────────────────────────────────
+    // ── RunsWithoutAuthorizedDigests ──────────────────────────────────────────
 
     @Nested
     class RunsWithoutAuthorizedDigests {
@@ -397,6 +397,26 @@ class ManagedContentSigningEngineTest {
             });
             verify(formattingClient, never()).computeDtbs(any(), any());
         }
+
+        @Test
+        void refusesAsMisconfiguredBeforeComputeDtbs_whenAnInlineRunUsesAnAlgorithmWithoutANameableDigest()
+                throws Exception {
+            // given
+            ResolvedManagedContentSigningProfile profile = aSignedOnlyProfile();
+            when(acquisitions.signatureAlgorithm(profile)).thenReturn(SignatureAlgorithm.ED448);
+            var request = new ContentSigningRequest(DocumentTransferMode.INLINE, null,
+                    List.of(ContentSigningItem.withoutAuthorizedDigest(DOCUMENT_IDENTIFIER, DOCUMENT)), List.of());
+
+            // when
+            ThrowingCallable sign = () -> engine
+                    .sign(request, aSigningProfile().build(), profile, SigningProtocol.ILM_NATIVE);
+
+            // then
+            assertThatThrownBy(sign)
+                    .isInstanceOfSatisfying(SigningEngineException.class,
+                            thrown -> assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED));
+            verify(formattingClient, never()).computeDtbs(any(), any());
+        }
     }
 
     // ── EmbedResponse ─────────────────────────────────────────────────────────
@@ -410,8 +430,9 @@ class ManagedContentSigningEngineTest {
             ResolvedManagedContentSigningProfile profile = aSignedOnlyProfile();
             stubComputeDtbs(digestOf(DOCUMENT));
             when(acquisitions.signDtbs(any(), any())).thenReturn(List.of("signature".getBytes()));
+            var detachedSignatureMediaType = "application/pkcs7-signature";
             when(formattingClient.embedSignatureValue(any(), any(EmbedSignatureValueRequestDto.class)))
-                    .thenReturn(signedDocumentResponse("signed document".getBytes(), "application/pkcs7-signature"));
+                    .thenReturn(signedDocumentResponse("signed document".getBytes(), detachedSignatureMediaType));
 
             // when
             SignedContent signed = engine
@@ -420,7 +441,7 @@ class ManagedContentSigningEngineTest {
                     .content();
 
             // then
-            assertThat(signed.mediaType()).isEqualTo("application/pkcs7-signature");
+            assertThat(signed.mediaType()).isEqualTo(detachedSignatureMediaType);
         }
 
         @Test

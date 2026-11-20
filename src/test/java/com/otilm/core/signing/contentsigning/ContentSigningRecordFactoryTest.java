@@ -17,6 +17,7 @@ import java.math.BigInteger;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -187,7 +188,7 @@ class ContentSigningRecordFactoryTest {
         }
 
         @Test
-        void aMetadataSerializationFailureIsAnInternalDefectRatherThanASilentlyEmptyRecord() throws Exception {
+        void refusesToBuild_whenTheMetadataCannotBeSerialized() throws Exception {
             // given
             ObjectMapper failingMapper = mock(ObjectMapper.class);
             when(failingMapper.writeValueAsString(any())).thenThrow(mock(JsonProcessingException.class));
@@ -196,8 +197,11 @@ class ContentSigningRecordFactoryTest {
                             new SignedContent("signed".getBytes(), "application/pdf", SignatureLevel.SIGNED, List.of()),
                             null, null, Instant.EPOCH, SigningProtocol.CSC_API);
 
-            // when / then
-            assertThatThrownBy(deferred::build).isInstanceOf(IllegalStateException.class);
+            // when
+            ThrowingCallable build = deferred::build;
+
+            // then
+            assertThatThrownBy(build).isInstanceOf(IllegalStateException.class);
         }
     }
 

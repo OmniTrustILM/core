@@ -84,6 +84,10 @@ public class ContentSigningFormattingMock extends BaseConnectorMock {
         return this;
     }
 
+    /**
+     * Answers {@code embedSignatureValue}, where the engine reads the signed document's media type, with
+     * {@code mediaType}.
+     */
     public ContentSigningFormattingMock stubEmbedSignatureValueNaming(String mediaType) {
         stubOperation(ContentSigningFormattingOperation.EMBED_SIGNATURE_VALUE,
                 signedDocumentJson("signed-document", mediaType));

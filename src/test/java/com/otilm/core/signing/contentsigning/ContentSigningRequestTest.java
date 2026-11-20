@@ -88,7 +88,8 @@ class ContentSigningRequestTest {
         var item = ContentSigningItem.withoutAuthorizedDigest("first", DOCUMENT);
 
         // when
-        var request = new ContentSigningRequest(DocumentTransferMode.INLINE, null, List.of(item), List.of());
+        ContentSigningRequest request = new ContentSigningRequest(DocumentTransferMode.INLINE, null, List.of(item),
+                List.of());
 
         // then
         assertThat(request.bindsAuthorizedDigests()).isFalse();

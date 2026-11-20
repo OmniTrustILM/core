@@ -132,9 +132,7 @@ public class ManagedContentSigningEngine {
         Instant signingTime = clockSource.wallTimeInstant();
         SignatureAlgorithm signatureAlgorithm = acquisitions.signatureAlgorithm(profile);
         requireFamilyAcceptsAlgorithm(signatureAlgorithm, profile);
-        if (request.carriesDigests()) {
-            SignatureDigestCoherence.requireCoherent(signatureAlgorithm, request.digestAlgorithm());
-        }
+        SignatureDigestCoherence.requireCoherent(signatureAlgorithm, request.digestAlgorithm());
         List<byte[]> signerChain = encodedChain(profile);
         return new SigningRun(request, signingProfile, profile, protocol, signingTime, signatureAlgorithm, signerChain);
     }

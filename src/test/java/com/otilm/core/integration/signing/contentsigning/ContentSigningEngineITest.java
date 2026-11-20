@@ -26,6 +26,7 @@ import com.otilm.api.model.core.logging.enums.AuditLogOutput;
 import com.otilm.api.model.core.logging.enums.Module;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.logging.enums.OperationResult;
+import com.otilm.api.model.core.logging.records.LogRecord;
 import com.otilm.api.model.core.logging.records.ResourceObjectIdentity;
 import com.otilm.api.model.core.settings.PlatformSettingsDto;
 import com.otilm.api.model.core.settings.PlatformSettingsUpdateDto;
@@ -83,6 +84,7 @@ import java.security.spec.AlgorithmParameterSpec;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
@@ -99,9 +101,10 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -120,12 +123,9 @@ import static com.otilm.core.util.builders.TokenProfileRequestDtoBuilder.aTokenP
 import static com.otilm.core.util.mocks.ContentSigningFormattingMock.requestAttributeDefinition;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.hamcrest.Matchers.containsString;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * End-to-end test of a managed content-signing run over a real Spring context and Postgres.
@@ -1086,15 +1086,17 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
             SigningProfileDto contentProfile = createIlmNativeProfile("native-signed-pades");
 
             // when
-            ResultActions response = signDocument(contentProfile.getUuid(), inlineRequest("contract-1"));
+            MockHttpServletResponse response = signDocument(contentProfile.getUuid(), inlineRequest("contract-1"));
 
             // then
-            response
-                    .andExpectAll(status().isOk(), jsonPath("$.results.length()").value(1),
-                            jsonPath("$.results[0].identifier").value("contract-1"),
-                            jsonPath("$.results[0].mediaType").value("application/pdf"),
-                            jsonPath("$.results[0].output").value(base64("signed-document")),
-                            jsonPath("$.results[0].signingRecordUuid").isNotEmpty());
+            assertThat(response.getStatus()).isEqualTo(HttpStatus.OK.value());
+            List<Map<String, Object>> results = read(response, "$.results");
+            assertThat(results).singleElement().satisfies(result -> {
+                assertThat(result).containsEntry("identifier", "contract-1");
+                assertThat(result).containsEntry("mediaType", "application/pdf");
+                assertThat(result).containsEntry("output", base64("signed-document"));
+                assertThat(result.get("signingRecordUuid")).asString().isNotEmpty();
+            });
             assertThat(recordEntitiesFor(contentProfile))
                     .singleElement()
                     .satisfies(signingRecord -> assertThat(signingRecord.getProtocol())
@@ -1115,12 +1117,12 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
                     """.formatted(DOCUMENT_BASE64);
 
             // when
-            ResultActions response = signDocument(contentProfile.getUuid(), batch);
+            MockHttpServletResponse response = signDocument(contentProfile.getUuid(), batch);
 
             // then
-            response
-                    .andExpectAll(status().isOk(), jsonPath("$.results[0].identifier").value("second"),
-                            jsonPath("$.results[1].identifier").value("first"));
+            assertThat(response.getStatus()).isEqualTo(HttpStatus.OK.value());
+            List<String> identifiers = read(response, "$.results[*].identifier");
+            assertThat(identifiers).containsExactly("second", "first");
             assertThat(recordEntitiesFor(contentProfile)).hasSize(2);
         }
 
@@ -1138,12 +1140,11 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
                     """.formatted(DOCUMENT_BASE64);
 
             // when
-            ResultActions response = signDocument(contentProfile.getUuid(), batch);
+            MockHttpServletResponse response = signDocument(contentProfile.getUuid(), batch);
 
             // then
-            List<String> returnedUuids = JsonPath
-                    .read(response.andExpect(status().isOk()).andReturn().getResponse().getContentAsString(),
-                            "$.results[*].signingRecordUuid");
+            assertThat(response.getStatus()).isEqualTo(HttpStatus.OK.value());
+            List<String> returnedUuids = read(response, "$.results[*].signingRecordUuid");
             List<String> persistedUuids = recordEntitiesFor(contentProfile)
                     .stream()
                     .map(signingRecord -> signingRecord.getUuid().toString())
@@ -1163,10 +1164,10 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
             String request = inlineRequestSetting(stringValue(LOCATION_UUID, LOCATION, requestedLocation));
 
             // when
-            ResultActions response = signDocument(contentProfile.getUuid(), request);
+            MockHttpServletResponse response = signDocument(contentProfile.getUuid(), request);
 
             // then
-            response.andExpect(status().isOk());
+            assertThat(response.getStatus()).isEqualTo(HttpStatus.OK.value());
             assertThat(contentSigningFormattingMock.requestAttributesReceivedByComputeDtbs())
                     .singleElement()
                     .satisfies(attributes -> {
@@ -1189,10 +1190,10 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
                     """.formatted(documentDigest);
 
             // when
-            ResultActions response = signDocument(contentProfile.getUuid(), digestRequest);
+            MockHttpServletResponse response = signDocument(contentProfile.getUuid(), digestRequest);
 
             // then
-            response.andExpect(status().isOk());
+            assertThat(response.getStatus()).isEqualTo(HttpStatus.OK.value());
             assertThat(contentSigningFormattingMock.documentTransfersReceivedByComputeDtbs())
                     .singleElement()
                     .satisfies(transfer -> {
@@ -1209,10 +1210,12 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
             SigningProfileDto contentProfile = createIlmNativeProfile("native-blank-media-type-pades");
 
             // when
-            ResultActions response = signDocument(contentProfile.getUuid(), inlineRequest("contract-1"));
+            MockHttpServletResponse response = signDocument(contentProfile.getUuid(), inlineRequest("contract-1"));
 
             // then
-            response.andExpectAll(status().isBadGateway(), jsonPath("$.message").value(containsString("contract-1")));
+            assertThat(response.getStatus()).isEqualTo(HttpStatus.BAD_GATEWAY.value());
+            String message = read(response, "$.message");
+            assertThat(message).contains("contract-1");
             assertThat(recordEntitiesFor(contentProfile)).isEmpty();
         }
 
@@ -1226,12 +1229,14 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
                     """.formatted(DOCUMENT_BASE64);
 
             // when
-            ResultActions response = signDocument(contentProfile.getUuid(), duplicates);
+            MockHttpServletResponse response = signDocument(contentProfile.getUuid(), duplicates);
 
             // then
-            response
-                    .andExpectAll(status().isUnprocessableContent(), jsonPath("$[0]")
-                            .value("items[1].identifier identifiers must be unique within the request; duplicates item at index 0"));
+            assertThat(response.getStatus()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT.value());
+            List<String> messages = read(response, "$");
+            assertThat(messages)
+                    .containsExactly(
+                            "items[1].identifier identifiers must be unique within the request; duplicates item at index 0");
             cryptographyProviderMock.verifyNoDataWasSigned();
             assertThat(recordEntitiesFor(contentProfile)).isEmpty();
         }
@@ -1246,10 +1251,12 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
                     """.formatted(DOCUMENT_BASE64);
 
             // when
-            ResultActions response = signDocument(contentProfile.getUuid(), requestNamingALevel);
+            MockHttpServletResponse response = signDocument(contentProfile.getUuid(), requestNamingALevel);
 
             // then
-            response.andExpectAll(status().isOk(), jsonPath("$.results[0].output").value(base64("signed-document")));
+            assertThat(response.getStatus()).isEqualTo(HttpStatus.OK.value());
+            String output = read(response, "$.results[0].output");
+            assertThat(output).isEqualTo(base64("signed-document"));
         }
 
         @Test
@@ -1261,12 +1268,12 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
                     """;
 
             // when
-            ResultActions response = signDocument(contentProfile.getUuid(), itemWithoutDocument);
+            MockHttpServletResponse response = signDocument(contentProfile.getUuid(), itemWithoutDocument);
 
             // then
-            response
-                    .andExpectAll(status().isUnprocessableContent(), jsonPath("$[0]")
-                            .value("items[0].document document is required when transferMode is inline"));
+            assertThat(response.getStatus()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT.value());
+            List<String> messages = read(response, "$");
+            assertThat(messages).containsExactly("items[0].document document is required when transferMode is inline");
             cryptographyProviderMock.verifyNoDataWasSigned();
         }
 
@@ -1277,12 +1284,12 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
                     SignatureFamilyFixtures.PADES, SignatureLevel.SIGNED, null);
 
             // when
-            ResultActions response = signDocument(contentProfile.getUuid(), inlineRequest("contract-1"));
+            MockHttpServletResponse response = signDocument(contentProfile.getUuid(), inlineRequest("contract-1"));
 
             // then
-            response
-                    .andExpectAll(status().isUnprocessableContent(),
-                            jsonPath("$[0]").value(containsString("does not have the ILM_NATIVE protocol enabled")));
+            assertThat(response.getStatus()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT.value());
+            List<String> messages = read(response, "$");
+            assertThat(messages).singleElement().asString().contains("does not have the ILM_NATIVE protocol enabled");
             cryptographyProviderMock.verifyNoDataWasSigned();
         }
 
@@ -1292,10 +1299,10 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
             String unknownUuid = UUID.randomUUID().toString();
 
             // when
-            ResultActions response = signDocument(unknownUuid, inlineRequest("contract-1"));
+            MockHttpServletResponse response = signDocument(unknownUuid, inlineRequest("contract-1"));
 
             // then
-            response.andExpect(status().isNotFound());
+            assertThat(response.getStatus()).isEqualTo(HttpStatus.NOT_FOUND.value());
         }
 
         @Test
@@ -1306,10 +1313,10 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
                     UUID.fromString(contentProfile.getUuid()));
 
             // when
-            ResultActions response = signDocument(contentProfile.getUuid(), inlineRequest("contract-1"));
+            MockHttpServletResponse response = signDocument(contentProfile.getUuid(), inlineRequest("contract-1"));
 
             // then
-            response.andExpect(status().isForbidden());
+            assertThat(response.getStatus()).isEqualTo(HttpStatus.FORBIDDEN.value());
             cryptographyProviderMock.verifyNoDataWasSigned();
         }
 
@@ -1320,12 +1327,11 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
             auditEverything();
 
             // when
-            signDocument(contentProfile.getUuid(), inlineRequest("contract-1")).andExpect(status().isOk());
+            MockHttpServletResponse response = signDocument(contentProfile.getUuid(), inlineRequest("contract-1"));
 
             // then
-            ArgumentCaptor<AuditLogMessage> messages = ArgumentCaptor.forClass(AuditLogMessage.class);
-            verify(auditLogsProducer, atLeastOnce()).produceMessage(messages.capture());
-            assertThat(messages.getAllValues()).map(AuditLogMessage::getLogRecord).anySatisfy(logRecord -> {
+            assertThat(response.getStatus()).isEqualTo(HttpStatus.OK.value());
+            assertThat(auditedSignings()).anySatisfy(logRecord -> {
                 assertThat(logRecord.module()).isEqualTo(Module.SIGNING);
                 assertThat(logRecord.operation()).isEqualTo(Operation.SIGN);
                 assertThat(logRecord.operationResult()).isEqualTo(OperationResult.SUCCESS);
@@ -1334,6 +1340,27 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
                 assertThat(logRecord.affiliatedResource().objects())
                         .extracting(ResourceObjectIdentity::uuid)
                         .containsExactly(UUID.fromString(contentProfile.getUuid()));
+            });
+        }
+
+        @Test
+        void keepsTheDocumentAndRequestValuesOutOfTheAuditRecord_whenAuditingIsVerbose() throws Exception {
+            // given
+            contentSigningFormattingMock.stubComputeDtbsRequestAttributeDefinition(LOCATION_UUID, LOCATION);
+            SigningProfileDto contentProfile = createIlmNativeProfileAllowing("native-verbose-audit-pades", LOCATION);
+            var distinctiveLocation = "location-only-the-request-carries";
+            String request = inlineRequestSetting(stringValue(LOCATION_UUID, LOCATION, distinctiveLocation));
+            auditEverythingVerbosely();
+
+            // when
+            MockHttpServletResponse response = signDocument(contentProfile.getUuid(), request);
+
+            // then
+            assertThat(response.getStatus()).isEqualTo(HttpStatus.OK.value());
+            assertThat(auditedSignings()).anySatisfy(logRecord -> {
+                assertThat(logRecord.additionalData()).containsKey("signingProfileUuid").doesNotContainKey("request");
+                assertThat(ObjectMapperFactory.auditLog().writeValueAsString(logRecord.additionalData()))
+                        .doesNotContain(distinctiveLocation, DOCUMENT_BASE64);
             });
         }
 
@@ -1366,11 +1393,28 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
             return contentProfile;
         }
 
-        private ResultActions signDocument(String signingProfileUuid, String requestJson) throws Exception {
+        private MockHttpServletResponse signDocument(String signingProfileUuid, String requestJson) throws Exception {
             return mockMvc
                     .perform(post("/v1/signing/signingProfiles/{signingProfileUuid}/documents/sign", signingProfileUuid)
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(requestJson));
+                            .content(requestJson))
+                    .andReturn()
+                    .getResponse();
+        }
+
+        private static <T> T read(MockHttpServletResponse response, String jsonPath) throws Exception {
+            return JsonPath.read(response.getContentAsString(), jsonPath);
+        }
+
+        private List<LogRecord> auditedSignings() {
+            ArgumentCaptor<AuditLogMessage> messages = ArgumentCaptor.forClass(AuditLogMessage.class);
+            verify(auditLogsProducer, atLeastOnce()).produceMessage(messages.capture());
+            return messages
+                    .getAllValues()
+                    .stream()
+                    .map(AuditLogMessage::getLogRecord)
+                    .filter(logRecord -> logRecord.operation() == Operation.SIGN)
+                    .toList();
         }
 
         private static String inlineRequest(String identifier) {
@@ -1392,7 +1436,16 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         }
 
         private void auditEverything() {
+            updateAuditLogging(false);
+        }
+
+        private void auditEverythingVerbosely() {
+            updateAuditLogging(true);
+        }
+
+        private void updateAuditLogging(boolean verbose) {
             AuditLoggingSettingsDto auditLogs = new AuditLoggingSettingsDto();
+            auditLogs.setVerbose(verbose);
             auditLogs.setOutput(AuditLogOutput.ALL);
             auditLogs.setLogAllModules(true);
             auditLogs.setLogAllResources(true);

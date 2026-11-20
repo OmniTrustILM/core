@@ -79,6 +79,32 @@ class SignatureDigestCoherenceTest {
         });
     }
 
+    @Test
+    void refusesAsMisconfigured_whenABatchWithoutDigestsUsesSuchAnAlgorithm() {
+        // given
+        var signsShake256 = SignatureAlgorithm.ED448;
+
+        // when
+        ThrowingCallable check = () -> SignatureDigestCoherence.requireCoherent(signsShake256, null);
+
+        // then
+        assertThatThrownBy(check)
+                .isInstanceOfSatisfying(SigningEngineException.class,
+                        e -> assertThat(e.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED));
+    }
+
+    @Test
+    void accepts_whenABatchWithoutDigestsUsesANameableAlgorithm() {
+        // given
+        var signsSha256 = SignatureAlgorithm.SHA256_WITH_RSA;
+
+        // when
+        ThrowingCallable check = () -> SignatureDigestCoherence.requireCoherent(signsSha256, null);
+
+        // then
+        assertThatCode(check).doesNotThrowAnyException();
+    }
+
     /** Ed448 is the one algorithm refused as misconfigured. */
     @ParameterizedTest
     @EnumSource(value = SignatureAlgorithm.class, names = "ED448", mode = EnumSource.Mode.EXCLUDE)
