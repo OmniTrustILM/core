@@ -4,9 +4,11 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -31,6 +33,15 @@ final class BatchLoader<V> {
 
     void announce(Collection<UUID> uuids) {
         announced.addAll(uuids);
+    }
+
+    /** Drops announced objects that no longer need reading; an object asked for by {@link #get} is still read. */
+    void withdraw(Predicate<UUID> unneeded) {
+        announced.removeIf(unneeded);
+    }
+
+    Optional<V> known(UUID uuid) {
+        return Optional.ofNullable(loaded.get(uuid));
     }
 
     Map<UUID, V> get(Collection<UUID> uuids) {

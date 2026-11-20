@@ -485,6 +485,33 @@ class ExternalAuthorizationCoreTest {
         verify(opaClient).checkResourceAccess(any(), any(), any(), any());
     }
 
+    @Test
+    void honoursARefusedGroupMembersCheck_whenTheGrantExcludesBothTheResourceAndGroups() {
+        // given
+        when(scope.grantFor(any()))
+                .thenReturn(
+                        new AllResourcesGrant(true, Set.of(Resource.CERTIFICATE.getCode(), Resource.GROUP.getCode())));
+        when(opaClient.checkResourceAccess(any(), any(), any(), any()))
+                .thenReturn(OpaResourceAccessResult.unauthorized());
+        UUID objectUuid = UUID.randomUUID();
+        String groupUuid = UUID.randomUUID().toString();
+        groups.put(objectUuid, List.of(groupUuid));
+        AuthorizationRequest request = AuthorizationRequest
+                .forDirectCheck(Resource.CERTIFICATE, ResourceAction.DETAIL, List.of(SecuredUUID.fromUUID(objectUuid)));
+
+        // when
+        AuthorizationDecision decision = core.decide(platformAuthentication(UUID.randomUUID().toString()), request);
+
+        // then
+        assertThat(decision.isGranted()).isFalse();
+        ArgumentCaptor<OpaRequestedResource> asked = ArgumentCaptor.forClass(OpaRequestedResource.class);
+        verify(opaClient, times(2)).checkResourceAccess(any(), asked.capture(), any(), any());
+        assertThat(asked.getAllValues().getLast().getProperties())
+                .containsEntry("name", Resource.GROUP.getCode())
+                .containsEntry("action", ResourceAction.MEMBERS.getCode());
+        assertThat(asked.getAllValues().getLast().getObjectUUIDs()).containsExactly(groupUuid);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /** A child TOKEN:DETAIL check nested under a parent TOKEN_PROFILE:DETAIL check. */

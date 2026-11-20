@@ -80,7 +80,37 @@ public class ObjectActionResolver {
         Set<UUID> requested = new LinkedHashSet<>(objectUuids);
         Set<UUID> existing = call.load(resource, objects, requested);
         return authorizationEnforcer
-                .batched(resource, existing, () -> allowedActions(call, resource, objects, requested, existing));
+                .batched(resource, announced(call, resource, objects, existing),
+                        () -> allowedActions(call, resource, objects, requested, existing));
+    }
+
+    /** The existing objects and the objects of the same resource that their requirements link to. */
+    private static Set<UUID> announced(Call call, Resource resource, ResourceObjects objects, Set<UUID> existing) {
+        Set<UUID> announced = new LinkedHashSet<>(existing);
+        requirements(objects)
+                .flatMap(requirement -> linkedToSameResource(resource, requirement))
+                .distinct()
+                .forEach(attribute -> existing
+                        .forEach(objectUuid -> call
+                                .attribute(resource, attribute, objectUuid)
+                                .ifPresent(announced::add)));
+        return announced;
+    }
+
+    private static Stream<String> linkedToSameResource(Resource resource, Requirement requirement) {
+        return switch (requirement) {
+            case OnLinked(Resource linked, String attribute, var action, var metWhenEmpty) ->
+                linked == resource ? Stream.of(attribute) : Stream.empty();
+            case WhenEmpty(var attribute, Requirement inner) -> linkedToSameResource(resource, inner);
+            case WhenEquals(var attribute, var value, Requirement inner) -> linkedToSameResource(resource, inner);
+            default -> Stream.empty();
+        };
+    }
+
+    private static Stream<Requirement> requirements(ResourceObjects objects) {
+        return Stream
+                .of(Stream.of(objects.listing(), objects.viewing()), objects.actions().values().stream())
+                .flatMap(lists -> lists.flatMap(List::stream));
     }
 
     private static List<ObjectAllowedActionsDto> allowedActions(Call call, Resource resource, ResourceObjects objects,
@@ -108,11 +138,7 @@ public class ObjectActionResolver {
         if (objects.parentAttribute() != null) {
             attributes.add(objects.parentAttribute());
         }
-        Stream
-                .of(Stream.of(objects.listing(), objects.viewing()), objects.actions().values().stream())
-                .flatMap(lists -> lists.flatMap(List::stream))
-                .flatMap(ObjectActionResolver::attributesRead)
-                .forEach(attributes::add);
+        requirements(objects).flatMap(ObjectActionResolver::attributesRead).forEach(attributes::add);
         return attributes;
     }
 

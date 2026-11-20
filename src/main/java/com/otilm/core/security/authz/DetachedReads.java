@@ -15,11 +15,8 @@ final class DetachedReads {
     }
 
     static <T> T read(EntityManagerFactory entityManagerFactory, Function<EntityManager, T> query) {
-        EntityManager reader = entityManagerFactory.createEntityManager();
-        try {
+        try (EntityManager reader = entityManagerFactory.createEntityManager()) {
             return query.apply(reader);
-        } finally {
-            reader.close();
         }
     }
 }

@@ -69,8 +69,17 @@ final class AssociationReader {
         return owners(resource).get(objectUuids).values().stream().allMatch(Boolean::booleanValue);
     }
 
+    /** Objects already known to be owned are left out of the batched group read, as ownership grants them first. */
     List<String> groupsOf(Resource resource, UUID objectUuid) {
-        return objectUuid == null ? List.of() : groups(resource).get(List.of(objectUuid)).get(objectUuid);
+        if (objectUuid == null) {
+            return List.of();
+        }
+        BatchLoader<List<String>> loader = groups(resource);
+        if (resource.hasOwner()) {
+            BatchLoader<Boolean> ownership = owners(resource);
+            loader.withdraw(uuid -> ownership.known(uuid).orElse(false));
+        }
+        return loader.get(List.of(objectUuid)).get(objectUuid);
     }
 
     private BatchLoader<Boolean> owners(Resource resource) {
