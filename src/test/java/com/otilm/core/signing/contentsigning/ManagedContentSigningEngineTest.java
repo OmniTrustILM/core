@@ -70,6 +70,7 @@ import org.mockito.ArgumentMatcher;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.access.AccessDeniedException;
 
 import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.recordingEverything;
 import static com.otilm.core.util.CertificateTestData.DOCUMENT_SIGNING_OID;
@@ -536,6 +537,26 @@ class ManagedContentSigningEngineTest {
             assertThat(signed.output()).isEqualTo(timestampedDocument);
             assertThat(signed.level()).isEqualTo(SignatureLevel.TIMESTAMPED);
             assertThat(signed.timestampSerials()).containsExactly(issuedSerial);
+        }
+
+        @Test
+        void passesTheDenialThrough_whenTheCallerMayNotSignWithTheTimestampingKey() throws Exception {
+            // given
+            ResolvedManagedContentSigningProfile profile = aTimestampingProfile();
+            stubComputeDtbs(digestOf(DOCUMENT));
+            when(acquisitions.signDtbs(any(), any())).thenReturn(List.of("signature".getBytes()));
+            stubEmbedSignatureValue("signed document".getBytes());
+            stubSignatureTimestampImprint(new byte[32]);
+            var denial = new AccessDeniedException("Access Denied. Required 'Sign' permission for 'Key'");
+            when(acquisitions.timestampSignature(any(), any(), any())).thenThrow(denial);
+
+            // when
+            ThrowingCallable sign = () -> engine
+                    .sign(request(), aSigningProfile().build(), profile, SigningProtocol.ILM_NATIVE);
+
+            // then
+            assertThatThrownBy(sign).isSameAs(denial);
+            verify(formattingClient, never()).embedSignatureTimestamp(any(), any());
         }
 
         @Test
