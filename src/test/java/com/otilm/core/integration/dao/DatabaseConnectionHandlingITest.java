@@ -23,7 +23,6 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
 
 /**
  * Each thread holds a pooled connection and then asks for another. With as many threads as the pool has connections, a
@@ -64,26 +63,31 @@ class DatabaseConnectionHandlingITest extends BaseSpringBootTest {
         List<Future<Long>> outcomes = runOnEveryConnection(everyConnection, readThenSubmit);
 
         // then
-        assertThat(outcomes).allSatisfy(outcome -> assertThatCode(outcome::get).doesNotThrowAnyException());
+        assertThat(outcomes)
+                .hasSize(everyConnection)
+                .allSatisfy(outcome -> assertThat(outcome).succeedsWithin(WAIT_SECONDS, TimeUnit.SECONDS));
     }
 
     @Test
     void completesEveryKeyLookup_whenEveryThreadHoldsATransaction() throws Exception {
         // given
         int everyConnection = readPoolSize();
+        String unknownFingerprint = "no-key-has-this-fingerprint";
         CyclicBarrier allInATransaction = new CyclicBarrier(everyConnection);
         TransactionTemplate submission = createTransactionTemplate(TransactionDefinition.PROPAGATION_REQUIRED);
         Callable<UUID> lookUpTheRequestKey = () -> submission.execute(status -> {
             settingRepository.count();
             awaitOthers(allInATransaction);
-            return cryptographicKeyService.findKeyByFingerprint("no-key-has-this-fingerprint");
+            return cryptographicKeyService.findKeyByFingerprint(unknownFingerprint);
         });
 
         // when
         List<Future<UUID>> outcomes = runOnEveryConnection(everyConnection, lookUpTheRequestKey);
 
         // then
-        assertThat(outcomes).allSatisfy(outcome -> assertThatCode(outcome::get).doesNotThrowAnyException());
+        assertThat(outcomes)
+                .hasSize(everyConnection)
+                .allSatisfy(outcome -> assertThat(outcome).succeedsWithin(WAIT_SECONDS, TimeUnit.SECONDS));
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
