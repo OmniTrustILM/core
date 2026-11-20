@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 import org.yaml.snakeyaml.Yaml;
@@ -23,7 +24,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Three lines carry the merge block, each removable as a tidy-up: {@code pin-gate} in the aggregate job's
  * {@code needs}; the aggregate's {@code !cancelled()}, without which it is skipped when the gate fails and a skipped
  * required check counts as passing; and its scan failing on a non-successful upstream. A fourth, {@code $MVNARG} on
- * every job that compiles the tree, keeps a coupled pull request from reddening for the wrong reason.
+ * every job using the Interfaces dependency, keeps a coupled pull request from reddening for the wrong reason.
  * <p>
  * All four are silent when they drift, and none surfaces near the edit that caused it. Loads no Spring context, so it
  * does not affect {@link ContextSignatureGuardTest#BASELINE}.
@@ -45,11 +46,12 @@ class InterfacesPinGuardTest {
             .of("compile", "test-compile", "test", "package", "verify", "install", "deploy", "process-classes",
                     "process-test-classes", "integration-test", "prepare-package");
 
-    /**
-     * The jobs that compile the tree today. Asserted explicitly so that a detection which silently stops matching
-     * cannot make {@link #everyTreeBuildingJobPassesTheResolvedOverride()} pass over an empty set.
-     */
-    private static final Set<String> EXPECTED_BUILDING_JOBS = Set.of("compile", "test", "package", "generated");
+    /** Direct Maven goals that consume the Interfaces dependency without compiling. */
+    private static final Set<String> DIRECT_GOALS = Set
+            .of("jacoco:prepare-agent", "surefire:test", "jar:jar", "spring-boot:repackage");
+
+    /** The expected jobs prevent the override check from passing with an empty detection result. */
+    private static final Set<String> EXPECTED_INTERFACES_JOBS = Set.of("compile", "test", "package", "generated");
 
     @Test
     void aggregateJobDependsOnThePinGate() throws IOException {
@@ -85,31 +87,40 @@ class InterfacesPinGuardTest {
         jobs()
                 .forEach((name, job) -> mavenInvocations(job)
                         .stream()
-                        .filter(InterfacesPinGuardTest::compilesTheTree)
+                        .filter(InterfacesPinGuardTest::usesInterfaces)
                         .filter(command -> !command.contains(OVERRIDE))
                         .forEach(command -> missing.add(name)));
 
         assertThat(missing)
-                .describedAs(
-                        "every job running a Maven phase that compiles the tree must pass %s, or a pull request "
-                                + "holding an override builds against the mainline interfaces snapshot instead",
-                        OVERRIDE)
+                .describedAs("every job using the Interfaces dependency must pass %s, or a pull request holding an "
+                        + "override uses the mainline interfaces snapshot instead", OVERRIDE)
                 .isEmpty();
+
+        for (String downstream : List.of("test", "package")) {
+            assertThat(needsOf(downstream)).contains("compile");
+            assertThat(stepSource(job(downstream)))
+                    .describedAs("%s must resolve Interfaces at the version recorded by Compile", downstream)
+                    .contains("MVNARG=${{ needs.compile.outputs.mvnarg }}");
+        }
     }
 
     @Test
     void theDetectionStillRecognisesTheBuildingJobs() throws IOException {
+        assertThat(jobsRunning(InterfacesPinGuardTest::usesInterfaces))
+                .describedAs("the override check must keep matching jobs that consume the Interfaces dependency")
+                .containsExactlyInAnyOrderElementsOf(EXPECTED_INTERFACES_JOBS);
+
+        assertThat(jobsRunning(InterfacesPinGuardTest::compilesTheTree))
+                .describedAs("only the compile and generated jobs may compile the source tree")
+                .containsExactlyInAnyOrder("compile", "generated");
+    }
+
+    private static Set<String> jobsRunning(Predicate<String> matches) throws IOException {
         Set<String> detected = new TreeSet<>();
         jobs()
-                .forEach((name, job) -> mavenInvocations(job)
-                        .stream()
-                        .filter(InterfacesPinGuardTest::compilesTheTree)
-                        .forEach(command -> detected.add(name)));
-
-        assertThat(detected)
-                .describedAs("the phase detection must keep matching the jobs that build the tree; a set that shrinks "
-                        + "to nothing would make the override check above pass vacuously")
-                .containsExactlyInAnyOrderElementsOf(EXPECTED_BUILDING_JOBS);
+                .forEach((name,
+                        job) -> mavenInvocations(job).stream().filter(matches).forEach(command -> detected.add(name)));
+        return detected;
     }
 
     @SuppressWarnings("unchecked")
@@ -166,6 +177,13 @@ class InterfacesPinGuardTest {
                     .forEach(invocations::add);
         }
         return invocations;
+    }
+
+    private static boolean usesInterfaces(String invocation) {
+        return compilesTheTree(invocation) || Arrays
+                .stream(invocation.split("\\s+"))
+                .map(token -> token.split("@", 2)[0])
+                .anyMatch(DIRECT_GOALS::contains);
     }
 
     /**
