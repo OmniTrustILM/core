@@ -17,6 +17,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.io.Serializable;
 import java.util.EnumSet;
 import java.util.HashSet;
@@ -36,7 +37,9 @@ import org.hibernate.proxy.HibernateProxy;
 @ToString
 @RequiredArgsConstructor
 @Entity
-@Table(name = "cryptographic_key")
+@Table(name = "cryptographic_key",
+        uniqueConstraints = @UniqueConstraint(name = "uq_cryptographic_key_handle_digest",
+                columnNames = {"token_instance_uuid", "handle_digest"}))
 // A request may hold a copy read before an import adopted the key; writing only what it changed keeps the token
 // the adoption gave the key.
 @DynamicUpdate
@@ -75,6 +78,10 @@ public class CryptographicKey extends UniquelyIdentifiedAndAudited implements Se
 
     @Column(name = "token_instance_uuid")
     private UUID tokenInstanceReferenceUuid;
+
+    /** The digest of the private key's handle, or null while the inventory records none. */
+    @Column(name = "handle_digest", length = 64)
+    private String handleDigest;
 
     @ManyToMany(fetch = FetchType.LAZY)
     @JoinTable(name = "group_association",
