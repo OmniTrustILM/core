@@ -35,6 +35,8 @@ import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.MetaDefinitions;
 import com.otilm.core.util.mockbeans.ProducerMocks;
 import com.otilm.core.util.seeders.FunctionGroupSeeder;
+import com.zaxxer.hikari.HikariDataSource;
+import com.zaxxer.hikari.HikariPoolMXBean;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.PersistenceContext;
@@ -206,6 +208,28 @@ class CmpPollTransactionITest extends BaseSpringBootTest {
         assertThat(samples.taken()).as("samples taken while polling").isGreaterThanOrEqualTo(MIN_SAMPLES);
         assertThat(samples.highestHeld()).as("connections held idle in transaction while polling").isZero();
         assertThat(singleCertResponse(response).getStatus().getStatus().intValue()).isEqualTo(PKIStatus.WAITING);
+    }
+
+    /**
+     * No pooled connection may still be out, idle or in a transaction, once the request is queued. Only this context's
+     * pool is counted: the test database is shared with every cached context.
+     */
+    @Test
+    void holdsNoConnection_whenQueuingTheCertificateRequest() throws Exception {
+        // given
+        HikariPoolMXBean pool = dataSource.unwrap(HikariDataSource.class).getHikariPoolMXBean();
+        int activeBeforeTheRequest = pool.getActiveConnections();
+        AtomicInteger activeWhileQueuing = new AtomicInteger(-1);
+        doAnswer(invocation -> {
+            activeWhileQueuing.set(pool.getActiveConnections());
+            return null;
+        }).when(actionProducer).produceMessage(any());
+
+        // when
+        post(irMessage());
+
+        // then
+        assertThat(activeWhileQueuing.get()).isEqualTo(activeBeforeTheRequest);
     }
 
     @Test

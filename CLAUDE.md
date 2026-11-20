@@ -84,7 +84,7 @@ what the request has read. A method that calls out between short transactions th
 in place of plain `NOT_SUPPORTED`: it runs the method with `NOT_SUPPORTED` and sets that EntityManager aside, so those
 transactions run on EntityManagers of their own.
 
-A read-only method that callers run inside their transaction carries `@Transactional(propagation = Propagation.SUPPORTS)` when its class is `NOT_SUPPORTED`, as `CryptographicKeyServiceImpl.findKeyByFingerprint` does: the class-level annotation would suspend the caller's transaction, which keeps its connection, and run the read on another.
+A read-only method that callers run inside their transaction carries `@Transactional(propagation = Propagation.SUPPORTS)` when its class is `NOT_SUPPORTED`, as `CryptographicKeyServiceImpl.findKeyByFingerprint` does: the class-level annotation would suspend the caller's transaction, which keeps its connection, and run the read on another. For the same reason, do not call a `NOT_SUPPORTED` method such as `issueCertificate` from inside a transaction: suspended, that transaction keeps its connection while the method takes others.
 
 ## State divergence on post-external-commitment failures
 
