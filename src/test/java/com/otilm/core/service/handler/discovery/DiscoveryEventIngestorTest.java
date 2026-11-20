@@ -1,6 +1,7 @@
 package com.otilm.core.service.handler.discovery;
 
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredItemDto;
@@ -20,11 +21,14 @@ import com.otilm.core.service.writer.discovery.DiscoveryMessageWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import com.otilm.core.util.DiscoveryCheckpointFixture;
 import jakarta.validation.Validation;
+import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
+import org.bouncycastle.asn1.BERSequence;
+import org.bouncycastle.asn1.nist.NISTObjectIdentifiers;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -153,6 +157,31 @@ class DiscoveryEventIngestorTest {
     }
 
     @Test
+    void skipsOnlyTheItem_whenItsAlgorithmIdentifierIsNotCanonicalDer() throws Exception {
+        // given
+        Discovery run = run();
+        var indefiniteLengthIdentifier = Base64
+                .getEncoder()
+                .encodeToString(new BERSequence(NISTObjectIdentifiers.id_ml_dsa_65).getEncoded());
+        var malformed = aPublicKey()
+                .withType(KeyType.PRIVATE_KEY)
+                .withAlgorithm(KeyAlgorithm.MLDSA)
+                .withAlgorithmIdentifier(indefiniteLengthIdentifier)
+                .build();
+        DiscoveredItemDto conformant = keyItem(2, "key-b", null);
+
+        // when
+        ingestor
+                .applyDrainPage(run.getUuid(), page(itemOf(1, "key-a", malformed), conformant), 0L,
+                        run.getDeliveryMode());
+
+        // then
+        ArgumentCaptor<DiscoveredItemDto> staged = ArgumentCaptor.captor();
+        verify(itemWriter).stage(eq(run.getUuid()), staged.capture(), anyBoolean());
+        assertThat(staged.getValue().getUniqueRef()).isEqualTo("key-b");
+    }
+
+    @Test
     void dropsThePageAsStale_whenTheCheckpointedRunsRevisionMovedOn() {
         // given
         Discovery run = run();
@@ -239,6 +268,10 @@ class DiscoveryEventIngestorTest {
         DiscoveredKeyDto payload = (publicKey == null ? aPublicKey() : aPublicKey().withSpki(publicKey))
                 .withFingerprint("whatever-the-connector-computed")
                 .build();
+        return itemOf(sequence, uniqueRef, payload);
+    }
+
+    private static DiscoveredItemDto itemOf(long sequence, String uniqueRef, DiscoveredKeyDto payload) {
         DiscoveredItemDto item = new DiscoveredItemDto();
         item.setSequence(sequence);
         item.setUniqueRef(uniqueRef);

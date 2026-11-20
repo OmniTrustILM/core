@@ -559,7 +559,7 @@ class EstServerKeyGenerationHttpITest extends AbstractEstHttpITest {
                 .stubSignatureAlgorithmAttribute(SignatureAlgorithm.SHA256_WITH_ECDSA)
                 .stubRealSigning(tokenKeyPair.getPrivate(), SignatureAlgorithm.SHA256_WITH_ECDSA)
                 .stubExportKeyAttributes("[]")
-                .stubExportOf(tokenKeyPair, KeyAlgorithm.ECDSA, P256_LENGTH)
+                .stubExportOf(tokenKeyPair, KeyAlgorithm.ECDSA)
                 .stubDestroyKey();
         return tokenProfiles.seedKeyExportingTokenProfile(token.getUrl(), KeyAlgorithm.ECDSA);
     }

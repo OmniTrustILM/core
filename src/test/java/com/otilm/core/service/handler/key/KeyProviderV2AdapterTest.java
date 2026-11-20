@@ -117,6 +117,7 @@ import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.crypto.ImmutableCryptographicKeyFullModel;
 import com.otilm.core.model.crypto.ImmutableTokenInstanceFullModel;
 import com.otilm.core.model.crypto.ImmutableTokenProfileFullModel;
+import com.otilm.core.model.crypto.KeyMaterial;
 import com.otilm.core.model.crypto.KeyOperationScope;
 import com.otilm.core.model.crypto.ProviderKeyEntry;
 import com.otilm.core.model.crypto.ProviderKeyEntryPage;
@@ -145,6 +146,10 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
+import org.bouncycastle.asn1.DERNull;
+import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
+import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
+import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Named;
@@ -480,7 +485,6 @@ class KeyProviderV2AdapterTest {
         byte[] publicKeySpki = generator.generateKeyPair().getPublic().getEncoded();
         PublicKeyDataV2Dto publicData = new PublicKeyDataV2Dto();
         publicData.setAlgorithm(KeyAlgorithm.RSA);
-        publicData.setLength(2048);
         publicData.setPublicKeySpki(publicKeySpki);
         PublicKeyDataResponseV2Dto publicKey = new PublicKeyDataResponseV2Dto();
         publicKey.setKeyData(publicData);
@@ -509,7 +513,7 @@ class KeyProviderV2AdapterTest {
     }
 
     private static HeldKey heldKey(PublicKey publicKey) {
-        return new HeldKey(KeyRequestType.KEY_PAIR, KeyAlgorithm.RSA, 2048, publicKey.getEncoded(), null);
+        return new HeldKey(KeyRequestType.KEY_PAIR, KeyAlgorithm.RSA, null, publicKey.getEncoded(), null);
     }
 
     private static HeldKey heldSecret(int length) {
@@ -533,7 +537,6 @@ class KeyProviderV2AdapterTest {
         material.setEncryptedPrivateKeyInfo(envelope);
         PublicKeyDataV2Dto descriptor = new PublicKeyDataV2Dto();
         descriptor.setAlgorithm(KeyAlgorithm.RSA);
-        descriptor.setLength(2048);
         descriptor.setPublicKeySpki(publicKey.getEncoded());
         ExportKeyResponseV2Dto response = new ExportKeyResponseV2Dto();
         response.setMaterial(material);
@@ -583,13 +586,12 @@ class KeyProviderV2AdapterTest {
             assertThat(publicKey.reference())
                     .isEqualTo(new RemoteKeyReference.MetadataReference(response.getPublicKeyData().getKeyMeta()));
             assertThat(privateKey.type()).isEqualTo(KeyType.PRIVATE_KEY);
-            assertThat(privateKey.material()).isNull();
             assertThat(privateKey.reference())
                     .isEqualTo(new RemoteKeyReference.MetadataReference(response.getPrivateKeyData().getKeyMeta()));
         }
 
         @Test
-        void preservesAbsentLength_forPqcPair() throws Exception {
+        void sizesEachHalfByItsParameterSet_whenThePairIsPostQuantum() throws Exception {
             // given
             KeyPairDataResponseV2Dto response = PqcKeyFixtures.response(PqcKeyFixtures.keyPair());
             when(client.createKey(any(), any())).thenReturn(ResponseEntity.ok(response));
@@ -598,10 +600,47 @@ class KeyProviderV2AdapterTest {
             List<ProviderKeyItem> items = adapter.createKey(profile, KeyRequestType.KEY_PAIR, List.of(), "pqc", false);
 
             // then
-            assertThat(items).hasSize(2).allSatisfy(item -> {
-                assertThat(item.algorithm()).isEqualTo(KeyAlgorithm.MLDSA);
-                assertThat(item.length()).isNull();
-            });
+            assertThat(items)
+                    .extracting(ProviderKeyItem::algorithm, ProviderKeyItem::parameterSet, ProviderKeyItem::length)
+                    .containsExactly(
+                            tuple(KeyAlgorithm.MLDSA, PqcKeyFixtures.ML_DSA_PARAMETER_SET,
+                                    PqcKeyFixtures.ML_DSA_PUBLIC_KEY_BITS),
+                            tuple(KeyAlgorithm.MLDSA, PqcKeyFixtures.ML_DSA_PARAMETER_SET,
+                                    PqcKeyFixtures.ML_DSA_PRIVATE_KEY_BITS));
+        }
+
+        @Test
+        void storesTheSpkisIdentifierForThePrivateHalf_whenTheConnectorSentNone() throws Exception {
+            // given
+            KeyPairDataResponseV2Dto response = keyPairResponse();
+            byte[] spki = response.getPublicKeyData().getKeyData().getPublicKeySpki();
+            byte[] spkiIdentifier = SubjectPublicKeyInfo.getInstance(spki).getAlgorithm().getEncoded();
+            when(client.createKey(any(), any())).thenReturn(ResponseEntity.ok(response));
+
+            // when
+            List<ProviderKeyItem> items = adapter.createKey(profile, KeyRequestType.KEY_PAIR, List.of(), "rsa", false);
+
+            // then
+            KeyMaterial privateMaterial = items.get(1).material();
+            assertThat(privateMaterial.format()).isEqualTo(KeyFormat.ALGORITHM_IDENTIFIER);
+            assertThat(Base64.getDecoder().decode(privateMaterial.serializedValue())).isEqualTo(spkiIdentifier);
+        }
+
+        @Test
+        void storesTheConnectorsOwnIdentifierForThePrivateHalf_whenTheConnectorSendsOne() throws Exception {
+            // given
+            KeyPairDataResponseV2Dto response = keyPairResponse();
+            byte[] statedIdentifier = new AlgorithmIdentifier(PKCSObjectIdentifiers.rsaEncryption, DERNull.INSTANCE)
+                    .getEncoded();
+            response.getPrivateKeyData().getKeyData().setAlgorithmIdentifier(statedIdentifier);
+            when(client.createKey(any(), any())).thenReturn(ResponseEntity.ok(response));
+
+            // when
+            List<ProviderKeyItem> items = adapter.createKey(profile, KeyRequestType.KEY_PAIR, List.of(), "rsa", false);
+
+            // then
+            KeyMaterial privateMaterial = items.get(1).material();
+            assertThat(Base64.getDecoder().decode(privateMaterial.serializedValue())).isEqualTo(statedIdentifier);
         }
 
         @Test
@@ -1547,7 +1586,7 @@ class KeyProviderV2AdapterTest {
             response.setKeyReference(reference.toString());
             when(client.listExportKeyAttributes(any(), any())).thenReturn(List.of());
             when(client.exportKey(any(), any())).thenReturn(response);
-            HeldKey held = new HeldKey(KeyRequestType.KEY_PAIR, KeyAlgorithm.RSA, 2048, pair.getPublic().getEncoded(),
+            HeldKey held = new HeldKey(KeyRequestType.KEY_PAIR, KeyAlgorithm.RSA, null, pair.getPublic().getEncoded(),
                     reference);
 
             // when

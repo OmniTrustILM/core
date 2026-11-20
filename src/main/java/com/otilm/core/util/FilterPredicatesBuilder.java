@@ -1263,8 +1263,14 @@ public class FilterPredicatesBuilder {
     }
 
     public static Query getAllValuesOfProperty(String property, Resource resource, EntityManager entityManager) {
-        Class resourceClass = ResourceToClass.getClassByResource(resource);
-        return entityManager.createQuery("SELECT DISTINCT " + property + " FROM " + resourceClass.getName());
+        return entityManager.createQuery("SELECT DISTINCT " + property + " FROM " + filterRootOf(resource).getName());
+    }
+
+    /** A key's filter fields are properties of its items. */
+    private static Class<?> filterRootOf(Resource resource) {
+        return resource == Resource.CRYPTOGRAPHIC_KEY
+                ? CryptographicKeyItem.class
+                : ResourceToClass.getClassByResource(resource);
     }
 
     public static Predicate constructFilterForJobHistory(final CriteriaBuilder cb, final Root<ScheduledJobHistory> root,

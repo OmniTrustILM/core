@@ -10,6 +10,7 @@ import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.cryptography.key.OnboardTokenKeysRequestDto;
 import com.otilm.api.model.client.cryptography.key.TokenKeySelectionDto;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
+import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyEntryStatus;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.cryptography.key.OnboardTokenKeysResponseDto;
@@ -23,6 +24,9 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.dao.entity.KeyImportState;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.KeyImportRepository;
+import com.otilm.core.key.description.DescribedKey;
+import com.otilm.core.key.description.KeyDescriber;
+import com.otilm.core.key.description.KeyParameters;
 import com.otilm.core.logging.LoggingHelper;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.crypto.CryptographicKeyBasicModel;
@@ -30,6 +34,7 @@ import com.otilm.core.model.crypto.OnboardedKeys;
 import com.otilm.core.model.crypto.OnboardedKeys.OnboardedKey;
 import com.otilm.core.model.crypto.ProviderKeyEntry;
 import com.otilm.core.model.crypto.ProviderKeyEntryPage;
+import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.ProviderKeyPair;
 import com.otilm.core.model.crypto.PublicKeyHolder.Holding;
 import com.otilm.core.model.crypto.PublicKeyHolderSummary;
@@ -248,13 +253,15 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
 
     private TokenKeyDto describeKeyPair(ProviderKeyEntry entry, Inventory inventory) {
         ProviderKeyPair pair = entry.keyPair();
+        ProviderKeyItem describedHalf = pair.publicKey() == null ? pair.privateKey() : pair.publicKey();
         Standing standing = withConnectorVerdict(standingOf(pair, inventory), entry);
         TokenKeyDto.TokenKeyDtoBuilder tokenKey = TokenKeyDto
                 .builder()
                 .keyPairMeta(pair.keyPairMeta())
                 .storageName(entry.storageName())
-                .keyAlgorithm(pair.privateKey().algorithm())
-                .length(pair.privateKey().length())
+                .keyAlgorithm(describedHalf.algorithm())
+                .parameterSet(describedHalf.parameterSet())
+                .length(describedHalf.length())
                 .status(standing.status())
                 .fingerprint(standing.fingerprint())
                 .reason(standing.refusal())
@@ -271,11 +278,17 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
 
     /** An entry without a key pair is listed for information only, under the connector's status. */
     private static TokenKeyDto describeWithoutKeyPair(ProviderKeyEntry entry) {
+        KeyParameters parameters = entry.algorithmIdentifier() == null
+                ? null
+                : new KeyParameters(entry.algorithmIdentifier(), null);
+        DescribedKey described = KeyDescriber
+                .describe(parameters, KeyType.PRIVATE_KEY, entry.algorithm(), entry.length());
         TokenKeyDto.TokenKeyDtoBuilder tokenKey = TokenKeyDto
                 .builder()
                 .storageName(entry.storageName())
-                .keyAlgorithm(entry.algorithm())
-                .length(entry.length())
+                .keyAlgorithm(described.algorithm())
+                .parameterSet(described.parameterSet())
+                .length(described.length())
                 .diagnostic(entry.diagnostic());
         return switch (entry.status()) {
             case UNADDRESSABLE -> tokenKey.status(TokenKeyStatus.UNADDRESSABLE).reason(UNADDRESSABLE_KEY).build();

@@ -36,6 +36,7 @@ import com.otilm.api.model.connector.cryptography.key.KeyData;
 import com.otilm.api.model.connector.cryptography.key.KeyDataResponseDto;
 import com.otilm.api.model.connector.cryptography.key.KeyPairDataResponseDto;
 import com.otilm.api.model.connector.cryptography.key.value.RawKeyValue;
+import com.otilm.api.model.connector.cryptography.key.value.SpkiKeyValue;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
@@ -73,6 +74,9 @@ import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 
+import static com.otilm.core.util.TestPublicKeys.ecPublicKey;
+import static com.otilm.core.util.TestPublicKeys.spkiBase64;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -156,6 +160,39 @@ class KeyProviderV1AdapterTest {
     }
 
     @Test
+    void describesAPrivateHalfByItsPublicSibling_whenListingAnAssociatedEcPair() throws Exception {
+        // given
+        KeyDataResponseDto publicKey = ecPublicHalf("pair-a");
+        KeyDataResponseDto privateKey = opaqueEcPrivateHalf("pair-a");
+        when(client.listKeys(connector, profile.tokenInstance().tokenInstanceUuid()))
+                .thenReturn(List.of(privateKey, publicKey));
+
+        // when
+        List<ProviderKeyItem> items = adapter.listKeys(profile.tokenInstance());
+
+        // then
+        assertThat(items.getFirst())
+                .extracting(ProviderKeyItem::type, ProviderKeyItem::parameterSet, ProviderKeyItem::length)
+                .containsExactly(KeyType.PRIVATE_KEY, "P-256", 256);
+    }
+
+    @Test
+    void describesAPrivateHalfByItsPublicSibling_whenCreatingAnEcPair() throws Exception {
+        // given
+        when(client.createKeyPair(eq(connector), eq(profile.tokenInstance().tokenInstanceUuid()), any()))
+                .thenReturn(new KeyPairDataResponseDto(ecPublicHalf("pair-a"), opaqueEcPrivateHalf("pair-a")));
+
+        // when
+        List<ProviderKeyItem> items = adapter
+                .createKey(profile, KeyRequestType.KEY_PAIR, List.of(), profile.name(), false);
+
+        // then
+        assertThat(items.getLast())
+                .extracting(ProviderKeyItem::type, ProviderKeyItem::parameterSet, ProviderKeyItem::length)
+                .containsExactly(KeyType.PRIVATE_KEY, "P-256", 256);
+    }
+
+    @Test
     void listExportKeyAttributes_offersNothingForAV1Connector() {
         // given
         CryptographicKeyItemOperationModel context = keyItem(KeyAlgorithm.RSA,
@@ -171,7 +208,7 @@ class KeyProviderV1AdapterTest {
         // given
         CryptographicKeyItemOperationModel context = keyItem(KeyAlgorithm.RSA,
                 new RemoteKeyReference.UuidReference(UUID.randomUUID()), UUID.randomUUID());
-        HeldKey heldKey = new HeldKey(KeyRequestType.KEY_PAIR, KeyAlgorithm.RSA, 2048, new byte[]{1}, null);
+        HeldKey heldKey = new HeldKey(KeyRequestType.KEY_PAIR, KeyAlgorithm.RSA, null, new byte[]{1}, null);
         Passphrase passphrase = new Passphrase("correct horse battery staple".toCharArray());
 
         // when
@@ -889,6 +926,26 @@ class KeyProviderV1AdapterTest {
     private static KeyDataResponseDto providerKey(String name, KeyType type) {
         KeyData data = new KeyData(type, KeyAlgorithm.RSA, KeyFormat.RAW, new RawKeyValue("c2VjcmV0"), 2048, List.of());
         KeyDataResponseDto response = new KeyDataResponseDto("provider-group", data);
+        response.setUuid(UUID.randomUUID().toString());
+        response.setName(name);
+        return response;
+    }
+
+    private static KeyDataResponseDto ecPublicHalf(String association) {
+        KeyData data = new KeyData(KeyType.PUBLIC_KEY, KeyAlgorithm.ECDSA, KeyFormat.SPKI,
+                new SpkiKeyValue(spkiBase64(ecPublicKey())), 256, List.of());
+        return remoteKey("provider public key", association, data);
+    }
+
+    private static KeyDataResponseDto opaqueEcPrivateHalf(String association) {
+        int statedEcLength = 521;
+        KeyData data = new KeyData(KeyType.PRIVATE_KEY, KeyAlgorithm.ECDSA, KeyFormat.RAW, new RawKeyValue("b3BhcXVl"),
+                statedEcLength, List.of());
+        return remoteKey("provider private key", association, data);
+    }
+
+    private static KeyDataResponseDto remoteKey(String name, String association, KeyData data) {
+        KeyDataResponseDto response = new KeyDataResponseDto(association, data);
         response.setUuid(UUID.randomUUID().toString());
         response.setName(name);
         return response;

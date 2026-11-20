@@ -173,7 +173,7 @@ class CertificateKeystoreITest extends BaseSpringBootTest {
                 .stubExportKey(ExportEnvelopeFixtures
                         .keyPairResponseJson(
                                 ExportEnvelopeFixtures.envelope(pair.getPrivate(), PASSPHRASE.toCharArray(), 100_000),
-                                KeyAlgorithm.RSA, 2048, pair.getPublic()));
+                                KeyAlgorithm.RSA, pair.getPublic()));
     }
 
     @AfterEach

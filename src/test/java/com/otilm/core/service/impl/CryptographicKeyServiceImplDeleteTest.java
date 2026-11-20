@@ -246,7 +246,7 @@ class CryptographicKeyServiceImplDeleteTest {
     private static CryptographicKeyItemBasicModel createKeyItem(UUID keyUuid, KeyState state) {
         RemoteKeyReference reference = new RemoteKeyReference.UuidReference(UUID.randomUUID());
         return new CryptographicKeyItemBasicModel(UUID.randomUUID(), keyUuid, "item", reference, KeyType.PRIVATE_KEY,
-                KeyAlgorithm.RSA, null, null, 2048, state, true, List.of(), null, null, false);
+                KeyAlgorithm.RSA, null, null, null, 2048, state, true, List.of(), null, null, false);
     }
 
     private static Set<UUID> itemUuidsOf(CryptographicKeyFullModel key) {

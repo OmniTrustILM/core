@@ -992,6 +992,29 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
                     .containsExactly(TokenKeyStatus.UNREADABLE, null, null);
         }
 
+        @Test
+        void listsItsParameterSetAndPrivateSize_whenAnUnusableKeyCarriesItsIdentifier() throws Exception {
+            // given
+            connectorMock
+                    .stubKeyListing(aKeyListing()
+                            .withEntries(anUnusableKey()
+                                    .withAlgorithm(KeyAlgorithm.MLDSA)
+                                    .withLength(null)
+                                    .withAlgorithmIdentifier(PqcKeyFixtures.algorithmIdentifier())
+                                    .build())
+                            .build());
+
+            // when
+            TokenKeyDto entry = firstListedEntry();
+
+            // then
+            assertThat(entry)
+                    .extracting(TokenKeyDto::getStatus, TokenKeyDto::getKeyAlgorithm, TokenKeyDto::getParameterSet,
+                            TokenKeyDto::getLength)
+                    .containsExactly(TokenKeyStatus.UNADDRESSABLE, KeyAlgorithm.MLDSA,
+                            PqcKeyFixtures.ML_DSA_PARAMETER_SET, PqcKeyFixtures.ML_DSA_PRIVATE_KEY_BITS);
+        }
+
         /** An import the reconciliation still has to settle may yet register the key pair or destroy it. */
         @ParameterizedTest
         @EnumSource(value = KeyImportState.class, names = {"REQUESTED", "ACCEPTED", "COMPENSATING"})
@@ -1024,7 +1047,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         }
 
         @Test
-        void listsItWithoutALength_whenTheAlgorithmHasNone() throws Exception {
+        void listsItByItsParameterSetAndPublicSize_whenThePairIsPostQuantum() throws Exception {
             // given
             tokenLists(postQuantumPair());
 
@@ -1033,8 +1056,31 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
 
             // then
             assertThat(entry)
-                    .extracting(TokenKeyDto::getStatus, TokenKeyDto::getKeyAlgorithm, TokenKeyDto::getLength)
-                    .containsExactly(TokenKeyStatus.ONBOARDABLE, KeyAlgorithm.MLDSA, null);
+                    .extracting(TokenKeyDto::getStatus, TokenKeyDto::getKeyAlgorithm, TokenKeyDto::getParameterSet,
+                            TokenKeyDto::getLength)
+                    .containsExactly(TokenKeyStatus.ONBOARDABLE, KeyAlgorithm.MLDSA,
+                            PqcKeyFixtures.ML_DSA_PARAMETER_SET, PqcKeyFixtures.ML_DSA_PUBLIC_KEY_BITS);
+        }
+
+        @Test
+        void listsItByItsParameterSetAndPrivateSize_whenTheTokenHoldsOnlyThePrivateKey() throws Exception {
+            // given
+            var privateKeyOnly = aListedKeyPair()
+                    .withAlgorithm(KeyAlgorithm.MLDSA)
+                    .withLength(null)
+                    .withAlgorithmIdentifier(PqcKeyFixtures.algorithmIdentifier())
+                    .withoutPublicKey()
+                    .build();
+            tokenLists(privateKeyOnly);
+
+            // when
+            TokenKeyDto entry = firstListedEntry();
+
+            // then
+            assertThat(entry)
+                    .extracting(TokenKeyDto::getKeyAlgorithm, TokenKeyDto::getParameterSet, TokenKeyDto::getLength)
+                    .containsExactly(KeyAlgorithm.MLDSA, PqcKeyFixtures.ML_DSA_PARAMETER_SET,
+                            PqcKeyFixtures.ML_DSA_PRIVATE_KEY_BITS);
         }
 
         @Test
@@ -1911,7 +1957,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         }
 
         @Test
-        void onboardsTheItemsWithoutALength_whenTheAlgorithmHasNone() throws Exception {
+        void sizesEachItemByItsParameterSet_whenThePairIsPostQuantum() throws Exception {
             // given
             tokenLists(postQuantumPair());
             var selection = theFirstListedPair();
@@ -1922,9 +1968,13 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             // then
             assertThat(result.getOutcome()).isEqualTo(TokenKeyOnboardingOutcome.ONBOARDED);
             assertThat(cryptographicKeyItemRepository.findByKeyUuidIn(List.of(result.getKeyUuid())))
-                    .hasSize(2)
-                    .extracting(CryptographicKeyItem::getLength)
-                    .containsOnlyNulls();
+                    .extracting(CryptographicKeyItem::getType, CryptographicKeyItem::getParameterSet,
+                            CryptographicKeyItem::getLength)
+                    .containsExactlyInAnyOrder(
+                            tuple(KeyType.PUBLIC_KEY, PqcKeyFixtures.ML_DSA_PARAMETER_SET,
+                                    PqcKeyFixtures.ML_DSA_PUBLIC_KEY_BITS),
+                            tuple(KeyType.PRIVATE_KEY, PqcKeyFixtures.ML_DSA_PARAMETER_SET,
+                                    PqcKeyFixtures.ML_DSA_PRIVATE_KEY_BITS));
         }
 
         // ── Helpers ───────────────────────────────────────────────────────────
