@@ -39,7 +39,7 @@ class AllResourcesGrantTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    static Stream<Arguments> principals() {
+    private static Stream<Arguments> principals() {
         return Stream
                 .of(Arguments.of("unparseable principal", "not json", false),
                         Arguments.of("absent principal", null, false), Arguments.of("no permissions", "{}", false),
