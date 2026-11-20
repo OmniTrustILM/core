@@ -15,8 +15,10 @@ class AllResourcesGrantTest {
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("principals")
-    void grantsCertificatesOnlyWhenTheMethodPolicyWouldWithoutARequest(String shape, String principal,
+    void grantsCertificatesAsTheMethodPolicyWould_whenParsingThePrincipal(String shape, String principal,
             boolean granted) {
+        // given — a principal shape and the decision the method policy makes for it, from principals()
+
         // when
         AllResourcesGrant grant = AllResourcesGrant.of(new ObjectMapper(), principal);
 
@@ -25,46 +27,51 @@ class AllResourcesGrantTest {
     }
 
     @Test
-    void grantsNoResourceWithoutAName() {
+    void grantsNoResource_whenTheResourceHasNoName() {
+        // given
+        String allowedAllResources = createPermissions("true", null);
+
         // when
-        AllResourcesGrant grant = AllResourcesGrant.of(new ObjectMapper(), permissions("true", null));
+        AllResourcesGrant grant = AllResourcesGrant.of(new ObjectMapper(), allowedAllResources);
 
         // then
         assertThat(grant.grants(null)).isFalse();
     }
 
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
     static Stream<Arguments> principals() {
         return Stream
                 .of(Arguments.of("unparseable principal", "not json", false),
                         Arguments.of("absent principal", null, false), Arguments.of("no permissions", "{}", false),
-                        Arguments.of("all resources not allowed", permissions("false", null), false),
-                        Arguments.of("all resources allowed as text", permissions("\"true\"", null), false),
-                        Arguments.of("all resources allowed, no resources", permissions("true", null), true),
-                        Arguments.of("all resources allowed, null resources", permissions("true", "null"), true),
-                        Arguments.of("resources not a list", permissions("true", "{}"), false),
+                        Arguments.of("all resources not allowed", createPermissions("false", null), false),
+                        Arguments.of("all resources allowed as text", createPermissions("\"true\"", null), false),
+                        Arguments.of("all resources allowed, no resources", createPermissions("true", null), true),
+                        Arguments.of("all resources allowed, null resources", createPermissions("true", "null"), true),
+                        Arguments.of("resources not a list", createPermissions("true", "{}"), false),
                         Arguments
-                                .of("a certificate denied", permissions("true", resource(CERTIFICATES, "[\"update\"]")),
-                                        false),
+                                .of("a certificate denied",
+                                        createPermissions("true", createResource(CERTIFICATES, "[\"update\"]")), false),
                         Arguments
-                                .of("only a token denied", permissions("true", resource("tokens", "[\"update\"]")),
-                                        true),
-                        Arguments.of("empty deny", permissions("true", resource(CERTIFICATES, "[]")), true),
-                        Arguments.of("null deny", permissions("true", resource(CERTIFICATES, "null")), true),
+                                .of("only a token denied",
+                                        createPermissions("true", createResource("tokens", "[\"update\"]")), true),
+                        Arguments.of("empty deny", createPermissions("true", createResource(CERTIFICATES, "[]")), true),
                         Arguments
-                                .of("deny not a list", permissions("true", resource(CERTIFICATES, "\"update\"")),
-                                        false),
+                                .of("null deny", createPermissions("true", createResource(CERTIFICATES, "null")), true),
                         Arguments
-                                .of("objects not a list",
-                                        permissions("true", "[{\"name\":\"" + CERTIFICATES + "\",\"objects\":{}}]"),
-                                        false));
+                                .of("deny not a list",
+                                        createPermissions("true", createResource(CERTIFICATES, "\"update\"")), false),
+                        Arguments
+                                .of("objects not a list", createPermissions("true",
+                                        "[{\"name\":\"" + CERTIFICATES + "\",\"objects\":{}}]"), false));
     }
 
-    private static String permissions(String allowAllResources, String resources) {
+    private static String createPermissions(String allowAllResources, String resources) {
         String resourcesField = resources == null ? "" : ",\"resources\":" + resources;
         return "{\"permissions\":{\"allowAllResources\":" + allowAllResources + resourcesField + "}}";
     }
 
-    private static String resource(String name, String deny) {
+    private static String createResource(String name, String deny) {
         return "[{\"name\":\"" + name + "\",\"objects\":[{\"uuid\":\"u\",\"deny\":" + deny + "}]}]";
     }
 }

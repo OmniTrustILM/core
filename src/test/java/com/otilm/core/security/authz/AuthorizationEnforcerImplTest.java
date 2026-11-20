@@ -47,7 +47,7 @@ class AuthorizationEnforcerImplTest {
     AuthorizationEnforcerImpl enforcer;
 
     @BeforeEach
-    void setUp() {
+    void createEnforcerForSignedInUser() {
         enforcer = new AuthorizationEnforcerImpl(core, scope, authenticationClient);
         SecurityContextHolder.getContext().setAuthentication(platformAuth());
     }
@@ -221,11 +221,6 @@ class AuthorizationEnforcerImplTest {
         assertThat(LoggingHelper.getActorInfo().name()).isEqualTo("caller");
     }
 
-    private AuthenticationInfo resolvableUser() {
-        return new AuthenticationInfo(AuthMethod.USER_PROXY, UUID.randomUUID().toString(), "other-user", List.of(),
-                "{\"user\":{\"username\":\"other-user\"}}");
-    }
-
     @Test
     void runsTheBodyAsABatch_whenTheCallerIsAPlatformUser() {
         // given
@@ -251,6 +246,11 @@ class AuthorizationEnforcerImplTest {
         // then
         assertThat(result).isEqualTo("direct");
         verifyNoInteractions(scope);
+    }
+
+    private AuthenticationInfo resolvableUser() {
+        return new AuthenticationInfo(AuthMethod.USER_PROXY, UUID.randomUUID().toString(), "other-user", List.of(),
+                "{\"user\":{\"username\":\"other-user\"}}");
     }
 
     private PlatformAuthenticationToken platformAuth() {

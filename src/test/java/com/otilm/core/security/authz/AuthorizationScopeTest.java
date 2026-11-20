@@ -28,7 +28,8 @@ class AuthorizationScopeTest {
 
     AuthorizationScope scope;
 
-    PlatformUserDetails administrator = principal(PrincipalFixtures.adminProfile(UUID.randomUUID().toString(), "a"));
+    PlatformUserDetails administrator = createPrincipal(
+            PrincipalFixtures.adminProfile(UUID.randomUUID().toString(), "a"));
 
     @BeforeEach
     void createScope() {
@@ -36,7 +37,9 @@ class AuthorizationScopeTest {
     }
 
     @Test
-    void grantsAllResources_insideTheBatchOfAnAllResourcesPrincipal() {
+    void grantsAllResources_whenInsideTheBatchOfAnAllResourcesPrincipal() {
+        // given — an administrator allowed all resources, deciding inside their own batch
+
         // when
         boolean granted = scope
                 .batched(administrator, Resource.CERTIFICATE, List.of(),
@@ -47,7 +50,9 @@ class AuthorizationScopeTest {
     }
 
     @Test
-    void givesNoGrant_outsideABatch() {
+    void givesNoGrant_whenNoBatchIsActive() {
+        // given — no active batch
+
         // when
         AllResourcesGrant grant = scope.grantFor(administrator);
 
@@ -58,7 +63,7 @@ class AuthorizationScopeTest {
     @Test
     void givesNoGrant_whenAnotherPrincipalDecidesInsideTheBatch() {
         // given
-        PlatformUserDetails otherAdministrator = principal(
+        PlatformUserDetails otherAdministrator = createPrincipal(
                 PrincipalFixtures.adminProfile(UUID.randomUUID().toString(), "b"));
 
         // when
@@ -70,7 +75,9 @@ class AuthorizationScopeTest {
     }
 
     @Test
-    void sharesOneAssociationReader_acrossTheBatch() {
+    void sharesOneAssociationReader_whenAskedTwiceInTheSameBatch() {
+        // given — the administrator's batch
+
         // when
         boolean shared = scope
                 .batched(administrator, Resource.CERTIFICATE, List.of(),
@@ -81,9 +88,10 @@ class AuthorizationScopeTest {
     }
 
     @Test
-    void keepsAnotherPrincipalOffTheBatchsAssociationReader() {
+    void givesASeparateAssociationReader_whenAnotherPrincipalAsksInsideTheBatch() {
         // given
-        PlatformUserDetails operator = principal(PrincipalFixtures.operatorProfile(UUID.randomUUID().toString(), "o"));
+        PlatformUserDetails operator = createPrincipal(
+                PrincipalFixtures.operatorProfile(UUID.randomUUID().toString(), "o"));
 
         // when
         boolean shared = scope
@@ -96,21 +104,22 @@ class AuthorizationScopeTest {
 
     @Test
     void endsTheBatch_whenTheBodyThrows() {
-        // given
+        // given — the administrator's batch, whose body throws
+
+        // when
         ThrowingCallable failingBatch = () -> scope.batched(administrator, Resource.CERTIFICATE, List.of(), () -> {
             throw new IllegalStateException("body failed");
         });
-        assertThatThrownBy(failingBatch).isInstanceOf(IllegalStateException.class).hasMessage("body failed");
-
-        // when
-        AllResourcesGrant grant = scope.grantFor(administrator);
 
         // then
-        assertThat(grant).isEqualTo(AllResourcesGrant.NONE);
+        assertThatThrownBy(failingBatch).isInstanceOf(IllegalStateException.class).hasMessageContaining("body failed");
+        assertThat(scope.grantFor(administrator)).isEqualTo(AllResourcesGrant.NONE);
     }
 
     @Test
-    void refusesToStartABatchInsideAnother() {
+    void refusesToStartABatch_whenAnotherIsActive() {
+        // given — the administrator's batch, already active
+
         // when
         ThrowingCallable nestedBatch = () -> scope
                 .batched(administrator, Resource.CERTIFICATE, List.of(),
@@ -120,7 +129,9 @@ class AuthorizationScopeTest {
         assertThatThrownBy(nestedBatch).isInstanceOf(IllegalStateException.class);
     }
 
-    private static PlatformUserDetails principal(UserProfileDto profile) {
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static PlatformUserDetails createPrincipal(UserProfileDto profile) {
         return PrincipalFixtures.authentication(profile).getPrincipal();
     }
 }
