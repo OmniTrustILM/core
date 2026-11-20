@@ -18,6 +18,7 @@ import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.EntityInstanceReference;
 import com.otilm.core.dao.entity.Group;
+import com.otilm.core.dao.entity.GroupAssociation;
 import com.otilm.core.dao.entity.Location;
 import com.otilm.core.dao.entity.OwnerAssociation;
 import com.otilm.core.dao.entity.RaProfile;
@@ -34,6 +35,7 @@ import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.EntityInstanceReferenceRepository;
+import com.otilm.core.dao.repository.GroupAssociationRepository;
 import com.otilm.core.dao.repository.GroupRepository;
 import com.otilm.core.dao.repository.LocationRepository;
 import com.otilm.core.dao.repository.OwnerAssociationRepository;
@@ -50,15 +52,20 @@ import com.otilm.core.security.authz.opa.dto.OpaRequestedResource;
 import com.otilm.core.security.authz.opa.dto.OpaResourceAccessResult;
 import com.otilm.core.service.ResourceExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.PrincipalFixtures;
 import com.otilm.core.util.seeders.CryptographicKeySeeder;
 import com.otilm.core.util.seeders.TokenProfileSeeder;
 import com.otilm.core.util.seeders.TspProfileBasicCredentialSeeder;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Stream;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
+import org.hibernate.SessionFactory;
 import org.hibernate.engine.spi.SessionImplementor;
+import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -74,6 +81,8 @@ import static com.otilm.core.util.builders.CertificateContentBuilder.aCertificat
 import static com.otilm.core.util.builders.ConnectorBuilder.aConnector;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class ObjectActionResolverITest extends BaseSpringBootTest {
@@ -83,6 +92,9 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
 
     @Autowired
     private GroupRepository groupRepository;
+
+    @Autowired
+    private GroupAssociationRepository groupAssociationRepository;
 
     @Autowired
     private ConnectorRepository connectorRepository;
@@ -826,7 +838,238 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
                 .containsExactly(global);
     }
 
+    @Test
+    void readsOwnersAndGroupsOnce_whenOwnershipAndGroupsAdmitSeveralObjects() {
+        // given
+        RaProfile raProfile = saveRaProfile();
+        UUID group = saveGroup();
+        List<UUID> owned = List.of(saveCertificate(raProfile), saveCertificate(raProfile), saveCertificate(raProfile));
+        List<UUID> grouped = List
+                .of(saveCertificate(raProfile), saveCertificate(raProfile), saveCertificate(raProfile));
+        owned.forEach(certificate -> own(Resource.CERTIFICATE, certificate));
+        grouped.forEach(certificate -> assignToGroup(Resource.CERTIFICATE, certificate, group));
+        denyEveryCheckOn(Resource.CERTIFICATE);
+        Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        boolean statisticsEnabled = statistics.isStatisticsEnabled();
+        statistics.clear();
+        statistics.setStatisticsEnabled(true);
+
+        // when
+        List<ObjectAllowedActionsDto> items;
+        try {
+            items = report(Resource.CERTIFICATE, Stream.concat(owned.stream(), grouped.stream()).toArray(UUID[]::new));
+        } finally {
+            statistics.setStatisticsEnabled(statisticsEnabled);
+        }
+
+        // then
+        assertThat(items)
+                .extracting(ObjectAllowedActionsDto::getUuid)
+                .containsExactlyElementsOf(Stream.concat(owned.stream(), grouped.stream()).toList());
+        assertThat(countExecutions(statistics, "OwnerAssociation")).as("owner association reads").isEqualTo(1);
+        assertThat(countExecutions(statistics, "GroupAssociation")).as("group association reads").isEqualTo(1);
+    }
+
+    @Test
+    void reportsOnlyCertificatesOfAMemberGroup_whenTheCertificatesBelongToDifferentGroups() {
+        // given
+        RaProfile raProfile = saveRaProfile();
+        UUID memberGroup = saveGroup();
+        UUID otherGroup = saveGroup();
+        List<UUID> inMemberGroup = List.of(saveCertificate(raProfile), saveCertificate(raProfile));
+        List<UUID> inOtherGroup = List.of(saveCertificate(raProfile), saveCertificate(raProfile));
+        inMemberGroup.forEach(certificate -> assignToGroup(Resource.CERTIFICATE, certificate, memberGroup));
+        inOtherGroup.forEach(certificate -> assignToGroup(Resource.CERTIFICATE, certificate, otherGroup));
+        denyEveryCheckOn(Resource.CERTIFICATE);
+        when(opaClient
+                .checkResourceAccess(Mockito.any(),
+                        Mockito
+                                .argThat(req -> isFor(req, Resource.GROUP, ResourceAction.MEMBERS)
+                                        && !List.of(memberGroup.toString()).equals(req.getObjectUUIDs())),
+                        Mockito.any(), Mockito.any()))
+                .thenReturn(denied());
+        Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        boolean statisticsEnabled = statistics.isStatisticsEnabled();
+        statistics.clear();
+        statistics.setStatisticsEnabled(true);
+
+        // when
+        List<ObjectAllowedActionsDto> items;
+        try {
+            items = report(Resource.CERTIFICATE,
+                    Stream.concat(inOtherGroup.stream(), inMemberGroup.stream()).toArray(UUID[]::new));
+        } finally {
+            statistics.setStatisticsEnabled(statisticsEnabled);
+        }
+
+        // then
+        assertThat(items).extracting(ObjectAllowedActionsDto::getUuid).containsExactlyElementsOf(inMemberGroup);
+        assertThat(countExecutions(statistics, "GroupAssociation")).as("group association reads").isEqualTo(1);
+    }
+
+    @Test
+    void readsKeyOwnersOnce_whenKeyOperationsAreCheckedOnTokenProfiles() {
+        // given
+        List<CryptographicKey> keys = List.of(saveKeyWithTokenProfile(), saveKeyWithTokenProfile());
+        keys.forEach(key -> own(Resource.CRYPTOGRAPHIC_KEY, key.getUuid()));
+        denyEveryCheckOn(Resource.CRYPTOGRAPHIC_KEY);
+        Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        boolean statisticsEnabled = statistics.isStatisticsEnabled();
+        statistics.clear();
+        statistics.setStatisticsEnabled(true);
+
+        // when
+        List<ObjectAllowedActionsDto> items;
+        try {
+            items = report(Resource.CRYPTOGRAPHIC_KEY,
+                    keys.stream().map(CryptographicKey::getUuid).toArray(UUID[]::new));
+        } finally {
+            statistics.setStatisticsEnabled(statisticsEnabled);
+        }
+
+        // then
+        assertThat(items).hasSize(keys.size());
+        assertThat(countExecutions(statistics, "OwnerAssociation"))
+                .as("the token profiles the operations are checked on are read with the keys")
+                .isEqualTo(1);
+    }
+
+    @Test
+    void leavesOutCertificate_whenAnotherUserOwnsIt() {
+        // given
+        RaProfile raProfile = saveRaProfile();
+        UUID ownedByCaller = saveCertificate(raProfile);
+        UUID ownedByAnother = saveCertificate(raProfile);
+        own(Resource.CERTIFICATE, ownedByCaller);
+        own(Resource.CERTIFICATE, ownedByAnother, UUID.randomUUID());
+        denyEveryCheckOn(Resource.CERTIFICATE);
+
+        // when
+        List<ObjectAllowedActionsDto> items = report(Resource.CERTIFICATE, ownedByCaller, ownedByAnother);
+
+        // then
+        assertThat(items).extracting(ObjectAllowedActionsDto::getUuid).containsExactly(ownedByCaller);
+    }
+
+    @Test
+    void releasesTheRequestConnection_whenOwnershipAdmitsTheObject() {
+        // given
+        UUID certificate = saveCertificate(saveRaProfile());
+        own(Resource.CERTIFICATE, certificate);
+        denyEveryCheckOn(Resource.CERTIFICATE);
+        EntityManager requestEntityManager = entityManagerFactory.createEntityManager();
+        TransactionSynchronizationManager
+                .bindResource(entityManagerFactory, new EntityManagerHolder(requestEntityManager));
+
+        // when
+        List<ResourceAction> allowed;
+        boolean connected;
+        try {
+            allowed = actionsOn(Resource.CERTIFICATE, certificate);
+            connected = requestEntityManager
+                    .unwrap(SessionImplementor.class)
+                    .getJdbcCoordinator()
+                    .getLogicalConnection()
+                    .isPhysicallyConnected();
+        } finally {
+            TransactionSynchronizationManager.unbindResource(entityManagerFactory);
+            requestEntityManager.close();
+        }
+
+        // then
+        assertThat(allowed).contains(ResourceAction.DETAIL);
+        assertThat(connected).as("the request's EntityManager holds no connection").isFalse();
+    }
+
+    @Test
+    void reportsCertificateActionsWithoutAskingOpa_whenThePrincipalMayUseEveryResource() {
+        // given
+        UUID certificate = saveCertificate(saveRaProfile());
+        List<ResourceAction> actionsWhenOpaGrantsEverything = actionsOn(Resource.CERTIFICATE, certificate);
+        authenticateAsAdministrator();
+        Mockito.clearInvocations(opaClient);
+
+        // when
+        List<ResourceAction> actions = actionsOn(Resource.CERTIFICATE, certificate);
+
+        // then
+        verify(opaClient, never()).checkResourceAccess(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
+        assertThat(actions).isNotEmpty().isEqualTo(actionsWhenOpaGrantsEverything);
+    }
+
+    @Test
+    void reportsKeyActionsWithoutAskingOpa_whenThePrincipalMayUseEveryResource() {
+        // given
+        UUID key = saveKeyWithTokenProfile().getUuid();
+        List<ResourceAction> actionsWhenOpaGrantsEverything = actionsOn(Resource.CRYPTOGRAPHIC_KEY, key);
+        authenticateAsAdministrator();
+        Mockito.clearInvocations(opaClient);
+
+        // when
+        List<ResourceAction> actions = actionsOn(Resource.CRYPTOGRAPHIC_KEY, key);
+
+        // then
+        verify(opaClient, never()).checkResourceAccess(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
+        assertThat(actions).isNotEmpty().isEqualTo(actionsWhenOpaGrantsEverything);
+    }
+
+    @Test
+    void leavesOutTheDeniedAction_whenThePrincipalMayUseEveryResourceButDeniesItOnTheObject() {
+        // given
+        UUID group = saveGroup();
+        SecurityContextHolder
+                .getContext()
+                .setAuthentication(PrincipalFixtures
+                        .authentication(
+                                PrincipalFixtures.adminDenyingProfile(Resource.GROUP, ResourceAction.UPDATE, group)));
+        denyResourceAccess(Resource.GROUP, ResourceAction.UPDATE, group);
+        Mockito.clearInvocations(opaClient);
+
+        // when
+        List<ResourceAction> allowed = actionsOn(Resource.GROUP, group);
+
+        // then
+        assertThat(allowed).containsExactly(ResourceAction.DELETE, ResourceAction.DETAIL, ResourceAction.MEMBERS);
+        assertThat(captureOpaRequests())
+                .as("only checks on the resource the principal denies an object of are asked")
+                .allSatisfy(
+                        request -> assertThat(request.getProperties()).containsEntry("name", Resource.GROUP.getCode()));
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static long countExecutions(Statistics statistics, String entityName) {
+        return Arrays
+                .stream(statistics.getQueries())
+                .filter(query -> query.contains(entityName))
+                .mapToLong(query -> statistics.getQueryStatistics(query).getExecutionCount())
+                .sum();
+    }
+
+    private static void authenticateAsAdministrator() {
+        SecurityContextHolder
+                .getContext()
+                .setAuthentication(PrincipalFixtures
+                        .authentication(PrincipalFixtures.adminProfile(UUID.randomUUID().toString(), "admin")));
+    }
+
+    private void denyEveryCheckOn(Resource resource) {
+        when(opaClient
+                .checkResourceAccess(Mockito.any(),
+                        Mockito
+                                .argThat(req -> req != null && req.getProperties() != null
+                                        && resource.getCode().equals(req.getProperties().get("name"))),
+                        Mockito.any(), Mockito.any()))
+                .thenReturn(denied());
+    }
+
+    private void assignToGroup(Resource resource, UUID objectUuid, UUID groupUuid) {
+        GroupAssociation association = new GroupAssociation();
+        association.setResource(resource);
+        association.setObjectUuid(objectUuid);
+        association.setGroupUuid(groupUuid);
+        groupAssociationRepository.save(association);
+    }
 
     private List<ObjectAllowedActionsDto> report(Resource resource, UUID... uuids) {
         return resourceService
@@ -998,15 +1241,17 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
     }
 
     private void own(Resource resource, UUID objectUuid) {
+        own(resource, objectUuid, UUID
+                .fromString(((PlatformAuthenticationToken) SecurityContextHolder.getContext().getAuthentication())
+                        .getPrincipal()
+                        .getUserUuid()));
+    }
+
+    private void own(Resource resource, UUID objectUuid, UUID ownerUuid) {
         OwnerAssociation owner = new OwnerAssociation();
         owner.setResource(resource);
         owner.setObjectUuid(objectUuid);
-        owner
-                .setOwnerUuid(UUID
-                        .fromString(
-                                ((PlatformAuthenticationToken) SecurityContextHolder.getContext().getAuthentication())
-                                        .getPrincipal()
-                                        .getUserUuid()));
+        owner.setOwnerUuid(ownerUuid);
         owner.setOwnerUsername("tst-user");
         ownerAssociationRepository.save(owner);
     }

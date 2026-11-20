@@ -11,6 +11,7 @@ import com.otilm.api.model.common.BulkActionMessageDto;
 import com.otilm.api.model.core.auth.ObjectAllowedActionsDto;
 import com.otilm.api.model.core.auth.ObjectAllowedActionsRequestDto;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.auth.UserProfileDto;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
@@ -55,6 +56,7 @@ import com.otilm.core.service.ResourceExternalService;
 import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.PrincipalFixtures;
 import com.otilm.core.util.seeders.CryptographicKeySeeder;
 import com.otilm.core.util.seeders.TokenProfileSeeder;
 import java.util.ArrayList;
@@ -100,7 +102,9 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
         READ_ONLY,
         OBJECT_GRANT,
         OWNER,
-        GROUP_MEMBER
+        GROUP_MEMBER,
+        ALL_RESOURCES,
+        ALL_RESOURCES_DENYING_UPDATE
     }
 
     @FunctionalInterface
@@ -561,7 +565,8 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
         Predicate<OpaRequestedResource> surroundings = request -> !resource.getCode().equals(name(request))
                 && SURROUNDINGS.contains(name(request));
         Predicate<OpaRequestedResource> grants = switch (user) {
-            case FULLY_PRIVILEGED -> request -> true;
+            // ALL_RESOURCES as the method policy answers the principal signed in below.
+            case FULLY_PRIVILEGED, ALL_RESOURCES -> request -> true;
             case READ_ONLY -> request -> READ_ACTIONS.contains(action(request));
             case OBJECT_GRANT -> request -> surroundings.test(request)
                     || (resource.getCode().equals(name(request)) && request.getObjectUUIDs() != null
@@ -570,8 +575,17 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
             case GROUP_MEMBER ->
                 request -> surroundings.test(request) || (Resource.GROUP.getCode().equals(name(request))
                         && ResourceAction.MEMBERS.getCode().equals(action(request)));
+            case ALL_RESOURCES_DENYING_UPDATE -> request -> !(resource.getCode().equals(name(request))
+                    && ResourceAction.UPDATE.getCode().equals(action(request)) && request.getObjectUUIDs() != null
+                    && request.getObjectUUIDs().contains(objectUuid.toString()));
         };
         grant(grants);
+        if (user == User.ALL_RESOURCES) {
+            signIn(PrincipalFixtures.adminProfile(UUID.randomUUID().toString(), "admin"));
+        }
+        if (user == User.ALL_RESOURCES_DENYING_UPDATE) {
+            signIn(PrincipalFixtures.adminDenyingProfile(resource, ResourceAction.UPDATE, objectUuid));
+        }
         if (user == User.OWNER) {
             OwnerAssociation owner = new OwnerAssociation();
             owner.setResource(resource);
@@ -587,6 +601,10 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
             association.setGroupUuid(groupUuid);
             groupAssociationRepository.save(association);
         }
+    }
+
+    private static void signIn(UserProfileDto profile) {
+        SecurityContextHolder.getContext().setAuthentication(PrincipalFixtures.authentication(profile));
     }
 
     private void grant(Predicate<OpaRequestedResource> grants) {
