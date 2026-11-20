@@ -41,24 +41,34 @@ class CiTestSplitTest {
 
     @Test
     @SuppressWarnings("unchecked")
-    void testMatrixRunsEveryShardExactlyOnce() throws IOException {
+    void listsEachConfiguredShardExactlyOnce_whenReadingTheBuildPrTestMatrix() throws Exception {
+        // given
         List<String> expected = Stream.concat(Stream.of(NON_INTEGRATION), INTEGRATION_SHARDS.stream()).toList();
+
+        // when
+        List<String> actual;
         try (InputStream input = Files.newInputStream(WORKFLOW)) {
             Map<?, ?> workflow = new Yaml().load(input);
             Map<?, ?> jobs = (Map<?, ?>) workflow.get("jobs");
             Map<?, ?> test = (Map<?, ?>) jobs.get("test");
             Map<?, ?> strategy = (Map<?, ?>) test.get("strategy");
             Map<?, ?> matrix = (Map<?, ?>) strategy.get("matrix");
-            List<String> actual = (List<String>) matrix.get("group");
-            assertThat(actual)
-                    .describedAs("The Build PR matrix must run the non-integration shard and each integration manifest")
-                    .containsExactlyInAnyOrderElementsOf(expected);
+            actual = (List<String>) matrix.get("group");
         }
+
+        // then
+        assertThat(actual)
+                .describedAs("The Build PR matrix must run the non-integration shard and each integration manifest")
+                .containsExactlyInAnyOrderElementsOf(expected);
     }
 
     @Test
-    void everyConcreteIntegrationTestIsAssignedExactlyOnce() throws Exception {
+    void assignsEachConcreteIntegrationTestExactlyOnce_whenUsingShardManifests() throws Exception {
+        // given
         Set<String> integrationTests = concreteIntegrationTests();
+
+        // when
+        Map<Path, List<String>> assignmentsByManifest = new TreeMap<>();
         Map<String, List<String>> owners = new TreeMap<>();
         for (String shard : INTEGRATION_SHARDS) {
             Path manifest = SHARD_ROOT.resolve(shard + ".txt");
@@ -68,7 +78,7 @@ class CiTestSplitTest {
                     .map(String::strip)
                     .filter(line -> !line.isEmpty() && !line.startsWith("#"))
                     .toList();
-            assertThat(assignments).describedAs("Integration test assignments in %s", manifest).isNotEmpty();
+            assignmentsByManifest.put(manifest, assignments);
             assignments.forEach(path -> owners.computeIfAbsent(path, ignored -> new ArrayList<>()).add(shard));
         }
 
@@ -81,6 +91,11 @@ class CiTestSplitTest {
                 .map(entry -> entry.getKey() + " -> " + entry.getValue())
                 .toList();
 
+        // then
+        assignmentsByManifest
+                .forEach((manifest, assignments) -> assertThat(assignments)
+                        .describedAs("Integration test assignments in %s", manifest)
+                        .isNotEmpty());
         assertThat(unassigned)
                 .describedAs("Add each new or renamed integration test to one manifest under %s", SHARD_ROOT)
                 .isEmpty();
@@ -109,14 +124,12 @@ class CiTestSplitTest {
     }
 
     @Test
-    void nonIntegrationProfileRunsSurefireDefaultsOutsideTheIntegrationRoot() throws Exception {
-        assertThat(nonIntegrationProfilePatterns("include"))
-                .describedAs("The non-integration shard relies on Surefire's default includes")
-                .isEmpty();
-        assertThat(nonIntegrationProfilePatterns("exclude"))
-                .describedAs("The non-integration shard excludes integration tests and their nested classes")
-                .containsExactly("%regex[" + INTEGRATION_EXCLUSION + "]");
+    void usesSurefireDefaultsOutsideIntegrationRoot_whenNonIntegrationProfileIsConfigured() throws Exception {
+        // given — the checked-in POM and test sources
 
+        // when
+        List<String> includes = nonIntegrationProfilePatterns("include");
+        List<String> excludes = nonIntegrationProfilePatterns("exclude");
         List<String> omitted;
         try (Stream<Path> stream = Files.walk(TEST_ROOT)) {
             omitted = stream
@@ -128,13 +141,22 @@ class CiTestSplitTest {
                     .sorted()
                     .toList();
         }
+
+        // then
+        assertThat(includes).describedAs("The non-integration shard relies on Surefire's default includes").isEmpty();
+        assertThat(excludes)
+                .describedAs("The non-integration shard excludes integration tests and their nested classes")
+                .containsExactly("%regex[" + INTEGRATION_EXCLUSION + "]");
         assertThat(omitted)
                 .describedAs("Runnable non-integration tests must match Surefire's default includes")
                 .isEmpty();
     }
 
     @Test
-    void nestedTestClassesInsideIntegrationTestsRunOnExactlyOneWorker() throws IOException {
+    void requiresJUnitNested_whenIntegrationInnerClassesMatchSurefireDefaults() throws Exception {
+        // given — the checked-in integration test sources
+
+        // when
         List<String> surefireNamed = new ArrayList<>();
         List<String> violations = new ArrayList<>();
         try (Stream<Path> stream = Files.walk(INTEGRATION_ROOT)) {
@@ -158,6 +180,8 @@ class CiTestSplitTest {
                 }
             }
         }
+
+        // then
         assertThat(surefireNamed)
                 .describedAs("The integration tree must contain a nested class that matches Surefire's default naming")
                 .isNotEmpty();
@@ -254,20 +278,26 @@ class CiTestSplitTest {
     }
 
     @Test
-    void integrationRootRunnableTestsMustBeNamedITest() throws IOException {
-        assertThat(Files.exists(INTEGRATION_ROOT))
-                .describedAs("Integration root %s must exist.", INTEGRATION_ROOT)
-                .isTrue();
-        List<String> violations;
-        try (Stream<Path> stream = Files.walk(INTEGRATION_ROOT)) {
-            violations = stream
-                    .filter(p -> p.toString().endsWith(".java"))
-                    .filter(TestClassTaxonomy::isRunnableTest)
-                    .filter(p -> !p.getFileName().toString().endsWith("ITest.java"))
-                    .map(p -> INTEGRATION_ROOT.relativize(p).toString())
-                    .sorted()
-                    .toList();
+    void requiresITestSuffix_whenIntegrationSourcesContainRunnableTests() throws Exception {
+        // given
+        boolean integrationRootExists = Files.exists(INTEGRATION_ROOT);
+
+        // when
+        List<String> violations = List.of();
+        if (integrationRootExists) {
+            try (Stream<Path> stream = Files.walk(INTEGRATION_ROOT)) {
+                violations = stream
+                        .filter(p -> p.toString().endsWith(".java"))
+                        .filter(TestClassTaxonomy::isRunnableTest)
+                        .filter(p -> !p.getFileName().toString().endsWith("ITest.java"))
+                        .map(p -> INTEGRATION_ROOT.relativize(p).toString())
+                        .sorted()
+                        .toList();
+            }
         }
+
+        // then
+        assertThat(integrationRootExists).describedAs("Integration root %s must exist.", INTEGRATION_ROOT).isTrue();
         assertThat(violations)
                 .describedAs("Rename these integration tests to *ITest and list them in a manifest")
                 .isEmpty();

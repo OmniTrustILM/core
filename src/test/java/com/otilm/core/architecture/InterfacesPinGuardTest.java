@@ -75,39 +75,51 @@ class InterfacesPinGuardTest {
     }
 
     @Test
-    void passesTheResolvedOverride_whenAJobUsesInterfaces() throws IOException {
+    void passesTheResolvedOverride_whenAJobUsesInterfaces() throws Exception {
+        // given
+        Map<String, Object> workflowJobs = jobs();
+
+        // when
         Set<String> missing = new TreeSet<>();
-        jobs()
+        workflowJobs
                 .forEach((name, job) -> mavenInvocations(job)
                         .stream()
                         .filter(InterfacesPinGuardTest::usesInterfaces)
                         .filter(command -> !command.contains(OVERRIDE))
                         .forEach(command -> missing.add(name)));
 
+        // then
         assertThat(missing).describedAs("Interfaces consumers must pass %s to honor the PR pin", OVERRIDE).isEmpty();
-
         for (String downstream : List.of("test", "package")) {
-            assertThat(needsOf(downstream)).contains("compile");
-            assertThat(stepSource(job(downstream)))
+            Object downstreamJob = workflowJobs.get(downstream);
+            assertThat(needsOf(downstreamJob)).contains("compile");
+            assertThat(stepSource(downstreamJob))
                     .describedAs("%s must resolve Interfaces at the version recorded by Compile", downstream)
                     .contains("MVNARG=${{ needs.compile.outputs.mvnarg }}");
         }
     }
 
     @Test
-    void distinguishesCompilingJobs_whenDetectingInterfacesConsumers() throws IOException {
-        assertThat(jobsRunning(InterfacesPinGuardTest::usesInterfaces))
+    void distinguishesCompilingJobs_whenDetectingInterfacesConsumers() throws Exception {
+        // given
+        Map<String, Object> workflowJobs = jobs();
+
+        // when
+        Set<String> interfacesJobs = jobsRunning(workflowJobs, InterfacesPinGuardTest::usesInterfaces);
+        Set<String> compilingJobs = jobsRunning(workflowJobs, InterfacesPinGuardTest::compilesTheTree);
+
+        // then
+        assertThat(interfacesJobs)
                 .describedAs("Jobs detected as Interfaces consumers")
                 .containsExactlyInAnyOrderElementsOf(EXPECTED_INTERFACES_JOBS);
-
-        assertThat(jobsRunning(InterfacesPinGuardTest::compilesTheTree))
+        assertThat(compilingJobs)
                 .describedAs("Only Compile and Generated may compile sources")
                 .containsExactlyInAnyOrder("compile", "generated");
     }
 
-    private static Set<String> jobsRunning(Predicate<String> matches) throws IOException {
+    private static Set<String> jobsRunning(Map<String, Object> workflowJobs, Predicate<String> matches) {
         Set<String> detected = new TreeSet<>();
-        jobs()
+        workflowJobs
                 .forEach((name,
                         job) -> mavenInvocations(job).stream().filter(matches).forEach(command -> detected.add(name)));
         return detected;
@@ -138,9 +150,13 @@ class InterfacesPinGuardTest {
         return source.toString();
     }
 
-    @SuppressWarnings("unchecked")
     private static List<String> needsOf(String jobName) throws IOException {
-        Object needs = ((Map<String, Object>) jobs().get(jobName)).get("needs");
+        return needsOf(job(jobName));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<String> needsOf(Object job) {
+        Object needs = ((Map<String, Object>) job).get("needs");
         return needs instanceof String single ? List.of(single) : (List<String>) needs;
     }
 

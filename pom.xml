@@ -524,10 +524,10 @@
             </build>
         </profile>
 
-        <!-- Merge partial jacoco .exec files produced by the test jobs, then report.
-             Place partial files in jacoco-partial/ before invoking this profile.
-             The parent BOM's jacoco:report execution (bound to package phase) picks up
-             the merged target/jacoco.exec automatically. -->
+        <!-- To replay shard coverage, use the tested classes in target/classes and the .exec files
+             in jacoco-partial/. Run both goals directly to reuse the tested bytecode.
+             mvn -Pmerge-coverage jacoco:merge@merge-results jacoco:report@report
+             The package lifecycle also runs both goals. -->
         <profile>
             <id>merge-coverage</id>
             <build>
