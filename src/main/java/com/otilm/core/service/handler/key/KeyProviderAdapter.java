@@ -133,7 +133,7 @@ public interface KeyProviderAdapter {
         if (inputMode == null || inputMode == SignatureInputMode.DATA) {
             return signData(keyItem, request);
         }
-        throw new ValidationException("This cryptography provider cannot sign prehashed digests.");
+        throw new ValidationException("This cryptography provider cannot sign data digests.");
     }
 
     /**
