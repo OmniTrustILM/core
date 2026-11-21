@@ -92,8 +92,8 @@ class ContentSigningRecordFactoryTest {
         }
 
         @Test
-        void recordsAnAugmentedDocumentWithNoDtbsOrSignatureOfItsOwn() {
-            // given: the augmentation entry acquires a timestamp only
+        void recordsTheDocumentWithoutDtbsOrSignature_whenTheEntryOnlyAugmentsIt() {
+            // given — the augmentation entry acquires a timestamp only
 
             // when
             SigningRecordInput input = factory

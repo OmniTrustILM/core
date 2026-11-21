@@ -237,18 +237,18 @@ public class ManagedContentSigningEngine {
             throws SigningEngineException {
         ContentSigningCursor cursor = advance(ContentSigningCursor.DTBS_COMPUTED,
                 ContentSigningCursor.SIGNATURE_ACQUIRED);
-        EmbeddedDocument signed = embedSignatureValue(run.profile(), dtbsResponse, signatureValue,
+        SignedDocumentResponseDto signed = embedSignatureValue(run.profile(), dtbsResponse, signatureValue,
                 run.signatureAlgorithm());
         cursor = advance(cursor, ContentSigningCursor.SIGNED);
 
         SignatureLevel level = run.profile().level();
         int issuedBefore = serials.size();
         if (level != SignatureLevel.SIGNED) {
-            signed = applySignatureTimestamp(run.profile(), signed.document(), detachedContentFor(run.request(), item),
-                    cursor, serials);
+            signed = applySignatureTimestamp(run.profile(), signed.getSignedDocument(),
+                    detachedContentFor(run.request(), item), cursor, serials);
         }
         List<BigInteger> documentSerials = List.copyOf(serials.subList(issuedBefore, serials.size()));
-        return new SignedContent(signed.document(), signed.mediaType(), level, documentSerials);
+        return new SignedContent(signed.getSignedDocument(), signed.getMediaType(), level, documentSerials);
     }
 
     /**
@@ -278,11 +278,11 @@ public class ManagedContentSigningEngine {
         }
         // No certificate or clock gate here: the profile's own key signs nothing on this path, which mints no
         // signingTime claim. The referenced TIMESTAMPING profile gates its own key and its own time.
-        EmbeddedDocument timestamped = applySignatureTimestamp(profile, request.signedDocument(),
+        SignedDocumentResponseDto timestamped = applySignatureTimestamp(profile, request.signedDocument(),
                 request.detachedContent(), ContentSigningCursor.SIGNED, serials);
 
-        SignedContent result = new SignedContent(timestamped.document(), timestamped.mediaType(), profile.level(),
-                serials);
+        SignedContent result = new SignedContent(timestamped.getSignedDocument(), timestamped.getMediaType(),
+                profile.level(), serials);
         recordAugmentation(signingProfile, profile, result, protocol);
         return result;
     }
@@ -429,7 +429,7 @@ public class ManagedContentSigningEngine {
     /**
      * Replays the algorithm {@code computeDtbs} was given rather than resolving it again, so the pair cannot disagree.
      */
-    private EmbeddedDocument embedSignatureValue(ResolvedManagedContentSigningProfile profile,
+    private SignedDocumentResponseDto embedSignatureValue(ResolvedManagedContentSigningProfile profile,
             ComputeDtbsResponseDto dtbsResponse, byte[] signatureValue, SignatureAlgorithm signatureAlgorithm)
             throws SigningEngineException {
         EmbedSignatureValueRequestDto embed = new EmbedSignatureValueRequestDto();
@@ -447,7 +447,7 @@ public class ManagedContentSigningEngine {
      * Drives {@code computeSignatureTimestampImprint}, the in-process timestamp, and {@code embedSignatureTimestamp}.
      * The serial is collected because it is the only handle a completed operation has on its timestamp record.
      */
-    private EmbeddedDocument applySignatureTimestamp(ResolvedManagedContentSigningProfile profile,
+    private SignedDocumentResponseDto applySignatureTimestamp(ResolvedManagedContentSigningProfile profile,
             byte[] signedDocument, DocumentTransferDto detachedContent, ContentSigningCursor cursor,
             List<BigInteger> serials) throws SigningEngineException {
         TimestampImprint imprint = requireImprint(
@@ -466,7 +466,7 @@ public class ManagedContentSigningEngine {
         embed.setSignedDocument(signedDocument);
         embed.setDetachedContent(detachedContent);
         embed.setTimestampToken(issued.encoded());
-        EmbeddedDocument timestamped = requireEmbeddedDocument(
+        SignedDocumentResponseDto timestamped = requireEmbeddedDocument(
                 formattingClient.embedSignatureTimestamp(profile.signatureFormattingConnector(), embed),
                 "embedSignatureTimestamp");
         advance(acquired, ContentSigningTransitions.exitCursorFor(profile.level()));
@@ -507,7 +507,7 @@ public class ManagedContentSigningEngine {
         return new TimestampImprint(response.getDigestAlgorithm(), response.getImprint());
     }
 
-    private static EmbeddedDocument requireEmbeddedDocument(SignedDocumentResponseDto response, String step)
+    private static SignedDocumentResponseDto requireEmbeddedDocument(SignedDocumentResponseDto response, String step)
             throws SigningEngineException {
         if (response == null || response.getSignedDocument() == null || response.getSignedDocument().length == 0) {
             throw SigningEngineException
@@ -519,10 +519,7 @@ public class ManagedContentSigningEngine {
                     .stepFailed(SigningEngineFailure.CONNECTOR_FAULT, step,
                             "connector named no media type for the signed document", null, CLIENT_MESSAGE);
         }
-        return new EmbeddedDocument(response.getSignedDocument(), response.getMediaType());
-    }
-
-    private record EmbeddedDocument(byte[] document, String mediaType) {
+        return response;
     }
 
     /**

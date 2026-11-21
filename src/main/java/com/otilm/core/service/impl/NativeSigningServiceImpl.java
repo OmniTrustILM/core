@@ -49,6 +49,8 @@ public class NativeSigningServiceImpl implements NativeSigningExternalService {
     }
 
     @Override
+    // NOT_SUPPORTED opens no transaction, so the rollback rule S8989 asks for never applies.
+    @SuppressWarnings("java:S8989")
     @OutsideTransaction
     @ExternalAuthorization(resource = Resource.SIGNING_PROFILE, action = ResourceAction.SIGN)
     public SignDocumentResponseDto signDocument(SecuredUUID signingProfileUuid, SignDocumentRequestDto request)
@@ -67,14 +69,22 @@ public class NativeSigningServiceImpl implements NativeSigningExternalService {
         try {
             return resolvedContentSigningProfile(signingProfile);
         } catch (SigningEngineException e) {
+            throw loggedResolutionFailure(signingProfile, e);
+        } catch (RuntimeException e) {
+            throw loggedResolutionFailure(signingProfile, e);
+        }
+    }
+
+    private static <E extends Exception> E loggedResolutionFailure(SigningProfileModel<?, ?> signingProfile,
+            E failure) {
+        if (failure instanceof SigningEngineException engineFailure) {
             LOG
                     .error("Native signing could not resolve signing profile '{}': {} {}", signingProfile.name(),
-                            e.failure(), e.operatorMessage(), e);
-            throw e;
-        } catch (RuntimeException e) {
-            LOG.error("Native signing could not resolve signing profile '{}'", signingProfile.name(), e);
-            throw e;
+                            engineFailure.failure(), engineFailure.operatorMessage(), failure);
+        } else {
+            LOG.error("Native signing could not resolve signing profile '{}'", signingProfile.name(), failure);
         }
+        return failure;
     }
 
     /**
