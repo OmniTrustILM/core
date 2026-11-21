@@ -115,7 +115,7 @@ class CertificateStatusPollListenerTest {
     private static final UUID CONNECTOR_UUID = UUID.randomUUID();
 
     @BeforeEach
-    void setUp() {
+    void wireListenerAndStubPollSchedule() {
         adapter = mock(AuthorityProviderAdapter.class,
                 Mockito.withSettings().extraInterfaces(AsyncOperationCapability.class));
         asyncAdapter = (AsyncOperationCapability) adapter;

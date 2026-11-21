@@ -1437,6 +1437,8 @@ class AuthorityProviderV3AdapterTest {
         verify(certClientV3).cancelRevoke(eq(connectorInfo), any());
     }
 
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
     private void resolveAttributesToSecret(String secret) throws ConnectorException {
         ResourceObjectContent secretContent = new ResourceObjectContent();
         secretContent.setData(new ResourceSecretContentData("u", "n", new ApiKeySecretContent(secret)));

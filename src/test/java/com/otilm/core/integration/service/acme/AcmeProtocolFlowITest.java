@@ -331,7 +331,7 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
     }
 
     @Test
-    void linksTheCertificateToTheOrder_beforeItsIssueIsQueued() throws Exception {
+    void linksTheCertificateToTheOrder_whenItsIssueIsQueued() throws Exception {
         // given
         AuthorityFixtures.Fixture fixture = createAuthorityFixture();
         createAcmeProfile(fixture.raProfile().mapToDtoSimple(), fixture);
