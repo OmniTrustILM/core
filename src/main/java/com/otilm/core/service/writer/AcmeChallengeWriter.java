@@ -174,16 +174,20 @@ public class AcmeChallengeWriter {
             return order;
         }
         OrderStatus statusBefore = order.getStatus();
-        OrderStatus statusFromCertificate = AcmeChallengeStateMachine
-                .statusFromCertificate(order.getCertificateReference().getState());
-        if (statusFromCertificate == statusBefore) {
+        CertificateState certificateState = order.getCertificateReference().getState();
+        OrderStatus statusFromCertificate = AcmeChallengeStateMachine.statusFromCertificate(certificateState);
+        // An order invalidated before it kept a reason gets one too, without counting its outcome again.
+        boolean reasonMissing = order.getErrorDetail() == null && isNotIssued(certificateState);
+        if (statusFromCertificate == statusBefore && !reasonMissing) {
             return order;
         }
-        logger
-                .info("ACME order {} status changed from {} to {}", order.getOrderId(), statusBefore,
-                        statusFromCertificate);
+        if (statusFromCertificate != statusBefore) {
+            logger
+                    .info("ACME order {} status changed from {} to {}", order.getOrderId(), statusBefore,
+                            statusFromCertificate);
+        }
         order.setStatus(statusFromCertificate);
-        if (order.getErrorDetail() == null && isNotIssued(order.getCertificateReference().getState())) {
+        if (reasonMissing) {
             order.setErrorDetail(CERTIFICATE_NOT_ISSUED);
         }
         acmeOrderRepository.save(order);

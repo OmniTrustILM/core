@@ -981,6 +981,23 @@ class AcmeServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void answersAGenericReasonWithoutCountingAgain_whenTheOrderWasInvalidatedBeforeItKeptAReason() throws Exception {
+        // given
+        var genericReason = "The certificate was not issued";
+        endCertificateOfProcessingOrder1(CertificateState.FAILED);
+        order1.setStatus(OrderStatus.INVALID);
+        acmeOrderRepository.save(order1);
+        int failedOrdersBefore = failedOrders(order1);
+
+        // when
+        ResponseEntity<Order> response = getOrder1();
+
+        // then
+        assertThat(response.getBody().getError().getDetail()).isEqualTo(genericReason);
+        assertThat(failedOrders(order1)).isEqualTo(failedOrdersBefore);
+    }
+
+    @Test
     void answersInvalidOrderWithoutAnError_whenItsCertificateWasRevoked() throws Exception {
         // given
         endCertificateOfProcessingOrder1(CertificateState.REVOKED);

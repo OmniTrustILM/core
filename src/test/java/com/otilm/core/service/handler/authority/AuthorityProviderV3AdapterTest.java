@@ -1334,7 +1334,7 @@ class AuthorityProviderV3AdapterTest {
     }
 
     @Test
-    void flagsTheReasonForOperatorsOnly_whenItQuotesASecretThePollSent() throws ConnectorException {
+    void flagsTheReasonForOperatorsOnly_whenItQuotesASecretThePollSent() throws Exception {
         // given
         var sentSecret = "s3cr3t-token";
         var reasonQuotingSecret = "upstream login with " + sentSecret + " refused";
@@ -1352,7 +1352,7 @@ class AuthorityProviderV3AdapterTest {
     @ParameterizedTest
     @EnumSource(value = Resource.class, names = {"AUTHORITY", "RA_PROFILE", "CERTIFICATE"})
     void flagsTheReasonForOperatorsOnly_whenItQuotesAnEncryptedValueTheConnectorReceived(Resource scope)
-            throws ConnectorException {
+            throws Exception {
         // given
         var encryptedValue = "upstream-api-password";
         var reasonQuotingValue = "login with " + encryptedValue + " refused";
@@ -1378,7 +1378,7 @@ class AuthorityProviderV3AdapterTest {
     }
 
     @Test
-    void returnsTheStatusWithTheReasonKeptFromTheRequester_whenTheSentSecretsCannotBeRead() throws ConnectorException {
+    void returnsTheStatusWithTheReasonKeptFromTheRequester_whenTheSentSecretsCannotBeRead() throws Exception {
         // given
         var authorityReason = "domain is on the deny list";
         lenient().when(attributeEngine.getStoredObjectDataAttributesContent(any())).thenReturn(List.of());
@@ -1398,7 +1398,7 @@ class AuthorityProviderV3AdapterTest {
     }
 
     @Test
-    void keepsTheReasonForTheRequester_whenItQuotesNoSecretThePollSent() throws ConnectorException {
+    void keepsTheReasonForTheRequester_whenItQuotesNoSecretThePollSent() throws Exception {
         // given
         var authorityReason = "domain is on the deny list";
         resolveAttributesToSecret("s3cr3t-token");
