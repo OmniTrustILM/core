@@ -139,8 +139,7 @@ class CbomContributedAssetsHttpITest extends BaseSpringBootTest {
     /**
      * Neither gate asks the authorization service while the request holds a database connection or a transaction: both
      * ask over HTTP, and whatever the request held across the call would wait as long as the service does. Over HTTP
-     * the request's EntityManager is bound for open-in-view, and a read through it keeps its connection until the
-     * response is written -- which only a test that runs through the request can see.
+     * the request's EntityManager is bound for open-in-view, which only a test that runs through the request has.
      */
     @Test
     void neitherGateIsAskedWhileTheRequestHoldsAConnection() throws Exception {
