@@ -286,17 +286,19 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
     @Test
     void putsDataDigestOnTheWire_whenModeIsDataDigest() throws Exception {
         // given
+        var dataDigestMode = SignatureInputMode.DATA_DIGEST;
+        var expectedWireValue = "dataDigest";
         advertiseDataDigestSigning();
         stubSignResponse();
 
         // when
         internalOperationService
                 .signDataWithoutEventHistory(token.getSecuredParentUuid(), profile.getSecuredUuid(), key.getUuid(),
-                        privateKey.getUuid(), signRequest(), SignatureInputMode.DATA_DIGEST);
+                        privateKey.getUuid(), signRequest(), dataDigestMode);
 
         // then
         JsonNode sent = connectorMock.operationRequestBodies("sign").get(0);
-        assertThat(sent.get("signatureInputMode").asText()).isEqualTo("dataDigest");
+        assertThat(sent.get("signatureInputMode").asText()).isEqualTo(expectedWireValue);
     }
 
     @Test

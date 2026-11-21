@@ -505,17 +505,18 @@ class CryptographicOperationServiceSignerTest {
         @Test
         void callsTheDataDigestOverload_whenModeIsDataDigest() throws Exception {
             // given
+            var dataDigestMode = SignatureInputMode.DATA_DIGEST;
             var messages = List.of(buildMessage(1));
             var signatures = signWithJdk("SHA256withRSA", rsaKeyPair.getPrivate(), messages);
             given(callDataDigestSign()).willReturn(answerWithSignatures(signatures));
 
             // when
-            signer.signAll(hashWithSha256(messages), SignatureInputMode.DATA_DIGEST);
+            signer.signAll(hashWithSha256(messages), dataDigestMode);
 
             // then
             then(cryptographicOperationService)
                     .should()
-                    .signDataWithoutEventHistory(any(), any(), any(), any(), any(), eq(SignatureInputMode.DATA_DIGEST));
+                    .signDataWithoutEventHistory(any(), any(), any(), any(), any(), eq(dataDigestMode));
             then(cryptographicOperationService)
                     .should(never())
                     .signDataWithoutEventHistory(any(), any(), any(), any(), any());
