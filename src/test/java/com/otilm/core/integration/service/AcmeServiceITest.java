@@ -72,6 +72,7 @@ import com.otilm.core.service.acme.AcmeConstants;
 import com.otilm.core.service.acme.AcmeExternalService;
 import com.otilm.core.service.acme.ChallengeValidationResult;
 import com.otilm.core.service.writer.AcmeChallengeWriter;
+import com.otilm.core.service.writer.AcmeOrderWriter;
 import com.otilm.core.util.AcmeCommonHelper;
 import com.otilm.core.util.AcmePublicKeyProcessor;
 import com.otilm.core.util.BaseSpringBootTest;
@@ -116,6 +117,7 @@ import org.junit.jupiter.api.Named;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
@@ -179,6 +181,9 @@ class AcmeServiceITest extends BaseSpringBootTest {
 
     @Autowired
     private AcmeChallengeWriter acmeChallengeWriter;
+
+    @Autowired
+    private AcmeOrderWriter acmeOrderWriter;
 
     @Autowired
     private AcmeChallengeRepository acmeChallengeRepository;
@@ -913,18 +918,7 @@ class AcmeServiceITest extends BaseSpringBootTest {
     @Test
     void countsNoFailedOrder_whenTheCertificateRequestIsSubmitted() throws Exception {
         // given
-        mockServer
-                .stubFor(WireMock
-                        .post(WireMock
-                                .urlPathMatching(
-                                        "/v2/authorityProvider/authorities/[^/]+/certificates/issue/attributes/validate"))
-                        .willReturn(WireMock.okJson("true")));
-        mockServer
-                .stubFor(WireMock
-                        .get(WireMock
-                                .urlPathMatching(
-                                        "/v2/authorityProvider/authorities/[^/]+/certificates/issue/attributes"))
-                        .willReturn(WireMock.okJson("[]")));
+        stubIssueAttributesForSubmission();
         detachCertificateAndMakeReady(order1);
         int failedOrdersBefore = failedOrders(order1);
 
@@ -933,6 +927,123 @@ class AcmeServiceITest extends BaseSpringBootTest {
 
         // then
         assertThat(failedOrders(order1)).isEqualTo(failedOrdersBefore);
+    }
+
+    @Test
+    void answersInvalidOrderWithTheAuthorityReason_whenTheCertificateFailedAtTheAuthority() throws Exception {
+        // given
+        var authorityReason = "CA refused the request: domain is on the deny list";
+        endCertificateOfProcessingOrder1(CertificateState.FAILED);
+        acmeOrderWriter.recordIssuanceFailure(certificate.getUuid(), authorityReason);
+
+        // when
+        ResponseEntity<Order> response = getOrder1();
+
+        // then
+        Order order = response.getBody();
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.INVALID);
+        assertThat(order.getError().getType()).isEqualTo(Problem.SERVER_INTERNAL.getType());
+        assertThat(order.getError().getDetail()).isEqualTo(authorityReason);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = CertificateState.class, names = {"FAILED", "REJECTED"})
+    void answersInvalidOrderWithAGenericReason_whenTheCertificateEndedUnissuedWithoutARecordedReason(
+            CertificateState unissuedState) throws Exception {
+        // given
+        var genericReason = "The certificate was not issued";
+        endCertificateOfProcessingOrder1(unissuedState);
+
+        // when
+        ResponseEntity<Order> response = getOrder1();
+
+        // then
+        Order order = response.getBody();
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.INVALID);
+        assertThat(order.getError().getType()).isEqualTo(Problem.SERVER_INTERNAL.getType());
+        assertThat(order.getError().getDetail()).isEqualTo(genericReason);
+    }
+
+    @Test
+    void answersInvalidOrderWithAReason_whenTheCertificateRequestCannotBeSubmitted() throws Exception {
+        // given — the connector serves no issue attributes, so the submission fails
+        var submissionFailure = "The certificate request could not be submitted";
+        detachCertificateAndMakeReady(order1);
+
+        // when
+        ResponseEntity<Order> response = finalizeOrder1();
+
+        // then
+        Order order = response.getBody();
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.INVALID);
+        assertThat(order.getError().getType()).isEqualTo(Problem.SERVER_INTERNAL.getType());
+        assertThat(order.getError().getDetail()).isEqualTo(submissionFailure);
+    }
+
+    @Test
+    void answersInvalidOrderWithoutAnError_whenItsCertificateWasRevoked() throws Exception {
+        // given
+        endCertificateOfProcessingOrder1(CertificateState.REVOKED);
+
+        // when
+        ResponseEntity<Order> response = getOrder1();
+
+        // then
+        Order order = response.getBody();
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.INVALID);
+        assertThat(order.getError()).isNull();
+    }
+
+    @Test
+    void answersValidOrderWithoutAnError_whenTheCertificateWasIssued() throws Exception {
+        // given — the seeded order is valid and its certificate issued
+
+        // when
+        ResponseEntity<Order> response = getOrder1();
+
+        // then
+        assertThat(response.getBody().getError()).isNull();
+    }
+
+    @Test
+    void failsTheOrderWithoutLinkingTheCertificate_whenTheAccountMayNotReadIt() throws Exception {
+        // given
+        stubIssueAttributesForSubmission();
+        when(opaClient
+                .checkResourceAccess(any(),
+                        argThat(req -> isRequestForResourceAction(req, Resource.CERTIFICATE, ResourceAction.DETAIL)),
+                        any(), any()))
+                .thenReturn(new OpaResourceAccessResult(false, List.of()));
+        detachCertificateAndMakeReady(order1);
+
+        // when
+        ResponseEntity<Order> response = finalizeOrder1();
+
+        // then
+        assertThat(response.getBody().getStatus()).isEqualTo(OrderStatus.INVALID);
+        assertThat(acmeOrderRepository.findByOrderId(ORDER_ID_VALID).orElseThrow().getCertificateReferenceUuid())
+                .isNull();
+    }
+
+    @Test
+    void keepsTheOrderProcessing_whenAReadOfTheCertificateIsRefusedOnceItIsLinked() throws Exception {
+        // given
+        stubIssueAttributesForSubmission();
+        when(opaClient
+                .checkResourceAccess(any(),
+                        argThat(req -> isRequestForResourceAction(req, Resource.CERTIFICATE, ResourceAction.DETAIL)),
+                        any(), any()))
+                .thenAnswer(invocation -> new OpaResourceAccessResult(committedCertificateOf(ORDER_ID_VALID) == null,
+                        List.of("AllResourcesAllowed")));
+        detachCertificateAndMakeReady(order1);
+
+        // when
+        ResponseEntity<Order> response = finalizeOrder1();
+
+        // then
+        assertThat(response.getBody().getStatus()).isEqualTo(OrderStatus.PROCESSING);
+        assertThat(acmeOrderRepository.findByOrderId(ORDER_ID_VALID).orElseThrow().getCertificateReferenceUuid())
+                .isNotNull();
     }
 
     @Test
@@ -959,6 +1070,50 @@ class AcmeServiceITest extends BaseSpringBootTest {
         URI requestUri = new URI(baseUri + "/order/" + ORDER_ID_VALID + "/finalize");
         return finalizeInRequest(ACME_PROFILE_NAME, ORDER_ID_VALID, buildFinalizeRequestJSON(requestUri, baseUri),
                 requestUri, false);
+    }
+
+    /**
+     * The certificate the order references as committed, read on an EntityManager of its own: the request's one may
+     * still hold the order as it read it before.
+     */
+    private UUID committedCertificateOf(String orderId) {
+        EntityManager reader = entityManagerFactory.createEntityManager();
+        try {
+            return reader
+                    .createQuery("SELECT o.certificateReferenceUuid FROM AcmeOrder o WHERE o.orderId = :orderId",
+                            UUID.class)
+                    .setParameter("orderId", orderId)
+                    .getSingleResult();
+        } finally {
+            reader.close();
+        }
+    }
+
+    private void stubIssueAttributesForSubmission() {
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock
+                                .urlPathMatching(
+                                        "/v2/authorityProvider/authorities/[^/]+/certificates/issue/attributes/validate"))
+                        .willReturn(WireMock.okJson("true")));
+        mockServer
+                .stubFor(WireMock
+                        .get(WireMock
+                                .urlPathMatching(
+                                        "/v2/authorityProvider/authorities/[^/]+/certificates/issue/attributes"))
+                        .willReturn(WireMock.okJson("[]")));
+    }
+
+    private void endCertificateOfProcessingOrder1(CertificateState finalState) {
+        certificate.setState(finalState);
+        certificateRepository.save(certificate);
+        order1.setStatus(OrderStatus.PROCESSING);
+        acmeOrderRepository.save(order1);
+    }
+
+    private ResponseEntity<Order> getOrder1() throws Exception {
+        URI requestUri = URI.create(BASE_URI + ACME_PROFILE_NAME + "/order/" + ORDER_ID_VALID);
+        return acmeService.getOrder(ACME_PROFILE_NAME, ORDER_ID_VALID, requestUri, false);
     }
 
     private void detachCertificateAndMakeReady(AcmeOrder order) {

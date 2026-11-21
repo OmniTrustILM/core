@@ -3,7 +3,7 @@ package com.otilm.core.service.writer;
 import com.otilm.api.model.core.acme.AuthorizationStatus;
 import com.otilm.api.model.core.acme.ChallengeStatus;
 import com.otilm.api.model.core.acme.OrderStatus;
-import com.otilm.core.dao.entity.Certificate;
+import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.core.dao.entity.acme.AcmeAuthorization;
 import com.otilm.core.dao.entity.acme.AcmeChallenge;
 import com.otilm.core.dao.entity.acme.AcmeOrder;
@@ -39,6 +39,9 @@ import org.springframework.transaction.annotation.Transactional;
 public class AcmeChallengeWriter {
 
     private static final Logger logger = LoggerFactory.getLogger(AcmeChallengeWriter.class);
+
+    private static final String CERTIFICATE_NOT_ISSUED = "The certificate was not issued";
+    private static final String REQUEST_NOT_SUBMITTED = "The certificate request could not be submitted";
 
     private final AcmeOrderRepository acmeOrderRepository;
     private final AcmeAuthorizationRepository acmeAuthorizationRepository;
@@ -180,6 +183,9 @@ public class AcmeChallengeWriter {
                 .info("ACME order {} status changed from {} to {}", order.getOrderId(), statusBefore,
                         statusFromCertificate);
         order.setStatus(statusFromCertificate);
+        if (order.getErrorDetail() == null && isNotIssued(order.getCertificateReference().getState())) {
+            order.setErrorDetail(CERTIFICATE_NOT_ISSUED);
+        }
         acmeOrderRepository.save(order);
         countOrderOutcome(order, statusBefore);
         return order;
@@ -203,16 +209,17 @@ public class AcmeChallengeWriter {
     }
 
     /**
-     * Links the certificate a finalize request submitted to its order. The status stays as it stands: processing while
-     * the certificate is issued, or invalid if an account deactivation closed the order during the submission.
+     * Links the certificate a finalize request submitted to its order; linking it again changes nothing. The status
+     * stays as it stands: processing while the certificate is issued, or invalid if an account deactivation closed the
+     * order during the submission.
      *
      * @return the order as it stands after this call
      */
     @Transactional
-    public AcmeOrder recordFinalizeSubmission(UUID orderUuid, String certificateId, Certificate certificate) {
+    public AcmeOrder recordFinalizeSubmission(UUID orderUuid, String certificateId, UUID certificateUuid) {
         AcmeOrder order = lockOrderRow(orderUuid);
         order.setCertificateId(certificateId);
-        order.setCertificateReference(certificate);
+        order.setCertificateReferenceUuid(certificateUuid);
         acmeOrderRepository.save(order);
         return order;
     }
@@ -229,6 +236,7 @@ public class AcmeChallengeWriter {
         OrderStatus statusBefore = order.getStatus();
         if (statusBefore == OrderStatus.PROCESSING) {
             order.setStatus(OrderStatus.INVALID);
+            order.setErrorDetail(REQUEST_NOT_SUBMITTED);
         }
         recordOrderTransition(order, statusBefore);
         return order;
@@ -286,6 +294,13 @@ public class AcmeChallengeWriter {
         return acmeChallengeRepository
                 .findWithContextByChallengeId(challengeId)
                 .orElseThrow(() -> new IllegalStateException("ACME challenge " + challengeId + " no longer exists"));
+    }
+
+    /**
+     * Whether the certificate ended without being issued, as opposed to one issued and later revoked or archived.
+     */
+    private static boolean isNotIssued(CertificateState certificateState) {
+        return certificateState == CertificateState.FAILED || certificateState == CertificateState.REJECTED;
     }
 
     private void recordOrderTransition(AcmeOrder order, OrderStatus statusBefore) {

@@ -60,6 +60,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 import org.awaitility.Awaitility;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
@@ -79,6 +80,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlMatching;
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * End-to-end integration test for the ACME (RFC 8555) protocol implementation.
@@ -328,6 +330,33 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
                         "Certificate should be issued under the updated RA Profile (" + RA_PROFILE_NAME_2 + ")");
     }
 
+    @Test
+    void linksTheCertificateToTheOrder_beforeItsIssueIsQueued() throws Exception {
+        // given
+        AuthorityFixtures.Fixture fixture = createAuthorityFixture();
+        createAcmeProfile(fixture.raProfile().mapToDtoSimple(), fixture);
+        String acmeAccountId = createAcmeAccount();
+        OrderAndId order = createAcmeOrder(acmeAccountId);
+        validateChallenge(order, acmeAccountId);
+        var queuedCertificate = new AtomicReference<UUID>();
+        var linkedCertificateWhenQueued = new AtomicReference<UUID>();
+        Mockito.doAnswer(inv -> {
+            ActionMessage msg = inv.getArgument(0);
+            if (msg.getResourceAction() == ResourceAction.ISSUE) {
+                queuedCertificate.set(msg.getResourceUuid());
+                linkedCertificateWhenQueued.set(committedCertificateOf(order.orderId));
+            }
+            return null;
+        }).when(actionProducer).produceMessage(Mockito.any());
+
+        // when
+        finalizeOrder(order.orderId, acmeAccountId);
+
+        // then
+        assertThat(queuedCertificate.get()).isNotNull();
+        assertThat(linkedCertificateWhenQueued.get()).isEqualTo(queuedCertificate.get());
+    }
+
     // ── Infrastructure setup helpers ──────────────────────────────────────────
 
     /**
@@ -508,6 +537,23 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
      * call) until the expected status is reached or a terminal failure state is detected, failing the test if the
      * timeout (10 s) is exceeded.
      */
+    /**
+     * The certificate the order references as committed, read on an EntityManager of its own: the request's one may
+     * still hold the order as it read it before.
+     */
+    private UUID committedCertificateOf(String orderId) {
+        EntityManager reader = entityManagerFactory.createEntityManager();
+        try {
+            return reader
+                    .createQuery("SELECT o.certificateReferenceUuid FROM AcmeOrder o WHERE o.orderId = :orderId",
+                            UUID.class)
+                    .setParameter("orderId", orderId)
+                    .getSingleResult();
+        } finally {
+            reader.close();
+        }
+    }
+
     private void awaitOrderStatus(String orderId, OrderStatus expected) throws Exception {
         URI orderUri = new URI("/acme/" + ACME_PROFILE_NAME + "/order/" + orderId);
         Awaitility

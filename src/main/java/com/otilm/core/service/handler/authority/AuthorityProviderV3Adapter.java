@@ -37,7 +37,9 @@ import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
+import com.otilm.core.attribute.engine.AttributeVersionHelper;
 import com.otilm.core.attribute.engine.OutboundSecretContainment;
+import com.otilm.core.attribute.engine.records.ObjectAttributeContent;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.certificate.request.RegisterWireBuilder;
 import com.otilm.core.certificate.request.RenewContentSeeder;
@@ -52,8 +54,11 @@ import com.otilm.core.service.v2.ConnectorInternalService;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import java.util.function.Function;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -81,6 +86,8 @@ public class AuthorityProviderV3Adapter extends AbstractAuthorityProviderAdapter
         implements
             RegisterCapability,
             AsyncOperationCapability {
+
+    private static final Logger logger = LoggerFactory.getLogger(AuthorityProviderV3Adapter.class);
 
     private final OperationAttributeResolver operationAttributeResolver;
     private final OutboundSecretContainment outboundContainment;
@@ -400,11 +407,15 @@ public class AuthorityProviderV3Adapter extends AbstractAuthorityProviderAdapter
         AuthorityInstanceReference authority = raProfile.getAuthorityInstanceReference();
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
 
+        List<ObjectAttributeContent> authorityRows = storedAttributeRows(Resource.AUTHORITY, authority.getUuid(),
+                authority);
+        List<ObjectAttributeContent> raProfileRows = storedAttributeRows(Resource.RA_PROFILE, raProfile.getUuid(),
+                authority);
         CertificateOperationStatusRequestDtoV3 wire = new CertificateOperationStatusRequestDtoV3();
         wire.setMeta(loadMeta(cert, authority));
         try {
-            wire.setAuthorityAttributes(authorityAttributesFor(authority));
-            wire.setRaProfileAttributes(resolvedRaProfileAttributes(raProfile, authority));
+            wire.setAuthorityAttributes(resolvedForConnector(authority, authorityRows));
+            wire.setRaProfileAttributes(resolvedForConnector(authority, raProfileRows));
         } catch (ValidationException e) {
             // The poll runs on the listener thread, which recovers only from ConnectorException — and that catch is
             // the sole path by which a failing poll fails the certificate out on its last attempt. An unchecked
@@ -421,7 +432,68 @@ public class AuthorityProviderV3Adapter extends AbstractAuthorityProviderAdapter
             case REVOKE -> v3Client.getRevokeStatus(connectorDto, wire);
             case REGISTER -> v3Client.getRegisterStatus(connectorDto, wire);
         };
-        return new StatusPollResult(resp.getStatus(), resp.getCertificateData(), resp.getMeta(), resp.getReason());
+        boolean reasonQuotesSentSecret = resp.getReason() != null
+                && reasonQuotesSentSecret(resp.getReason(), cert, authority, wire, authorityRows, raProfileRows);
+        return new StatusPollResult(resp.getStatus(), resp.getCertificateData(), resp.getMeta(), resp.getReason(),
+                reasonQuotesSentSecret);
+    }
+
+    /**
+     * Whether the connector's reason quotes a secret it was sent. The connector has already answered, so a failure to
+     * read what was sent must not lose its answer: the reason is then kept from the requester instead.
+     */
+    private boolean reasonQuotesSentSecret(String reason, Certificate cert, AuthorityInstanceReference authority,
+            CertificateOperationStatusRequestDtoV3 wire, List<ObjectAttributeContent> authorityRows,
+            List<ObjectAttributeContent> raProfileRows) {
+        try {
+            return OutboundSecretContainment
+                    .quotesAny(reason, secretsSentFor(cert, authority, wire, authorityRows, raProfileRows));
+        } catch (RuntimeException e) {
+            logger
+                    .warn("Could not read the secrets sent for certificate {}; its status reason is kept from the requester",
+                            cert.getUuid(), e);
+            return true;
+        }
+    }
+
+    /**
+     * The secret values the connector holds for the certificate's operation: those the status poll sent, and the
+     * certificate's issue attributes, which the issue sent. Each counts its resolved secret content and the plain value
+     * of every attribute its stored row keeps encrypted, which is sent without the mark that would tell it from a
+     * public value.
+     */
+    private Set<String> secretsSentFor(Certificate cert, AuthorityInstanceReference authority,
+            CertificateOperationStatusRequestDtoV3 wire, List<ObjectAttributeContent> authorityRows,
+            List<ObjectAttributeContent> raProfileRows) {
+        Set<String> sentSecrets = new HashSet<>();
+        recordSentSecrets(authorityRows, wire.getAuthorityAttributes(), sentSecrets);
+        recordSentSecrets(raProfileRows, wire.getRaProfileAttributes(), sentSecrets);
+        List<ObjectAttributeContent> issueRows = attributeEngine
+                .getStoredObjectDataAttributesContent(issueAttributesInfo(cert, authority));
+        recordSentSecrets(issueRows, AttributeVersionHelper.toRequestAttributes(issueRows), sentSecrets);
+        return sentSecrets;
+    }
+
+    private void recordSentSecrets(List<ObjectAttributeContent> storedRows, List<RequestAttribute> sent,
+            Set<String> sentSecrets) {
+        outboundContainment.recordExpandedSecretsFromRequest(sent, sentSecrets);
+        outboundContainment.recordProtectedValuesFromRequest(storedRows, sent, sentSecrets);
+    }
+
+    private List<ObjectAttributeContent> storedAttributeRows(Resource objectType, UUID objectUuid,
+            AuthorityInstanceReference authority) {
+        return attributeEngine
+                .getStoredObjectDataAttributesContent(ObjectAttributeContentInfo
+                        .builder(objectType, objectUuid)
+                        .connector(authority.getConnectorUuid())
+                        .build());
+    }
+
+    private List<RequestAttribute> resolvedForConnector(AuthorityInstanceReference authority,
+            List<ObjectAttributeContent> storedRows) throws ConnectorException {
+        return operationAttributeResolver
+                .resolveForConnectorRequestAsSystem(authority.getConnectorUuid(),
+                        AttributeVersionHelper.toRequestAttributes(storedRows));
     }
 
     @Override
@@ -567,12 +639,16 @@ public class AuthorityProviderV3Adapter extends AbstractAuthorityProviderAdapter
     }
 
     private List<RequestAttribute> issueAttributesFor(Certificate cert, AuthorityInstanceReference authority) {
-        return attributeEngine
-                .getRequestObjectDataAttributesContent(ObjectAttributeContentInfo
-                        .builder(Resource.CERTIFICATE, cert.getUuid())
-                        .connector(authority.getConnectorUuid())
-                        .operation(AttributeOperation.CERTIFICATE_ISSUE)
-                        .build());
+        return attributeEngine.getRequestObjectDataAttributesContent(issueAttributesInfo(cert, authority));
+    }
+
+    private static ObjectAttributeContentInfo issueAttributesInfo(Certificate cert,
+            AuthorityInstanceReference authority) {
+        return ObjectAttributeContentInfo
+                .builder(Resource.CERTIFICATE, cert.getUuid())
+                .connector(authority.getConnectorUuid())
+                .operation(AttributeOperation.CERTIFICATE_ISSUE)
+                .build();
     }
 
     /**
