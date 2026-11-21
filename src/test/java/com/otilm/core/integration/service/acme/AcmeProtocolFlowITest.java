@@ -533,11 +533,6 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
     }
 
     /**
-     * Polls via {@link AcmeExternalService#getOrder} (which recomputes order status from the certificate state on each
-     * call) until the expected status is reached or a terminal failure state is detected, failing the test if the
-     * timeout (10 s) is exceeded.
-     */
-    /**
      * The certificate the order references as committed, read on an EntityManager of its own: the request's one may
      * still hold the order as it read it before.
      */
@@ -554,6 +549,11 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
         }
     }
 
+    /**
+     * Polls via {@link AcmeExternalService#getOrder} (which recomputes order status from the certificate state on each
+     * call) until the expected status is reached or a terminal failure state is detected, failing the test if the
+     * timeout (10 s) is exceeded.
+     */
     private void awaitOrderStatus(String orderId, OrderStatus expected) throws Exception {
         URI orderUri = new URI("/acme/" + ACME_PROFILE_NAME + "/order/" + orderId);
         Awaitility
