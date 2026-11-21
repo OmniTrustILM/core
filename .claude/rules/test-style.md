@@ -2,6 +2,8 @@
 
 New and changed test methods follow this style, even in a file whose other tests do not. Restyle the rest of a file only when the task asks for it, so a diff stays about its change.
 
+`TestStyleArchTest` enforces the mechanical part of this style with freezing rules: a departure recorded in its store passes, and a new one, including one in a renamed or moved test, fails the build.
+
 ## Shape of a test
 
 ```java
@@ -47,9 +49,9 @@ void throwsUnsupported_whenListingTheWholeToken() {
 
 ## Names
 
-- Test methods follow `verb_outcome_whenCondition`, starting with what the system does: `throwsNotFound_whenTspProfileDoesNotExist`, `returnsGrantedToken_whenAllDependenciesSucceed`, `rejectsWithTimeNotAvailable_whenTimeQualityIsDegraded`. The `_when` part drops out when the enclosing `@Nested` class already says it.
-- A method-under-test prefix such as `listKeys_throws…` marks a group: those tests move into a `@Nested` class named after the method, and each name starts with the verb.
-- `@BeforeEach` methods are named for what they arrange: `createCertificate()`, `stubHappyPathCollaborators()`, `wireProvider()`.
+- Test methods are named for the behaviour they check, starting with what the system does: `throwsNotFound_whenTspProfileDoesNotExist`, `returnsGrantedToken_whenAllDependenciesSucceed`, `asksAgain_afterTheLoaderFailed`. The usual shape is `verb_outcome_whenCondition`, whose condition opens with whatever word reads best and drops out when the enclosing `@Nested` class already says it.
+- Tests sharing a method-under-test prefix such as `listKeys_throws…` usually form a group: a `@Nested` class named after the method, where each name starts with the verb.
+- Lifecycle methods are named for what they arrange or release: `createCertificate()`, `stubHappyPathCollaborators()`, `stopMockServer()`.
 
 ## Layout of a class
 
