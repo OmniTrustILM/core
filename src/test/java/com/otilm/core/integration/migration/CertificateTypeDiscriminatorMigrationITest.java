@@ -104,10 +104,13 @@ class CertificateTypeDiscriminatorMigrationITest extends BaseMigrationTest {
             // the backfill runs outside a transaction, which a resetting transaction pooler hands a connection whose
             // search_path lacks the schema
             statement.execute("SET search_path TO public");
-            statement.execute(script(BACKFILL_RESOURCE));
-            statement.execute("SET search_path TO " + dbSchema);
+            try {
+                statement.execute(loadMigrationScript(BACKFILL_RESOURCE));
+            } finally {
+                statement.execute("SET search_path TO " + dbSchema);
+            }
             for (String migration : MIGRATION_RESOURCES) {
-                statement.execute(script(migration));
+                statement.execute(loadMigrationScript(migration));
             }
         }
 
@@ -220,7 +223,7 @@ class CertificateTypeDiscriminatorMigrationITest extends BaseMigrationTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private String script(String resource) throws IOException {
+    private String loadMigrationScript(String resource) throws IOException {
         return new ClassPathResource(resource)
                 .getContentAsString(StandardCharsets.UTF_8)
                 .replace("${flyway:defaultSchema}", dbSchema);

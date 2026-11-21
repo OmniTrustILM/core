@@ -84,28 +84,30 @@ class FlywaySearchPathCallbackTest {
             .withConfiguration(AutoConfigurations.of(DataSourceAutoConfiguration.class, FlywayAutoConfiguration.class));
 
     @Test
-    void migrationReferencingTablesUnqualified_failsBehindPgBouncer_withoutCallback() throws SQLException {
-        // given
-        String database = databaseWithWidget();
-
-        // when
-        runner.withPropertyValues(properties(PGBOUNCER, database, SEARCH_PATH_MIGRATIONS)).run(context -> {
-            // then
-            assertThat(context).hasFailed();
-            assertThat(context.getStartupFailure())
-                    .rootCause()
-                    .hasMessageContaining("relation \"widget\" does not exist");
-        });
-    }
-
-    @Test
-    void migrationReferencingTablesUnqualified_succeedsBehindPgBouncer_withCallback() throws SQLException {
+    void failsMigrationReferencingTablesUnqualified_whenPgBouncerRunsWithoutCallback() throws Exception {
         // given
         String database = databaseWithWidget();
 
         // when
         runner
-                .withPropertyValues(properties(PGBOUNCER, database, SEARCH_PATH_MIGRATIONS))
+                .withPropertyValues(createMigrationProperties(PGBOUNCER, database, SEARCH_PATH_MIGRATIONS))
+                .run(context -> {
+                    // then
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .rootCause()
+                            .hasMessageContaining("relation \"widget\" does not exist");
+                });
+    }
+
+    @Test
+    void appliesMigrationReferencingTablesUnqualified_whenPgBouncerRunsWithCallback() throws Exception {
+        // given
+        String database = databaseWithWidget();
+
+        // when
+        runner
+                .withPropertyValues(createMigrationProperties(PGBOUNCER, database, SEARCH_PATH_MIGRATIONS))
                 .withBean(FlywaySearchPathCallback.class)
                 .run(context -> {
                     // then
@@ -115,14 +117,14 @@ class FlywaySearchPathCallbackTest {
     }
 
     @Test
-    void failsNonTransactionalMigrationReferencingTablesUnqualified_whenPgBouncerResetsConnections()
-            throws SQLException {
+    void failsNonTransactionalMigrationReferencingTablesUnqualified_whenPgBouncerResetsConnections() throws Exception {
         // given
         String database = databaseWithWidget();
 
         // when
         runner
-                .withPropertyValues(properties(RESETTING_PGBOUNCER, database, NON_TRANSACTIONAL_UNQUALIFIED_MIGRATIONS))
+                .withPropertyValues(createMigrationProperties(RESETTING_PGBOUNCER, database,
+                        NON_TRANSACTIONAL_UNQUALIFIED_MIGRATIONS))
                 .withBean(FlywaySearchPathCallback.class)
                 .run(context -> {
                     // then
@@ -134,13 +136,14 @@ class FlywaySearchPathCallbackTest {
     }
 
     @Test
-    void appliesNonTransactionalMigrationQualifyingTables_whenPgBouncerResetsConnections() throws SQLException {
+    void appliesNonTransactionalMigrationQualifyingTables_whenPgBouncerResetsConnections() throws Exception {
         // given
         String database = databaseWithWidget();
 
         // when
         runner
-                .withPropertyValues(properties(RESETTING_PGBOUNCER, database, NON_TRANSACTIONAL_QUALIFIED_MIGRATIONS))
+                .withPropertyValues(createMigrationProperties(RESETTING_PGBOUNCER, database,
+                        NON_TRANSACTIONAL_QUALIFIED_MIGRATIONS))
                 .withBean(FlywaySearchPathCallback.class)
                 .run(context -> {
                     // then
@@ -232,7 +235,8 @@ class FlywaySearchPathCallbackTest {
         return database;
     }
 
-    private static String[] properties(GenericContainer<?> pgBouncer, String database, String migrations) {
+    private static String[] createMigrationProperties(GenericContainer<?> pgBouncer, String database,
+            String migrations) {
         return new String[]{
                 "spring.datasource.url=jdbc:postgresql://" + pgBouncer.getHost() + ":" + pgBouncer.getMappedPort(5432)
                         + "/" + database,

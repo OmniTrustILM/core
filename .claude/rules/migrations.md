@@ -9,14 +9,14 @@ paths:
 
 Core reaches PostgreSQL through PgBouncer in transaction mode, so each transaction may run on a different server connection.
 
-Flyway and `FlywaySearchPathCallback` set `search_path` inside each migration's transaction. A migration that runs in a transaction therefore finds Core's tables by their bare names.
+`FlywaySearchPathCallback` sets `search_path` inside each migration's transaction. A migration that runs in a transaction therefore finds Core's tables by their bare names.
 
-For a migration outside a transaction, Flyway sets `search_path` in a transaction of its own. The migration's statements may then run on another server connection: one reset to the role's default behind a pooler that resets connections, such as the operator's, or one holding what another client left there behind a pooler that does not.
+A migration outside a transaction keeps that setting for one statement only. Flyway may also set `search_path`, but it does so in a transaction of its own. The migration's statements may then run on a server connection reset to the role's default, behind a pooler that resets connections such as the operator's. Or they may run on one holding what another client left there, behind a pooler that keeps server state.
 
-Flyway runs a migration outside a transaction when its `.conf` sets `executeInTransaction=false`, or when all its statements must run outside one, such as `CREATE INDEX CONCURRENTLY`. In such a migration:
+Flyway runs a migration outside a transaction when its `.conf` sets `executeInTransaction=false`, or when a statement in it must run outside one. In such a migration:
 
-- Prefix every table, sequence or function a statement refers to with `"${flyway:defaultSchema}".`. A new index takes its table's schema, so its own name stays bare.
-- Leave `search_path` as it is: a value set there stays on the server connection for the next client.
+- Prefix every object of Core's schema that a statement names, such as a table, view, index, sequence or function, with `"${flyway:defaultSchema}".`. A new index takes its table's schema, so its own name stays bare, and PostgreSQL built-ins such as `gen_random_uuid()` stay bare too.
+- Leave `search_path` as it is: behind a pooler that keeps server state, a value set there reaches the next client.
 - Test the script with a `search_path` that lacks Core's schema.
 
 ## A released script keeps its checksum
