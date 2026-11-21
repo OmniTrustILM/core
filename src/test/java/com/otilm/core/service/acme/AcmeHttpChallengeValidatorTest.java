@@ -2,6 +2,7 @@ package com.otilm.core.service.acme;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder;
+import com.otilm.api.exception.AcmeProblemDocumentException;
 import com.otilm.api.model.core.acme.Problem;
 import com.otilm.core.util.LoopbackWireMock;
 import java.io.EOFException;
@@ -18,6 +19,7 @@ import java.time.Duration;
 import java.util.Arrays;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -28,6 +30,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathMatching;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Timeout.ThreadMode.SEPARATE_THREAD;
 
 /**
@@ -127,13 +130,45 @@ class AcmeHttpChallengeValidatorTest {
     }
 
     @Test
+    void rejectsWithIncorrectResponse_whenHostServesOtherValue() throws Exception {
+        // given
+        var otherKeyAuthorization = TOKEN + ".another-account-thumbprint";
+        stubChallenge(aResponse().withStatus(200).withBody(otherKeyAuthorization));
+
+        // when
+        ChallengeValidationResult result = validatorThrough(challengeHost.port(), DEADLINE)
+                .validate(IDENTIFIER, TOKEN, KEY_AUTHORIZATION);
+
+        // then
+        assertThat(result.valid()).isFalse();
+        assertThat(result.problem()).isEqualTo(Problem.INCORRECT_RESPONSE);
+    }
+
+    @Test
+    void refusesWithTlsProblem_whenRedirectTargetsOtherPort() {
+        // given
+        var otherPortTarget = "http://" + IDENTIFIER + ":8080" + CHALLENGE_PATH;
+        stubChallenge(aResponse().withStatus(302).withHeader("Location", otherPortTarget));
+        AcmeHttpChallengeValidator validator = validatorThrough(challengeHost.port(), DEADLINE);
+
+        // when
+        ThrowingCallable validate = () -> validator.validate(IDENTIFIER, TOKEN, KEY_AUTHORIZATION);
+
+        // then
+        assertThatThrownBy(validate)
+                .isInstanceOfSatisfying(AcmeProblemDocumentException.class,
+                        refused -> assertThat(refused.getProblemDocument().getType()).isEqualTo(Problem.TLS.getType()));
+    }
+
+    @Test
     @Timeout(value = 30, threadMode = SEPARATE_THREAD)
     void failsWithConnectionProblem_whenHostAcceptsButNeverAnswers() throws Exception {
         // given
         var deadlineShorterThanReadTimeout = Duration.ofMillis(800);
         try (ServerSocket silentHost = loopbackServerSocket()) {
             Thread.ofVirtual().start(() -> readRequestWithoutAnswering(silentHost));
-            var validator = validatorThrough(silentHost.getLocalPort(), deadlineShorterThanReadTimeout);
+            AcmeHttpChallengeValidator validator = validatorThrough(silentHost.getLocalPort(),
+                    deadlineShorterThanReadTimeout);
 
             // when
             long start = System.nanoTime();
@@ -143,8 +178,54 @@ class AcmeHttpChallengeValidatorTest {
             assertThat(result.valid()).isFalse();
             assertThat(result.problem()).isEqualTo(Problem.CONNECTION);
             assertThat(Duration.ofNanos(System.nanoTime() - start))
-                    .as("stopped by the deadline, not by the 5 s read timeout")
-                    .isLessThan(Duration.ofSeconds(3));
+                    .as("stopped by the deadline, not by the read timeout")
+                    .isLessThan(Duration.ofMillis(READ_TIMEOUT_MILLIS));
+        }
+    }
+
+    @Test
+    @Timeout(value = 30, threadMode = SEPARATE_THREAD)
+    void failsWithConnectionProblem_whenHostIsSilentPastReadTimeout() throws Exception {
+        // given
+        var readTimeoutShorterThanDeadline = 300;
+        try (ServerSocket silentHost = loopbackServerSocket()) {
+            Thread.ofVirtual().start(() -> readRequestWithoutAnswering(silentHost));
+            AcmeHttpChallengeValidator validator = validatorThrough(silentHost.getLocalPort(),
+                    readTimeoutShorterThanDeadline, DEADLINE);
+
+            // when
+            long start = System.nanoTime();
+            ChallengeValidationResult result = validator.validate(IDENTIFIER, TOKEN, KEY_AUTHORIZATION);
+
+            // then
+            assertThat(result.valid()).isFalse();
+            assertThat(result.problem()).isEqualTo(Problem.CONNECTION);
+            assertThat(Duration.ofNanos(System.nanoTime() - start))
+                    .as("stopped by the read timeout, not by the deadline")
+                    .isLessThan(DEADLINE);
+        }
+    }
+
+    @Test
+    @Timeout(value = 30, threadMode = SEPARATE_THREAD)
+    void failsWithConnectionProblem_whenChunkFramingOutlastsDeadline() throws Exception {
+        // given
+        var deadlineShorterThanFraming = Duration.ofSeconds(1);
+        try (ServerSocket framingHost = loopbackServerSocket()) {
+            Thread.ofVirtual().start(() -> serveEndlessChunkSizeLine(framingHost));
+            AcmeHttpChallengeValidator validator = validatorThrough(framingHost.getLocalPort(),
+                    deadlineShorterThanFraming);
+
+            // when
+            long start = System.nanoTime();
+            ChallengeValidationResult result = validator.validate(IDENTIFIER, TOKEN, KEY_AUTHORIZATION);
+
+            // then
+            assertThat(result.valid()).isFalse();
+            assertThat(result.problem()).isEqualTo(Problem.CONNECTION);
+            assertThat(Duration.ofNanos(System.nanoTime() - start))
+                    .as("stopped by the deadline, while one read of the chunk framing still runs")
+                    .isLessThan(Duration.ofMillis(READ_TIMEOUT_MILLIS));
         }
     }
 
@@ -209,9 +290,14 @@ class AcmeHttpChallengeValidatorTest {
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static AcmeHttpChallengeValidator validatorThrough(int proxyPort, Duration deadline) {
+        return validatorThrough(proxyPort, READ_TIMEOUT_MILLIS, deadline);
+    }
+
+    private static AcmeHttpChallengeValidator validatorThrough(int proxyPort, int readTimeoutMillis,
+            Duration deadline) {
         var proxy = new Proxy(Proxy.Type.HTTP, new InetSocketAddress(LoopbackWireMock.HOST, proxyPort));
         return new AcmeHttpChallengeValidator(url -> url.openConnection(proxy), CONNECT_TIMEOUT_MILLIS,
-                READ_TIMEOUT_MILLIS, deadline);
+                readTimeoutMillis, deadline);
     }
 
     private void stubChallenge(ResponseDefinitionBuilder response) {
@@ -259,6 +345,29 @@ class AcmeHttpChallengeValidatorTest {
             // the client hung up
         }
         return written;
+    }
+
+    /**
+     * Answers with a chunked body whose first chunk-size line never ends, sent one digit at a time well within the read
+     * timeout, so no single socket read stalls.
+     */
+    private static void serveEndlessChunkSizeLine(ServerSocket server) {
+        try (Socket client = server.accept()) {
+            client.setSoTimeout(HOLD_LIMIT_MILLIS);
+            readRequestHead(client.getInputStream());
+            OutputStream out = client.getOutputStream();
+            out.write("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n".getBytes(StandardCharsets.US_ASCII));
+            long holdUntil = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(HOLD_LIMIT_MILLIS);
+            while (System.nanoTime() - holdUntil < 0) {
+                out.write('0');
+                out.flush();
+                TimeUnit.MILLISECONDS.sleep(200);
+            }
+        } catch (IOException connectionEnded) {
+            // the client hung up
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private static void readRequestHead(InputStream in) throws IOException {
