@@ -458,9 +458,9 @@ public class AuthorityProviderV3Adapter extends AbstractAuthorityProviderAdapter
 
     /**
      * The secret values the connector holds for the certificate's operation: those the status poll sent, and the
-     * certificate's issue attributes, which the issue sent. Each counts its resolved secret content and the plain value
-     * of every attribute its stored row keeps encrypted, which is sent without the mark that would tell it from a
-     * public value.
+     * certificate's issue attributes, which the issue sent. Each counts its resolved secret content and the plain
+     * value, numbers included, of every attribute its stored row keeps encrypted, which is sent without the mark that
+     * would tell it from a public value. A number matching benign text only keeps the reason from the requester.
      */
     private Set<String> secretsSentFor(Certificate cert, AuthorityInstanceReference authority,
             CertificateOperationStatusRequestDtoV3 wire, List<ObjectAttributeContent> authorityRows,
@@ -478,6 +478,7 @@ public class AuthorityProviderV3Adapter extends AbstractAuthorityProviderAdapter
             Set<String> sentSecrets) {
         outboundContainment.recordExpandedSecretsFromRequest(sent, sentSecrets);
         outboundContainment.recordProtectedValuesFromRequest(storedRows, sent, sentSecrets);
+        outboundContainment.recordProtectedNumbersFromRequest(storedRows, sent, sentSecrets);
     }
 
     private List<ObjectAttributeContent> storedAttributeRows(Resource objectType, UUID objectUuid,

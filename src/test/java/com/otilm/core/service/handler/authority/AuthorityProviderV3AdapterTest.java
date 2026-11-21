@@ -21,6 +21,7 @@ import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
+import com.otilm.api.model.common.attribute.v3.content.IntegerAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.ResourceObjectContent;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceSecretContentData;
@@ -1369,6 +1370,31 @@ class AuthorityProviderV3AdapterTest {
                         .resolveForConnectorRequestAsSystem(eq(authority.getConnectorUuid()), any()))
                 .thenReturn(List.of(resolvedPlain));
         answerIssueStatusFailed(reasonQuotingValue);
+
+        // when
+        StatusPollResult result = adapter.pollStatus(cert, CertificateOperation.ISSUE);
+
+        // then
+        assertThat(result.requesterReason()).isNull();
+    }
+
+    @Test
+    void flagsTheReasonForOperatorsOnly_whenItQuotesAnEncryptedNumberThePollSent() throws Exception {
+        // given
+        var encryptedPin = 48151623;
+        var reasonQuotingPin = "token login with PIN " + encryptedPin + " refused";
+        ObjectAttributeContent encryptedRow = sealedRow("tokenPin", String.valueOf(encryptedPin));
+        lenient().when(attributeEngine.getStoredObjectDataAttributesContent(any())).thenReturn(List.of());
+        doReturn(List.of(encryptedRow))
+                .when(attributeEngine)
+                .getStoredObjectDataAttributesContent(
+                        argThat(info -> info != null && info.objectType() == Resource.AUTHORITY));
+        RequestAttribute resolvedPin = new RequestAttributeV3(encryptedRow.uuid(), encryptedRow.name(),
+                AttributeContentType.INTEGER,
+                List.<BaseAttributeContentV3<?>>of(new IntegerAttributeContentV3(encryptedPin)));
+        when(operationAttributeResolver.resolveForConnectorRequestAsSystem(eq(authority.getConnectorUuid()), any()))
+                .thenReturn(List.of(resolvedPin));
+        answerIssueStatusFailed(reasonQuotingPin);
 
         // when
         StatusPollResult result = adapter.pollStatus(cert, CertificateOperation.ISSUE);
