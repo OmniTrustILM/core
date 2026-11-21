@@ -41,11 +41,13 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Component;
 
 /**
@@ -136,6 +138,25 @@ public class OutboundSecretContainment {
      */
     public void recordProtectedValuesFromRequest(List<ObjectAttributeContent> storedRows,
             List<RequestAttribute> resolved, Set<String> expandedSecrets) {
+        forEachProtectedData(storedRows, resolved, data -> addIfPresent(protectedText(data), expandedSecrets));
+    }
+
+    /**
+     * Record, as decimal text, each number a resolved attribute whose stored row is encrypted holds, such as a PIN.
+     * {@link #recordProtectedValuesFromRequest} leaves numbers out because they match benign content; this is for a
+     * check where such a match only withholds text, never refuses an answer.
+     */
+    public void recordProtectedNumbersFromRequest(List<ObjectAttributeContent> storedRows,
+            List<RequestAttribute> resolved, Set<String> sentSecrets) {
+        forEachProtectedData(storedRows, resolved, data -> {
+            if (data instanceof Number number) {
+                sentSecrets.add(number.toString());
+            }
+        });
+    }
+
+    private static void forEachProtectedData(List<ObjectAttributeContent> storedRows, List<RequestAttribute> resolved,
+            Consumer<Object> dataVisitor) {
         Set<UUID> protectedDefinitions = storedRows
                 .stream()
                 .filter(row -> row.encryptedContent() != null)
@@ -144,7 +165,7 @@ public class OutboundSecretContainment {
         for (RequestAttribute attribute : resolved) {
             List<? extends AttributeContent> content = attribute.getContent();
             if (protectedDefinitions.contains(attribute.getUuid()) && content != null) {
-                content.forEach(item -> addIfPresent(protectedText(item.getData()), expandedSecrets));
+                content.forEach(item -> dataVisitor.accept(item.getData()));
             }
         }
     }
@@ -409,6 +430,14 @@ public class OutboundSecretContainment {
                         ? REFUSED.formatted(refused)
                         : "The connector refused the %s (%s).".formatted(refused, code.name()));
         return new ConnectorProblemException(kept);
+    }
+
+    /**
+     * Whether free text a connector wrote, such as the reason it gives for an outcome, quotes any of the secret values
+     * a request sent it.
+     */
+    public static boolean quotesAny(@Nullable String text, Set<String> sentSecrets) {
+        return text != null && sentSecrets.stream().anyMatch(text::contains);
     }
 
     /**

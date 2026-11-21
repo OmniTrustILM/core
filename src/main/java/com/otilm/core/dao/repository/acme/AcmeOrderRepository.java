@@ -30,6 +30,13 @@ public interface AcmeOrderRepository extends SecurityFilterRepository<AcmeOrder,
     Optional<AcmeOrder> findWithLockByUuid(UUID uuid);
 
     @Modifying
+    @Query("""
+            UPDATE AcmeOrder o SET o.errorDetail = :errorDetail, o.updated = CURRENT_TIMESTAMP
+            WHERE o.certificateReferenceUuid = :certificateUuid
+            """)
+    void recordErrorDetailByCertificate(UUID certificateUuid, String errorDetail);
+
+    @Modifying
     @Query(value = """
             UPDATE AcmeOrder ac SET status = ?#{T(com.otilm.api.model.core.acme.OrderStatus).INVALID}
             WHERE ac.acmeAccount = :acmeAccount AND ac.expires <= :expires AND ac.status != ?#{T(com.otilm.api.model.core.acme.OrderStatus).INVALID}

@@ -208,6 +208,24 @@ class OutboundSecretContainmentTest {
     }
 
     @Test
+    void recordsOnlyTheNumber_whenRecordingTheNumbersOfRowsStoredEncrypted() {
+        // given
+        var tokenPin = 48151623;
+        var pinRow = storedRow("token-pin", SEALED);
+        var flagRow = storedRow("token-flag", SEALED);
+        var resolved = List
+                .of(resolvedFrom(pinRow, decryptedContent(tokenPin)),
+                        resolvedFrom(flagRow, decryptedContent(Boolean.TRUE)));
+        Set<String> sentSecrets = new HashSet<>();
+
+        // when
+        containment.recordProtectedNumbersFromRequest(List.of(pinRow, flagRow), resolved, sentSecrets);
+
+        // then
+        assertThat(sentSecrets).containsExactly(String.valueOf(tokenPin));
+    }
+
+    @Test
     void recordsTheFileBody_ofAFileStoredEncrypted() {
         // given
         var keystoreBody = "MIIKPAIBAzCCCfYGCSqGSIb3DQEHAaCC";
