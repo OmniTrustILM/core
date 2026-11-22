@@ -52,7 +52,7 @@ public class ContentSigningRecordFactory {
                 .requestedBy(AuthHelper.getActingUserOrNull())
                 .displayName("%s %s".formatted(signingProfile.name(), profile.levelName()))
                 .requestMetadataJson(buildRequestMetadataJson(signingProfile, profile, result))
-                .signedDocument(result.signedDocument())
+                .signedDocument(result.output())
                 .signature(signatureValue)
                 .dtbs(dtbs)
                 .timestampTokenSerialNumbers(TimestampTokenSerialNumbers.hex(result.timestampSerials()))

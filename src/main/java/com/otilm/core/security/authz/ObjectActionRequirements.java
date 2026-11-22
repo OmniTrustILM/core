@@ -290,7 +290,7 @@ public final class ObjectActionRequirements {
         // Signing profile detail includes its signing records, and deleting one first lists the TSP profiles using it
         // as their default, checking TSP profile list against the signing profile's UUID.
         onObject(Resource.SIGNING_PROFILE, SigningProfile.class, ResourceAction.DETAIL, ResourceAction.UPDATE,
-                ResourceAction.DELETE, ResourceAction.ENABLE);
+                ResourceAction.DELETE, ResourceAction.ENABLE, ResourceAction.SIGN);
         also(Resource.SIGNING_PROFILE, ResourceAction.DETAIL, new OnResource(ResourceAction.DETAIL),
                 new OnResource(Resource.SIGNING_RECORD, ResourceAction.LIST));
         also(Resource.SIGNING_PROFILE, ResourceAction.DELETE, new OnResource(ResourceAction.DETAIL),
