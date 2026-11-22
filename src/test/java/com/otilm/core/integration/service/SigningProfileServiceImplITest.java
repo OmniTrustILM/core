@@ -648,7 +648,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         KeyPair intrinsicKeyPair = CertificateGeneratorHelper.generateKeyPair(intrinsicAlgorithm, null);
         createTokenKey(intrinsicKeyPair, intrinsicAlgorithm, "intrinsic-signing-key");
         TestCertificateAuthority.TrustedCa trustedCa = testCertificateAuthority.createTrustedCa("CN=Intrinsic Root");
-        // A raw profile refuses an algorithm that cannot sign a prehashed digest, so this profile timestamps.
+        // A raw profile refuses an algorithm that cannot sign a data digest, so this profile timestamps.
         Certificate certificate = trustedCa.issueTimestampingCertificate(intrinsicKeyPair, "CN=Intrinsic TSA");
         List<RequestAttribute> omittedAttributes = null;
         return aSigningProfileRequest()
@@ -2465,7 +2465,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             // then
             assertThatThrownBy(create)
                     .isInstanceOf(ValidationException.class)
-                    .hasMessageContaining("cannot sign a prehashed digest")
+                    .hasMessageContaining("cannot sign a data digest")
                     .hasMessageContaining(signsItsOwnMessage.getCode());
             assertThat(signingProfileRepository.findByName(request.getName())).isEmpty();
         }
@@ -2655,7 +2655,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             // then
             assertThatThrownBy(update)
                     .isInstanceOf(ValidationException.class)
-                    .hasMessageContaining("cannot sign a prehashed digest")
+                    .hasMessageContaining("cannot sign a data digest")
                     .hasMessageContaining(signsItsOwnMessage.getCode());
             assertThat(latestCertificateUuidOf(defaultManagedStaticKeySigningProfile))
                     .isEqualTo(defaultRawSigningCertificate.getUuid());

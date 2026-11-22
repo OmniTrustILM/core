@@ -34,8 +34,7 @@ public final class RawSigningProfileRules {
         if (!PrehashedSigning.admits(signatureAlgorithm)) {
             String code = signatureAlgorithm == null ? null : signatureAlgorithm.getCode();
             throw new ValidationException(
-                    "Signature algorithm %s cannot sign a prehashed digest, which raw signing requires"
-                            .formatted(code));
+                    "Signature algorithm %s cannot sign a data digest, which raw signing requires".formatted(code));
         }
     }
 

@@ -77,7 +77,7 @@ public class ManagedRawSigningEngine {
         List<RawSigningItem> items = request.items();
         requireItems(items);
         BatchAdmission.admit(items.stream().map(RawSigningItem::identifier).toList());
-        requirePrehashedDigests(request.inputMode());
+        requireDataDigests(request.inputMode());
         requireStatedDigestAlgorithm(request.digestAlgorithm());
         requireAcceptableSigningCertificate(profile);
         keyBinding.requireKeyNotShared(profile);
@@ -116,8 +116,8 @@ public class ManagedRawSigningEngine {
     }
 
     /** The run owns this rule, so every entry point that reaches it refuses data signing without a check of its own. */
-    private static void requirePrehashedDigests(SignatureInputMode inputMode) throws SigningEngineException {
-        if (inputMode != SignatureInputMode.PREHASHED_DIGEST) {
+    private static void requireDataDigests(SignatureInputMode inputMode) throws SigningEngineException {
+        if (inputMode != SignatureInputMode.DATA_DIGEST) {
             throw new SigningEngineException(SigningEngineFailure.INVALID_INPUT,
                     "a raw signing run was given input mode %s"
                             .formatted(inputMode == null ? null : inputMode.getCode()),
@@ -152,15 +152,15 @@ public class ManagedRawSigningEngine {
     }
 
     /**
-     * Profile save refuses a key outside the prehashed bound, but a profile saved before that rule can still name one,
-     * and it must fail as the configuration fault it is.
+     * Profile save refuses a key outside the data digest bound, but a profile saved before that rule can still name
+     * one, and it must fail as the configuration fault it is.
      */
     private static DigestAlgorithm digestAlgorithmOf(SignatureAlgorithm signatureAlgorithm,
             ResolvedManagedRawSigningProfile profile) throws SigningEngineException {
         if (!PrehashedSigning.admits(signatureAlgorithm)) {
             String code = signatureAlgorithm == null ? null : signatureAlgorithm.getCode();
             throw new SigningEngineException(SigningEngineFailure.MISCONFIGURED,
-                    "the key of Signing Profile '%s' signs with %s, which cannot sign a prehashed digest"
+                    "the key of Signing Profile '%s' signs with %s, which cannot sign a data digest"
                             .formatted(profile.name(), code),
                     "Signing key algorithm %s cannot be used for raw signing".formatted(code));
         }
@@ -197,8 +197,7 @@ public class ManagedRawSigningEngine {
     private static List<byte[]> signAllDigests(Signer signer, List<RawSigningItem> items)
             throws SigningEngineException {
         try {
-            return signer
-                    .signAll(items.stream().map(RawSigningItem::digest).toList(), SignatureInputMode.PREHASHED_DIGEST);
+            return signer.signAll(items.stream().map(RawSigningItem::digest).toList(), SignatureInputMode.DATA_DIGEST);
         } catch (ItemSigningException e) {
             throw e.withItem(items.get(e.itemIndex()).identifier());
         }

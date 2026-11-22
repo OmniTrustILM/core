@@ -70,7 +70,7 @@ class RawSigningProfileRulesTest {
             // then
             assertThatThrownBy(require)
                     .isInstanceOf(ValidationException.class)
-                    .hasMessageContaining("cannot sign a prehashed digest");
+                    .hasMessageContaining("cannot sign a data digest");
         }
 
         @ParameterizedTest

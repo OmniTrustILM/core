@@ -140,10 +140,10 @@ class RawSigningEngineITest extends BaseSpringBootTest {
     }
 
     @BeforeEach
-    void startPrehashedSigningProvider() throws Exception {
+    void startDataDigestSigningProvider() throws Exception {
         v2Token = v2TokenFixture.start();
-        v2Token.connectorMock().stubInfoAdvertising(FeatureFlag.PREHASHED_SIGNING);
-        v2TokenFixture.declare(v2Token, FeatureFlag.STATELESS, FeatureFlag.PREHASHED_SIGNING);
+        v2Token.connectorMock().stubInfoAdvertising(FeatureFlag.DATA_DIGEST_SIGNING);
+        v2TokenFixture.declare(v2Token, FeatureFlag.STATELESS, FeatureFlag.DATA_DIGEST_SIGNING);
         trustedCa = testCertificateAuthority.createTrustedCa("CN=Raw Signing Root CA");
     }
 
@@ -331,7 +331,7 @@ class RawSigningEngineITest extends BaseSpringBootTest {
             byte[] digest = MessageDigest.getInstance(digestAlgorithm.getCode()).digest(messageOf(identifier));
             items.add(new RawSigningItem(identifier, digest));
         }
-        return new RawSigningRequest(SignatureInputMode.PREHASHED_DIGEST, digestAlgorithm, items);
+        return new RawSigningRequest(SignatureInputMode.DATA_DIGEST, digestAlgorithm, items);
     }
 
     private static byte[] messageOf(String identifier) {

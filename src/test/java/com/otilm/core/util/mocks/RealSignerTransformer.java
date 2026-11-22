@@ -36,7 +36,7 @@ import org.bouncycastle.jce.provider.BouncyCastleProvider;
 /**
  * WireMock extension answering every item of a sign request with a <em>real</em> signature under the item's identifier.
  * A stub names the signing key by {@link #KEY_REFERENCE}, and a v1 sign URL by its key-reference UUID. A v2 request
- * whose {@code signatureInputMode} is {@code prehashedDigest} has each item signed as the digest it is, as a provider
+ * whose {@code signatureInputMode} is {@code dataDigest} has each item signed as the digest it is, as a provider
  * implementing that mode does, so Core's check of each signature against its digest passes.
  */
 class RealSignerTransformer implements ResponseDefinitionTransformerV2 {
@@ -54,7 +54,7 @@ class RealSignerTransformer implements ResponseDefinitionTransformerV2 {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final Pattern KEY_REF_UUID_PATTERN = Pattern.compile("/keys/([^/]+)/sign");
-    private static final String PREHASHED_DIGEST = SignatureInputMode.PREHASHED_DIGEST.getCode();
+    private static final String DATA_DIGEST = SignatureInputMode.DATA_DIGEST.getCode();
 
     private final Map<String, KeyEntry> keysByReferenceUuid = new ConcurrentHashMap<>();
 
@@ -71,10 +71,10 @@ class RealSignerTransformer implements ResponseDefinitionTransformerV2 {
             Parameters parameters = serveEvent.getTransformerParameters();
             KeyEntry key = registeredKeyFor(serveEvent.getRequest().getUrl(), parameters);
             JsonNode body = OBJECT_MAPPER.readTree(serveEvent.getRequest().getBodyAsString());
-            boolean prehashed = PREHASHED_DIGEST.equals(body.path("signatureInputMode").asText());
+            boolean dataDigest = DATA_DIGEST.equals(body.path("signatureInputMode").asText());
             List<ObjectNode> signatures = new ArrayList<>();
             for (JsonNode item : body.path("data")) {
-                signatures.add(signatureOf(key, item, prehashed, parameters.getBoolean(WITHOUT_IDENTIFIERS, false)));
+                signatures.add(signatureOf(key, item, dataDigest, parameters.getBoolean(WITHOUT_IDENTIFIERS, false)));
             }
             if (parameters.getBoolean(REVERSED_ORDER, false)) {
                 Collections.reverse(signatures);
@@ -105,10 +105,10 @@ class RealSignerTransformer implements ResponseDefinitionTransformerV2 {
         return entry;
     }
 
-    private static ObjectNode signatureOf(KeyEntry key, JsonNode item, boolean prehashed, boolean withoutIdentifier)
+    private static ObjectNode signatureOf(KeyEntry key, JsonNode item, boolean dataDigest, boolean withoutIdentifier)
             throws Exception {
         byte[] itemBytes = Base64.getDecoder().decode(item.path("data").asText());
-        byte[] signatureValue = prehashed ? signDigest(key, itemBytes) : sign(key, itemBytes);
+        byte[] signatureValue = dataDigest ? signDigest(key, itemBytes) : sign(key, itemBytes);
         ObjectNode signature = OBJECT_MAPPER.createObjectNode();
         signature.put("data", Base64.getEncoder().encodeToString(signatureValue));
         JsonNode identifier = item.path("identifier");
@@ -136,7 +136,7 @@ class RealSignerTransformer implements ResponseDefinitionTransformerV2 {
                 signRaw(key.privateKey(), "RAWRSASSA-PSS", pssParameters(digestOid), digest);
             case SHA256_WITH_ECDSA, SHA384_WITH_ECDSA, SHA512_WITH_ECDSA ->
                 signRaw(key.privateKey(), "NONEwithECDSA", null, digest);
-            default -> throw new IllegalStateException(algorithm.getCode() + " cannot sign a prehashed digest");
+            default -> throw new IllegalStateException(algorithm.getCode() + " cannot sign a data digest");
         };
     }
 

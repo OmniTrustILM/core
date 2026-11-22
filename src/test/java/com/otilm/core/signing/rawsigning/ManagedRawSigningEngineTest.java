@@ -142,7 +142,7 @@ class ManagedRawSigningEngineTest {
     @Test
     void returnsSignaturesAndRecordUuidsInRequestOrder_whenProfileRecords() throws Exception {
         // given
-        when(signer.signAll(anyList(), eq(SignatureInputMode.PREHASHED_DIGEST))).thenReturn(signMessages(IDENTIFIERS));
+        when(signer.signAll(anyList(), eq(SignatureInputMode.DATA_DIGEST))).thenReturn(signMessages(IDENTIFIERS));
         List<UUID> recordUuids = List.of(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
         when(recordStager.stage(eq(model), anyList())).thenReturn(recordUuids);
 
@@ -165,7 +165,7 @@ class ManagedRawSigningEngineTest {
                 .withName("raw-profile")
                 .withRecordPolicy(new SigningRecordPolicyModel(false, false, false, false, false, null, false, null))
                 .build();
-        when(signer.signAll(anyList(), eq(SignatureInputMode.PREHASHED_DIGEST))).thenReturn(signMessages(IDENTIFIERS));
+        when(signer.signAll(anyList(), eq(SignatureInputMode.DATA_DIGEST))).thenReturn(signMessages(IDENTIFIERS));
         when(recordStager.stage(eq(notRecording), anyList())).thenReturn(List.of());
 
         // when
@@ -200,8 +200,7 @@ class ManagedRawSigningEngineTest {
     void throwsInvalidInput_whenDigestAlgorithmIsNotTheProfiles() throws Exception {
         // given
         var notTheKeysDigest = DigestAlgorithm.SHA_384;
-        var request = new RawSigningRequest(SignatureInputMode.PREHASHED_DIGEST, notTheKeysDigest,
-                digestItems(IDENTIFIERS));
+        var request = new RawSigningRequest(SignatureInputMode.DATA_DIGEST, notTheKeysDigest, digestItems(IDENTIFIERS));
 
         // when
         ThrowingCallable sign = () -> engine.sign(request, model, profile, SigningProtocol.ILM_NATIVE);
@@ -222,7 +221,7 @@ class ManagedRawSigningEngineTest {
         var shortItem = new RawSigningItem("doc-2", tooShortForSha256);
         List<RawSigningItem> items = List
                 .of(digestItems(List.of("doc-1")).getFirst(), shortItem, digestItems(List.of("doc-3")).getFirst());
-        var request = new RawSigningRequest(SignatureInputMode.PREHASHED_DIGEST, DigestAlgorithm.SHA_256, items);
+        var request = new RawSigningRequest(SignatureInputMode.DATA_DIGEST, DigestAlgorithm.SHA_256, items);
 
         // when
         ThrowingCallable sign = () -> engine.sign(request, model, profile, SigningProtocol.ILM_NATIVE);
@@ -240,7 +239,7 @@ class ManagedRawSigningEngineTest {
     void throwsInvalidInput_whenTheBatchIsEmpty() {
         // given
         List<RawSigningItem> noItems = List.of();
-        var request = new RawSigningRequest(SignatureInputMode.PREHASHED_DIGEST, DigestAlgorithm.SHA_256, noItems);
+        var request = new RawSigningRequest(SignatureInputMode.DATA_DIGEST, DigestAlgorithm.SHA_256, noItems);
 
         // when
         ThrowingCallable sign = () -> engine.sign(request, model, profile, SigningProtocol.ILM_NATIVE);
@@ -276,7 +275,7 @@ class ManagedRawSigningEngineTest {
         // given
         var providerRefusal = new SigningEngineException(SigningEngineFailure.SIGNER_FAULT, "provider refused",
                 "Internal signing error");
-        when(signer.signAll(anyList(), eq(SignatureInputMode.PREHASHED_DIGEST))).thenThrow(providerRefusal);
+        when(signer.signAll(anyList(), eq(SignatureInputMode.DATA_DIGEST))).thenThrow(providerRefusal);
         var request = digestRequest(IDENTIFIERS);
 
         // when
@@ -293,7 +292,7 @@ class ManagedRawSigningEngineTest {
         var failedIndex = 1;
         var providerFailure = new ItemSigningException(SigningEngineFailure.SIGNER_FAULT, failedIndex,
                 "no signature for item " + failedIndex, "Internal signing error");
-        when(signer.signAll(anyList(), eq(SignatureInputMode.PREHASHED_DIGEST))).thenThrow(providerFailure);
+        when(signer.signAll(anyList(), eq(SignatureInputMode.DATA_DIGEST))).thenThrow(providerFailure);
         var request = digestRequest(IDENTIFIERS);
 
         // when
@@ -310,7 +309,7 @@ class ManagedRawSigningEngineTest {
     @Test
     void signsAllDigestsInOneCall() throws Exception {
         // given
-        when(signer.signAll(anyList(), eq(SignatureInputMode.PREHASHED_DIGEST))).thenReturn(signMessages(IDENTIFIERS));
+        when(signer.signAll(anyList(), eq(SignatureInputMode.DATA_DIGEST))).thenReturn(signMessages(IDENTIFIERS));
         when(recordStager.stage(eq(model), anyList())).thenReturn(List.of());
         var request = digestRequest(IDENTIFIERS);
 
@@ -320,7 +319,7 @@ class ManagedRawSigningEngineTest {
         // then
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<byte[]>> signed = ArgumentCaptor.forClass(List.class);
-        verify(signer, times(1)).signAll(signed.capture(), eq(SignatureInputMode.PREHASHED_DIGEST));
+        verify(signer, times(1)).signAll(signed.capture(), eq(SignatureInputMode.DATA_DIGEST));
         assertThat(signed.getValue())
                 .containsExactlyElementsOf(request.items().stream().map(RawSigningItem::digest).toList());
     }
@@ -370,7 +369,7 @@ class ManagedRawSigningEngineTest {
     void throwsInvalidInput_whenDigestAlgorithmIsMissing() throws Exception {
         // given
         DigestAlgorithm noDigestAlgorithm = null;
-        var request = new RawSigningRequest(SignatureInputMode.PREHASHED_DIGEST, noDigestAlgorithm,
+        var request = new RawSigningRequest(SignatureInputMode.DATA_DIGEST, noDigestAlgorithm,
                 digestItems(IDENTIFIERS));
 
         // when
@@ -422,8 +421,7 @@ class ManagedRawSigningEngineTest {
     }
 
     private static RawSigningRequest digestRequest(List<String> identifiers) throws Exception {
-        return new RawSigningRequest(SignatureInputMode.PREHASHED_DIGEST, DigestAlgorithm.SHA_256,
-                digestItems(identifiers));
+        return new RawSigningRequest(SignatureInputMode.DATA_DIGEST, DigestAlgorithm.SHA_256, digestItems(identifiers));
     }
 
     private static List<RawSigningItem> digestItems(List<String> identifiers) throws Exception {
@@ -435,7 +433,7 @@ class ManagedRawSigningEngineTest {
         return items;
     }
 
-    /** SHA256withRSA over a message signs the same DigestInfo a prehashed SHA-256 digest of it does. */
+    /** SHA256withRSA over a message signs the same DigestInfo a SHA-256 data digest of it does. */
     private static List<byte[]> signMessages(List<String> identifiers) throws Exception {
         List<byte[]> signatures = new ArrayList<>();
         for (String identifier : identifiers) {
