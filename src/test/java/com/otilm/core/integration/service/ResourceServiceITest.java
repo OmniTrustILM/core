@@ -387,7 +387,7 @@ class ResourceServiceITest extends BaseSpringBootTest {
     }
 
     @Test
-    void offersStoredValues_whenFieldIsDeclaredOnACertificateSubtype() throws NotFoundException {
+    void offersStoredValues_whenFieldIsDeclaredOnACertificateSubtype() throws Exception {
         // given
         var hybridSignatureAlgorithm = "ML-DSA-65";
         createHybridCertificate(hybridSignatureAlgorithm);
