@@ -30,7 +30,7 @@ public final class RawSigningProfileRules {
     }
 
     /** A raw request carries a digest, so the key must sign under an algorithm that takes the digest as it is. */
-    public static void requirePrehashedSigning(SignatureAlgorithm signatureAlgorithm) {
+    public static void requireDataDigestSigning(SignatureAlgorithm signatureAlgorithm) {
         if (!PrehashedSigning.admits(signatureAlgorithm)) {
             String code = signatureAlgorithm == null ? null : signatureAlgorithm.getCode();
             throw new ValidationException(

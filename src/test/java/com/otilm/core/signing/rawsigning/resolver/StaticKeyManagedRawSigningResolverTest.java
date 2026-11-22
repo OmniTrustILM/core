@@ -100,17 +100,15 @@ class StaticKeyManagedRawSigningResolverTest {
     void propagatesMisconfigured_whenSchemeResolutionFails() throws Exception {
         // given
         SigningProfileModel<?, ?> model = aProfileWith(new ManagedRawSigningWorkflow(null));
-        given(schemeResolver.resolve(PROFILE_NAME, model.signingScheme()))
-                .willThrow(new SigningEngineException(SigningEngineFailure.MISCONFIGURED, "unsupported scheme",
-                        "The system is misconfigured."));
+        var schemeFailure = new SigningEngineException(SigningEngineFailure.MISCONFIGURED, "unsupported scheme",
+                "The system is misconfigured.");
+        given(schemeResolver.resolve(PROFILE_NAME, model.signingScheme())).willThrow(schemeFailure);
 
         // when
         ThrowingCallable resolveProfile = () -> resolver.resolve(model);
 
         // then
-        assertThatThrownBy(resolveProfile)
-                .isInstanceOfSatisfying(SigningEngineException.class,
-                        e -> assertThat(e.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED));
+        assertThatThrownBy(resolveProfile).isSameAs(schemeFailure);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

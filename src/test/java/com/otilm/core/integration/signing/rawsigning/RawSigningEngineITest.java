@@ -66,6 +66,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Callable;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -78,6 +79,8 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import static com.otilm.core.util.CertificateTestData.DOCUMENT_SIGNING_OID;
 import static com.otilm.core.util.KeyMetaFixtures.keyIdMeta;
@@ -124,6 +127,8 @@ class RawSigningEngineITest extends BaseSpringBootTest {
     private SigningProfileVersionRepository signingProfileVersionRepository;
     @Autowired
     private CertificateRepository certificateRepository;
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     private V2Token v2Token;
     private TestCertificateAuthority.TrustedCa trustedCa;
@@ -209,6 +214,25 @@ class RawSigningEngineITest extends BaseSpringBootTest {
             assertThat(signingRecord.getRequestedByUuid()).isEqualTo(UUID.fromString(requester.getUserUuid()));
             assertThat(signingRecord.getRequestedByUsername()).isEqualTo(requester.getUsername());
         }
+    }
+
+    @Test
+    void keepsTheSigningRecords_whenTheCallersTransactionRollsBack() throws Exception {
+        // given
+        SigningProfileDto profile = createRawProfile("raw-caller-rollback", RSA_PKCS1_SHA256);
+        RawSigningRequest request = digestRequest(DigestAlgorithm.SHA_256);
+        SigningProfileModel<?, ?> signingProfile = modelOf(profile);
+        ResolvedManagedRawSigningProfile resolvedProfile = resolvedProfileOf(profile);
+
+        // when
+        RawSigningResult result = inACallersTransactionThatRollsBack(
+                () -> engine.sign(request, signingProfile, resolvedProfile, SigningProtocol.ILM_NATIVE));
+
+        // then
+        assertThat(recordsOf(profile))
+                .extracting(SigningRecord::getUuid)
+                .containsExactlyInAnyOrderElementsOf(
+                        result.items().stream().map(RawSignedItem::signingRecordUuid).toList());
     }
 
     @Test
@@ -385,6 +409,17 @@ class RawSigningEngineITest extends BaseSpringBootTest {
 
     private static Map<String, Object> requestMetadataOf(SigningRecord signingRecord) throws Exception {
         return ObjectMapperFactory.storage().readValue(signingRecord.getRequestMetadataJson(), new TypeReference<>() {
+        });
+    }
+
+    private <T> T inACallersTransactionThatRollsBack(Callable<T> work) {
+        return new TransactionTemplate(transactionManager).execute(callersTransaction -> {
+            callersTransaction.setRollbackOnly();
+            try {
+                return work.call();
+            } catch (Exception e) {
+                throw new IllegalStateException(e);
+            }
         });
     }
 

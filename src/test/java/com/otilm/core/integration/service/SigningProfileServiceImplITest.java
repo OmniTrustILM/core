@@ -1097,7 +1097,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         }
 
         @Test
-        void create_v2Key_refusesASignatureAlgorithmStatedBesideTheFields() throws Exception {
+        void refusesASignatureAlgorithmStatedBesideTheFields_whenTimestampingProfileIsCreated() throws Exception {
             // given
             List<RequestAttribute> attributes = stateTheSignatureAlgorithmBesideTheFields();
             // Raw and content-signing saves resolve the algorithm before the attributes are validated, so this

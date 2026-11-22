@@ -146,7 +146,7 @@ class IlmNativeProfileResolverTest {
         SigningProfileModel<?, ?> resolved = resolver.resolve(PROFILE, NativeOperation.SIGN_HASH);
 
         // then
-        assertThat(resolved.workflow()).isInstanceOf(ManagedRawSigningWorkflow.class);
+        assertThat(resolved).isSameAs(rawModel);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

@@ -1138,7 +1138,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
             return;
         }
         requireCertificateAccess(staticKeyScheme.getCertificateUuid());
-        RawSigningProfileRules.requirePrehashedSigning(signatureAlgorithmOf(request.getName(), staticKeyScheme));
+        RawSigningProfileRules.requireDataDigestSigning(signatureAlgorithmOf(request.getName(), staticKeyScheme));
     }
 
     /**

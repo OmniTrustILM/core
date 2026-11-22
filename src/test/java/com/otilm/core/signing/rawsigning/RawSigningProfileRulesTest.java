@@ -40,10 +40,10 @@ class RawSigningProfileRulesTest {
         }
     }
 
-    // ── RequirePrehashedSigning ───────────────────────────────────────────────
+    // ── RequireDataDigestSigning ───────────────────────────────────────────────
 
     @Nested
-    class RequirePrehashedSigning {
+    class RequireDataDigestSigning {
 
         @Test
         void refusesSignatureAlgorithm_whenOutsideTheBound() {
@@ -51,7 +51,7 @@ class RawSigningProfileRulesTest {
             var signsItsOwnMessage = SignatureAlgorithm.ML_DSA_65;
 
             // when
-            ThrowingCallable require = () -> RawSigningProfileRules.requirePrehashedSigning(signsItsOwnMessage);
+            ThrowingCallable require = () -> RawSigningProfileRules.requireDataDigestSigning(signsItsOwnMessage);
 
             // then
             assertThatThrownBy(require)
@@ -65,7 +65,7 @@ class RawSigningProfileRulesTest {
             SignatureAlgorithm noSignatureAlgorithm = null;
 
             // when
-            ThrowingCallable require = () -> RawSigningProfileRules.requirePrehashedSigning(noSignatureAlgorithm);
+            ThrowingCallable require = () -> RawSigningProfileRules.requireDataDigestSigning(noSignatureAlgorithm);
 
             // then
             assertThatThrownBy(require)
@@ -80,7 +80,7 @@ class RawSigningProfileRulesTest {
             // given — an algorithm that signs a digest it is handed
 
             // when
-            ThrowingCallable require = () -> RawSigningProfileRules.requirePrehashedSigning(signsAGivenDigest);
+            ThrowingCallable require = () -> RawSigningProfileRules.requireDataDigestSigning(signsAGivenDigest);
 
             // then
             assertThatCode(require).doesNotThrowAnyException();
