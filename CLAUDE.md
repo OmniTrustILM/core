@@ -75,7 +75,17 @@ public ... someMethod(...) {
 }
 ```
 
+`NOT_SUPPORTED` holds no transaction, but it is still a transaction scope: a step 1 read that runs outside a transaction binds an EntityManager that closes when the method returns or, under open-in-view, uses the request's, which stays open through the response (see "Open-in-view keeps what a request reads managed"). It keeps no connection through step 2: `DatabaseConnectionHandlingConfig` returns the connection after each query outside a transaction and when each transaction ends. A lazy load is not a query: outside a transaction it keeps the connection until the next query or until the EntityManager closes, so a lazy load right before step 2 holds the connection through it. Keep the setting; without it the pool deadlocks. Its cost: Spring refuses `isolation` on `@Transactional`, and `readOnly` no longer makes the JDBC connection read-only; it still suppresses automatic flushes and, on a transaction's own EntityManager, loads entities read-only.
+
 Symmetrically: when the external call comes AFTER the local commit, commit first then call externally.
+
+Under open-in-view, the transactions a `NOT_SUPPORTED` method starts can run on the request's EntityManager and flush
+what the request has read. A method that calls out between short transactions therefore carries `@OutsideTransaction`
+in place of plain `NOT_SUPPORTED`: it runs the method with `NOT_SUPPORTED` and, when no transaction scope is active yet,
+sets that EntityManager aside, so those transactions run on EntityManagers of their own. Inside an active scope, such as
+another `NOT_SUPPORTED` method's, the scope's EntityManager stays bound.
+
+A read-only method that callers run inside their transaction carries `@Transactional(propagation = Propagation.SUPPORTS)` when its class is `NOT_SUPPORTED`, as `CryptographicKeyServiceImpl.findKeyByFingerprint` does: the class-level annotation would suspend the caller's transaction, which keeps its connection, and run the read on another. For the same reason, do not call a `NOT_SUPPORTED` method such as `issueCertificate` from inside a transaction: suspended, that transaction keeps its connection while the method takes others.
 
 ## State divergence on post-external-commitment failures
 
@@ -122,7 +132,7 @@ PostgreSQL runs a data-modifying CTE exactly once and to completion, and every p
 
 **Claim the rows, and fold them in in key order.** Without a locking clause a second deleter sees the same rows in its own snapshot, folds them in too, and then deletes nothing — one row counted twice. Without an `ORDER BY` on the grouped upsert, two writers carrying rows for the same aggregate keys can take those locks in opposite orders and deadlock. Which clause depends on the caller's contract: a keyed delete **waits** (`FOR UPDATE`), because its caller is told the row is gone and skipping would report success for a row the winner might yet roll back; a batch **skips** (`FOR UPDATE ... SKIP LOCKED`), because it has no per-record contract and waiting lets two sweeps picking overlapping victims in different index orders deadlock. Lock only the table you delete from (`FOR UPDATE OF sr`), never the ones you join for the predicate.
 
-Assemble the figure under one snapshot — `@Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)`. Read across the two tables in separate READ COMMITTED statements and a row deleted between them is counted as both live and history.
+Assemble the figure under one snapshot: a `@Transactional(readOnly = true)` method whose transaction opens with `SET TRANSACTION ISOLATION LEVEL REPEATABLE READ`, as `SigningRecordRepository.readUnderOneSnapshot` sends it. PostgreSQL refuses the statement once the transaction has run another, so the method must not join a caller's transaction that has. Spring refuses the `isolation` attribute (see "Transactions and external calls"). Read across the two tables in separate READ COMMITTED statements and a row deleted between them is counted as both live and history.
 
 The aggregate keeps the column its detail rows were access-controlled by, and **no FK to it**: the parent is usually deletable once its detail rows are gone, and the aggregate has to outlive it. Read it back through the parent half of the security filter only — a rolled-up row has no detail identity left for a row-level filter to match on.
 
@@ -142,7 +152,7 @@ Don't span the lock across slow external calls (see "Transactions and external c
 
 ## Open-in-view keeps what a request reads managed
 
-`spring.jpa.open-in-view` is on, so an entity read through the request's EntityManager stays managed there until the response is written, and every transaction that runs on that EntityManager flushes the changes made to it, as a whole row unless the entity is `@DynamicUpdate`. A `Propagation.NOT_SUPPORTED` method does not keep them out: the transactions it starts run on the request's EntityManager until it first uses that EntityManager outside a transaction, on EntityManagers of their own from then until it returns, and the request's next transaction runs on the request's EntityManager again. Code that changes an entity the request may hold without meaning to write the row detaches it first, as `ComplianceSubjectHandler.finalizeComplianceCheck` does. A test of this binds an EntityManager to the thread and runs a transaction after the call, or it can pass whatever the code does.
+`spring.jpa.open-in-view` is on, so an entity read through the request's EntityManager stays managed there until the response is written, and every transaction that runs on that EntityManager, except a read-only one, flushes the changes made to it, as a whole row unless the entity is `@DynamicUpdate`. A `Propagation.NOT_SUPPORTED` method does not keep them out: the transactions it starts run on the request's EntityManager until it first uses that EntityManager outside a transaction, on EntityManagers of their own from then until it returns, and the request's next transaction runs on the request's EntityManager again. Code that changes an entity the request may hold without meaning to write the row detaches it first, as `ComplianceSubjectHandler.finalizeComplianceCheck` does. A test of this binds an EntityManager to the thread and runs a transaction after the call, or it can pass whatever the code does.
 
 ## New operator-facing settings go through the Settings UI, not env vars
 
