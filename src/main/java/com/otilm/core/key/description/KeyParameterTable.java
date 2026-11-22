@@ -7,7 +7,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Predicate;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import org.bouncycastle.asn1.bc.BCObjectIdentifiers;
 import org.bouncycastle.asn1.nist.NISTNamedCurves;
@@ -124,16 +123,6 @@ final class KeyParameterTable {
 
     static Optional<ParameterSet> parameterSet(ASN1ObjectIdentifier oid) {
         return Optional.ofNullable(PARAMETER_SETS.get(oid));
-    }
-
-    static Optional<ASN1ObjectIdentifier> slhDsaOidNamed(Predicate<String> name) {
-        return PARAMETER_SETS
-                .entrySet()
-                .stream()
-                .filter(entry -> entry.getValue().algorithm() == KeyAlgorithm.SLHDSA
-                        && name.test(entry.getValue().name()))
-                .map(Map.Entry::getKey)
-                .findFirst();
     }
 
     static Optional<String> curveName(ASN1ObjectIdentifier curveOid) {

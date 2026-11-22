@@ -126,17 +126,17 @@ class DescribeKeyItemsMigrationITest extends BaseMigrationTest {
     }
 
     @Test
-    void describesTheItemByItsCustomMap_whenAV1PrivateItemHoldsOne() throws Exception {
+    void describesAV1PrivateItemByItsStatement_whenItHoldsOnlyCustomKeyData() throws Exception {
         // given
-        var customMap = new Material(KeyFormat.CUSTOM, "{\"curve.name\":\"secp384r1\"}");
-        var v1Private = storedItem(storedKey(), KeyType.PRIVATE_KEY, KeyAlgorithm.ECDSA, 768, customMap);
+        var customKeyData = new Material(KeyFormat.CUSTOM, "{\"curve.name\":\"secp384r1\"}");
+        var v1Private = storedItem(storedKey(), KeyType.PRIVATE_KEY, KeyAlgorithm.ECDSA, 768, customKeyData);
 
         // when
         migrate();
 
         // then
-        assertThat(describedAs(v1Private)).isEqualTo(new Stored(KeyAlgorithm.ECDSA, "P-384", 384));
-        assertThat(materialOf(v1Private)).isEqualTo(customMap);
+        assertThat(describedAs(v1Private)).isEqualTo(new Stored(KeyAlgorithm.ECDSA, null, null));
+        assertThat(materialOf(v1Private)).isEqualTo(customKeyData);
     }
 
     @Test

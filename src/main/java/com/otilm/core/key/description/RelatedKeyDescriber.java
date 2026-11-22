@@ -23,9 +23,8 @@ public final class RelatedKeyDescriber {
     }
 
     /**
-     * Core describes the half from the first readable source: its own key data, its agreeing public siblings, the
-     * software provider's custom map, or else its statement. Agreeing siblings also supply an RSA modulus missing from
-     * the half's own key data.
+     * Core describes the half from the first readable source: its own key data, its agreeing public siblings, or else
+     * its statement. Agreeing siblings also supply an RSA modulus missing from the half's own key data.
      *
      * @param related the halves stored or returned with it, which may include the half itself
      */
@@ -34,7 +33,6 @@ public final class RelatedKeyDescriber {
                 .ofStoredKeyData(half.material())
                 .map(own -> withSiblingModulus(own, half, related))
                 .or(() -> agreedByPublicSiblings(half, related))
-                .or(() -> SoftwareProviderKeyValues.parametersOf(half.algorithm(), half.material()))
                 .orElse(null);
         return KeyDescriber.describe(parameters, half.type(), half.algorithm(), half.length());
     }

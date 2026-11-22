@@ -45,9 +45,9 @@ class RelatedKeyDescriberTest {
     void agreesOnNoParameters_whenPublicRsaSiblingsCarryDifferentModuli() throws Exception {
         // given
         var rsa2048 = SubjectPublicKeyInfo.getInstance(rsaPublicKey(2048).getEncoded());
-        var rsa1024 = SubjectPublicKeyInfo.getInstance(rsaPublicKey(1024).getEncoded());
+        var rsa3072 = SubjectPublicKeyInfo.getInstance(rsaPublicKey(3072).getEncoded());
         var privateHalf = new KeyHalf(KeyType.PRIVATE_KEY, KeyAlgorithm.RSA, null, null);
-        var related = List.of(publicHalf(rsa2048), publicHalf(rsa1024), privateHalf);
+        var related = List.of(publicHalf(rsa2048), publicHalf(rsa3072), privateHalf);
 
         // when
         Optional<KeyParameters> agreed = RelatedKeyDescriber.agreedByPublicSiblings(privateHalf, related);

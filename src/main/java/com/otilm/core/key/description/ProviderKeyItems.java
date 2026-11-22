@@ -2,10 +2,9 @@ package com.otilm.core.key.description;
 
 import com.otilm.core.key.description.RelatedKeyDescriber.KeyHalf;
 import com.otilm.core.model.crypto.ProviderKeyItem;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /** Describes the key items a provider returns, each among the items it returned with it. */
 public final class ProviderKeyItems {
@@ -18,12 +17,14 @@ public final class ProviderKeyItems {
 
     /** Describes an item a provider returned without a sibling, such as a secret key. */
     public static ProviderKeyItem described(ProviderKeyItem item) {
-        return describedTogether(List.of(item)).getFirst();
+        return describedAmong(item, List.of(halfOf(item)));
     }
 
     public static DescribedPair describedPair(ProviderKeyItem publicKeyItem, ProviderKeyItem privateKeyItem) {
-        List<ProviderKeyItem> described = describedTogether(List.of(publicKeyItem, privateKeyItem));
-        return new DescribedPair(described.getFirst(), described.getLast());
+        List<KeyHalf> pair = List.of(halfOf(publicKeyItem), halfOf(privateKeyItem));
+        ProviderKeyItem describedPublicKey = describedAmong(publicKeyItem, pair);
+        ProviderKeyItem describedPrivateKey = describedAmong(privateKeyItem, pair);
+        return new DescribedPair(describedPublicKey, describedPrivateKey);
     }
 
     /**
@@ -32,35 +33,25 @@ public final class ProviderKeyItems {
      * @return the items, each described, in the same order
      */
     public static List<ProviderKeyItem> describedByAssociation(List<ProviderKeyItem> listed) {
-        Map<String, List<Integer>> positionsByAssociation = new LinkedHashMap<>();
-        List<List<Integer>> groups = new ArrayList<>();
-        for (int i = 0; i < listed.size(); i++) {
-            String association = listed.get(i).association();
-            if (association == null || association.isEmpty()) {
-                groups.add(List.of(i));
-            } else {
-                positionsByAssociation.computeIfAbsent(association, key -> new ArrayList<>()).add(i);
-            }
-        }
-        groups.addAll(positionsByAssociation.values());
-        ProviderKeyItem[] described = new ProviderKeyItem[listed.size()];
-        for (List<Integer> positions : groups) {
-            List<ProviderKeyItem> group = positions.stream().map(listed::get).toList();
-            List<ProviderKeyItem> describedGroup = describedTogether(group);
-            for (int i = 0; i < positions.size(); i++) {
-                described[positions.get(i)] = describedGroup.get(i);
-            }
-        }
-        return List.of(described);
+        Map<String, List<KeyHalf>> halvesByAssociation = listed
+                .stream()
+                .filter(ProviderKeyItems::hasAssociation)
+                .collect(Collectors
+                        .groupingBy(ProviderKeyItem::association,
+                                Collectors.mapping(ProviderKeyItems::halfOf, Collectors.toList())));
+        return listed.stream().map(item -> describedAmong(item, halvesSharing(item, halvesByAssociation))).toList();
     }
 
-    private static List<ProviderKeyItem> describedTogether(List<ProviderKeyItem> related) {
-        List<KeyHalf> halves = related.stream().map(ProviderKeyItems::halfOf).toList();
-        List<ProviderKeyItem> described = new ArrayList<>(related.size());
-        for (int i = 0; i < related.size(); i++) {
-            described.add(related.get(i).describedAs(RelatedKeyDescriber.describe(halves.get(i), halves)));
-        }
-        return described;
+    private static List<KeyHalf> halvesSharing(ProviderKeyItem item, Map<String, List<KeyHalf>> halvesByAssociation) {
+        return hasAssociation(item) ? halvesByAssociation.get(item.association()) : List.of(halfOf(item));
+    }
+
+    private static ProviderKeyItem describedAmong(ProviderKeyItem item, List<KeyHalf> related) {
+        return item.describedAs(RelatedKeyDescriber.describe(halfOf(item), related));
+    }
+
+    private static boolean hasAssociation(ProviderKeyItem item) {
+        return item.association() != null && !item.association().isEmpty();
     }
 
     private static KeyHalf halfOf(ProviderKeyItem item) {

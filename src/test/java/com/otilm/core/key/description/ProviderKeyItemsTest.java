@@ -21,8 +21,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class ProviderKeyItemsTest {
 
-    private static final String P384_CUSTOM_MAP = "{\"curve.name\":\"secp384r1\"}";
-
     @Nested
     class Described {
 
@@ -156,7 +154,7 @@ class ProviderKeyItemsTest {
         }
 
         @Test
-        void readsTheSoftwareProvidersCustomMap_whenTheSiblingsDisagree() throws Exception {
+        void describesACustomPrivateHalfByItsStatement_whenTheSiblingsDisagree() throws Exception {
             // given
             var p256 = publicItem(ecKeyPair("secp256r1"), "pair-a");
             var p521 = publicItem(ecKeyPair("secp521r1"), "pair-a");
@@ -164,7 +162,7 @@ class ProviderKeyItemsTest {
                     .withType(KeyType.PRIVATE_KEY)
                     .withAlgorithm(KeyAlgorithm.ECDSA)
                     .withLength(768)
-                    .withMaterial(new KeyMaterial(KeyFormat.CUSTOM, P384_CUSTOM_MAP))
+                    .withMaterial(new KeyMaterial(KeyFormat.CUSTOM, "{\"curve.name\":\"secp384r1\"}"))
                     .withAssociation("pair-a")
                     .build();
 
@@ -175,7 +173,7 @@ class ProviderKeyItemsTest {
             // then
             assertThat(described.get(2))
                     .extracting(ProviderKeyItem::parameterSet, ProviderKeyItem::length)
-                    .containsExactly("P-384", 384);
+                    .containsExactly(null, null);
         }
 
         @Test

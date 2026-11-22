@@ -7,7 +7,6 @@ import java.math.BigInteger;
 import java.security.KeyPairGenerator;
 import java.security.PublicKey;
 import java.security.spec.ECGenParameterSpec;
-import java.util.Map;
 import java.util.stream.Stream;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import org.bouncycastle.asn1.DERNull;
@@ -282,84 +281,6 @@ class KeyDescriberTest {
         }
     }
 
-    @Nested
-    class FromSoftwareProviderMap {
-
-        @Test
-        void namesTheCurve_whenTheMapNamesIt() {
-            // given
-            var values = Map.of("curve.name", "secp256r1", "curve.description", "NIST/SECG curve");
-
-            // when
-            DescribedKey described = KeyDescriber
-                    .describe(SoftwareProviderKeyValues.parametersOf(KeyAlgorithm.ECDSA, values).orElse(null),
-                            KeyType.PRIVATE_KEY, KeyAlgorithm.ECDSA, 256);
-
-            // then
-            assertThat(described).isEqualTo(new DescribedKey(KeyAlgorithm.ECDSA, "P-256", 256));
-        }
-
-        @Test
-        void namesTheMlDsaParameterSet_whenTheMapGivesItsLevel() {
-            // given
-            var categoryThree = Map.of("level", "3", "prehash", "false");
-
-            // when
-            DescribedKey described = KeyDescriber
-                    .describe(SoftwareProviderKeyValues.parametersOf(KeyAlgorithm.MLDSA, categoryThree).orElse(null),
-                            KeyType.PRIVATE_KEY, KeyAlgorithm.MLDSA, 32256);
-
-            // then
-            assertThat(described).isEqualTo(new DescribedKey(KeyAlgorithm.MLDSA, "ML-DSA-65", 32256));
-        }
-
-        @Test
-        void namesThePrehashingSlhDsaParameterSet_whenTheMapGivesItsParts() {
-            // given
-            var prehashingShakeKey = Map
-                    .of("securityCategory", "1", "hash", "SHAKE", "tradeoff", "SMALL", "prehash", "true");
-
-            // when
-            DescribedKey described = KeyDescriber
-                    .describe(SoftwareProviderKeyValues
-                            .parametersOf(KeyAlgorithm.SLHDSA, prehashingShakeKey)
-                            .orElse(null), KeyType.PRIVATE_KEY, KeyAlgorithm.SLHDSA, 512);
-
-            // then
-            assertThat(described)
-                    .isEqualTo(new DescribedKey(KeyAlgorithm.SLHDSA, "SLH-DSA-SHAKE-128S-WITH-SHAKE128", 512));
-        }
-
-        @Test
-        void namesTheMlKemParameterSet_whenTheMapGivesItsSecurityCategory() {
-            // given
-            var categoryFive = Map.of("securityCategory", "5");
-
-            // when
-            DescribedKey described = KeyDescriber
-                    .describe(SoftwareProviderKeyValues.parametersOf(KeyAlgorithm.MLKEM, categoryFive).orElse(null),
-                            KeyType.PRIVATE_KEY, KeyAlgorithm.MLKEM, 25344);
-
-            // then
-            assertThat(described).isEqualTo(new DescribedKey(KeyAlgorithm.MLKEM, "ML-KEM-1024", 25344));
-        }
-
-        @ParameterizedTest
-        @MethodSource("com.otilm.core.key.description.KeyDescriberTest#falconDegrees")
-        void namesTheFalconParameterSet_whenTheMapGivesItsDegree(String degree, String name, int privateKeyBits) {
-            // given
-            var values = Map.of("degree", degree);
-
-            // when
-            DescribedKey described = KeyDescriber
-                    .describe(SoftwareProviderKeyValues.parametersOf(KeyAlgorithm.FALCON, values).orElse(null),
-                            KeyType.PRIVATE_KEY, KeyAlgorithm.FALCON, null);
-
-            // then
-            assertThat(described).isEqualTo(new DescribedKey(KeyAlgorithm.FALCON, name, privateKeyBits));
-        }
-    }
-
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     static Stream<Arguments> postQuantumParameterSets() {
@@ -372,10 +293,6 @@ class KeyDescriberTest {
                                 "SLH-DSA-SHAKE-256F", 1024),
                         arguments(NISTObjectIdentifiers.id_alg_ml_kem_512, KeyAlgorithm.MLKEM, "ML-KEM-512", 13056),
                         arguments(BCObjectIdentifiers.falcon_512, KeyAlgorithm.FALCON, "FALCON-512", 10248));
-    }
-
-    static Stream<Arguments> falconDegrees() {
-        return Stream.of(arguments("512", "FALCON-512", 10248), arguments("1024", "FALCON-1024", 18440));
     }
 
     static Stream<Arguments> rsaKeyOids() {
