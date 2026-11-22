@@ -44,6 +44,9 @@ import org.bouncycastle.jcajce.spec.MLKEMParameterSpec;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.flywaydb.core.api.migration.Context;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
 
@@ -245,6 +248,23 @@ class DescribeKeyItemsMigrationITest extends BaseMigrationTest {
 
         // then
         assertThat(describedAs(statedAsRsa)).isEqualTo(new Stored(KeyAlgorithm.ECDSA, "P-384", 384));
+    }
+
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(ints = 4096)
+    void describesAV1RsaPrivateItemByItsModulus_whenItsStoredLengthIsWrongOrAbsent(Integer storedLength)
+            throws Exception {
+        // given
+        var rsa2048Pkcs8 = new Material(KeyFormat.PRKI,
+                Base64.getEncoder().encodeToString(rsaKeyPair(2048).getPrivate().getEncoded()));
+        var v1Private = storedItem(storedKey(), KeyType.PRIVATE_KEY, KeyAlgorithm.RSA, storedLength, rsa2048Pkcs8);
+
+        // when
+        migrate();
+
+        // then
+        assertThat(describedAs(v1Private)).isEqualTo(new Stored(KeyAlgorithm.RSA, null, 2048));
     }
 
     @Test
@@ -560,6 +580,12 @@ class DescribeKeyItemsMigrationITest extends BaseMigrationTest {
     private static KeyPair ecKeyPair(String curveName) throws GeneralSecurityException {
         KeyPairGenerator generator = KeyPairGenerator.getInstance("EC", new BouncyCastleProvider());
         generator.initialize(new ECGenParameterSpec(curveName));
+        return generator.generateKeyPair();
+    }
+
+    private static KeyPair rsaKeyPair(int modulusBits) throws GeneralSecurityException {
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
+        generator.initialize(modulusBits);
         return generator.generateKeyPair();
     }
 

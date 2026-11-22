@@ -101,7 +101,7 @@ class KeyDescriberTest {
         }
 
         @ParameterizedTest
-        @MethodSource("com.otilm.core.key.description.KeyDescriberTest#rsaKeyOids")
+        @MethodSource("rsaKeyOids")
         void describesAnRsaKeyByItsModulus_whenACertificateKeyOpensWithAnRsaOid(ASN1ObjectIdentifier oid)
                 throws Exception {
             // given
@@ -149,6 +149,15 @@ class KeyDescriberTest {
             // then
             assertThat(described).isEqualTo(new DescribedKey(KeyAlgorithm.RSA, null, 3072));
         }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private static Stream<Arguments> rsaKeyOids() {
+            return Stream
+                    .of(arguments(named("RSASSA-PSS", PKCSObjectIdentifiers.id_RSASSA_PSS)),
+                            arguments(named("RSAES-OAEP", PKCSObjectIdentifiers.id_RSAES_OAEP)),
+                            arguments(named("id-ea-rsa", X509ObjectIdentifiers.id_ea_rsa)));
+        }
     }
 
     // ── FromIdentifier ────────────────────────────────────────────────────────
@@ -157,7 +166,7 @@ class KeyDescriberTest {
     class FromIdentifier {
 
         @ParameterizedTest
-        @MethodSource("com.otilm.core.key.description.KeyDescriberTest#postQuantumParameterSets")
+        @MethodSource("postQuantumParameterSets")
         void describesThePrivateHalfByItsParameterSet_whenTheOidIsPostQuantum(ASN1ObjectIdentifier oid,
                 KeyAlgorithm algorithm, String name, int privateKeyBits) {
             // given
@@ -255,6 +264,20 @@ class KeyDescriberTest {
             // then
             assertThat(described).isEqualTo(new DescribedKey(KeyAlgorithm.MLDSA, null, null));
         }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private static Stream<Arguments> postQuantumParameterSets() {
+            return Stream
+                    .of(arguments(NISTObjectIdentifiers.id_ml_dsa_44, KeyAlgorithm.MLDSA, "ML-DSA-44", 20480),
+                            arguments(NISTObjectIdentifiers.id_ml_dsa_87, KeyAlgorithm.MLDSA, "ML-DSA-87", 39168),
+                            arguments(NISTObjectIdentifiers.id_slh_dsa_sha2_128s, KeyAlgorithm.SLHDSA,
+                                    "SLH-DSA-SHA2-128S", 512),
+                            arguments(NISTObjectIdentifiers.id_slh_dsa_shake_256f, KeyAlgorithm.SLHDSA,
+                                    "SLH-DSA-SHAKE-256F", 1024),
+                            arguments(NISTObjectIdentifiers.id_alg_ml_kem_512, KeyAlgorithm.MLKEM, "ML-KEM-512", 13056),
+                            arguments(BCObjectIdentifiers.falcon_512, KeyAlgorithm.FALCON, "FALCON-512", 10248));
+        }
     }
 
     // ── FromStatement ─────────────────────────────────────────────────────────
@@ -288,25 +311,6 @@ class KeyDescriberTest {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
-
-    private static Stream<Arguments> postQuantumParameterSets() {
-        return Stream
-                .of(arguments(NISTObjectIdentifiers.id_ml_dsa_44, KeyAlgorithm.MLDSA, "ML-DSA-44", 20480),
-                        arguments(NISTObjectIdentifiers.id_ml_dsa_87, KeyAlgorithm.MLDSA, "ML-DSA-87", 39168),
-                        arguments(NISTObjectIdentifiers.id_slh_dsa_sha2_128s, KeyAlgorithm.SLHDSA, "SLH-DSA-SHA2-128S",
-                                512),
-                        arguments(NISTObjectIdentifiers.id_slh_dsa_shake_256f, KeyAlgorithm.SLHDSA,
-                                "SLH-DSA-SHAKE-256F", 1024),
-                        arguments(NISTObjectIdentifiers.id_alg_ml_kem_512, KeyAlgorithm.MLKEM, "ML-KEM-512", 13056),
-                        arguments(BCObjectIdentifiers.falcon_512, KeyAlgorithm.FALCON, "FALCON-512", 10248));
-    }
-
-    private static Stream<Arguments> rsaKeyOids() {
-        return Stream
-                .of(arguments(named("RSASSA-PSS", PKCSObjectIdentifiers.id_RSASSA_PSS)),
-                        arguments(named("RSAES-OAEP", PKCSObjectIdentifiers.id_RSAES_OAEP)),
-                        arguments(named("id-ea-rsa", X509ObjectIdentifiers.id_ea_rsa)));
-    }
 
     private static DescribedKey describeSpki(byte[] spki, KeyType half, KeyAlgorithm statedAlgorithm,
             Integer statedLength) {
