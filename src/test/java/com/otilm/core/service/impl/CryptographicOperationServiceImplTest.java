@@ -491,13 +491,13 @@ class CryptographicOperationServiceImplTest {
     }
 
     @Test
-    void refusesPrehashed_whenTheKeyIsOnAV1Provider() throws Exception {
+    void refusesDataDigest_whenTheKeyIsOnAV1Provider() throws Exception {
         // given
         CryptographicKeyItemOperationModel v1Key = legacyKey();
         when(keyService.getKeyItemModel(v1Key.keyItemUuid())).thenReturn(v1Key);
 
         // when
-        ThrowingCallable sign = () -> signPrehashed(v1Key);
+        ThrowingCallable sign = () -> signDataDigest(v1Key);
 
         // then
         assertThatThrownBy(sign)
@@ -508,7 +508,7 @@ class CryptographicOperationServiceImplTest {
     }
 
     @Test
-    void refusesPrehashed_whenTheProviderDoesNotAdvertisePrehashedSigning() throws Exception {
+    void refusesDataDigest_whenTheProviderDoesNotAdvertiseDataDigestSigning() throws Exception {
         // given
         CryptographicKeyItemOperationModel key = v2Key();
         when(keyService.getKeyItemModel(key.keyItemUuid())).thenReturn(key);
@@ -517,30 +517,30 @@ class CryptographicOperationServiceImplTest {
                 .thenReturn(Optional.of(tokenWithoutTheFlag));
 
         // when
-        ThrowingCallable sign = () -> signPrehashed(key);
+        ThrowingCallable sign = () -> signDataDigest(key);
 
         // then
         assertThatThrownBy(sign)
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining(key.keyItemUuid().toString())
-                .hasMessageContaining("does not support prehashed signing");
+                .hasMessageContaining("does not support data digest signing");
         verifyNoInteractions(adapter);
     }
 
     @Test
-    void passesPrehashedDigestToTheAdapter_whenTheProviderAdvertisesIt() throws Exception {
+    void passesDataDigestToTheAdapter_whenTheProviderAdvertisesIt() throws Exception {
         // given
         CryptographicKeyItemOperationModel key = v2Key();
         when(keyService.getKeyItemModel(key.keyItemUuid())).thenReturn(key);
         when(keyProviderAdapterFactory.forKeyItem(key)).thenReturn(adapter);
-        var tokenAdvertisingTheFlag = aTokenSnapshot().withConnectorFeatures(FeatureFlag.PREHASHED_SIGNING).build();
+        var tokenAdvertisingTheFlag = aTokenSnapshot().withConnectorFeatures(FeatureFlag.DATA_DIGEST_SIGNING).build();
         when(tokenInstanceReferenceRepository.findFullModelByUuid(key.tokenInstanceReferenceUuid()))
                 .thenReturn(Optional.of(tokenAdvertisingTheFlag));
         SignDataResponseDto expected = new SignDataResponseDto();
-        when(adapter.signData(eq(key), any(), eq(SignatureInputMode.PREHASHED_DIGEST))).thenReturn(expected);
+        when(adapter.signData(eq(key), any(), eq(SignatureInputMode.DATA_DIGEST))).thenReturn(expected);
 
         // when
-        SignDataResponseDto response = signPrehashed(key);
+        SignDataResponseDto response = signDataDigest(key);
 
         // then
         assertThat(response).isSameAs(expected);
@@ -852,11 +852,11 @@ class CryptographicOperationServiceImplTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private SignDataResponseDto signPrehashed(CryptographicKeyItemOperationModel key) throws Exception {
+    private SignDataResponseDto signDataDigest(CryptographicKeyItemOperationModel key) throws Exception {
         return service
                 .signDataWithoutEventHistory(SecuredParentUUID.fromUUID(key.tokenInstanceReferenceUuid()),
                         SecuredUUID.fromUUID(key.tokenProfileUuid()), key.keyUuid(), key.keyItemUuid(), signRequest(),
-                        SignatureInputMode.PREHASHED_DIGEST);
+                        SignatureInputMode.DATA_DIGEST);
     }
 
     private static CryptographicKeyItemOperationModel legacyKey() {
