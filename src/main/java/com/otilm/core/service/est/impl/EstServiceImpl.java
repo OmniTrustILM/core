@@ -35,11 +35,10 @@ import org.springframework.stereotype.Service;
 
 /**
  * The EST operations. Every call resolves its route first and writes nothing itself, and none runs in a transaction,
- * because each can wait for a connector, an OCSP responder or the Auth service. It carries no transactional annotation
- * on purpose: the controller calls it outside any transaction, and even {@code NOT_SUPPORTED} would open a scope whose
- * first read keeps its connection until the call returns. No resource authorization applies: the request runs as the
- * protocol user, the authentication policy of the EST Profile identifies a client that enrolls, and the certificate
- * that a client presents identifies it when it re-enrolls.
+ * because each can wait for a connector, an OCSP responder or the Auth service. It carries no transactional annotation:
+ * the controller calls it outside any transaction. No resource authorization applies: the request runs as the protocol
+ * user, the authentication policy of the EST Profile identifies a client that enrolls, and the certificate that a
+ * client presents identifies it when it re-enrolls.
  */
 @Slf4j
 @Service
