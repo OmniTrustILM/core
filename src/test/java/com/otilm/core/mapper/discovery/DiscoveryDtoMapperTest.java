@@ -380,6 +380,8 @@ class DiscoveryDtoMapperTest {
         assertThat(dto.getInventory()).isNull();
     }
 
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
     private static String mlDsa65Identifier() throws Exception {
         return Base64
                 .getEncoder()

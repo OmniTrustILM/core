@@ -289,7 +289,7 @@ class KeyDescriberTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    static Stream<Arguments> postQuantumParameterSets() {
+    private static Stream<Arguments> postQuantumParameterSets() {
         return Stream
                 .of(arguments(NISTObjectIdentifiers.id_ml_dsa_44, KeyAlgorithm.MLDSA, "ML-DSA-44", 20480),
                         arguments(NISTObjectIdentifiers.id_ml_dsa_87, KeyAlgorithm.MLDSA, "ML-DSA-87", 39168),
@@ -301,7 +301,7 @@ class KeyDescriberTest {
                         arguments(BCObjectIdentifiers.falcon_512, KeyAlgorithm.FALCON, "FALCON-512", 10248));
     }
 
-    static Stream<Arguments> rsaKeyOids() {
+    private static Stream<Arguments> rsaKeyOids() {
         return Stream
                 .of(arguments(named("RSASSA-PSS", PKCSObjectIdentifiers.id_RSASSA_PSS)),
                         arguments(named("RSAES-OAEP", PKCSObjectIdentifiers.id_RSAES_OAEP)),
