@@ -68,8 +68,7 @@ public class CertificateValidationStatusPoller {
      * the request's EntityManager may hold the certificate as the caller loaded it, and an entity read would return
      * that copy for the whole budget. The caller's transaction is suspended ({@link Propagation#NOT_SUPPORTED}) so a
      * sample cannot flush the caller's changes and hold their row locks across the sleeps; each sample runs in its own
-     * short read-only transaction, because a read outside one here would keep an EntityManager and its connection until
-     * the wait ends.
+     * short read-only transaction.
      * </p>
      *
      * @param certificate the certificate whose status to resolve (its DTO status is the starting point)

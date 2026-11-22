@@ -1068,6 +1068,8 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     }
 
     @Override
+    // Joins the caller's transaction; the class-level NOT_SUPPORTED would suspend it onto a second connection.
+    @Transactional(propagation = Propagation.SUPPORTS)
     public UUID findKeyByFingerprint(String fingerprint) {
         CryptographicKeyItem item = cryptographicKeyItemRepository.findByFingerprint(fingerprint).orElse(null);
         if (item != null) {

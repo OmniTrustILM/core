@@ -53,9 +53,13 @@ import com.otilm.core.service.writer.CertificateChainWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateTestUtil;
 import com.otilm.core.util.CertificateUtil;
+import com.otilm.core.util.ConcurrentCalls;
 import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.MetaDefinitions;
 import com.otilm.core.util.PlatformX500NameStyle;
+import com.otilm.core.util.WireMockResponseGate;
+import com.zaxxer.hikari.HikariDataSource;
+import com.zaxxer.hikari.HikariPoolMXBean;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
 import java.io.ByteArrayInputStream;
@@ -93,9 +97,13 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import javax.security.auth.x500.X500Principal;
+import javax.sql.DataSource;
 import org.apache.commons.lang3.StringUtils;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
@@ -200,6 +208,9 @@ public class CertificateValidationITest extends BaseSpringBootTest {
     private CertificateUploadedEventHandler certificateUploadedEventHandler;
 
     @Autowired
+    private DataSource dataSource;
+
+    @Autowired
     private TestCertificateAuthority testCertificateAuthority;
 
     @Autowired
@@ -215,9 +226,11 @@ public class CertificateValidationITest extends BaseSpringBootTest {
 
     private WireMockServer mockServer;
 
+    private final WireMockResponseGate crlResponseGate = new WireMockResponseGate();
+
     @BeforeEach
     public void setUp() throws GeneralSecurityException, IOException, com.otilm.api.exception.CertificateException {
-        mockServer = new WireMockServer(LoopbackWireMock.options());
+        mockServer = new WireMockServer(LoopbackWireMock.options().extensions(crlResponseGate));
         mockServer.start();
 
         WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
@@ -655,6 +668,36 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         assertThat(readCrlStatus(result)).isEqualTo(CertificateValidationStatus.VALID);
         assertThat(findStoredCrl(cert)).isPresent();
         assertThat(findStoredCrlEntry(cert, cert.getSerialNumber())).isEmpty();
+    }
+
+    @Test
+    void holdsNoConnection_whenTheCrlDownloadIsUnderWay() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String urlPath = "/held-" + stamp + ".crl";
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlHeld-" + stamp,
+                List.of(LoopbackWireMock.url(mockServer) + urlPath), null, BigInteger.ONE);
+        Certificate entity = createTrustedCertEntity(cert);
+        stubCrlPoint(urlPath, createEmptyCRL(cert, issuerKeyPair.getPrivate()).getEncoded());
+        HikariPoolMXBean pool = dataSource.unwrap(HikariDataSource.class).getHikariPoolMXBean();
+        int activeBeforeTheValidation = pool.getActiveConnections();
+        CountDownLatch crlAnswer = crlResponseGate.hold();
+
+        // when
+        Future<CertificateValidationResultDto> validation = ConcurrentCalls
+                .callInBackground(() -> certificateService.getCertificateValidationResult(entity.getSecuredUuid()));
+        int activeWhileDownloading;
+        try {
+            crlResponseGate.awaitHeld();
+            activeWhileDownloading = pool.getActiveConnections();
+        } finally {
+            crlAnswer.countDown();
+        }
+
+        // then
+        assertThat(readCrlStatus(validation.get(30, TimeUnit.SECONDS))).isEqualTo(CertificateValidationStatus.VALID);
+        assertThat(activeWhileDownloading).isLessThanOrEqualTo(activeBeforeTheValidation);
     }
 
     @Test

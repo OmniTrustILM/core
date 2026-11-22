@@ -135,4 +135,12 @@ public class SigningRecordWriter {
     public int deleteRetrievedAndFlaggedBatch(int limit) {
         return recordRepository.deleteRetrievedAndFlagged(limit);
     }
+
+    // --- Snapshot (REQUIRED) ---------------------------------------------------------------------------
+
+    /** Joins the caller's transaction, whose first statement this must be. */
+    @Transactional(propagation = Propagation.REQUIRED)
+    public void readUnderOneSnapshot() {
+        recordRepository.readUnderOneSnapshot();
+    }
 }
