@@ -56,16 +56,21 @@ class SigningWorkflowModelsTest {
     }
 
     @Test
-    void managedRawSigningWorkflow_reportsRawSigningType() {
-        ManagedRawSigningWorkflow wf = new ManagedRawSigningWorkflow(CertificatePurposeRequirements.NONE);
+    void reportsRawSigningType_whenWorkflowIsManagedRaw() {
+        // given
+        var purpose = CertificatePurposeRequirements.NONE;
 
-        assertEquals(SigningWorkflowType.RAW_SIGNING, wf.getWorkflowType());
-        assertInstanceOf(RawSigningWorkflow.class, wf);
-        assertInstanceOf(SigningWorkflow.class, wf);
+        // when
+        ManagedRawSigningWorkflow wf = new ManagedRawSigningWorkflow(purpose);
+
+        // then
+        assertThat(wf.getWorkflowType()).isEqualTo(SigningWorkflowType.RAW_SIGNING);
+        assertThat(wf).isInstanceOf(RawSigningWorkflow.class);
+        assertThat(wf).isInstanceOf(SigningWorkflow.class);
     }
 
     @Test
-    void managedRawWorkflow_defaultsToNoPurpose_whenGivenNull() {
+    void defaultsToNoPurpose_whenRawWorkflowIsGivenNull() {
         // given — no certificate purpose supplied
 
         // when

@@ -1479,7 +1479,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         }
 
         @Test
-        void createRawProfile_persistsAndEchoesCertificatePurpose() throws Exception {
+        void persistsAndEchoesCertificatePurpose_whenRawProfileIsCreated() throws Exception {
             // given: a certificate that satisfies both constraints the profile is about to set
             widenDefaultSigningCertificate(CertificateKeyUsage.NON_REPUDIATION, DOCUMENT_SIGNING_OID);
 
@@ -1504,7 +1504,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         }
 
         @Test
-        void createRawProfile_refusesCertificate_whenRequiredEkuIsMissing() {
+        void refusesCertificate_whenCreatedRawProfileDemandsAMissingEku() {
             // given — defaultSigningCertificate does not carry the document-signing extended key usage
 
             // when
@@ -2113,7 +2113,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
     class UpdateTests {
 
         @Test
-        void updateRawProfile_clearsCertificatePurpose_whenKnobsAreOmitted() throws Exception {
+        void clearsCertificatePurpose_whenRawProfileUpdateOmitsTheKnobs() throws Exception {
             // given: a managed raw profile that carries both constraints
             widenDefaultSigningCertificate(CertificateKeyUsage.NON_REPUDIATION, DOCUMENT_SIGNING_OID);
             SigningProfileDto profile = signingProfileService
@@ -2516,7 +2516,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             // given — defaultTimestampingProfile signs with the key of a second certificate
             Certificate secondCertificateOnTheKey = issueSigningCertificate(timestampingKeyPair,
                     "Signing on the TSA key");
-            assertThat(keyUuidOf(secondCertificateOnTheKey)).isEqualTo(keyUuidOf(defaultTimestampingCertificate));
+            assertThat(loadKeyUuid(secondCertificateOnTheKey)).isEqualTo(loadKeyUuid(defaultTimestampingCertificate));
             SigningProfileRequestDto rawRequest = aSigningProfileRequest()
                     .withName("raw-on-the-tsa-key")
                     .withStaticKeyManagedSigning(secondCertificateOnTheKey.getUuid())
@@ -2539,7 +2539,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             // given — defaultTimestampingProfile, the only profile signing with the key of a second certificate
             Certificate secondCertificateOnTheKey = issueSigningCertificate(timestampingKeyPair,
                     "Content signing on the TSA key");
-            assertThat(keyUuidOf(secondCertificateOnTheKey)).isEqualTo(keyUuidOf(defaultTimestampingCertificate));
+            assertThat(loadKeyUuid(secondCertificateOnTheKey)).isEqualTo(loadKeyUuid(defaultTimestampingCertificate));
 
             // when
             SigningProfileDto created = createManagedContentProfile("content-on-the-tsa-key",
@@ -2570,7 +2570,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         }
 
         @Test
-        void updateRawProfile_admitsItsOwnCertificate() throws Exception {
+        void admitsItsOwnCertificate_whenContentProfileTurnsRaw() throws Exception {
             // given — a content profile, the only profile signing with its certificate's key
             SigningProfileDto contentProfile = createManagedContentProfile("content-turning-raw",
                     defaultSigningCertificate.getUuid());
@@ -2608,7 +2608,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining("signs raw digests for Signing Profile(s)")
                     .hasMessageContaining(defaultManagedStaticKeySigningProfile.getName());
-            assertThat(latestCertificateUuidOf(contentProfile)).isEqualTo(defaultSigningCertificate.getUuid());
+            assertThat(loadLatestCertificateUuid(contentProfile)).isEqualTo(defaultSigningCertificate.getUuid());
         }
 
         @Test
@@ -2616,7 +2616,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             // given — defaultTimestampingProfile signs with the key of a second certificate
             Certificate secondCertificateOnTheKey = issueSigningCertificate(timestampingKeyPair,
                     "Raw signing on the TSA key");
-            assertThat(keyUuidOf(secondCertificateOnTheKey)).isEqualTo(keyUuidOf(defaultTimestampingCertificate));
+            assertThat(loadKeyUuid(secondCertificateOnTheKey)).isEqualTo(loadKeyUuid(defaultTimestampingCertificate));
             SigningProfileRequestDto ontoTheTsaKey = aSigningProfileRequestFromExistingProfile(
                     defaultManagedStaticKeySigningProfile)
                     .withStaticKeyManagedSigning(secondCertificateOnTheKey.getUuid())
@@ -2632,7 +2632,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining("also signs for Signing Profile(s) of another workflow")
                     .hasMessageContaining(defaultTimestampingProfile.getName());
-            assertThat(latestCertificateUuidOf(defaultManagedStaticKeySigningProfile))
+            assertThat(loadLatestCertificateUuid(defaultManagedStaticKeySigningProfile))
                     .isEqualTo(defaultRawSigningCertificate.getUuid());
         }
 
@@ -2657,7 +2657,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining("cannot sign a data digest")
                     .hasMessageContaining(signsItsOwnMessage.getCode());
-            assertThat(latestCertificateUuidOf(defaultManagedStaticKeySigningProfile))
+            assertThat(loadLatestCertificateUuid(defaultManagedStaticKeySigningProfile))
                     .isEqualTo(defaultRawSigningCertificate.getUuid());
         }
 
@@ -2690,7 +2690,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         }
 
         @Test
-        void createRawProfile_throwsAccessDenied_whenCertificateDetailIsDenied() {
+        void throwsAccessDenied_whenRawProfileIsCreatedWithADeniedCertificate() {
             // given — the binding rule would refuse the certificate, since a timestamping profile signs with its key
             denyResourceAccess(Resource.CERTIFICATE, ResourceAction.DETAIL);
             SigningProfileRequestDto rawRequest = aSigningProfileRequest()
@@ -2708,7 +2708,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         }
 
         @Test
-        void createContentProfile_throwsAccessDenied_whenCertificateDetailIsDenied() {
+        void throwsAccessDenied_whenContentProfileIsCreatedWithADeniedCertificate() {
             // given — the binding rule would refuse the certificate, since a raw profile signs with its key
             denyResourceAccess(Resource.CERTIFICATE, ResourceAction.DETAIL);
             SigningProfileRequestDto contentRequest = aSigningProfileRequest()
@@ -2726,7 +2726,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         }
 
         @Test
-        void createTimestampingProfile_throwsAccessDenied_whenCertificateDetailIsDenied() {
+        void throwsAccessDenied_whenTimestampingProfileIsCreatedWithADeniedCertificate() {
             // given — the binding rule would refuse the certificate, since a raw profile signs with its key
             denyResourceAccess(Resource.CERTIFICATE, ResourceAction.DETAIL);
             SigningProfileRequestDto timestampingRequest = aSigningProfileRequest()
@@ -2750,7 +2750,8 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             Certificate timestampingCertificateOnTheKey = testCertificateAuthority
                     .createTrustedCa("CN=TSA on the raw key Root")
                     .issueTimestampingCertificate(rawSigningKeyPair, "CN=TSA on the raw key");
-            assertThat(keyUuidOf(timestampingCertificateOnTheKey)).isEqualTo(keyUuidOf(defaultRawSigningCertificate));
+            assertThat(loadKeyUuid(timestampingCertificateOnTheKey))
+                    .isEqualTo(loadKeyUuid(defaultRawSigningCertificate));
             SigningProfileRequestDto timestampingRequest = aSigningProfileRequest()
                     .withName("timestamping-on-the-raw-key")
                     .withStaticKeyManagedSigning(timestampingCertificateOnTheKey.getUuid())
@@ -2790,14 +2791,14 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                     .issueSigningCertificate(keyPair, "CN=" + commonName);
         }
 
-        private UUID keyUuidOf(Certificate certificate) {
+        private UUID loadKeyUuid(Certificate certificate) {
             return certificateRepository
                     .findByUuid(SecuredUUID.fromUUID(certificate.getUuid()))
                     .orElseThrow()
                     .getKeyUuid();
         }
 
-        private UUID latestCertificateUuidOf(SigningProfileDto profile) {
+        private UUID loadLatestCertificateUuid(SigningProfileDto profile) {
             return signingProfileVersionRepository
                     .findLatestByProfileUuid(UUID.fromString(profile.getUuid()))
                     .orElseThrow()
@@ -3626,7 +3627,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         }
 
         @Test
-        void activateIlmNative_refusesRawProfile_whenKeyAlsoSignsForAnotherWorkflow() {
+        void refusesIlmNativeActivation_whenRawProfileKeyAlsoSignsForAnotherWorkflow() {
             // given — a raw profile on the certificate of defaultTimestampingProfile, which no save admits any more
             SigningProfile rawProfile = seedRawProfile("raw-on-the-tsa-certificate", defaultTimestampingCertificate);
             SecuredUUID uuid = SecuredUUID.fromUUID(rawProfile.getUuid());
@@ -4980,7 +4981,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         }
 
         @Test
-        void rawSigningProfile_returnsTypedModel() throws NotFoundException {
+        void returnsTypedModel_whenProfileIsRawSigning() throws Exception {
             // given
             String rawProfileName = defaultManagedStaticKeySigningProfile.getName();
 

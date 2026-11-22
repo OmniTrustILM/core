@@ -14,33 +14,33 @@ class RawSigningItemTest {
     @Test
     void keepsItsDigest_whenTheCallerChangesTheArrayItPassedIn() {
         // given
-        byte[] callerBuffer = sha256SizedDigest();
+        byte[] callerBuffer = buildSha256SizedDigest();
         var item = new RawSigningItem(IDENTIFIER, callerBuffer);
 
         // when
         callerBuffer[0] ^= 0x01;
 
         // then
-        assertThat(item.digest()).isEqualTo(sha256SizedDigest());
+        assertThat(item.digest()).isEqualTo(buildSha256SizedDigest());
     }
 
     @Test
     void keepsItsDigest_whenAConsumerChangesTheArrayItReadOut() {
         // given
-        var item = new RawSigningItem(IDENTIFIER, sha256SizedDigest());
+        var item = new RawSigningItem(IDENTIFIER, buildSha256SizedDigest());
 
         // when
         item.digest()[0] ^= 0x01;
 
         // then
-        assertThat(item.digest()).isEqualTo(sha256SizedDigest());
+        assertThat(item.digest()).isEqualTo(buildSha256SizedDigest());
     }
 
     @Test
     void equalsWithTheSameHashCode_whenIdentifierAndDigestContentMatch() {
         // given
-        var item = new RawSigningItem(IDENTIFIER, sha256SizedDigest());
-        var sameContentInAnotherArray = new RawSigningItem(IDENTIFIER, sha256SizedDigest());
+        var item = new RawSigningItem(IDENTIFIER, buildSha256SizedDigest());
+        var sameContentInAnotherArray = new RawSigningItem(IDENTIFIER, buildSha256SizedDigest());
 
         // when
         boolean equal = item.equals(sameContentInAnotherArray);
@@ -53,9 +53,9 @@ class RawSigningItemTest {
     @Test
     void differs_whenDigestContentDiffers() {
         // given
-        byte[] otherDigest = sha256SizedDigest();
+        byte[] otherDigest = buildSha256SizedDigest();
         otherDigest[31] ^= 0x01;
-        var item = new RawSigningItem(IDENTIFIER, sha256SizedDigest());
+        var item = new RawSigningItem(IDENTIFIER, buildSha256SizedDigest());
 
         // when
         boolean equal = item.equals(new RawSigningItem(IDENTIFIER, otherDigest));
@@ -67,7 +67,7 @@ class RawSigningItemTest {
     @Test
     void printsTheDigestLengthOnly_whenRendered() {
         // given
-        byte[] digest = sha256SizedDigest();
+        byte[] digest = buildSha256SizedDigest();
         var item = new RawSigningItem(IDENTIFIER, digest);
 
         // when
@@ -84,7 +84,7 @@ class RawSigningItemTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static byte[] sha256SizedDigest() {
+    private static byte[] buildSha256SizedDigest() {
         byte[] digest = new byte[32];
         Arrays.fill(digest, (byte) 0x5A);
         return digest;

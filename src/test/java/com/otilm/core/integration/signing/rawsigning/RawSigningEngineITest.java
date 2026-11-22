@@ -159,15 +159,16 @@ class RawSigningEngineITest extends BaseSpringBootTest {
 
     @ParameterizedTest
     @MethodSource("signingKeys")
-    void producesSignaturesThatVerifyAgainstTheirDigests(SigningKey signingKey) throws Exception {
+    void producesSignaturesThatVerifyAgainstTheirDigests_whenKeySignsADataDigest(SigningKey signingKey)
+            throws Exception {
         // given
         SigningProfileDto profile = createRawProfile("raw-" + signingKey.signatureAlgorithm().name().toLowerCase(),
                 signingKey);
-        RawSigningRequest request = digestRequest(signingKey.digestAlgorithm());
+        RawSigningRequest request = buildDigestRequest(signingKey.digestAlgorithm());
 
         // when
         RawSigningResult result = engine
-                .sign(request, modelOf(profile), resolvedProfileOf(profile), SigningProtocol.ILM_NATIVE);
+                .sign(request, loadModel(profile), resolveProfile(profile), SigningProtocol.ILM_NATIVE);
 
         // then
         assertThat(result.signatureAlgorithm()).isEqualTo(signingKey.signatureAlgorithm());
@@ -181,18 +182,18 @@ class RawSigningEngineITest extends BaseSpringBootTest {
     }
 
     @Test
-    void writesOneRecordPerDigestNamingTheRequester() throws Exception {
+    void writesOneRecordPerDigestNamingTheRequester_whenProfileRecordsSignatures() throws Exception {
         // given
         SigningProfileDto profile = createRawProfile("raw-recorded", RSA_PKCS1_SHA256);
         var requester = (PlatformUserDetails) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
-        RawSigningRequest request = digestRequest(DigestAlgorithm.SHA_256);
+        RawSigningRequest request = buildDigestRequest(DigestAlgorithm.SHA_256);
 
         // when
         RawSigningResult result = engine
-                .sign(request, modelOf(profile), resolvedProfileOf(profile), SigningProtocol.ILM_NATIVE);
+                .sign(request, loadModel(profile), resolveProfile(profile), SigningProtocol.ILM_NATIVE);
 
         // then
-        Map<UUID, SigningRecord> recordsByUuid = recordsOf(profile)
+        Map<UUID, SigningRecord> recordsByUuid = loadRecords(profile)
                 .stream()
                 .collect(Collectors.toMap(SigningRecord::getUuid, Function.identity()));
         assertThat(recordsByUuid).hasSameSizeAs(request.items());
@@ -203,7 +204,7 @@ class RawSigningEngineITest extends BaseSpringBootTest {
             assertThat(signingRecord.getName())
                     .isEqualTo("%s digest '%s'".formatted(profile.getName(), signed.identifier()));
             assertThat(signingRecord.getSigningTime()).isNotNull();
-            assertThat(requestMetadataOf(signingRecord))
+            assertThat(readRequestMetadata(signingRecord))
                     .containsOnly(entry("signingProfileName", profile.getName()),
                             entry("signingProfileVersion", profile.getVersion()),
                             entry("signatureAlgorithm", SignatureAlgorithm.SHA256_WITH_RSA.getCode()),
@@ -220,16 +221,16 @@ class RawSigningEngineITest extends BaseSpringBootTest {
     void keepsTheSigningRecords_whenTheCallersTransactionRollsBack() throws Exception {
         // given
         SigningProfileDto profile = createRawProfile("raw-caller-rollback", RSA_PKCS1_SHA256);
-        RawSigningRequest request = digestRequest(DigestAlgorithm.SHA_256);
-        SigningProfileModel<?, ?> signingProfile = modelOf(profile);
-        ResolvedManagedRawSigningProfile resolvedProfile = resolvedProfileOf(profile);
+        RawSigningRequest request = buildDigestRequest(DigestAlgorithm.SHA_256);
+        SigningProfileModel<?, ?> signingProfile = loadModel(profile);
+        ResolvedManagedRawSigningProfile resolvedProfile = resolveProfile(profile);
 
         // when
         RawSigningResult result = inACallersTransactionThatRollsBack(
                 () -> engine.sign(request, signingProfile, resolvedProfile, SigningProtocol.ILM_NATIVE));
 
         // then
-        assertThat(recordsOf(profile))
+        assertThat(loadRecords(profile))
                 .extracting(SigningRecord::getUuid)
                 .containsExactlyInAnyOrderElementsOf(
                         result.items().stream().map(RawSignedItem::signingRecordUuid).toList());
@@ -239,7 +240,7 @@ class RawSigningEngineITest extends BaseSpringBootTest {
     void refusesTheCertificate_whenEkuRequirementIsNotMet() throws Exception {
         // given — profile save refuses a certificate without the demanded EKU, so the demand reaches only the run
         SigningProfileDto profile = createRawProfile("raw-eku-demand", RSA_PKCS1_SHA256);
-        ResolvedManagedRawSigningProfile saved = resolvedProfileOf(profile);
+        ResolvedManagedRawSigningProfile saved = resolveProfile(profile);
         var documentSigningDemand = new CertificatePurposeRequirements(false, Set.of(DOCUMENT_SIGNING_OID));
         ResolvedManagedRawSigningProfile demandingDocumentSigning = aResolvedRawSigningProfile()
                 .withUuid(saved.uuid())
@@ -248,11 +249,11 @@ class RawSigningEngineITest extends BaseSpringBootTest {
                 .withCertificatePurpose(documentSigningDemand)
                 .withResolvedScheme(saved.resolvedScheme())
                 .build();
-        RawSigningRequest request = digestRequest(DigestAlgorithm.SHA_256);
+        RawSigningRequest request = buildDigestRequest(DigestAlgorithm.SHA_256);
 
         // when
         ThrowingCallable sign = () -> engine
-                .sign(request, modelOf(profile), demandingDocumentSigning, SigningProtocol.ILM_NATIVE);
+                .sign(request, loadModel(profile), demandingDocumentSigning, SigningProtocol.ILM_NATIVE);
 
         // then
         assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, refusal -> {
@@ -260,7 +261,7 @@ class RawSigningEngineITest extends BaseSpringBootTest {
             assertThat(refusal.operatorMessage()).contains("not acceptable").contains(saved.name());
         });
         v2Token.connectorMock().verifyNoOperationRequest("sign");
-        assertThat(recordsOf(profile)).isEmpty();
+        assertThat(loadRecords(profile)).isEmpty();
     }
 
     @Test
@@ -268,12 +269,12 @@ class RawSigningEngineITest extends BaseSpringBootTest {
         // given — a timestamping profile on the raw profile's key, which no save admits any more
         SigningProfileDto profile = createRawProfile("raw-sharing-its-key", RSA_PKCS1_SHA256);
         SigningProfile timestampingProfile = seedTimestampingProfile("timestamping-on-the-raw-key",
-                signingCertificateOf(profile));
-        RawSigningRequest request = digestRequest(DigestAlgorithm.SHA_256);
+                loadSigningCertificate(profile));
+        RawSigningRequest request = buildDigestRequest(DigestAlgorithm.SHA_256);
 
         // when
         ThrowingCallable sign = () -> engine
-                .sign(request, modelOf(profile), resolvedProfileOf(profile), SigningProtocol.ILM_NATIVE);
+                .sign(request, loadModel(profile), resolveProfile(profile), SigningProtocol.ILM_NATIVE);
 
         // then
         assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, refusal -> {
@@ -281,7 +282,7 @@ class RawSigningEngineITest extends BaseSpringBootTest {
             assertThat(refusal.operatorMessage()).contains(timestampingProfile.getName());
         });
         v2Token.connectorMock().verifyNoOperationRequest("sign");
-        assertThat(recordsOf(profile)).isEmpty();
+        assertThat(loadRecords(profile)).isEmpty();
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -349,16 +350,16 @@ class RawSigningEngineITest extends BaseSpringBootTest {
                 .build();
     }
 
-    private static RawSigningRequest digestRequest(DigestAlgorithm digestAlgorithm) throws Exception {
+    private static RawSigningRequest buildDigestRequest(DigestAlgorithm digestAlgorithm) throws Exception {
         List<RawSigningItem> items = new ArrayList<>();
         for (String identifier : IDENTIFIERS) {
-            byte[] digest = MessageDigest.getInstance(digestAlgorithm.getCode()).digest(messageOf(identifier));
+            byte[] digest = MessageDigest.getInstance(digestAlgorithm.getCode()).digest(buildMessage(identifier));
             items.add(new RawSigningItem(identifier, digest));
         }
         return new RawSigningRequest(SignatureInputMode.DATA_DIGEST, digestAlgorithm, items);
     }
 
-    private static byte[] messageOf(String identifier) {
+    private static byte[] buildMessage(String identifier) {
         return ("content of " + identifier).getBytes(StandardCharsets.UTF_8);
     }
 
@@ -369,19 +370,19 @@ class RawSigningEngineITest extends BaseSpringBootTest {
             verifier.setParameter(signingKey.jdkVerifierParameters());
         }
         verifier.initVerify(publicKey);
-        verifier.update(messageOf(item.identifier()));
+        verifier.update(buildMessage(item.identifier()));
         return verifier.verify(item.signature());
     }
 
-    private SigningProfileModel<?, ?> modelOf(SigningProfileDto profile) throws Exception {
+    private SigningProfileModel<?, ?> loadModel(SigningProfileDto profile) throws Exception {
         return signingProfileInternalService.getSigningProfileModel(profile.getName());
     }
 
-    private ResolvedManagedRawSigningProfile resolvedProfileOf(SigningProfileDto profile) throws Exception {
-        return (ResolvedManagedRawSigningProfile) resolverFactory.resolve(modelOf(profile));
+    private ResolvedManagedRawSigningProfile resolveProfile(SigningProfileDto profile) throws Exception {
+        return (ResolvedManagedRawSigningProfile) resolverFactory.resolve(loadModel(profile));
     }
 
-    private Certificate signingCertificateOf(SigningProfileDto profile) {
+    private Certificate loadSigningCertificate(SigningProfileDto profile) {
         UUID certificateUuid = signingProfileVersionRepository
                 .findLatestByProfileUuid(UUID.fromString(profile.getUuid()))
                 .orElseThrow()
@@ -407,7 +408,7 @@ class RawSigningEngineITest extends BaseSpringBootTest {
         return saved;
     }
 
-    private static Map<String, Object> requestMetadataOf(SigningRecord signingRecord) throws Exception {
+    private static Map<String, Object> readRequestMetadata(SigningRecord signingRecord) throws Exception {
         return ObjectMapperFactory.storage().readValue(signingRecord.getRequestMetadataJson(), new TypeReference<>() {
         });
     }
@@ -423,7 +424,7 @@ class RawSigningEngineITest extends BaseSpringBootTest {
         });
     }
 
-    private List<SigningRecord> recordsOf(SigningProfileDto profile) {
+    private List<SigningRecord> loadRecords(SigningProfileDto profile) {
         UUID profileUuid = UUID.fromString(profile.getUuid());
         return signingRecordRepository
                 .findAll()

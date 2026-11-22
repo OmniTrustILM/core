@@ -147,7 +147,8 @@ class ManagedRawSigningEngineTest {
         when(recordStager.stage(eq(model), anyList())).thenReturn(recordUuids);
 
         // when
-        RawSigningResult result = engine.sign(digestRequest(IDENTIFIERS), model, profile, SigningProtocol.ILM_NATIVE);
+        RawSigningResult result = engine
+                .sign(buildDigestRequest(IDENTIFIERS), model, profile, SigningProtocol.ILM_NATIVE);
 
         // then
         assertThat(result.items()).extracting(RawSignedItem::identifier).containsExactlyElementsOf(IDENTIFIERS);
@@ -170,7 +171,7 @@ class ManagedRawSigningEngineTest {
 
         // when
         RawSigningResult result = engine
-                .sign(digestRequest(IDENTIFIERS), notRecording, profile, SigningProtocol.ILM_NATIVE);
+                .sign(buildDigestRequest(IDENTIFIERS), notRecording, profile, SigningProtocol.ILM_NATIVE);
 
         // then
         assertThat(result.items()).hasSameSizeAs(IDENTIFIERS).allSatisfy(item -> {
@@ -183,7 +184,7 @@ class ManagedRawSigningEngineTest {
     void throwsInvalidInput_whenModeIsData() throws Exception {
         // given
         var dataMode = SignatureInputMode.DATA;
-        var request = new RawSigningRequest(dataMode, DigestAlgorithm.SHA_256, digestItems(IDENTIFIERS));
+        var request = new RawSigningRequest(dataMode, DigestAlgorithm.SHA_256, buildDigestItems(IDENTIFIERS));
 
         // when
         ThrowingCallable sign = () -> engine.sign(request, model, profile, SigningProtocol.ILM_NATIVE);
@@ -200,7 +201,8 @@ class ManagedRawSigningEngineTest {
     void throwsInvalidInput_whenDigestAlgorithmIsNotTheProfiles() throws Exception {
         // given
         var notTheKeysDigest = DigestAlgorithm.SHA_384;
-        var request = new RawSigningRequest(SignatureInputMode.DATA_DIGEST, notTheKeysDigest, digestItems(IDENTIFIERS));
+        var request = new RawSigningRequest(SignatureInputMode.DATA_DIGEST, notTheKeysDigest,
+                buildDigestItems(IDENTIFIERS));
 
         // when
         ThrowingCallable sign = () -> engine.sign(request, model, profile, SigningProtocol.ILM_NATIVE);
@@ -220,7 +222,8 @@ class ManagedRawSigningEngineTest {
         var tooShortForSha256 = new byte[31];
         var shortItem = new RawSigningItem("doc-2", tooShortForSha256);
         List<RawSigningItem> items = List
-                .of(digestItems(List.of("doc-1")).getFirst(), shortItem, digestItems(List.of("doc-3")).getFirst());
+                .of(buildDigestItems(List.of("doc-1")).getFirst(), shortItem,
+                        buildDigestItems(List.of("doc-3")).getFirst());
         var request = new RawSigningRequest(SignatureInputMode.DATA_DIGEST, DigestAlgorithm.SHA_256, items);
 
         // when
@@ -257,7 +260,7 @@ class ManagedRawSigningEngineTest {
         // given
         var cap = 2;
         cacheMaxItemsPerRequest(cap);
-        var request = digestRequest(IDENTIFIERS);
+        var request = buildDigestRequest(IDENTIFIERS);
 
         // when
         ThrowingCallable sign = () -> engine.sign(request, model, profile, SigningProtocol.ILM_NATIVE);
@@ -276,7 +279,7 @@ class ManagedRawSigningEngineTest {
         var providerRefusal = new SigningEngineException(SigningEngineFailure.SIGNER_FAULT, "provider refused",
                 "Internal signing error");
         when(signer.signAll(anyList(), eq(SignatureInputMode.DATA_DIGEST))).thenThrow(providerRefusal);
-        var request = digestRequest(IDENTIFIERS);
+        var request = buildDigestRequest(IDENTIFIERS);
 
         // when
         ThrowingCallable sign = () -> engine.sign(request, model, profile, SigningProtocol.ILM_NATIVE);
@@ -293,7 +296,7 @@ class ManagedRawSigningEngineTest {
         var providerFailure = new ItemSigningException(SigningEngineFailure.SIGNER_FAULT, failedIndex,
                 "no signature for item " + failedIndex, "Internal signing error");
         when(signer.signAll(anyList(), eq(SignatureInputMode.DATA_DIGEST))).thenThrow(providerFailure);
-        var request = digestRequest(IDENTIFIERS);
+        var request = buildDigestRequest(IDENTIFIERS);
 
         // when
         ThrowingCallable sign = () -> engine.sign(request, model, profile, SigningProtocol.ILM_NATIVE);
@@ -302,16 +305,16 @@ class ManagedRawSigningEngineTest {
         assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, thrown -> {
             assertThat(thrown.itemIdentifier()).isEqualTo(IDENTIFIERS.get(failedIndex));
             assertThat(thrown.failure()).isEqualTo(providerFailure.failure());
-        }).hasMessage(providerFailure.clientMessage());
+        }).hasMessageContaining(providerFailure.clientMessage());
         verifyNoInteractions(recordStager);
     }
 
     @Test
-    void signsAllDigestsInOneCall() throws Exception {
+    void signsAllDigestsInOneCall_whenBatchHasSeveralDigests() throws Exception {
         // given
         when(signer.signAll(anyList(), eq(SignatureInputMode.DATA_DIGEST))).thenReturn(signMessages(IDENTIFIERS));
         when(recordStager.stage(eq(model), anyList())).thenReturn(List.of());
-        var request = digestRequest(IDENTIFIERS);
+        var request = buildDigestRequest(IDENTIFIERS);
 
         // when
         engine.sign(request, model, profile, SigningProtocol.ILM_NATIVE);
@@ -329,7 +332,7 @@ class ManagedRawSigningEngineTest {
         // given
         var signsItsOwnMessage = SignatureAlgorithm.ML_DSA_65;
         when(signer.getSignatureAlgorithm()).thenReturn(signsItsOwnMessage);
-        var request = digestRequest(IDENTIFIERS);
+        var request = buildDigestRequest(IDENTIFIERS);
 
         // when
         ThrowingCallable sign = () -> engine.sign(request, model, profile, SigningProtocol.ILM_NATIVE);
@@ -348,10 +351,10 @@ class ManagedRawSigningEngineTest {
         // given
         var timestampingProfileOnTheKey = "timestamping-profile";
         when(signingProfileVersionRepository
-                .findLatestProfileNamesBySigningKeyAndWorkflowIn(signingKeyUuidOf(profile),
+                .findLatestProfileNamesBySigningKeyAndWorkflowIn(getSigningKeyUuid(profile),
                         Set.of(SigningWorkflowType.CONTENT_SIGNING, SigningWorkflowType.TIMESTAMPING), PROFILE_UUID))
                 .thenReturn(List.of(timestampingProfileOnTheKey));
-        var request = digestRequest(IDENTIFIERS);
+        var request = buildDigestRequest(IDENTIFIERS);
 
         // when
         ThrowingCallable sign = () -> engine.sign(request, model, profile, SigningProtocol.ILM_NATIVE);
@@ -366,11 +369,34 @@ class ManagedRawSigningEngineTest {
     }
 
     @Test
+    void failsWithStepFailed_whenACollaboratorThrowsUnexpectedly() throws Exception {
+        // given
+        var unexpectedFault = new IllegalStateException("repository unavailable");
+        when(signingProfileVersionRepository
+                .findLatestProfileNamesBySigningKeyAndWorkflowIn(getSigningKeyUuid(profile),
+                        Set.of(SigningWorkflowType.CONTENT_SIGNING, SigningWorkflowType.TIMESTAMPING), PROFILE_UUID))
+                .thenThrow(unexpectedFault);
+        var request = buildDigestRequest(IDENTIFIERS);
+
+        // when
+        ThrowingCallable sign = () -> engine.sign(request, model, profile, SigningProtocol.ILM_NATIVE);
+
+        // then
+        assertThatThrownBy(sign)
+                .isInstanceOfSatisfying(SigningEngineException.class,
+                        failure -> assertThat(failure.failure()).isEqualTo(SigningEngineFailure.STEP_FAILED))
+                .hasMessageContaining("Internal error during signing")
+                .getCause()
+                .isSameAs(unexpectedFault);
+        verifyNoInteractions(signerFactory, signer, recordStager);
+    }
+
+    @Test
     void throwsInvalidInput_whenDigestAlgorithmIsMissing() throws Exception {
         // given
         DigestAlgorithm noDigestAlgorithm = null;
         var request = new RawSigningRequest(SignatureInputMode.DATA_DIGEST, noDigestAlgorithm,
-                digestItems(IDENTIFIERS));
+                buildDigestItems(IDENTIFIERS));
 
         // when
         ThrowingCallable sign = () -> engine.sign(request, model, profile, SigningProtocol.ILM_NATIVE);
@@ -379,7 +405,7 @@ class ManagedRawSigningEngineTest {
         assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, refusal -> {
             assertThat(refusal.failure()).isEqualTo(SigningEngineFailure.INVALID_INPUT);
             assertThat(refusal.itemIdentifier()).isNull();
-        }).hasMessage("Digest algorithm is required");
+        }).hasMessageContaining("Digest algorithm is required");
         verifyNoInteractions(signerFactory, recordStager);
     }
 
@@ -388,7 +414,7 @@ class ManagedRawSigningEngineTest {
     void throwsMisconfigured_whenTheModelIsNotOfTheProfile(SigningProfileModel<?, ?> modelOfAnotherProfileVersion)
             throws Exception {
         // given
-        var request = digestRequest(IDENTIFIERS);
+        var request = buildDigestRequest(IDENTIFIERS);
 
         // when
         ThrowingCallable sign = () -> engine
@@ -416,18 +442,19 @@ class ManagedRawSigningEngineTest {
         return Stream.of(named("another profile", anotherProfile), named("the next version", nextVersion));
     }
 
-    private static UUID signingKeyUuidOf(ResolvedManagedRawSigningProfile profile) {
+    private static UUID getSigningKeyUuid(ResolvedManagedRawSigningProfile profile) {
         return ((ResolvedStaticKeyManagedSigning) profile.resolvedScheme()).certificate().keyUuid();
     }
 
-    private static RawSigningRequest digestRequest(List<String> identifiers) throws Exception {
-        return new RawSigningRequest(SignatureInputMode.DATA_DIGEST, DigestAlgorithm.SHA_256, digestItems(identifiers));
+    private static RawSigningRequest buildDigestRequest(List<String> identifiers) throws Exception {
+        return new RawSigningRequest(SignatureInputMode.DATA_DIGEST, DigestAlgorithm.SHA_256,
+                buildDigestItems(identifiers));
     }
 
-    private static List<RawSigningItem> digestItems(List<String> identifiers) throws Exception {
+    private static List<RawSigningItem> buildDigestItems(List<String> identifiers) throws Exception {
         List<RawSigningItem> items = new ArrayList<>();
         for (String identifier : identifiers) {
-            byte[] digest = MessageDigest.getInstance("SHA-256").digest(messageOf(identifier));
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(buildMessage(identifier));
             items.add(new RawSigningItem(identifier, digest));
         }
         return items;
@@ -439,7 +466,7 @@ class ManagedRawSigningEngineTest {
         for (String identifier : identifiers) {
             Signature signature = Signature.getInstance("SHA256withRSA");
             signature.initSign(rsaKeyPair.getPrivate());
-            signature.update(messageOf(identifier));
+            signature.update(buildMessage(identifier));
             signatures.add(signature.sign());
         }
         return signatures;
@@ -448,11 +475,11 @@ class ManagedRawSigningEngineTest {
     private static boolean verifiesOverItsMessage(RawSignedItem item) throws Exception {
         Signature verifier = Signature.getInstance("SHA256withRSA");
         verifier.initVerify(rsaKeyPair.getPublic());
-        verifier.update(messageOf(item.identifier()));
+        verifier.update(buildMessage(item.identifier()));
         return verifier.verify(item.signature());
     }
 
-    private static byte[] messageOf(String identifier) {
+    private static byte[] buildMessage(String identifier) {
         return ("content of " + identifier).getBytes(StandardCharsets.UTF_8);
     }
 

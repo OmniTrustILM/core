@@ -23,6 +23,7 @@ import org.junit.jupiter.api.Test;
 
 import static com.otilm.core.util.builders.ResolvedManagedContentSigningProfileBuilder.aResolvedContentSigningProfile;
 import static com.otilm.core.util.builders.ResolvedManagedRawSigningProfileBuilder.aResolvedRawSigningProfile;
+import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningProfile;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
@@ -137,12 +138,13 @@ class SigningProfileResolverFactoryTest {
     }
 
     @Test
-    void resolvesARawModel_throughTheRawResolver() throws Exception {
+    void resolvesThroughTheRawResolver_whenModelIsRaw() throws Exception {
         // given
-        SigningProfileModel<?, ?> rawModel = new SigningProfileModel<>(UUID.randomUUID(), "raw-profile", null, 1, true,
-                List.of(SigningProtocol.ILM_NATIVE), null, new ManagedRawSigningWorkflow(null),
-                new StaticKeyManagedSigning(UUID.randomUUID(), List.of()),
-                SigningRecordPolicyModelBuilder.notRecording().build());
+        SigningProfileModel<?, ?> rawModel = aSigningProfile()
+                .withName("raw-profile")
+                .withEnabledProtocols(List.of(SigningProtocol.ILM_NATIVE))
+                .withWorkflow(new ManagedRawSigningWorkflow(null))
+                .build();
         var schemeResolver = mock(ManagedSchemeResolver.class);
         ResolvedManagedScheme resolvedScheme = aResolvedRawSigningProfile().build().resolvedScheme();
         given(schemeResolver.resolve("raw-profile", rawModel.signingScheme())).willReturn(resolvedScheme);

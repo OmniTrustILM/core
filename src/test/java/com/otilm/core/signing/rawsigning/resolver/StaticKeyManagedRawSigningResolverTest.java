@@ -51,10 +51,10 @@ class StaticKeyManagedRawSigningResolverTest {
     }
 
     @Test
-    void carriesTheCertificatePurposeOntoTheResolvedProfile() throws Exception {
+    void carriesTheCertificatePurposeOntoTheResolvedProfile_whenModelIsManagedRaw() throws Exception {
         // given
         var purpose = new CertificatePurposeRequirements(true, Set.of("1.3.6.1.5.5.7.3.36"));
-        SigningProfileModel<?, ?> model = aProfileWith(new ManagedRawSigningWorkflow(purpose));
+        SigningProfileModel<?, ?> model = buildProfileWith(new ManagedRawSigningWorkflow(purpose));
         var resolvedScheme = new ResolvedStaticKeyManagedSigning(SigningCertificateBuilder.valid(), List.of(), null,
                 List.of());
         given(schemeResolver.resolve(PROFILE_NAME, model.signingScheme())).willReturn(resolvedScheme);
@@ -72,9 +72,9 @@ class StaticKeyManagedRawSigningResolverTest {
     }
 
     @Test
-    void supportsAManagedRawWorkflow() {
+    void supports_whenWorkflowIsManagedRaw() {
         // given
-        SigningProfileModel<?, ?> model = aProfileWith(new ManagedRawSigningWorkflow(null));
+        SigningProfileModel<?, ?> model = buildProfileWith(new ManagedRawSigningWorkflow(null));
 
         // when
         boolean supported = resolver.supports(model);
@@ -85,9 +85,9 @@ class StaticKeyManagedRawSigningResolverTest {
 
     @ParameterizedTest
     @MethodSource("nonRawWorkflows")
-    void doesNotSupportANonRawWorkflow(SigningWorkflow notRaw) {
+    void doesNotSupport_whenWorkflowIsNotRaw(SigningWorkflow notRaw) {
         // given
-        SigningProfileModel<?, ?> model = aProfileWith(notRaw);
+        SigningProfileModel<?, ?> model = buildProfileWith(notRaw);
 
         // when
         boolean supported = resolver.supports(model);
@@ -99,7 +99,7 @@ class StaticKeyManagedRawSigningResolverTest {
     @Test
     void propagatesMisconfigured_whenSchemeResolutionFails() throws Exception {
         // given
-        SigningProfileModel<?, ?> model = aProfileWith(new ManagedRawSigningWorkflow(null));
+        SigningProfileModel<?, ?> model = buildProfileWith(new ManagedRawSigningWorkflow(null));
         var schemeFailure = new SigningEngineException(SigningEngineFailure.MISCONFIGURED, "unsupported scheme",
                 "The system is misconfigured.");
         given(schemeResolver.resolve(PROFILE_NAME, model.signingScheme())).willThrow(schemeFailure);
@@ -121,7 +121,7 @@ class StaticKeyManagedRawSigningResolverTest {
         return Stream.of(named("content signing", content), named("timestamping", timestamping));
     }
 
-    private static SigningProfileModel<?, ?> aProfileWith(SigningWorkflow workflow) {
+    private static SigningProfileModel<?, ?> buildProfileWith(SigningWorkflow workflow) {
         return aSigningProfile()
                 .withUuid(PROFILE_UUID)
                 .withName(PROFILE_NAME)

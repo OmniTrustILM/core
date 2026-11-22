@@ -9,7 +9,8 @@ import java.util.UUID;
  *
  * @param identifier the identifier the caller gave the digest
  * @param signature the signature over the digest
- * @param signingRecordUuid the signing record of the digest, or {@code null} when the profile records nothing
+ * @param signingRecordUuid the signing record of the digest, or {@code null} when the profile records nothing or its
+ * best-effort records could not be staged
  */
 public record RawSignedItem(String identifier, byte[] signature, UUID signingRecordUuid) {
 
