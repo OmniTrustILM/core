@@ -284,25 +284,27 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
-    void putsPrehashedDigestOnTheWire_whenModeIsPrehashedDigest() throws Exception {
+    void putsDataDigestOnTheWire_whenModeIsDataDigest() throws Exception {
         // given
-        advertisePrehashedSigning();
+        var dataDigestMode = SignatureInputMode.DATA_DIGEST;
+        var expectedWireValue = "dataDigest";
+        advertiseDataDigestSigning();
         stubSignResponse();
 
         // when
         internalOperationService
                 .signDataWithoutEventHistory(token.getSecuredParentUuid(), profile.getSecuredUuid(), key.getUuid(),
-                        privateKey.getUuid(), signRequest(), SignatureInputMode.PREHASHED_DIGEST);
+                        privateKey.getUuid(), signRequest(), dataDigestMode);
 
         // then
         JsonNode sent = connectorMock.operationRequestBodies("sign").get(0);
-        assertThat(sent.get("signatureInputMode").asText()).isEqualTo("prehashedDigest");
+        assertThat(sent.get("signatureInputMode").asText()).isEqualTo(expectedWireValue);
     }
 
     @Test
     void omitsTheMode_whenModeIsData() throws Exception {
         // given
-        advertisePrehashedSigning();
+        advertiseDataDigestSigning();
         stubSignResponse();
 
         // when
@@ -951,9 +953,9 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
                 List.of(new StringAttributeContentV3(content)));
     }
 
-    private void advertisePrehashedSigning() {
-        connectorMock.stubInfoAdvertising(FeatureFlag.PREHASHED_SIGNING);
-        cryptographyInterface.setFeatures(List.of(FeatureFlag.STATELESS, FeatureFlag.PREHASHED_SIGNING));
+    private void advertiseDataDigestSigning() {
+        connectorMock.stubInfoAdvertising(FeatureFlag.DATA_DIGEST_SIGNING);
+        cryptographyInterface.setFeatures(List.of(FeatureFlag.STATELESS, FeatureFlag.DATA_DIGEST_SIGNING));
         connectorInterfaceRepository.save(cryptographyInterface);
     }
 

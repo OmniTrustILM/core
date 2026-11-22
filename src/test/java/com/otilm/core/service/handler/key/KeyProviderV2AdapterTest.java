@@ -2616,16 +2616,16 @@ class KeyProviderV2AdapterTest {
         }
 
         @Test
-        void sendsPrehashedDigest_whenModeIsPrehashedDigest() throws Exception {
+        void sendsDataDigest_whenModeIsDataDigest() throws Exception {
             // given
             stubSynchronousSigning();
-            SignatureInputMode prehashed = SignatureInputMode.PREHASHED_DIGEST;
+            SignatureInputMode dataDigest = SignatureInputMode.DATA_DIGEST;
 
             // when
-            adapter.signData(v2KeyItem(metadata("handle")), signRequest(List.of()), prehashed);
+            adapter.signData(v2KeyItem(metadata("handle")), signRequest(List.of()), dataDigest);
 
             // then
-            assertThat(captureSentSignBody().getSignatureInputMode()).isEqualTo(prehashed);
+            assertThat(captureSentSignBody().getSignatureInputMode()).isEqualTo(dataDigest);
         }
 
         @Test

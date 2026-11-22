@@ -65,12 +65,12 @@ public class CryptographicOperationServiceSigner implements Signer {
 
     @Override
     public List<byte[]> signAll(List<byte[]> items, SignatureInputMode inputMode) throws SigningEngineException {
-        boolean prehashed = switch (inputMode == null ? SignatureInputMode.DATA : inputMode) {
+        boolean dataDigest = switch (inputMode == null ? SignatureInputMode.DATA : inputMode) {
             case DATA -> false;
-            case PREHASHED_DIGEST -> true;
+            case DATA_DIGEST -> true;
         };
         List<SignatureRequestData> requestItems = buildRequestItems(items);
-        if (prehashed) {
+        if (dataDigest) {
             checkDigests(items);
         }
 
@@ -79,7 +79,7 @@ public class CryptographicOperationServiceSigner implements Signer {
         request.setData(requestItems);
 
         try {
-            SignDataResponseDto response = prehashed
+            SignDataResponseDto response = dataDigest
                     ? cryptographicOperationService
                             .signDataWithoutEventHistory(tokenInstanceUuid, tokenProfileUuid, keyUuid,
                                     privateKeyItemUuid, request, inputMode)
@@ -91,7 +91,7 @@ public class CryptographicOperationServiceSigner implements Signer {
                 throw signerFault("Signing operation returned no signatures");
             }
             List<byte[]> signatures = matchByIdentifier(response.getSignatures(), requestItems.size());
-            if (prehashed) {
+            if (dataDigest) {
                 verifyAgainstDigests(items, signatures);
             }
             return signatures;
@@ -128,7 +128,7 @@ public class CryptographicOperationServiceSigner implements Signer {
     private void checkDigests(List<byte[]> digests) throws SigningEngineException {
         if (!PrehashedSigning.admits(signatureAlgorithm)) {
             throw new SigningEngineException(SigningEngineFailure.INVALID_INPUT,
-                    "Signature algorithm %s cannot sign a prehashed digest".formatted(signatureAlgorithm),
+                    "Signature algorithm %s cannot sign a data digest".formatted(signatureAlgorithm),
                     "The signing profile's signature algorithm cannot sign a digest.");
         }
         int digestSize = PrehashedSigning.digestAlgorithm(signatureAlgorithm).getDigestSizeBytes();

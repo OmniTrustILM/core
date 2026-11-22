@@ -344,12 +344,12 @@ public class CryptographicOperationServiceImpl
         CryptographicKeyItemOperationModel keyItem = cryptographicKeyService.getKeyItemModel(keyItemUuid);
         requirePathAssociation(keyItem, tokenInstanceUuid.getValue(), tokenProfileUuid.getValue(), uuid);
         SignatureInputMode mode = inputMode == null ? SignatureInputMode.DATA : inputMode;
-        boolean prehashed = switch (mode) {
+        boolean dataDigest = switch (mode) {
             case DATA -> false;
-            case PREHASHED_DIGEST -> true;
+            case DATA_DIGEST -> true;
         };
-        if (prehashed) {
-            requirePrehashedSigning(keyItem);
+        if (dataDigest) {
+            requireDataDigestSigning(keyItem);
         }
         KeyProviderAdapter adapter = adapterFor(keyItem);
         return executeSignData(adapter, keyItem, request, mode);
@@ -357,18 +357,18 @@ public class CryptographicOperationServiceImpl
 
     // The flag is read from the token instance on every call: the cached key item is not refreshed when a
     // connector's capabilities change.
-    private void requirePrehashedSigning(CryptographicKeyItemOperationModel keyItem) throws NotFoundException {
+    private void requireDataDigestSigning(CryptographicKeyItemOperationModel keyItem) throws NotFoundException {
         if (!keyItem.hasConnectorInterface()) {
             throw new ValidationException("Key item " + keyItem.keyItemUuid()
-                    + " is served by a version 1 cryptography provider, which cannot sign prehashed digests.");
+                    + " is served by a version 1 cryptography provider, which cannot sign data digests.");
         }
         UUID tokenInstanceUuid = keyItem.tokenInstanceReferenceUuid();
         TokenInstanceFullModel token = tokenInstanceReferenceRepository
                 .findFullModelByUuid(tokenInstanceUuid)
                 .orElseThrow(() -> new NotFoundException(TokenInstanceReference.class, tokenInstanceUuid));
-        if (!connectorCapabilityService.supports(token.connectorInterface(), FeatureFlag.PREHASHED_SIGNING)) {
+        if (!connectorCapabilityService.supports(token.connectorInterface(), FeatureFlag.DATA_DIGEST_SIGNING)) {
             throw new ValidationException("The cryptography provider of key item " + keyItem.keyItemUuid()
-                    + " does not support prehashed signing.");
+                    + " does not support data digest signing.");
         }
     }
 
