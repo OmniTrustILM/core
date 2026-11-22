@@ -74,7 +74,9 @@ class RealSignerTransformer implements ResponseDefinitionTransformerV2 {
             boolean dataDigest = DATA_DIGEST.equals(body.path("signatureInputMode").asText());
             List<ObjectNode> signatures = new ArrayList<>();
             for (JsonNode item : body.path("data")) {
-                signatures.add(signatureOf(key, item, dataDigest, parameters.getBoolean(WITHOUT_IDENTIFIERS, false)));
+                signatures
+                        .add(buildSignatureResponse(key, item, dataDigest,
+                                parameters.getBoolean(WITHOUT_IDENTIFIERS, false)));
             }
             if (parameters.getBoolean(REVERSED_ORDER, false)) {
                 Collections.reverse(signatures);
@@ -105,8 +107,8 @@ class RealSignerTransformer implements ResponseDefinitionTransformerV2 {
         return entry;
     }
 
-    private static ObjectNode signatureOf(KeyEntry key, JsonNode item, boolean dataDigest, boolean withoutIdentifier)
-            throws Exception {
+    private static ObjectNode buildSignatureResponse(KeyEntry key, JsonNode item, boolean dataDigest,
+            boolean withoutIdentifier) throws Exception {
         byte[] itemBytes = Base64.getDecoder().decode(item.path("data").asText());
         byte[] signatureValue = dataDigest ? signDigest(key, itemBytes) : sign(key, itemBytes);
         ObjectNode signature = OBJECT_MAPPER.createObjectNode();
@@ -131,9 +133,9 @@ class RealSignerTransformer implements ResponseDefinitionTransformerV2 {
         ASN1ObjectIdentifier digestOid = algorithm.getDigestAlgorithmIdentifier().getAlgorithm();
         return switch (algorithm) {
             case SHA256_WITH_RSA, SHA384_WITH_RSA, SHA512_WITH_RSA ->
-                signRaw(key.privateKey(), "NONEwithRSA", null, digestInfo(digestOid, digest));
+                signRaw(key.privateKey(), "NONEwithRSA", null, encodeDigestInfo(digestOid, digest));
             case SHA256_WITH_RSA_PSS, SHA384_WITH_RSA_PSS, SHA512_WITH_RSA_PSS ->
-                signRaw(key.privateKey(), "RAWRSASSA-PSS", pssParameters(digestOid), digest);
+                signRaw(key.privateKey(), "RAWRSASSA-PSS", buildPssParameters(digestOid), digest);
             case SHA256_WITH_ECDSA, SHA384_WITH_ECDSA, SHA512_WITH_ECDSA ->
                 signRaw(key.privateKey(), "NONEwithECDSA", null, digest);
             default -> throw new IllegalStateException(algorithm.getCode() + " cannot sign a data digest");
@@ -151,12 +153,12 @@ class RealSignerTransformer implements ResponseDefinitionTransformerV2 {
         return signature.sign();
     }
 
-    private static byte[] digestInfo(ASN1ObjectIdentifier digestOid, byte[] digest) throws Exception {
+    private static byte[] encodeDigestInfo(ASN1ObjectIdentifier digestOid, byte[] digest) throws Exception {
         return new DigestInfo(new AlgorithmIdentifier(digestOid, DERNull.INSTANCE), digest)
                 .getEncoded(ASN1Encoding.DER);
     }
 
-    private static PSSParameterSpec pssParameters(ASN1ObjectIdentifier digestOid) {
+    private static PSSParameterSpec buildPssParameters(ASN1ObjectIdentifier digestOid) {
         DigestAlgorithm digest = DigestAlgorithm.findByOid(digestOid.getId());
         return new PSSParameterSpec(digest.getCode(), "MGF1", new MGF1ParameterSpec(digest.getCode()),
                 digest.getDigestSizeBytes(), PSSParameterSpec.TRAILER_FIELD_BC);

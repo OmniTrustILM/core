@@ -316,7 +316,7 @@ class RawSigningEngineITest extends BaseSpringBootTest {
                         .withStaticKeyManagedSigning(certificate.getUuid(),
                                 SignatureAlgorithmMapping.toAttributes(signingKey.signatureAlgorithm()))
                         .withRawSigning()
-                        .withRecordPolicy(recordingMetadataDigestsAndSignatures())
+                        .withRecordPolicy(buildRecordingMetadataDigestsAndSignaturesPolicy())
                         .build());
         signingProfileService.enableSigningProfile(SecuredUUID.fromString(profile.getUuid()));
         return profile;
@@ -340,7 +340,7 @@ class RawSigningEngineITest extends BaseSpringBootTest {
         keyItemRepository.save(publicKeyItem);
     }
 
-    private static SigningRecordPolicyRequestDto recordingMetadataDigestsAndSignatures() {
+    private static SigningRecordPolicyRequestDto buildRecordingMetadataDigestsAndSignaturesPolicy() {
         return aSigningRecordPolicyRequest()
                 .withRecordingEnabled(true)
                 .withRecordRequestMetadata(true)

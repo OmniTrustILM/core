@@ -41,6 +41,8 @@ import org.jspecify.annotations.NonNull;
 
 public class SigningProfileMapper {
 
+    private static final String NOT_A_MANAGED_SCHEME = "Signing Profile '%s' does not use a managed signing scheme";
+
     private SigningProfileMapper() {
     }
 
@@ -172,8 +174,7 @@ public class SigningProfileMapper {
                     "Signing Profile '%s' does not use a timestamping workflow".formatted(header.getName()));
         }
         if (version.getSigningScheme() != SigningScheme.MANAGED) {
-            throw new IllegalArgumentException(
-                    "Signing Profile '%s' does not use a managed signing scheme".formatted(header.getName()));
+            throw new IllegalArgumentException(NOT_A_MANAGED_SCHEME.formatted(header.getName()));
         }
 
         return new SigningProfileModel<>(header.getUuid(), header.getName(), header.getDescription(),
@@ -199,8 +200,7 @@ public class SigningProfileMapper {
                     "Signing Profile '%s' does not use a content-signing workflow".formatted(header.getName()));
         }
         if (version.getSigningScheme() != SigningScheme.MANAGED) {
-            throw new IllegalArgumentException(
-                    "Signing Profile '%s' does not use a managed signing scheme".formatted(header.getName()));
+            throw new IllegalArgumentException(NOT_A_MANAGED_SCHEME.formatted(header.getName()));
         }
 
         return new SigningProfileModel<>(header.getUuid(), header.getName(), header.getDescription(),
@@ -226,8 +226,7 @@ public class SigningProfileMapper {
                     "Signing Profile '%s' does not use a raw-signing workflow".formatted(header.getName()));
         }
         if (version.getSigningScheme() != SigningScheme.MANAGED) {
-            throw new IllegalArgumentException(
-                    "Signing Profile '%s' does not use a managed signing scheme".formatted(header.getName()));
+            throw new IllegalArgumentException(NOT_A_MANAGED_SCHEME.formatted(header.getName()));
         }
 
         return new SigningProfileModel<>(header.getUuid(), header.getName(), header.getDescription(),

@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Component;
 
 /**
@@ -66,6 +67,9 @@ public class ManagedRawSigningEngine {
             ResolvedManagedRawSigningProfile profile, SigningProtocol protocol) throws SigningEngineException {
         try {
             return signDigests(request, model, profile, protocol);
+        } catch (AccessDeniedException e) {
+            logDenial(profile, e);
+            throw e;
         } catch (Exception e) {
             throw loggedFailure(profile, e);
         }
@@ -212,6 +216,13 @@ public class ManagedRawSigningEngine {
             signed.add(new RawSignedItem(items.get(index).identifier(), signatures.get(index), recordUuid));
         }
         return signed;
+    }
+
+    /** A caller who may not sign with the key is refused as forbidden, not reported as a fault of Core's. */
+    private static void logDenial(ResolvedManagedRawSigningProfile profile, AccessDeniedException e) {
+        logger
+                .warn("Refusing to sign digests for signing profile '{}': the caller lacks a permission the run needs: {}",
+                        profile.name(), e.getMessage());
     }
 
     /**

@@ -50,7 +50,7 @@ class RawSignedItemTest {
 
         // then
         assertThat(equal).isTrue();
-        assertThat(item.hashCode()).isEqualTo(sameContentInAnotherArray.hashCode());
+        assertThat(item).hasSameHashCodeAs(sameContentInAnotherArray);
     }
 
     @Test

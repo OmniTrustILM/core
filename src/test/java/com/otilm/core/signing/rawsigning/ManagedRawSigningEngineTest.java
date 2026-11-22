@@ -48,6 +48,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.access.AccessDeniedException;
 
 import static com.otilm.core.util.builders.ResolvedManagedRawSigningProfileBuilder.aResolvedRawSigningProfile;
 import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningProfile;
@@ -110,26 +111,18 @@ class ManagedRawSigningEngineTest {
     }
 
     @BeforeEach
-    void createEngine() {
+    void createEngineOverAnAcceptedCertificateAndSigner() throws SigningEngineException {
+        originalPlatformSettings = SettingsCache.getSettings(SettingsSection.PLATFORM);
         var recordFactory = new RawSigningRecordFactory(ObjectMapperFactory.storage(),
                 TestClockSource.ofWallTime(Instant.parse("2026-11-13T10:00:00Z")));
         engine = new ManagedRawSigningEngine(signerFactory, signingCertificateValidatorFactory,
                 new RawSigningKeyBinding(signingProfileVersionRepository), recordFactory, recordStager);
-    }
-
-    @BeforeEach
-    void stubAcceptedCertificateAndSigner() throws SigningEngineException {
         lenient().when(signingCertificateValidatorFactory.getValidator(any())).thenReturn(signingCertificateValidator);
         lenient()
                 .when(signingCertificateValidator.validate(any(), any(), anyBoolean(), any()))
                 .thenReturn(ValidationResult.ok());
         lenient().when(signerFactory.create(any())).thenReturn(signer);
         lenient().when(signer.getSignatureAlgorithm()).thenReturn(SIGNATURE_ALGORITHM);
-    }
-
-    @BeforeEach
-    void rememberTheSettingsCache() {
-        originalPlatformSettings = SettingsCache.getSettings(SettingsSection.PLATFORM);
     }
 
     @AfterEach
@@ -306,6 +299,21 @@ class ManagedRawSigningEngineTest {
             assertThat(thrown.itemIdentifier()).isEqualTo(IDENTIFIERS.get(failedIndex));
             assertThat(thrown.failure()).isEqualTo(providerFailure.failure());
         }).hasMessageContaining(providerFailure.clientMessage());
+        verifyNoInteractions(recordStager);
+    }
+
+    @Test
+    void rethrowsTheDenial_whenTheCallerMayNotSignWithTheKey() throws Exception {
+        // given
+        var denial = new AccessDeniedException("Access Denied. Required 'Sign' permission for 'Key'");
+        when(signer.signAll(anyList(), eq(SignatureInputMode.DATA_DIGEST))).thenThrow(denial);
+        var request = buildDigestRequest(IDENTIFIERS);
+
+        // when
+        ThrowingCallable sign = () -> engine.sign(request, model, profile, SigningProtocol.ILM_NATIVE);
+
+        // then
+        assertThatThrownBy(sign).isSameAs(denial);
         verifyNoInteractions(recordStager);
     }
 

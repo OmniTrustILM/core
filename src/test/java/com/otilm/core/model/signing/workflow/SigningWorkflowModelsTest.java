@@ -65,8 +65,7 @@ class SigningWorkflowModelsTest {
 
         // then
         assertThat(wf.getWorkflowType()).isEqualTo(SigningWorkflowType.RAW_SIGNING);
-        assertThat(wf).isInstanceOf(RawSigningWorkflow.class);
-        assertThat(wf).isInstanceOf(SigningWorkflow.class);
+        assertThat(wf).isInstanceOf(RawSigningWorkflow.class).isInstanceOf(SigningWorkflow.class);
     }
 
     @Test

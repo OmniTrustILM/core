@@ -463,7 +463,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
     }
 
     @BeforeEach
-    void setUp() throws Exception {
+    void seedSigningInfrastructureAndDefaultProfiles() throws Exception {
 
         // Set up mocks of connectors (the servers to call); the cryptography-provider mock also seeds
         // the function-group reference data normally provided by Flyway (wiped by per-test truncation)
@@ -612,7 +612,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
     @Test
     void create_intrinsicAlgorithmWithOmittedAttributes_persistsEmptySigningAttributes() throws Exception {
         // given
-        SigningProfileRequestDto request = intrinsicAlgorithmRequestWithOmittedAttributes();
+        SigningProfileRequestDto request = buildIntrinsicAlgorithmRequestWithOmittedAttributes();
 
         // when
         SigningProfileDto created = signingProfileService.createSigningProfile(request);
@@ -627,7 +627,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
     @Test
     void update_intrinsicAlgorithmWithOmittedAttributes_persistsEmptySigningAttributes() throws Exception {
         // given
-        SigningProfileRequestDto request = intrinsicAlgorithmRequestWithOmittedAttributes();
+        SigningProfileRequestDto request = buildIntrinsicAlgorithmRequestWithOmittedAttributes();
         SecuredUUID profileUuid = SecuredUUID.fromString(defaultManagedStaticKeySigningProfile.getUuid());
         createSigningRecordFor(defaultManagedStaticKeySigningProfile);
         int expectedVersion = defaultManagedStaticKeySigningProfile.getVersion() + 1;
@@ -643,7 +643,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         assertEquals(updated, signingProfileService.getSigningProfile(profileUuid, null));
     }
 
-    private SigningProfileRequestDto intrinsicAlgorithmRequestWithOmittedAttributes() throws Exception {
+    private SigningProfileRequestDto buildIntrinsicAlgorithmRequestWithOmittedAttributes() throws Exception {
         KeyAlgorithm intrinsicAlgorithm = KeyAlgorithm.FALCON;
         KeyPair intrinsicKeyPair = CertificateGeneratorHelper.generateKeyPair(intrinsicAlgorithm, null);
         createTokenKey(intrinsicKeyPair, intrinsicAlgorithm, "intrinsic-signing-key");
