@@ -18,6 +18,7 @@ import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -580,7 +581,7 @@ class AiRuntimeControllerServiceTest {
 
     private static final class Fixture implements AutoCloseable {
         private static final com.fasterxml.jackson.databind.ObjectMapper JSON = ObjectMapperFactory.aiKubernetesWire();
-        private final Instant now = Instant.now();
+        private final Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
         private final AtomicLong nanos = new AtomicLong();
         private final java.util.concurrent.atomic.AtomicReference<AiRuntimeState.RunSnapshot> currentRun = new java.util.concurrent.atomic.AtomicReference<>();
         private final AtomicInteger absenceNamespaceReads = new AtomicInteger();

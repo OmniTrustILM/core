@@ -17,7 +17,7 @@ public final class AiModelDispatchFixture {
     private static final List<String> TABLES = List
             .of("ai_model_run_intent", "ai_model_management_intent", "ai_model_run_budget",
                     "ai_model_management_session", "ai_model_connection");
-    private static final String MIGRATION = "db/migration/V202611051200__ai_model_dispatch.sql";
+    private static final String MIGRATION = "db/migration/V202611051201__ai_model_dispatch.sql";
 
     private AiModelDispatchFixture() {
     }
