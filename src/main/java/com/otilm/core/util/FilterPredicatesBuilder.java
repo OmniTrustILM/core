@@ -42,6 +42,7 @@ import jakarta.persistence.Query;
 import jakarta.persistence.Tuple;
 import jakarta.persistence.criteria.CommonAbstractCriteria;
 import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.From;
 import jakarta.persistence.criteria.Join;
@@ -1262,8 +1263,17 @@ public class FilterPredicatesBuilder {
         return path;
     }
 
-    public static Query getAllValuesOfProperty(String property, Resource resource, EntityManager entityManager) {
-        return entityManager.createQuery("SELECT DISTINCT " + property + " FROM " + filterRootOf(resource).getName());
+    public static Query getAllValuesOfProperty(FilterField filterField, Resource resource,
+            EntityManager entityManager) {
+        CriteriaQuery<Object> query = entityManager.getCriteriaBuilder().createQuery();
+        From<?, ?> from = query.from(filterRootOf(resource));
+        if (filterField.getJoinAttributes() != null) {
+            for (Attribute<?, ?> joinAttribute : filterField.getJoinAttributes()) {
+                from = from.join(joinAttribute.getName());
+            }
+        }
+        query.select(resolveFieldPath(from, filterField.getFieldAttribute())).distinct(true);
+        return entityManager.createQuery(query);
     }
 
     /** A key's filter fields are properties of its items. */

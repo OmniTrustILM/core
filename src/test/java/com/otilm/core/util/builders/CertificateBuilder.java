@@ -69,6 +69,7 @@ public final class CertificateBuilder {
     private String certificateValidationResult;
     private Boolean hybridCertificate;
     private String subjectAlternativeNames;
+    private String altSignatureAlgorithm;
 
     public static CertificateBuilder aCertificate() {
         return new CertificateBuilder();
@@ -259,6 +260,11 @@ public final class CertificateBuilder {
         return this;
     }
 
+    public CertificateBuilder withAltSignatureAlgorithm(String altSignatureAlgorithm) {
+        this.altSignatureAlgorithm = altSignatureAlgorithm;
+        return this;
+    }
+
     /** Sets the serialized column, as {@code CertificateUtil.serializeSans} writes it. */
     public CertificateBuilder withSubjectAlternativeNames(String subjectAlternativeNames) {
         this.subjectAlternativeNames = subjectAlternativeNames;
@@ -380,6 +386,9 @@ public final class CertificateBuilder {
         }
         if (subjectAlternativeNames != null) {
             certificate.setSubjectAlternativeNames(subjectAlternativeNames);
+        }
+        if (altSignatureAlgorithm != null) {
+            certificate.setAltSignatureAlgorithm(altSignatureAlgorithm);
         }
         return certificate;
     }
