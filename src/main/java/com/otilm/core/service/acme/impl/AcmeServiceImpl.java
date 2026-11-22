@@ -121,6 +121,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import org.bouncycastle.openssl.jcajce.JcaPEMWriter;
 import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequest;
@@ -1553,9 +1555,23 @@ public class AcmeServiceImpl implements AcmeExternalService {
      * Submits the certificate request of a claimed order and returns the order as it stands afterwards. The submission
      * may have cleared the request's EntityManager and an account deactivation may have changed the order, so the order
      * is read under its lock rather than reused.
+     *
+     * <p>
+     * The certificate is linked to the order before its issue is queued, so that a failure the issue reports at once
+     * finds the order to record its reason on, and only once the requester may read it, so that a refusal fails it
+     * before anything is queued. A request that is not queued, such as one that is not compliant, is checked and linked
+     * once the submission returns. A queued one is not checked again: a failure then would fail the order of a
+     * certificate still being issued.
      */
     private AcmeOrder createCert(AcmeOrder order, ClientCertificateIssueRequestDto certificateIssueRequestDto) {
-        Certificate certificate;
+        String certificateId = AcmeRandomGeneratorAndValidator.generateRandomId();
+        AtomicReference<UUID> linkedBeforeDispatch = new AtomicReference<>();
+        Consumer<UUID> linkToOrder = submittedUuid -> {
+            UUID readableUuid = readableCertificateUuid(submittedUuid);
+            acmeChallengeWriter.recordFinalizeSubmission(order.getUuid(), certificateId, readableUuid);
+            linkedBeforeDispatch.set(readableUuid);
+        };
+        UUID certificateUuid;
         try {
             if (logger.isDebugEnabled()) {
                 logger
@@ -1567,15 +1583,28 @@ public class AcmeServiceImpl implements AcmeExternalService {
                             .fromUUID(order.getAcmeAccount().getRaProfile().getAuthorityInstanceReferenceUuid()),
                             order.getAcmeAccount().getRaProfile().getSecuredUuid(), certificateIssueRequestDto,
                             CertificateProtocolInfo
-                                    .Acme(order.getAcmeAccount().getAcmeProfileUuid(), order.getAcmeAccountUuid()));
-            certificate = certificateService.getCertificateEntity(SecuredUUID.fromString(certificateOutput.getUuid()));
+                                    .Acme(order.getAcmeAccount().getAcmeProfileUuid(), order.getAcmeAccountUuid()),
+                            linkToOrder);
+            certificateUuid = linkedBeforeDispatch.get() != null
+                    ? linkedBeforeDispatch.get()
+                    : readableCertificateUuid(UUID.fromString(certificateOutput.getUuid()));
         } catch (Exception e) {
             logger.error("Issue Certificate failed. Exception: {}", e.getMessage());
             return acmeChallengeWriter.failFinalizeSubmission(order.getUuid());
         }
-        return acmeChallengeWriter
-                .recordFinalizeSubmission(order.getUuid(), AcmeRandomGeneratorAndValidator.generateRandomId(),
-                        certificate);
+        return acmeChallengeWriter.recordFinalizeSubmission(order.getUuid(), certificateId, certificateUuid);
+    }
+
+    /**
+     * The certificate as the requester may read it, which every certificate requested for an order must be.
+     */
+    private UUID readableCertificateUuid(UUID certificateUuid) {
+        try {
+            return certificateService.getCertificateEntity(SecuredUUID.fromUUID(certificateUuid)).getUuid();
+        } catch (NotFoundException e) {
+            throw new IllegalStateException("Certificate " + certificateUuid + " requested for an order was not found",
+                    e);
+        }
     }
 
     protected ByteArrayResource getCertificateResource(String certificateId)

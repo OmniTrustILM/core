@@ -17,13 +17,14 @@ public final class SignatureDigestCoherence {
     }
 
     /**
+     * @param digestAlgorithm the batch's digest algorithm, or null when the batch carries no digests
      * @throws SigningEngineException MISCONFIGURED if the algorithm commits to a digest the platform cannot name, or
-     * INVALID_INPUT if the batch's digest algorithm differs from it
+     * INVALID_INPUT if the batch names a digest algorithm that differs from it
      */
     public static void requireCoherent(SignatureAlgorithm signatureAlgorithm, DigestAlgorithm digestAlgorithm)
             throws SigningEngineException {
         DigestAlgorithm committed = committedDigest(signatureAlgorithm);
-        if (digestAlgorithm != committed) {
+        if (digestAlgorithm != null && digestAlgorithm != committed) {
             throw new SigningEngineException(SigningEngineFailure.INVALID_INPUT,
                     "the batch's document digests are %s, but signature algorithm %s signs a %s digest"
                             .formatted(digestAlgorithm.getCode(), signatureAlgorithm.getCode(), committed.getCode()),
