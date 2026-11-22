@@ -146,7 +146,6 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
-import org.bouncycastle.asn1.DERNull;
 import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
@@ -630,9 +629,9 @@ class KeyProviderV2AdapterTest {
         void storesTheConnectorsOwnIdentifierForThePrivateHalf_whenTheConnectorSendsOne() throws Exception {
             // given
             KeyPairDataResponseV2Dto response = keyPairResponse();
-            byte[] statedIdentifier = new AlgorithmIdentifier(PKCSObjectIdentifiers.rsaEncryption, DERNull.INSTANCE)
+            byte[] identifierWithoutTheSpkisNull = new AlgorithmIdentifier(PKCSObjectIdentifiers.rsaEncryption)
                     .getEncoded();
-            response.getPrivateKeyData().getKeyData().setAlgorithmIdentifier(statedIdentifier);
+            response.getPrivateKeyData().getKeyData().setAlgorithmIdentifier(identifierWithoutTheSpkisNull);
             when(client.createKey(any(), any())).thenReturn(ResponseEntity.ok(response));
 
             // when
@@ -640,7 +639,8 @@ class KeyProviderV2AdapterTest {
 
             // then
             KeyMaterial privateMaterial = items.get(1).material();
-            assertThat(Base64.getDecoder().decode(privateMaterial.serializedValue())).isEqualTo(statedIdentifier);
+            assertThat(Base64.getDecoder().decode(privateMaterial.serializedValue()))
+                    .isEqualTo(identifierWithoutTheSpkisNull);
         }
 
         @Test
