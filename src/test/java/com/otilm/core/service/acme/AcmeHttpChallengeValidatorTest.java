@@ -27,6 +27,7 @@ import org.junit.jupiter.api.Timeout;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
+import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathMatching;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -237,6 +238,27 @@ class AcmeHttpChallengeValidatorTest {
                     .as("the fetch closed its connection once validation stopped waiting")
                     .succeedsWithin(CONNECTION_CLOSE_WAIT);
         }
+    }
+
+    @Test
+    @Timeout(value = 30, threadMode = SEPARATE_THREAD)
+    void rejectsWithIncorrectResponse_whenRedirectLoopReachesRequestCap() throws Exception {
+        // given
+        var redirectToItself = aResponse()
+                .withStatus(302)
+                .withHeader("Location", "http://" + IDENTIFIER + CHALLENGE_PATH);
+        stubChallenge(redirectToItself);
+
+        // when
+        ChallengeValidationResult result = validatorThrough(challengeHost.port(), DEADLINE)
+                .validate(IDENTIFIER, TOKEN, KEY_AUTHORIZATION);
+
+        // then
+        assertThat(result.valid()).isFalse();
+        assertThat(result.problem()).isEqualTo(Problem.INCORRECT_RESPONSE);
+        assertThat(challengeHost.findAll(getRequestedFor(urlPathEqualTo(CHALLENGE_PATH))))
+                .as("requests made before the cap ended the loop, well within the deadline")
+                .hasSize(AcmeConstants.MAX_REDIRECT_COUNT);
     }
 
     @Test
