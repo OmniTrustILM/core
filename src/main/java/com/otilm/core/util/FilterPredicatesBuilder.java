@@ -751,29 +751,17 @@ public class FilterPredicatesBuilder {
                                         criteriaBuilder.literal(filterValues.getFirst())),
                                 false);
             }
-            case COUNT_EQUAL -> predicate = criteriaBuilder.equal(criteriaBuilder.size(from), filterValues.getFirst());
+            case COUNT_EQUAL -> predicate = criteriaBuilder
+                    .equal(criteriaBuilder.size(from), parseCountFilterValue(filterValues.getFirst()));
             case COUNT_NOT_EQUAL -> predicate = criteriaBuilder
-                    .not(criteriaBuilder.equal(criteriaBuilder.size(from), filterValues.getFirst()));
-            case COUNT_GREATER_THAN -> {
-                try {
-                    predicate = criteriaBuilder
-                            .greaterThan(criteriaBuilder.size(from), (Expression) criteriaBuilder
-                                    .literal(Integer.parseInt(filterValues.getFirst().toString())));
-                } catch (NumberFormatException e) {
-                    throw new ValidationException(
-                            "Filter field value " + filterValues.getFirst() + " cannot be parsed as an Integer.");
-                }
-            }
-            case COUNT_LESS_THAN -> {
-                try {
-                    predicate = criteriaBuilder
-                            .lessThan(criteriaBuilder.size(from), (Expression) criteriaBuilder
-                                    .literal(Integer.parseInt(filterValues.getFirst().toString())));
-                } catch (NumberFormatException e) {
-                    throw new ValidationException(
-                            "Filter field value " + filterValues.getFirst() + " cannot be parsed as an Integer.");
-                }
-            }
+                    .not(criteriaBuilder
+                            .equal(criteriaBuilder.size(from), parseCountFilterValue(filterValues.getFirst())));
+            case COUNT_GREATER_THAN -> predicate = criteriaBuilder
+                    .greaterThan(criteriaBuilder.size(from),
+                            (Expression) criteriaBuilder.literal(parseCountFilterValue(filterValues.getFirst())));
+            case COUNT_LESS_THAN -> predicate = criteriaBuilder
+                    .lessThan(criteriaBuilder.size(from),
+                            (Expression) criteriaBuilder.literal(parseCountFilterValue(filterValues.getFirst())));
 
             default -> throw new ValidationException("Unexpected value: " + conditionOperator);
         }
@@ -790,6 +778,14 @@ public class FilterPredicatesBuilder {
             }
         }
         return predicate;
+    }
+
+    private static int parseCountFilterValue(Object value) {
+        try {
+            return Integer.parseInt(value.toString());
+        } catch (NumberFormatException e) {
+            throw new ValidationException("Filter field value " + value + " cannot be parsed as an Integer.");
+        }
     }
 
     /**

@@ -7,7 +7,7 @@ import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.core.auth.Resource;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.settings.CertificateSettingsUpdateDto;
 import com.otilm.api.model.core.settings.CertificateUploadSettingsUpdateDto;
@@ -311,7 +311,7 @@ class UploaderOwnershipITest extends BaseSpringBootTest {
         denyResourceAccess(Resource.CERTIFICATE, ResourceAction.DETAIL);
 
         // when
-        CertificateDetailDto detail = certificateService.getCertificate(owned.getSecuredUuid());
+        CertificateDetail detail = certificateService.getCertificate(owned.getSecuredUuid());
 
         // then
         assertThat(detail.getUuid()).isEqualTo(owned.getUuid().toString());

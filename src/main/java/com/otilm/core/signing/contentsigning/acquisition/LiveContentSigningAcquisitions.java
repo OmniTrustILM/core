@@ -8,6 +8,7 @@ import com.otilm.core.signing.engine.signer.SignerFactory;
 import com.otilm.core.signing.tsa.InternalTimestampSource;
 import com.otilm.core.signing.tsa.messages.IssuedTimestamp;
 import com.otilm.core.signing.tsa.messages.TimestampImprint;
+import java.util.List;
 import org.springframework.stereotype.Component;
 
 /** Acquires within one synchronous run: the key signs now, the timestamp is issued now, nothing is persisted. */
@@ -29,13 +30,13 @@ public class LiveContentSigningAcquisitions implements ContentSigningAcquisition
     }
 
     @Override
-    public byte[] signatureValue(ResolvedManagedContentSigningProfile profile, byte[] dtbs)
+    public List<byte[]> signDtbs(ResolvedManagedContentSigningProfile profile, List<byte[]> dtbsList)
             throws SigningEngineException {
-        return signerFactory.create(profile.resolvedScheme()).sign(dtbs);
+        return signerFactory.create(profile.resolvedScheme()).signAll(dtbsList);
     }
 
     @Override
-    public IssuedTimestamp signatureTimestamp(ResolvedManagedContentSigningProfile profile, TimestampImprint imprint,
+    public IssuedTimestamp timestampSignature(ResolvedManagedContentSigningProfile profile, TimestampImprint imprint,
             String step) throws SigningEngineException {
         if (profile.timestampSourceProfileName() == null) {
             throw new SigningEngineException(SigningEngineFailure.MISCONFIGURED,

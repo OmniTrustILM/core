@@ -2,7 +2,8 @@ package com.otilm.core.api.v2.client;
 
 import com.otilm.api.model.client.certificate.CancelPendingCertificateRequestDto;
 import com.otilm.api.model.client.certificate.ManuallyIssueCertificateRequestDto;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
+import com.otilm.api.model.core.certificate.X509CertificateDetail;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.v2.ClientOperationExternalService;
@@ -39,14 +40,14 @@ class ClientOperationControllerImplTest {
     @Test
     void manuallyIssueCertificate_delegatesToService() throws Exception {
         ManuallyIssueCertificateRequestDto request = new ManuallyIssueCertificateRequestDto();
-        CertificateDetailDto expected = new CertificateDetailDto();
+        CertificateDetail expected = new X509CertificateDetail();
         Mockito
                 .when(service
                         .manuallyIssueCertificate(Mockito.any(SecuredParentUUID.class), Mockito.any(SecuredUUID.class),
                                 Mockito.eq(certificateUuid), Mockito.any(ManuallyIssueCertificateRequestDto.class)))
                 .thenReturn(expected);
 
-        CertificateDetailDto actual = controller
+        CertificateDetail actual = controller
                 .manuallyIssueCertificate(authorityUuid, raProfileUuid, certificateUuid, request);
 
         assertThat(actual).isSameAs(expected);
@@ -76,7 +77,7 @@ class ClientOperationControllerImplTest {
     @Test
     void cancelPendingCertificateOperation_delegatesToService() throws Exception {
         CancelPendingCertificateRequestDto request = new CancelPendingCertificateRequestDto();
-        CertificateDetailDto expected = new CertificateDetailDto();
+        CertificateDetail expected = new X509CertificateDetail();
         Mockito
                 .when(service
                         .cancelPendingCertificateOperation(Mockito.any(SecuredParentUUID.class),
@@ -84,7 +85,7 @@ class ClientOperationControllerImplTest {
                                 Mockito.any(CancelPendingCertificateRequestDto.class)))
                 .thenReturn(expected);
 
-        CertificateDetailDto actual = controller
+        CertificateDetail actual = controller
                 .cancelPendingCertificateOperation(authorityUuid, raProfileUuid, certificateUuid, request);
 
         assertThat(actual).isSameAs(expected);

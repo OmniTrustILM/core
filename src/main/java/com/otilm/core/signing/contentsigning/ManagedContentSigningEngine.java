@@ -2,31 +2,36 @@ package com.otilm.core.signing.contentsigning;
 
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
+import com.otilm.api.model.common.signature.DocumentTransferMode;
 import com.otilm.api.model.common.signature.SignatureLevel;
 import com.otilm.api.model.connector.signatures.contentsigning.common.ComputeDtbsRequestDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.ComputeDtbsResponseDto;
-import com.otilm.api.model.connector.signatures.contentsigning.common.DigestOnlyDocumentTransferDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.DocumentTransferDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.EmbedSignatureValueRequestDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.EmbedTimestampRequestDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.SignedDocumentRequestDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.SignedDocumentResponseDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.TimestampImprintResponseDto;
+import com.otilm.api.model.connector.signatures.contentsigning.declaration.SignatureFamilyDeclarationDto;
 import com.otilm.api.model.core.signing.SigningProtocol;
+import com.otilm.core.aop.OutsideTransaction;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.resolved.ResolvedManagedContentSigningProfile;
 import com.otilm.core.model.signing.resolved.ResolvedManagedScheme;
 import com.otilm.core.signing.contentsigning.acquisition.ContentSigningAcquisitions;
-import com.otilm.core.signing.contentsigning.formatting.ComputeDtbsRequests;
+import com.otilm.core.signing.contentsigning.declaration.FamilyAlgorithms;
 import com.otilm.core.signing.contentsigning.formatting.ContentSigningFormattingClient;
+import com.otilm.core.signing.contentsigning.formatting.RequestAttributesCheck;
 import com.otilm.core.signing.contentsigning.state.ContentSigningCursor;
 import com.otilm.core.signing.contentsigning.state.ContentSigningTransitions;
+import com.otilm.core.signing.engine.batch.BatchAdmission;
+import com.otilm.core.signing.engine.batch.BatchRecordStager;
 import com.otilm.core.signing.engine.certificate.SigningCertificateValidatorFactory;
 import com.otilm.core.signing.engine.certificate.ValidationResult;
+import com.otilm.core.signing.engine.error.ItemSigningException;
 import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
 import com.otilm.core.signing.record.SigningRecordInputSource;
-import com.otilm.core.signing.record.SigningRecordStrategyFactory;
 import com.otilm.core.signing.record.TimestampTokenSerialNumbers;
 import com.otilm.core.signing.tsa.messages.IssuedTimestamp;
 import com.otilm.core.signing.tsa.messages.TimestampImprint;
@@ -38,13 +43,15 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Component;
 
 /**
  * Drives a content-signing Signing Profile's level state machine. One forward-only run: the connector builds and
- * completes the signature, Core acquires what only Core can, and the target level picks the exit.
+ * completes the signature, Core acquires what only Core can, and the profile's level picks the exit.
  */
 @Component
 public class ManagedContentSigningEngine {
@@ -57,118 +64,294 @@ public class ManagedContentSigningEngine {
     private final ContentSigningAcquisitions acquisitions;
     private final SigningCertificateValidatorFactory signingCertificateValidatorFactory;
     private final ClockSource clockSource;
-    private final SigningRecordStrategyFactory signingRecordStrategyFactory;
     private final ContentSigningRecordFactory recordFactory;
+    private final BatchRecordStager recordStager;
 
     public ManagedContentSigningEngine(ContentSigningFormattingClient formattingClient,
             ContentSigningAcquisitions acquisitions,
             SigningCertificateValidatorFactory signingCertificateValidatorFactory, ClockSource clockSource,
-            SigningRecordStrategyFactory signingRecordStrategyFactory, ContentSigningRecordFactory recordFactory) {
+            ContentSigningRecordFactory recordFactory, BatchRecordStager recordStager) {
         this.formattingClient = formattingClient;
         this.acquisitions = acquisitions;
         this.signingCertificateValidatorFactory = signingCertificateValidatorFactory;
         this.clockSource = clockSource;
-        this.signingRecordStrategyFactory = signingRecordStrategyFactory;
         this.recordFactory = recordFactory;
+        this.recordStager = recordStager;
     }
 
     /**
-     * Signs {@code request}'s document to its target level.
+     * Signs every document of {@code request} at the profile's level with one call of the profile's key. It returns the
+     * documents after staging their signing records as the profile's recording policy asks.
      *
-     * @param protocol how the run was initiated, which is what its signing record will carry
+     * @param protocol how the run was initiated, as its signing records carry it
+     * @return one result per document, in request order
      */
-    public SignedContent sign(ContentSigningRequest request, SigningProfileModel<?, ?> signingProfile,
+    @OutsideTransaction
+    public List<SignedItem> sign(ContentSigningRequest request, SigningProfileModel<?, ?> signingProfile,
             ResolvedManagedContentSigningProfile profile, SigningProtocol protocol) throws SigningEngineException {
         List<BigInteger> serials = new ArrayList<>();
         try {
-            return signToTargetLevel(request, signingProfile, profile, protocol, serials);
+            return signAtProfileLevel(request, signingProfile, profile, protocol, serials);
+        } catch (AccessDeniedException e) {
+            logDenial(profile, serials, e);
+            throw e;
         } catch (Exception e) {
-            throw loggedFailure(profile, request.targetLevel(), serials, e);
+            throw loggedFailure(profile, serials, e);
         }
     }
 
-    private SignedContent signToTargetLevel(ContentSigningRequest request, SigningProfileModel<?, ?> signingProfile,
+    private List<SignedItem> signAtProfileLevel(ContentSigningRequest request, SigningProfileModel<?, ?> signingProfile,
             ResolvedManagedContentSigningProfile profile, SigningProtocol protocol, List<BigInteger> serials)
             throws SigningEngineException {
-        requireReachableLevel(request.targetLevel(), profile);
+        requireSignableBatch(request, profile);
+        SigningRun run = startRun(request, signingProfile, profile, protocol);
+        List<ComputeDtbsResponseDto> dtbsResponses = boundDtbsResponses(run);
+
+        List<byte[]> dtbsList = dtbsResponses.stream().map(ComputeDtbsResponseDto::getDtbs).toList();
+        // When the caller authorized digests, the key signs only once the connector has committed to each of them.
+        List<byte[]> signatureValues = signDtbs(run, dtbsList);
+
+        List<CompletedDocument> documents = completeDocuments(run, dtbsResponses, signatureValues, serials);
+        List<SigningRecordInputSource> recordSources = documents.stream().map(CompletedDocument::recordSource).toList();
+        // Staging waits for every document to complete. A failed run thus leaves no content-signing record.
+        List<UUID> recordUuids = recordStager.stage(signingProfile, recordSources);
+        return signedItems(documents, recordUuids);
+    }
+
+    private void requireSignableBatch(ContentSigningRequest request, ResolvedManagedContentSigningProfile profile)
+            throws SigningEngineException {
+        BatchAdmission.admit(request.identifiers());
+        requireDeclaredLevel(profile);
+        requireAcceptedTransfer(profile.familyDeclaration(), request.transferMode());
+        RequestAttributesCheck
+                .requireAccepted(profile.name(), profile.formattingDefinitions(), profile.allowedRequestAttributes(),
+                        request.requestAttributes());
+        requireWellFormedDigests(request);
         requireAcceptableSigningCertificate(profile);
+    }
+
+    /** Every document of the batch claims the same signing time, signature algorithm and signer chain. */
+    private SigningRun startRun(ContentSigningRequest request, SigningProfileModel<?, ?> signingProfile,
+            ResolvedManagedContentSigningProfile profile, SigningProtocol protocol) throws SigningEngineException {
         Instant signingTime = clockSource.wallTimeInstant();
         SignatureAlgorithm signatureAlgorithm = acquisitions.signatureAlgorithm(profile);
-        SignatureDigestCoherence.requireCoherent(signatureAlgorithm, request.authorizedDigest(), request.document());
+        requireFamilyAcceptsAlgorithm(signatureAlgorithm, profile);
+        SignatureDigestCoherence.requireCoherent(signatureAlgorithm, request.digestAlgorithm());
+        List<byte[]> signerChain = encodedChain(profile);
+        return new SigningRun(request, signingProfile, profile, protocol, signingTime, signatureAlgorithm, signerChain);
+    }
 
-        ComputeDtbsResponseDto dtbs = requireCompleteDtbs(
-                computeDtbs(request, profile, signingTime, signatureAlgorithm));
-        // The key is released only once the connector has committed to the authorized document.
-        DtbsBindingVerifier.verify(request.authorizedDigest(), dtbs);
-        byte[] signatureValue = acquisitions.signatureValue(profile, dtbs.getDtbs());
-        ContentSigningCursor cursor = advance(ContentSigningCursor.DTBS_COMPUTED,
-                ContentSigningCursor.SIGNATURE_ACQUIRED);
+    private record SigningRun(ContentSigningRequest request, SigningProfileModel<?, ?> signingProfile,
+            ResolvedManagedContentSigningProfile profile, SigningProtocol protocol, Instant signingTime,
+            SignatureAlgorithm signatureAlgorithm, List<byte[]> signerChain) {
+    }
 
-        byte[] signedDocument = embedSignatureValue(profile, dtbs, signatureValue, signatureAlgorithm);
-        cursor = advance(cursor, ContentSigningCursor.SIGNED);
-
-        SignatureLevel reached = SignatureLevel.SIGNED;
-        if (request.targetLevel() != SignatureLevel.SIGNED) {
-            signedDocument = applySignatureTimestamp(profile, signedDocument, detachedContentFor(request.document()),
-                    request.targetLevel(), cursor, serials);
-            reached = request.targetLevel();
+    private List<ComputeDtbsResponseDto> boundDtbsResponses(SigningRun run) throws SigningEngineException {
+        List<ComputeDtbsResponseDto> dtbsResponses = new ArrayList<>();
+        for (ContentSigningItem item : run.request().items()) {
+            dtbsResponses.add(attributingFailuresTo(item, () -> boundDtbsResponse(run, item)));
         }
+        return dtbsResponses;
+    }
 
-        SignedContent result = new SignedContent(signedDocument, reached, serials);
-        recordSigning(signingProfile, profile, result, dtbs.getDtbs(), signatureValue, signingTime, protocol);
-        return result;
+    /** A provider failure of one item reaches the caller and the log naming its document. */
+    private List<byte[]> signDtbs(SigningRun run, List<byte[]> dtbsList) throws SigningEngineException {
+        try {
+            return acquisitions.signDtbs(run.profile(), dtbsList);
+        } catch (ItemSigningException e) {
+            throw e.withItem(run.request().items().get(e.itemIndex()).identifier());
+        }
+    }
+
+    private List<CompletedDocument> completeDocuments(SigningRun run, List<ComputeDtbsResponseDto> dtbsResponses,
+            List<byte[]> signatureValues, List<BigInteger> serials) throws SigningEngineException {
+        List<ContentSigningItem> items = run.request().items();
+        List<CompletedDocument> documents = new ArrayList<>();
+        for (int i = 0; i < items.size(); i++) {
+            documents.add(completeDocument(run, items.get(i), dtbsResponses.get(i), signatureValues.get(i), serials));
+        }
+        return documents;
+    }
+
+    private CompletedDocument completeDocument(SigningRun run, ContentSigningItem item,
+            ComputeDtbsResponseDto dtbsResponse, byte[] signatureValue, List<BigInteger> serials)
+            throws SigningEngineException {
+        SignedContent content = attributingFailuresTo(item,
+                () -> completeSignature(run, item, dtbsResponse, signatureValue, serials));
+        SigningRecordInputSource recordSource = recordFactory
+                .source(run.signingProfile(), run.profile(), content, dtbsResponse.getDtbs(), signatureValue,
+                        run.signingTime(), run.protocol());
+        return new CompletedDocument(item, content, recordSource);
+    }
+
+    private record CompletedDocument(ContentSigningItem item, SignedContent content,
+            SigningRecordInputSource recordSource) {
+    }
+
+    private static List<SignedItem> signedItems(List<CompletedDocument> documents, List<UUID> recordUuids) {
+        boolean withoutRecordReferences = recordUuids.isEmpty();
+        List<SignedItem> signed = new ArrayList<>();
+        for (int i = 0; i < documents.size(); i++) {
+            CompletedDocument document = documents.get(i);
+            UUID recordUuid = withoutRecordReferences ? null : recordUuids.get(i);
+            signed.add(new SignedItem(document.item().identifier(), document.content(), recordUuid));
+        }
+        return signed;
     }
 
     /**
-     * Raises a signature made elsewhere, entering the machine at the signature-timestamp imprint with {@code SIGNED} as
-     * the given cursor.
+     * Lets the caller and the log name the document that broke the batch. A denial passes unchanged, so the caller
+     * learns which permission it lacks.
      */
+    private static <T> T attributingFailuresTo(ContentSigningItem item, DocumentWork<T> work)
+            throws SigningEngineException {
+        try {
+            return work.run();
+        } catch (AccessDeniedException e) {
+            throw e;
+        } catch (SigningEngineException | RuntimeException e) {
+            throw asEngineFailure(e).withItem(item.identifier());
+        }
+    }
+
+    @FunctionalInterface
+    private interface DocumentWork<T> {
+        T run() throws SigningEngineException;
+    }
+
+    private ComputeDtbsResponseDto boundDtbsResponse(SigningRun run, ContentSigningItem item)
+            throws SigningEngineException {
+        ComputeDtbsResponseDto dtbsResponse = requireCompleteDtbsResponse(computeDtbs(run, item));
+        if (run.request().bindsAuthorizedDigests()) {
+            DtbsBindingVerifier.verify(run.request().authorizedDigestOf(item), dtbsResponse);
+        }
+        return dtbsResponse;
+    }
+
+    /**
+     * {@code serials} collects every timestamp serial the run issues, for the failure log. The result keeps only the
+     * document's own.
+     */
+    private SignedContent completeSignature(SigningRun run, ContentSigningItem item,
+            ComputeDtbsResponseDto dtbsResponse, byte[] signatureValue, List<BigInteger> serials)
+            throws SigningEngineException {
+        ContentSigningCursor cursor = advance(ContentSigningCursor.DTBS_COMPUTED,
+                ContentSigningCursor.SIGNATURE_ACQUIRED);
+        SignedDocumentResponseDto signed = embedSignatureValue(run.profile(), dtbsResponse, signatureValue,
+                run.signatureAlgorithm());
+        cursor = advance(cursor, ContentSigningCursor.SIGNED);
+
+        SignatureLevel level = run.profile().level();
+        int issuedBefore = serials.size();
+        if (level != SignatureLevel.SIGNED) {
+            signed = applySignatureTimestamp(run.profile(), signed.getSignedDocument(),
+                    detachedContentFor(run.request(), item), cursor, serials);
+        }
+        List<BigInteger> documentSerials = List.copyOf(serials.subList(issuedBefore, serials.size()));
+        return new SignedContent(signed.getSignedDocument(), signed.getMediaType(), level, documentSerials);
+    }
+
+    /**
+     * Raises a signature made elsewhere to the profile's level, entering the machine at the signature-timestamp
+     * imprint. A profile that signs at {@code SIGNED} adds nothing, so it is refused as invalid input.
+     */
+    @OutsideTransaction
     public SignedContent augment(AugmentationRequest request, SigningProfileModel<?, ?> signingProfile,
             ResolvedManagedContentSigningProfile profile, SigningProtocol protocol) throws SigningEngineException {
         List<BigInteger> serials = new ArrayList<>();
         try {
-            return augmentToTargetLevel(request, signingProfile, profile, protocol, serials);
+            return augmentToProfileLevel(request, signingProfile, profile, protocol, serials);
         } catch (Exception e) {
-            throw loggedFailure(profile, request.targetLevel(), serials, e);
+            throw loggedFailure(profile, serials, e);
         }
     }
 
-    private SignedContent augmentToTargetLevel(AugmentationRequest request, SigningProfileModel<?, ?> signingProfile,
+    private SignedContent augmentToProfileLevel(AugmentationRequest request, SigningProfileModel<?, ?> signingProfile,
             ResolvedManagedContentSigningProfile profile, SigningProtocol protocol, List<BigInteger> serials)
             throws SigningEngineException {
-        requireReachableLevel(request.targetLevel(), profile);
-        if (request.targetLevel() == SignatureLevel.SIGNED) {
+        requireDeclaredLevel(profile);
+        if (profile.level() == SignatureLevel.SIGNED) {
             throw new SigningEngineException(SigningEngineFailure.INVALID_INPUT,
-                    "augmentation to SIGNED was requested, but the document already carries a signature",
-                    "The document is already signed; augmentation needs a level above SIGNED");
+                    "Signing Profile '%s' signs at SIGNED, which adds nothing to a document signed elsewhere"
+                            .formatted(profile.name()),
+                    "This Signing Profile signs at SIGNED; augmentation needs a profile above SIGNED");
         }
-        // No certificate or clock gate here: this path releases no key of the profile's own scheme and mints no
+        // No certificate or clock gate here: the profile's own key signs nothing on this path, which mints no
         // signingTime claim. The referenced TIMESTAMPING profile gates its own key and its own time.
-        byte[] timestamped = applySignatureTimestamp(profile, request.signedDocument(), request.detachedContent(),
-                request.targetLevel(), ContentSigningCursor.SIGNED, serials);
+        SignedDocumentResponseDto timestamped = applySignatureTimestamp(profile, request.signedDocument(),
+                request.detachedContent(), ContentSigningCursor.SIGNED, serials);
 
-        SignedContent result = new SignedContent(timestamped, request.targetLevel(), serials);
-        recordSigning(signingProfile, profile, result, null, null, clockSource.wallTimeInstant(), protocol);
+        SignedContent result = new SignedContent(timestamped.getSignedDocument(), timestamped.getMediaType(),
+                profile.level(), serials);
+        recordAugmentation(signingProfile, profile, result, protocol);
         return result;
     }
 
-    /**
-     * Both refusals name levels an operator configured, so both are safe to put on the wire. The ceiling
-     * {@link ContentSigningTransitions#HIGHEST_EXECUTABLE_LEVEL} imposes is the one that moves as rungs gain steps.
-     */
-    private static void requireReachableLevel(SignatureLevel target, ResolvedManagedContentSigningProfile profile)
+    /** A reconnect may have withdrawn the profile's level from the family since the profile was saved. */
+    private static void requireDeclaredLevel(ResolvedManagedContentSigningProfile profile)
             throws SigningEngineException {
-        if (!target.isWithin(profile.maxLevel())) {
-            throw new SigningEngineException(SigningEngineFailure.INVALID_INPUT,
-                    "level %s was requested but Signing Profile '%s' permits at most %s"
-                            .formatted(target, profile.name(), profile.maxLevel()),
-                    "Signature level %s exceeds the maximum this Signing Profile permits (%s)"
-                            .formatted(target, profile.maxLevel()));
+        SignatureFamilyDeclarationDto family = profile.familyDeclaration();
+        boolean declared = family.getLevels().stream().anyMatch(level -> level.getLevel() == profile.level());
+        if (!declared) {
+            throw new SigningEngineException(SigningEngineFailure.MISCONFIGURED,
+                    "Signing Profile '%s' signs at %s, which its formatting connector no longer declares for %s"
+                            .formatted(profile.name(), profile.level(), family.getLabel()),
+                    CLIENT_MESSAGE);
         }
-        if (!target.isWithin(ContentSigningTransitions.HIGHEST_EXECUTABLE_LEVEL)) {
+    }
+
+    private static void requireAcceptedTransfer(SignatureFamilyDeclarationDto family, DocumentTransferMode mode)
+            throws SigningEngineException {
+        if (!family.getTransferModes().contains(mode)) {
             throw new SigningEngineException(SigningEngineFailure.INVALID_INPUT,
-                    "level %s was requested, which no step reaches yet".formatted(target),
-                    "Signature level %s is not available yet".formatted(target));
+                    "a %s run was given transferMode %s, which %s signing does not accept"
+                            .formatted(family.getLabel(), mode.getCode(), family.getLabel()),
+                    clientRefusal(family.getLabel(), mode));
+        }
+    }
+
+    /** A digest whose algorithm never produces its length came from no document, so no connector sees it. */
+    private static void requireWellFormedDigests(ContentSigningRequest request) throws SigningEngineException {
+        for (ContentSigningItem item : request.items()) {
+            if (request.bindsAuthorizedDigests()) {
+                requireWellFormedDigest("authorized digest", request.authorizedDigestOf(item), item);
+            }
+            if (request.transferMode() == DocumentTransferMode.DIGEST_ONLY) {
+                requireWellFormedDigest("digest sent in place of the document",
+                        new DocumentDigest(request.digestAlgorithm(), item.content()), item);
+            }
+        }
+    }
+
+    private static void requireWellFormedDigest(String role, DocumentDigest digest, ContentSigningItem item)
+            throws SigningEngineException {
+        if (!digest.hasLengthOfItsAlgorithm()) {
+            String defect = "%s is %d bytes, but %s produces %d"
+                    .formatted(role, digest.length(), digest.algorithm().getCode(),
+                            digest.algorithm().getDigestSizeBytes());
+            throw new SigningEngineException(SigningEngineFailure.INVALID_INPUT, defect, "The " + defect)
+                    .withItem(item.identifier());
+        }
+    }
+
+    /** States what the family needs in place of the refused mode, in the client's terms. */
+    static String clientRefusal(String familyLabel, DocumentTransferMode refused) {
+        String needed = switch (refused) {
+            case DIGEST_ONLY -> "needs the document itself, not only its digest";
+            case INLINE -> "needs only the document's digest, not the document itself";
+        };
+        return "%s signing %s".formatted(familyLabel, needed);
+    }
+
+    /** A reconnect may have narrowed the family's algorithms since the profile was saved. */
+    private static void requireFamilyAcceptsAlgorithm(SignatureAlgorithm signatureAlgorithm,
+            ResolvedManagedContentSigningProfile profile) throws SigningEngineException {
+        SignatureFamilyDeclarationDto family = profile.familyDeclaration();
+        if (!FamilyAlgorithms.accepts(family, signatureAlgorithm)) {
+            throw new SigningEngineException(SigningEngineFailure.MISCONFIGURED,
+                    "signature algorithm %s of Signing Profile '%s' is no longer accepted by the %s family"
+                            .formatted(signatureAlgorithm.getCode(), profile.name(), family.getLabel()),
+                    CLIENT_MESSAGE);
         }
     }
 
@@ -190,38 +373,39 @@ public class ManagedContentSigningEngine {
         }
     }
 
-    private ComputeDtbsResponseDto computeDtbs(ContentSigningRequest request,
-            ResolvedManagedContentSigningProfile profile, Instant signingTime, SignatureAlgorithm signatureAlgorithm)
-            throws SigningEngineException {
-        ComputeDtbsRequestDto dtbsRequest = ComputeDtbsRequests
-                .forFamily(profile.family(), request.signatureParameters(), request.document());
+    private ComputeDtbsResponseDto computeDtbs(SigningRun run, ContentSigningItem item) throws SigningEngineException {
+        ResolvedManagedContentSigningProfile profile = run.profile();
+        ComputeDtbsRequestDto dtbsRequest = new ComputeDtbsRequestDto();
+        dtbsRequest.setFamily(profile.family());
+        dtbsRequest.setDocument(run.request().transferOf(item));
         dtbsRequest.setFormattingAttributes(profile.signatureFormattingConnectorAttributes());
-        dtbsRequest.setSignerCertificateChain(encodedChain(profile));
-        dtbsRequest.setSigningTime(signingTime.atOffset(ZoneOffset.UTC));
-        dtbsRequest.setSignatureAlgorithm(signatureAlgorithm);
+        dtbsRequest.setRequestAttributes(run.request().requestAttributes());
+        dtbsRequest.setSignerCertificateChain(run.signerChain());
+        dtbsRequest.setSigningTime(run.signingTime().atOffset(ZoneOffset.UTC));
+        dtbsRequest.setSignatureAlgorithm(run.signatureAlgorithm());
         return formattingClient.computeDtbs(profile.signatureFormattingConnector(), dtbsRequest);
     }
 
     /**
-     * Acquiring the signature is not idempotent, so a response the connector already left incomplete has to be refused
-     * before the key is exercised. A missing {@code formattingContext} would otherwise surface only at
+     * Every call of the key makes a new signature, so a response the connector already left incomplete has to be
+     * refused before the key signs. A missing {@code formattingContext} would otherwise surface only at
      * {@code embedSignatureValue}, by which point the signature has been made and cannot be completed.
      */
-    private static ComputeDtbsResponseDto requireCompleteDtbs(ComputeDtbsResponseDto response)
+    private static ComputeDtbsResponseDto requireCompleteDtbsResponse(ComputeDtbsResponseDto response)
             throws SigningEngineException {
         if (response == null) {
-            throw incompleteDtbs("connector returned no computeDtbs response");
+            throw incompleteDtbsResponse("connector returned no computeDtbs response");
         }
-        if (response.getDtbs() == null) {
-            throw incompleteDtbs("connector returned no dtbs to sign");
+        if (response.getDtbs() == null || response.getDtbs().length == 0) {
+            throw incompleteDtbsResponse("connector returned no dtbs to sign");
         }
         if (response.getFormattingContext() == null) {
-            throw incompleteDtbs("connector returned no formattingContext to complete the signature with");
+            throw incompleteDtbsResponse("connector returned no formattingContext to complete the signature with");
         }
         return response;
     }
 
-    private static SigningEngineException incompleteDtbs(String defect) {
+    private static SigningEngineException incompleteDtbsResponse(String defect) {
         return SigningEngineException
                 .stepFailed(SigningEngineFailure.CONNECTOR_FAULT, "computeDtbs", defect, null, CLIENT_MESSAGE);
     }
@@ -245,15 +429,16 @@ public class ManagedContentSigningEngine {
     /**
      * Replays the algorithm {@code computeDtbs} was given rather than resolving it again, so the pair cannot disagree.
      */
-    private byte[] embedSignatureValue(ResolvedManagedContentSigningProfile profile, ComputeDtbsResponseDto dtbs,
-            byte[] signatureValue, SignatureAlgorithm signatureAlgorithm) throws SigningEngineException {
+    private SignedDocumentResponseDto embedSignatureValue(ResolvedManagedContentSigningProfile profile,
+            ComputeDtbsResponseDto dtbsResponse, byte[] signatureValue, SignatureAlgorithm signatureAlgorithm)
+            throws SigningEngineException {
         EmbedSignatureValueRequestDto embed = new EmbedSignatureValueRequestDto();
         embed.setFamily(profile.family());
         embed.setFormattingAttributes(profile.signatureFormattingConnectorAttributes());
         embed.setSignatureValue(signatureValue);
         embed.setSignatureAlgorithm(signatureAlgorithm);
-        embed.setFormattingContext(dtbs.getFormattingContext());
-        return requireSignedDocument(
+        embed.setFormattingContext(dtbsResponse.getFormattingContext());
+        return requireEmbeddedDocument(
                 formattingClient.embedSignatureValue(profile.signatureFormattingConnector(), embed),
                 "embedSignatureValue");
     }
@@ -262,8 +447,8 @@ public class ManagedContentSigningEngine {
      * Drives {@code computeSignatureTimestampImprint}, the in-process timestamp, and {@code embedSignatureTimestamp}.
      * The serial is collected because it is the only handle a completed operation has on its timestamp record.
      */
-    private byte[] applySignatureTimestamp(ResolvedManagedContentSigningProfile profile, byte[] signedDocument,
-            DocumentTransferDto detachedContent, SignatureLevel targetLevel, ContentSigningCursor cursor,
+    private SignedDocumentResponseDto applySignatureTimestamp(ResolvedManagedContentSigningProfile profile,
+            byte[] signedDocument, DocumentTransferDto detachedContent, ContentSigningCursor cursor,
             List<BigInteger> serials) throws SigningEngineException {
         TimestampImprint imprint = requireImprint(
                 formattingClient
@@ -271,7 +456,7 @@ public class ManagedContentSigningEngine {
                                 signedDocumentRequest(profile, signedDocument, detachedContent)),
                 "computeSignatureTimestampImprint");
 
-        IssuedTimestamp issued = acquisitions.signatureTimestamp(profile, imprint, "signatureTimestamp");
+        IssuedTimestamp issued = acquisitions.timestampSignature(profile, imprint, "signatureTimestamp");
         serials.add(issued.serialNumber());
         ContentSigningCursor acquired = advance(cursor, ContentSigningCursor.SIG_TIMESTAMP_ACQUIRED);
 
@@ -281,10 +466,10 @@ public class ManagedContentSigningEngine {
         embed.setSignedDocument(signedDocument);
         embed.setDetachedContent(detachedContent);
         embed.setTimestampToken(issued.encoded());
-        byte[] timestamped = requireSignedDocument(
+        SignedDocumentResponseDto timestamped = requireEmbeddedDocument(
                 formattingClient.embedSignatureTimestamp(profile.signatureFormattingConnector(), embed),
                 "embedSignatureTimestamp");
-        advance(acquired, ContentSigningTransitions.exitCursorFor(targetLevel));
+        advance(acquired, ContentSigningTransitions.exitCursorFor(profile.level()));
         return timestamped;
     }
 
@@ -303,8 +488,8 @@ public class ManagedContentSigningEngine {
      * digest-only transfer the run started from, which is all Core ever holds for a detached format. An enveloped
      * document carries its own content, so it needs none.
      */
-    private static DocumentTransferDto detachedContentFor(DocumentTransferDto document) {
-        return document instanceof DigestOnlyDocumentTransferDto ? document : null;
+    private static DocumentTransferDto detachedContentFor(ContentSigningRequest request, ContentSigningItem item) {
+        return request.transferMode() == DocumentTransferMode.DIGEST_ONLY ? request.transferOf(item) : null;
     }
 
     /**
@@ -322,14 +507,19 @@ public class ManagedContentSigningEngine {
         return new TimestampImprint(response.getDigestAlgorithm(), response.getImprint());
     }
 
-    private static byte[] requireSignedDocument(SignedDocumentResponseDto response, String step)
+    private static SignedDocumentResponseDto requireEmbeddedDocument(SignedDocumentResponseDto response, String step)
             throws SigningEngineException {
-        if (response == null || response.getSignedDocument() == null) {
+        if (response == null || response.getSignedDocument() == null || response.getSignedDocument().length == 0) {
             throw SigningEngineException
                     .stepFailed(SigningEngineFailure.CONNECTOR_FAULT, step, "connector returned no signed document",
                             null, CLIENT_MESSAGE);
         }
-        return response.getSignedDocument();
+        if (response.getMediaType() == null || response.getMediaType().isBlank()) {
+            throw SigningEngineException
+                    .stepFailed(SigningEngineFailure.CONNECTOR_FAULT, step,
+                            "connector named no media type for the signed document", null, CLIENT_MESSAGE);
+        }
+        return response;
     }
 
     /**
@@ -346,9 +536,9 @@ public class ManagedContentSigningEngine {
      * without the funnel such a throw would take the run's only record of the serials it already issued with it.
      */
     private static SigningEngineException loggedFailure(ResolvedManagedContentSigningProfile profile,
-            SignatureLevel targetLevel, List<BigInteger> serials, Exception e) {
+            List<BigInteger> serials, Exception e) {
         SigningEngineException failure = asEngineFailure(e);
-        logFailure(profile, targetLevel, serials, failure);
+        logFailure(profile, serials, failure);
         return failure;
     }
 
@@ -364,20 +554,33 @@ public class ManagedContentSigningEngine {
      * A run that dies after the key has signed leaves no signing record, so the log line is the only trace it ever had.
      * Neither the document, the data-to-be-signed nor the signature value is log material.
      */
-    private static void logFailure(ResolvedManagedContentSigningProfile profile, SignatureLevel targetLevel,
-            List<BigInteger> serials, SigningEngineException e) {
+    private static void logFailure(ResolvedManagedContentSigningProfile profile, List<BigInteger> serials,
+            SigningEngineException e) {
         String step = e.step() != null ? e.step() : "none";
+        String scope = failureScope(e);
         if (isPlatformFault(e.failure())) {
             logger
-                    .error("Content signing failed for signing profile '{}' at step '{}' targeting level {}, "
-                            + "timestamp serials already issued {}: {}", profile.name(), step, targetLevel,
+                    .error("Content signing failed for signing profile '{}' at step '{}' of {}, profile level {}, "
+                            + "timestamp serials already issued {}: {}", profile.name(), step, scope, profile.level(),
                             TimestampTokenSerialNumbers.hex(serials), e.operatorMessage(), e);
         } else {
             logger
-                    .warn("Refusing to sign content for signing profile '{}' at step '{}' targeting level {}, "
-                            + "timestamp serials already issued {}: {}", profile.name(), step, targetLevel,
+                    .warn("Refusing to sign content for signing profile '{}' at step '{}' of {}, profile level {}, "
+                            + "timestamp serials already issued {}: {}", profile.name(), step, scope, profile.level(),
                             TimestampTokenSerialNumbers.hex(serials), e.operatorMessage());
         }
+    }
+
+    private static void logDenial(ResolvedManagedContentSigningProfile profile, List<BigInteger> serials,
+            AccessDeniedException e) {
+        logger
+                .warn("Refusing to sign content for signing profile '{}': the caller lacks a permission the run needs, "
+                        + "timestamp serials already issued {}: {}", profile.name(),
+                        TimestampTokenSerialNumbers.hex(serials), e.getMessage());
+    }
+
+    private static String failureScope(SigningEngineException e) {
+        return e.itemIdentifier() != null ? "document '%s'".formatted(e.itemIdentifier()) : "the batch";
     }
 
     /** Exhaustive so that a new failure class has to choose its log level rather than inherit one. */
@@ -389,25 +592,19 @@ public class ManagedContentSigningEngine {
     }
 
     /**
-     * Records the run. The document is already signed, so a recording failure must never withdraw it: it is logged and
-     * swallowed. The strategy is handed a deferred source so a profile with recording off never pays for the metadata.
-     *
-     * <p>
-     * Only a completed run reaches this, so a failure after the signature timestamp was issued can leave a timestamp
-     * record that no content-signing record references.
+     * An augmentation keeps its timestamped document when recording fails. A run that fails before this point leaves
+     * its issued timestamp's record orphaned.
      */
-    private void recordSigning(SigningProfileModel<?, ?> signingProfile, ResolvedManagedContentSigningProfile profile,
-            SignedContent result, byte[] dtbs, byte[] signatureValue, Instant signingTime, SigningProtocol protocol) {
+    private void recordAugmentation(SigningProfileModel<?, ?> signingProfile,
+            ResolvedManagedContentSigningProfile profile, SignedContent result, SigningProtocol protocol) {
         try {
             SigningRecordInputSource source = recordFactory
-                    .source(signingProfile, profile, result, dtbs, signatureValue, signingTime, protocol);
-            signingRecordStrategyFactory
-                    .strategyFor(signingProfile.recordPolicy().persistenceMode())
-                    .recordSigning(source);
+                    .source(signingProfile, profile, result, null, null, clockSource.wallTimeInstant(), protocol);
+            recordStager.stage(signingProfile, List.of(source));
         } catch (Exception e) {
             logger
-                    .error("Failed to record signing for signing profile '{}'; the document was signed regardless",
-                            signingProfile.name(), e);
+                    .error("Failed to record augmentation for signing profile '{}'; the document was timestamped "
+                            + "regardless", signingProfile.name(), e);
         }
     }
 }

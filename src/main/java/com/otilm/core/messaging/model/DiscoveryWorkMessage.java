@@ -9,9 +9,10 @@ import java.util.UUID;
  *
  * <p>
  * {@code attempt} echoes the agenda row's counter at publish time, so the worker can enforce the attempt budget without
- * re-reading the row. A duplicate delivery is harmless: every tick is idempotent, and the {@code discovery_work} row —
- * not this message — owns the scheduling state.
+ * re-reading the row. {@code leaseToken} is the claim the publisher wrote to the {@code discovery_work} row, checked
+ * when the tick is admitted ({@code DiscoveryWorkLease#admit}). It is null only on messages published by a Core version
+ * without the lease.
  * </p>
  */
-public record DiscoveryWorkMessage(UUID discoveryUuid, DiscoveryWorkType workType, int attempt) {
+public record DiscoveryWorkMessage(UUID discoveryUuid, DiscoveryWorkType workType, int attempt, UUID leaseToken) {
 }

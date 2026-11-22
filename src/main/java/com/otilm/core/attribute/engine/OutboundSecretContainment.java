@@ -3,6 +3,13 @@ package com.otilm.core.attribute.engine;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.otilm.api.exception.ConnectorClientException;
+import com.otilm.api.exception.ConnectorCommunicationException;
+import com.otilm.api.exception.ConnectorEntityNotFoundException;
+import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.ConnectorProblemException;
+import com.otilm.api.exception.ConnectorServerException;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.ResponseAttribute;
 import com.otilm.api.model.client.connector.v2.attribute.AttributeCallbackResponseDto;
@@ -20,8 +27,11 @@ import com.otilm.api.model.common.attribute.v3.content.ResourceObjectContent;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceObjectContentData;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceSecretContentData;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceSimpleContentData;
+import com.otilm.api.model.common.error.ErrorCode;
+import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.api.model.connector.secrets.content.SecretContent;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContent;
+import com.otilm.core.util.ConnectorTransportFailures;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -31,11 +41,13 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Component;
 
 /**
@@ -59,7 +71,17 @@ public class OutboundSecretContainment {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboundSecretContainment.class);
 
+    /** A refusal with the connector's words replaced, filled with what the connector refused. */
+    private static final String REFUSED = "The connector refused the %s.";
+
     private static final int MAX_WALK_DEPTH = 12;
+
+    /**
+     * How deep the recording walk follows a resolved request. Each nesting level adds five wrappers (attribute list,
+     * attribute, content list, reference, data), so a secret at {@link ReferenceTraversal#MAX_DEPTH} sits deeper than a
+     * response may nest.
+     */
+    private static final int MAX_RECORD_DEPTH = MAX_WALK_DEPTH + 5 * ReferenceTraversal.MAX_DEPTH;
 
     /**
      * The application's wire ObjectMapper. Using the managed bean (not a bespoke {@code new ObjectMapper()}) keeps the
@@ -88,7 +110,7 @@ public class OutboundSecretContainment {
             return;
         }
         // Record path is best-effort (failClosedOnDepth=false): the value-echo + structural reject are the gates.
-        walkSecretGraph(blob, 0, node -> recordIfSecretLeaf(node, expandedSecrets), false);
+        walkSecretGraph(blob, 0, node -> recordIfSecretLeaf(node, expandedSecrets), MAX_RECORD_DEPTH, false);
     }
 
     /**
@@ -103,7 +125,8 @@ public class OutboundSecretContainment {
             return;
         }
         for (RequestAttribute attribute : resolved) {
-            walkSecretGraph(attribute.getContent(), 0, node -> recordIfSecretLeaf(node, expandedSecrets), false);
+            walkSecretGraph(attribute.getContent(), 0, node -> recordIfSecretLeaf(node, expandedSecrets),
+                    MAX_RECORD_DEPTH, false);
         }
     }
 
@@ -115,6 +138,25 @@ public class OutboundSecretContainment {
      */
     public void recordProtectedValuesFromRequest(List<ObjectAttributeContent> storedRows,
             List<RequestAttribute> resolved, Set<String> expandedSecrets) {
+        forEachProtectedData(storedRows, resolved, data -> addIfPresent(protectedText(data), expandedSecrets));
+    }
+
+    /**
+     * Record, as decimal text, each number a resolved attribute whose stored row is encrypted holds, such as a PIN.
+     * {@link #recordProtectedValuesFromRequest} leaves numbers out because they match benign content; this is for a
+     * check where such a match only withholds text, never refuses an answer.
+     */
+    public void recordProtectedNumbersFromRequest(List<ObjectAttributeContent> storedRows,
+            List<RequestAttribute> resolved, Set<String> sentSecrets) {
+        forEachProtectedData(storedRows, resolved, data -> {
+            if (data instanceof Number number) {
+                sentSecrets.add(number.toString());
+            }
+        });
+    }
+
+    private static void forEachProtectedData(List<ObjectAttributeContent> storedRows, List<RequestAttribute> resolved,
+            Consumer<Object> dataVisitor) {
         Set<UUID> protectedDefinitions = storedRows
                 .stream()
                 .filter(row -> row.encryptedContent() != null)
@@ -123,7 +165,7 @@ public class OutboundSecretContainment {
         for (RequestAttribute attribute : resolved) {
             List<? extends AttributeContent> content = attribute.getContent();
             if (protectedDefinitions.contains(attribute.getUuid()) && content != null) {
-                content.forEach(item -> addIfPresent(protectedText(item.getData()), expandedSecrets));
+                content.forEach(item -> dataVisitor.accept(item.getData()));
             }
         }
     }
@@ -203,7 +245,7 @@ public class OutboundSecretContainment {
         // Structural: walk the response object graph (incl. typed DTO wrappers, not just collections) and reject
         // any secret-bearing shape — same traversal as recordExpandedSecrets, so a wrapped secret cannot slip.
         // failClosedOnDepth=true: a response too deeply nested to fully inspect is refused, not waved through.
-        walkSecretGraph(response, 0, this::rejectIfSecretShape, true);
+        walkSecretGraph(response, 0, this::rejectIfSecretShape, MAX_WALK_DEPTH, true);
 
         Set<String> secrets = expandedSecrets == null ? Set.of() : expandedSecrets;
         Set<String> digests = sentSecretDigests == null ? Set.of() : Set.copyOf(sentSecretDigests);
@@ -259,12 +301,12 @@ public class OutboundSecretContainment {
      * content) that a Jackson value-tree walk cannot type-detect. Both the value-recording and structural-rejection
      * checks share this traversal so they cannot diverge.
      */
-    private void walkSecretGraph(Object node, int depth, java.util.function.Consumer<Object> visitor,
+    private void walkSecretGraph(Object node, int depth, java.util.function.Consumer<Object> visitor, int maxDepth,
             boolean failClosedOnDepth) {
         if (node == null) {
             return;
         }
-        if (depth > MAX_WALK_DEPTH) {
+        if (depth > maxDepth) {
             // The structural check fails CLOSED on overflow: a response too deep to fully inspect must be refused,
             // matching ReferenceExpansionException.depthExceeded. The record path passes false (best-effort; the
             // unbounded value-echo scan is its safety net) so a deep legitimate expansion is never spuriously aborted.
@@ -280,32 +322,122 @@ public class OutboundSecretContainment {
         visitor.accept(node);
 
         if (node instanceof Iterable<?> iterable) {
-            iterable.forEach(o -> walkSecretGraph(o, depth + 1, visitor, failClosedOnDepth));
+            iterable.forEach(o -> walkSecretGraph(o, depth + 1, visitor, maxDepth, failClosedOnDepth));
         } else if (node instanceof Object[] array) {
             for (Object o : array) {
-                walkSecretGraph(o, depth + 1, visitor, failClosedOnDepth);
+                walkSecretGraph(o, depth + 1, visitor, maxDepth, failClosedOnDepth);
             }
         } else if (node instanceof java.util.Map<?, ?> map) {
-            map.values().forEach(o -> walkSecretGraph(o, depth + 1, visitor, failClosedOnDepth));
+            map.values().forEach(o -> walkSecretGraph(o, depth + 1, visitor, maxDepth, failClosedOnDepth));
         } else if (node instanceof AttributeCallbackResponseDto response) {
-            walkSecretGraph(response.getContent(), depth + 1, visitor, failClosedOnDepth);
-            walkSecretGraph(response.getAttributes(), depth + 1, visitor, failClosedOnDepth);
+            walkSecretGraph(response.getContent(), depth + 1, visitor, maxDepth, failClosedOnDepth);
+            walkSecretGraph(response.getAttributes(), depth + 1, visitor, maxDepth, failClosedOnDepth);
         } else if (node instanceof ResourceObjectContent resourceObjectContent) {
-            walkSecretGraph(resourceObjectContent.getData(), depth + 1, visitor, failClosedOnDepth);
+            walkSecretGraph(resourceObjectContent.getData(), depth + 1, visitor, maxDepth, failClosedOnDepth);
         } else if (node instanceof ResourceSimpleContentData simple) {
-            walkSecretGraph(simple.getAttributes(), depth + 1, visitor, failClosedOnDepth);
+            walkSecretGraph(simple.getAttributes(), depth + 1, visitor, maxDepth, failClosedOnDepth);
         } else if (node instanceof ResponseAttribute responseAttribute) {
-            walkSecretGraph(responseAttribute.getContent(), depth + 1, visitor, failClosedOnDepth);
+            walkSecretGraph(responseAttribute.getContent(), depth + 1, visitor, maxDepth, failClosedOnDepth);
         } else if (node instanceof BaseAttribute baseAttribute) {
             // The response 'attributes' arm is List<BaseAttribute> — Data/Metadata/Custom all expose content via
             // the universal getContent(); descend the base type so a secret nested in any of them is reached.
-            walkSecretGraph(baseAttribute.getContent(), depth + 1, visitor, failClosedOnDepth);
+            walkSecretGraph(baseAttribute.getContent(), depth + 1, visitor, maxDepth, failClosedOnDepth);
         } else if (node instanceof CredentialAttributeContentData credential) {
-            walkSecretGraph(credential.getAttributes(), depth + 1, visitor, failClosedOnDepth);
+            walkSecretGraph(credential.getAttributes(), depth + 1, visitor, maxDepth, failClosedOnDepth);
         } else if (node instanceof AttributeContent content) {
             // Decryption puts a protected row's data in a base content rather than its typed one.
-            walkSecretGraph(content.getData(), depth + 1, visitor, failClosedOnDepth);
+            walkSecretGraph(content.getData(), depth + 1, visitor, maxDepth, failClosedOnDepth);
         }
+    }
+
+    /**
+     * A connector's refusal of a request that carried secrets, with its verdict kept (type, status, error code and
+     * retry hint, which callers classify it by) and its words replaced, since they may echo a secret in any encoding.
+     * Returned as it is when the request carried none.
+     *
+     * @param refused what the connector refused, such as {@code "run"}, for the replacement words
+     */
+    public ConnectorException withoutWords(ConnectorException refusal, Set<String> sentSecrets, String refused) {
+        if (sentSecrets == null || sentSecrets.isEmpty()) {
+            return refusal;
+        }
+        return withoutWords(refusal, refused);
+    }
+
+    /** As {@link #withoutWords(ConnectorException, Set, String)}, for a request known to carry a secret. */
+    public ConnectorException withoutWords(ConnectorException refusal, String refused) {
+        String words = REFUSED.formatted(refused);
+        ConnectorException withoutWords = switch (refusal) {
+            case ConnectorProblemException problem -> withoutWords(problem, refused);
+            case ConnectorClientException client -> new ConnectorClientException(words, client.getHttpStatus());
+            case ConnectorServerException server -> new ConnectorServerException(words, server.getHttpStatus());
+            case ConnectorEntityNotFoundException ignored -> new ConnectorEntityNotFoundException(words);
+            case ConnectorCommunicationException communication -> withoutWords(communication, refused);
+            default -> new ConnectorException(words);
+        };
+        withoutWords.setConnector(refusal.getConnector());
+        return withoutWords;
+    }
+
+    /**
+     * As {@link #withoutWords(ConnectorException, Set, String)}, for a refusal a transport reports as a validation
+     * failure: a plain 422 over REST, or a validation error from the proxy.
+     */
+    public ValidationException withoutWords(ValidationException refusal, Set<String> sentSecrets, String refused) {
+        if (sentSecrets == null || sentSecrets.isEmpty()) {
+            return refusal;
+        }
+        return validationRefusalWithoutWords(refused);
+    }
+
+    /**
+     * The replacement for a validation refusal of a request known to carry a secret; see
+     * {@link #withoutWords(ValidationException, Set, String)}.
+     */
+    public ValidationException validationRefusalWithoutWords(String refused) {
+        return new ValidationException(REFUSED.formatted(refused));
+    }
+
+    /**
+     * A communication failure without its words. A cause the transport raised, such as a refused connection or a
+     * timeout, is kept: its words are the transport's, and callers tell an outage from an unreadable answer by it. Any
+     * other cause, such as an answer that could not be read, may quote the connector and goes.
+     */
+    private static ConnectorCommunicationException withoutWords(ConnectorCommunicationException failure,
+            String refused) {
+        Throwable cause = failure.getCause();
+        if (ConnectorTransportFailures.isTransportFailure(cause)) {
+            return new ConnectorCommunicationException(
+                    "Core could not reach the connector for the %s.".formatted(refused), cause, failure.getConnector());
+        }
+        return new ConnectorCommunicationException(
+                "Core could not read the connector's answer to the %s.".formatted(refused), failure.getConnector());
+    }
+
+    private static ConnectorProblemException withoutWords(ConnectorProblemException refusal, String refused) {
+        ProblemDetailExtended answered = refusal.getProblemDetail();
+        ProblemDetailExtended kept = new ProblemDetailExtended();
+        ErrorCode code = answered == null ? null : answered.getErrorCode();
+        if (answered != null) {
+            kept.setStatus(answered.getStatus());
+            kept.setErrorCode(code);
+            kept.setRetryable(answered.isRetryable());
+            kept.setRetryAfterSeconds(answered.getRetryAfterSeconds());
+            kept.setTimestamp(answered.getTimestamp());
+        }
+        kept
+                .setDetail(code == null
+                        ? REFUSED.formatted(refused)
+                        : "The connector refused the %s (%s).".formatted(refused, code.name()));
+        return new ConnectorProblemException(kept);
+    }
+
+    /**
+     * Whether free text a connector wrote, such as the reason it gives for an outcome, quotes any of the secret values
+     * a request sent it.
+     */
+    public static boolean quotesAny(@Nullable String text, Set<String> sentSecrets) {
+        return text != null && sentSecrets.stream().anyMatch(text::contains);
     }
 
     /**

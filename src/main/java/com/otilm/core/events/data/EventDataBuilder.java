@@ -20,6 +20,7 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.util.CertificateUtil;
 import java.time.ZoneId;
 import java.util.UUID;
 import org.springframework.transaction.annotation.Transactional;
@@ -159,6 +160,7 @@ public class EventDataBuilder {
     private static void setCertificateEventData(CertificateEventData eventData, Certificate certificate) {
         eventData.setCertificateUuid(certificate.getUuid());
         eventData.setFingerprint(certificate.getFingerprint());
+        eventData.setDisplayName(CertificateUtil.formatCommonName(certificate.getCommonName()));
         eventData.setSerialNumber(certificate.getSerialNumber());
         if (X509CertificateEntity.fromOrNull(certificate) instanceof X509CertificateEntity x509Certificate) {
             eventData.setSubjectDn(x509Certificate.getSubjectDn());

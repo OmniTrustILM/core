@@ -11,6 +11,7 @@ import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.logging.enums.AuditLogOutput;
 import com.otilm.api.model.core.logging.enums.Module;
 import com.otilm.api.model.core.logging.enums.Operation;
+import com.otilm.api.model.core.logging.enums.OperationResult;
 import com.otilm.api.model.core.logging.records.LogRecord;
 import com.otilm.api.model.core.logging.records.ResourceObjectIdentity;
 import com.otilm.api.model.core.secret.SecretRequestDto;
@@ -29,12 +30,18 @@ import java.util.Map;
 import java.util.UUID;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.reflect.MethodSignature;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -54,10 +61,11 @@ class AuditLogAspectTest {
     private final ProceedingJoinPoint joinPoint = mock(ProceedingJoinPoint.class);
     private final AuditLogEnhancer auditLogEnhancer = mock(AuditLogEnhancer.class);
     private final AuditLogAspect aspect = new AuditLogAspect();
+    private final AuditOperationOverride auditOperationOverride = new AuditOperationOverride();
     private SettingsDto previousLoggingSettings;
 
     @BeforeEach
-    void setUp() {
+    void wireAspectToAuditLogsInTheDatabase() {
         aspect.setAuditLogsProducer(auditLogsProducer);
         aspect.setAuditLogInternalService(auditLogInternalService);
         aspect.setAuditLogEnhancer(auditLogEnhancer);
@@ -65,6 +73,7 @@ class AuditLogAspectTest {
         aspect.setAuditResultOverride(mock(AuditResultOverride.class));
         aspect.setAuditOperationDataOverride(mock(AuditOperationDataOverride.class));
         aspect.setAuditAffiliationOverride(mock(AuditAffiliationOverride.class));
+        aspect.setAuditOperationOverride(auditOperationOverride);
         ReflectionTestUtils.setField(aspect, "schemaVersion", "1.0");
         previousLoggingSettings = SettingsCache.getSettings(SettingsSection.LOGGING);
         new SettingsCache().cacheSettings(SettingsSection.LOGGING, auditLogsToTheDatabase());
@@ -73,6 +82,7 @@ class AuditLogAspectTest {
     @AfterEach
     @SuppressWarnings("unchecked")
     void restoreLoggingSettings() {
+        RequestContextHolder.resetRequestAttributes();
         Map<SettingsSection, SettingsDto> cache = (Map<SettingsSection, SettingsDto>) ReflectionTestUtils
                 .getField(SettingsCache.class, "cache");
         if (previousLoggingSettings == null) {
@@ -242,6 +252,102 @@ class AuditLogAspectTest {
         assertFalse(recorded.contains("attribute-secret-value"));
     }
 
+    @Test
+    void recordsTheOperationTheBodyDiscovered_whenTheAnnotationLeavesItUnknown() throws Throwable {
+        // given
+        bindRequestScope();
+        var discoveredOperation = Operation.ISSUE;
+        stubBodySettingTheOverride(discoveredOperation);
+
+        // when
+        aspect.log(joinPointOn("unknownOperationProbe"));
+
+        // then
+        LogRecord recorded = recordWritten();
+        assertThat(recorded.operation()).isEqualTo(discoveredOperation);
+        assertThat(recorded.operationResult()).isEqualTo(OperationResult.SUCCESS);
+    }
+
+    @Test
+    void recordsTheOperationTheBodyDiscovered_whenTheBodyThenFails() throws Throwable {
+        // given
+        bindRequestScope();
+        var operationDiscoveredBeforeTheFailure = Operation.REVOKE;
+        when(joinPoint.proceed()).thenAnswer(invocation -> {
+            auditOperationOverride.set(operationDiscoveredBeforeTheFailure);
+            throw new ValidationException("refused");
+        });
+        ProceedingJoinPoint call = joinPointOn("unknownOperationProbe");
+
+        // when
+        ThrowingCallable audited = () -> aspect.log(call);
+
+        // then
+        assertThatThrownBy(audited).isInstanceOf(ValidationException.class);
+        LogRecord recorded = recordWritten();
+        assertThat(recorded.operation()).isEqualTo(operationDiscoveredBeforeTheFailure);
+        assertThat(recorded.operationResult()).isEqualTo(OperationResult.FAILURE);
+    }
+
+    @Test
+    void recordsUnknown_whenTheBodyDiscoveredNoOperation() throws Throwable {
+        // given
+        bindRequestScope();
+        when(joinPoint.proceed()).thenReturn("released");
+
+        // when
+        aspect.log(joinPointOn("unknownOperationProbe"));
+
+        // then
+        assertThat(recordWritten().operation()).isEqualTo(Operation.UNKNOWN);
+    }
+
+    @Test
+    void keepsTheAnnotatedOperation_whenTheOperationIsConcrete() throws Throwable {
+        // given
+        bindRequestScope();
+        stubBodySettingTheOverride(Operation.ISSUE);
+
+        // when
+        aspect.log(joinPointOn("synchronousProbe"));
+
+        // then
+        assertThat(recordWritten().operation()).isEqualTo(Operation.EXPORT);
+    }
+
+    @Test
+    void leavesTheOverrideUnconsumed_whenTheOperationIsConcrete() throws Throwable {
+        // given
+        bindRequestScope();
+        var overrideForTheWaitingFrame = Operation.ISSUE;
+        stubBodySettingTheOverride(overrideForTheWaitingFrame);
+
+        // when
+        aspect.log(joinPointOn("synchronousProbe"));
+
+        // then
+        assertThat(auditOperationOverride.consume()).isEqualTo(overrideForTheWaitingFrame);
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private LogRecord recordWritten() {
+        ArgumentCaptor<LogRecord> recorded = ArgumentCaptor.forClass(LogRecord.class);
+        verify(auditLogInternalService).log(recorded.capture(), eq(AuditLogOutput.DATABASE));
+        return recorded.getValue();
+    }
+
+    private void stubBodySettingTheOverride(Operation discovered) throws Throwable {
+        when(joinPoint.proceed()).thenAnswer(invocation -> {
+            auditOperationOverride.set(discovered);
+            return "released";
+        });
+    }
+
+    private static void bindRequestScope() {
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(new MockHttpServletRequest()));
+    }
+
     private ProceedingJoinPoint joinPointOn(String probe) throws NoSuchMethodException {
         return joinPointOn(probe, new Class<?>[0]);
     }
@@ -270,6 +376,12 @@ class AuditLogAspectTest {
         @AuditLogged(module = Module.CRYPTOGRAPHIC_KEYS, resource = Resource.CRYPTOGRAPHIC_KEY_ITEM,
                 operation = Operation.EXPORT, synchronous = true)
         void synchronousProbe() {
+            // only its annotation is read
+        }
+
+        @AuditLogged(module = Module.CRYPTOGRAPHIC_KEYS, resource = Resource.CRYPTOGRAPHIC_KEY_ITEM,
+                operation = Operation.UNKNOWN, synchronous = true)
+        void unknownOperationProbe() {
             // only its annotation is read
         }
 

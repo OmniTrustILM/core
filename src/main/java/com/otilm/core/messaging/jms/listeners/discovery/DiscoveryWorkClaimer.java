@@ -3,15 +3,14 @@ package com.otilm.core.messaging.jms.listeners.discovery;
 import com.otilm.core.cluster.ClusterOperationSynchronizer;
 import com.otilm.core.dao.entity.DiscoveryWork;
 import com.otilm.core.dao.repository.DiscoveryWorkRepository;
-import com.otilm.core.messaging.jms.configuration.DiscoveryWorkProperties;
 import com.otilm.core.messaging.model.DiscoveryWorkMessage;
-import com.otilm.core.model.discovery.DiscoveryWorkType;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -27,8 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>
  * One claim runs entirely against the database — no external call — so the advisory lock and the transaction are held
- * only for the duration of the read and the reschedules. The reschedule commits with the same transaction that holds
- * the lock, so a row is either claimed-and-rescheduled or neither.
+ * only for the duration of the read and the claims.
  * </p>
  */
 @Component
@@ -39,33 +37,32 @@ public class DiscoveryWorkClaimer {
     private final ClusterOperationSynchronizer clusterSynchronizer;
     private final DiscoveryWorkRepository workRepository;
     private final DiscoveryWorkWriter workWriter;
-    private final DiscoveryWorkProperties workProperties;
-    private final Duration claimFloor;
+    private final Duration leaseDuration;
 
     public DiscoveryWorkClaimer(ClusterOperationSynchronizer clusterSynchronizer,
             DiscoveryWorkRepository workRepository, DiscoveryWorkWriter workWriter,
-            DiscoveryWorkProperties workProperties, @Value("${discovery.work.claim-floor:PT35S}") Duration claimFloor) {
+            @Value("${discovery.work.lease-duration:PT2M}") Duration leaseDuration) {
         this.clusterSynchronizer = clusterSynchronizer;
         this.workRepository = workRepository;
         this.workWriter = workWriter;
-        this.workProperties = workProperties;
-        this.claimFloor = claimFloor;
+        this.leaseDuration = leaseDuration;
     }
 
     /**
-     * Claims up to {@code batchSize} rows due at {@code dueCutoff} and returns the tick message to send for each.
+     * Claims up to {@code batchSize} rows due at {@code dueCutoff} that no tick holds, and returns the tick message to
+     * send for each.
      *
      * <p>
-     * <b>Locking:</b> returns empty when another node already holds the sweep lock. Each claimed row's
-     * {@code attempt}/{@code next_due_at} advances up the backoff curve within the lock-holding transaction.
+     * <b>Locking:</b> returns empty when another node already holds the sweep lock.
+     *
+     * <p>
+     * <b>Claiming:</b> each row gets a fresh lease token for {@code discovery.work.lease-duration}, carried by its
+     * message, and one more attempt against its budget. A row whose tick never runs becomes claimable again when its
+     * lease runs out.
      *
      * <p>
      * <b>Publishing:</b> the caller sends the returned messages after this method returns, outside the lock and
      * transaction.
-     *
-     * <p>
-     * <b>Duplicate prevention:</b> the caller passes one cutoff for its whole sweep, and a claimed row is parked past a
-     * tick's expected worst case — see {@link #parkFor}.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public List<DiscoveryWorkMessage> claimDueBatch(int batchSize, OffsetDateTime dueCutoff) {
@@ -73,32 +70,21 @@ public class DiscoveryWorkClaimer {
             logger.debug("Discovery work sweep skipped: another instance holds the lock");
             return List.of();
         }
-        List<DiscoveryWork> due = workRepository
-                .findByNextDueAtLessThanEqualOrderByNextDueAt(dueCutoff, PageRequest.of(0, batchSize));
-        List<DiscoveryWorkMessage> messages = new ArrayList<>(due.size());
-        for (DiscoveryWork work : due) {
-            messages.add(new DiscoveryWorkMessage(work.getDiscoveryUuid(), work.getWorkType(), work.getAttempt()));
-
-            int nextAttempt = work.getAttempt() + 1;
-            workWriter
-                    .reschedule(work.getDiscoveryUuid(), work.getWorkType(), nextAttempt,
-                            OffsetDateTime.now(ZoneOffset.UTC).plus(parkFor(work.getWorkType(), nextAttempt)));
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        List<DiscoveryWork> claimable = workRepository.findClaimable(dueCutoff, now, PageRequest.of(0, batchSize));
+        OffsetDateTime leasedUntil = now.plus(leaseDuration);
+        List<DiscoveryWorkMessage> messages = new ArrayList<>(claimable.size());
+        for (DiscoveryWork work : claimable) {
+            UUID leaseToken = UUID.randomUUID();
+            boolean claimed = workWriter
+                    .claim(work.getDiscoveryUuid(), work.getWorkType(), leaseToken, work.getAttempt() + 1, dueCutoff,
+                            now, leasedUntil);
+            if (claimed) {
+                messages
+                        .add(new DiscoveryWorkMessage(work.getDiscoveryUuid(), work.getWorkType(), work.getAttempt(),
+                                leaseToken));
+            }
         }
         return messages;
-    }
-
-    /**
-     * How far out a claimed row is parked. Nothing marks a row as being worked, so the sweep republishes any row that
-     * comes due again; the early rungs are seconds against a connector call that may take its full timeout, and two
-     * ticks draining the same page would spend the run's budget on the one that stages nothing.
-     *
-     * <p>
-     * A floor, not a replacement: a rung above it is kept. A tick with more to fetch direct-publishes its continuation
-     * and never waits on a rung. It does not cover a tick outliving the floor itself; that would take a lease column
-     * the agenda lacks.
-     */
-    private Duration parkFor(DiscoveryWorkType workType, int nextAttempt) {
-        Duration rung = workProperties.scheduleFor(workType).delayFor(nextAttempt);
-        return rung.compareTo(claimFloor) >= 0 ? rung : claimFloor;
     }
 }

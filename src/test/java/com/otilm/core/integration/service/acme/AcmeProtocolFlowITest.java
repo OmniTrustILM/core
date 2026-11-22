@@ -45,6 +45,8 @@ import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.builders.AuthorityFixtures;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
 import java.net.URI;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -58,6 +60,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 import org.awaitility.Awaitility;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
@@ -68,13 +71,16 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.orm.jpa.EntityManagerHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlMatching;
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * End-to-end integration test for the ACME (RFC 8555) protocol implementation.
@@ -139,6 +145,8 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
     private AcmeAuthorizationRepository acmeAuthorizationRepository;
     @Autowired
     private AcmeChallengeRepository acmeChallengeRepository;
+    @Autowired
+    private EntityManagerFactory entityManagerFactory;
 
     // ── Test constants ────────────────────────────────────────────────────────
 
@@ -322,6 +330,33 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
                         "Certificate should be issued under the updated RA Profile (" + RA_PROFILE_NAME_2 + ")");
     }
 
+    @Test
+    void linksTheCertificateToTheOrder_whenItsIssueIsQueued() throws Exception {
+        // given
+        AuthorityFixtures.Fixture fixture = createAuthorityFixture();
+        createAcmeProfile(fixture.raProfile().mapToDtoSimple(), fixture);
+        String acmeAccountId = createAcmeAccount();
+        OrderAndId order = createAcmeOrder(acmeAccountId);
+        validateChallenge(order, acmeAccountId);
+        var queuedCertificate = new AtomicReference<UUID>();
+        var linkedCertificateWhenQueued = new AtomicReference<UUID>();
+        Mockito.doAnswer(inv -> {
+            ActionMessage msg = inv.getArgument(0);
+            if (msg.getResourceAction() == ResourceAction.ISSUE) {
+                queuedCertificate.set(msg.getResourceUuid());
+                linkedCertificateWhenQueued.set(committedCertificateOf(order.orderId));
+            }
+            return null;
+        }).when(actionProducer).produceMessage(Mockito.any());
+
+        // when
+        finalizeOrder(order.orderId, acmeAccountId);
+
+        // then
+        assertThat(queuedCertificate.get()).isNotNull();
+        assertThat(linkedCertificateWhenQueued.get()).isEqualTo(queuedCertificate.get());
+    }
+
     // ── Infrastructure setup helpers ──────────────────────────────────────────
 
     /**
@@ -463,7 +498,8 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
     }
 
     /**
-     * Builds a CSR and sends {@code POST /order/{id}/finalize}.
+     * Builds a CSR and sends {@code POST /order/{id}/finalize}, with an EntityManager bound to the thread throughout,
+     * as open-in-view binds one.
      */
     private void finalizeOrder(String orderId, String accountId) throws Exception {
         KeyPair csrKeyPair = keyPairGenerator.generateKeyPair();
@@ -481,10 +517,36 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
         payload.put("csr", base64Csr);
 
         String jws = createJws(payload, "/acme/" + ACME_PROFILE_NAME + "/order/" + orderId + "/finalize", accountId);
-        ResponseEntity<com.otilm.api.model.core.acme.Order> response = acmeService
-                .finalizeOrder(ACME_PROFILE_NAME, orderId, jws,
-                        new URI("/acme/" + ACME_PROFILE_NAME + "/order/" + orderId + "/finalize"), false);
+        EntityManager requestEntityManager = entityManagerFactory.createEntityManager();
+        TransactionSynchronizationManager
+                .bindResource(entityManagerFactory, new EntityManagerHolder(requestEntityManager));
+        ResponseEntity<com.otilm.api.model.core.acme.Order> response;
+        try {
+            response = acmeService
+                    .finalizeOrder(ACME_PROFILE_NAME, orderId, jws,
+                            new URI("/acme/" + ACME_PROFILE_NAME + "/order/" + orderId + "/finalize"), false);
+        } finally {
+            TransactionSynchronizationManager.unbindResource(entityManagerFactory);
+            requestEntityManager.close();
+        }
         Assertions.assertEquals(200, response.getStatusCode().value());
+    }
+
+    /**
+     * The certificate the order references as committed, read on an EntityManager of its own: the request's one may
+     * still hold the order as it read it before.
+     */
+    private UUID committedCertificateOf(String orderId) {
+        EntityManager reader = entityManagerFactory.createEntityManager();
+        try {
+            return reader
+                    .createQuery("SELECT o.certificateReferenceUuid FROM AcmeOrder o WHERE o.orderId = :orderId",
+                            UUID.class)
+                    .setParameter("orderId", orderId)
+                    .getSingleResult();
+        } finally {
+            reader.close();
+        }
     }
 
     /**

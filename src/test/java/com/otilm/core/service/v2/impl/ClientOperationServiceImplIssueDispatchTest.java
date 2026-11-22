@@ -3,6 +3,7 @@ package com.otilm.core.service.v2.impl;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.classic.spi.ThrowableProxyUtil;
 import ch.qos.logback.core.read.ListAppender;
 import com.otilm.api.exception.CertificateOperationException;
 import com.otilm.api.exception.ConnectorException;
@@ -12,6 +13,12 @@ import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateType;
+import com.otilm.api.model.core.enums.CertificateRequestFormat;
+import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
+import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
+import com.otilm.core.certificate.type.RequestFormatResolver;
+import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
+import com.otilm.core.certificate.type.X509CertificateTypeHandler;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
@@ -19,8 +26,11 @@ import com.otilm.core.dao.entity.X509CertificateRequestEntity;
 import com.otilm.core.dao.repository.CertificateLocationRepository;
 import com.otilm.core.dao.repository.CertificateRegistrationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
+import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.exception.ConnectorAcceptedButLocalFailureException;
 import com.otilm.core.messaging.jms.producers.EventProducer;
+import com.otilm.core.security.authz.SecuredParentUUID;
+import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CertificateEventHistoryInternalService;
 import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.handler.ConnectorCapabilityService;
@@ -55,11 +65,13 @@ import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static com.otilm.core.util.builders.CertificateRequestEntityBuilder.aCertificateRequest;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /** Unit coverage for plain (non-register) issuance dispatched through {@link AuthorityProviderAdapterFactory}. */
@@ -78,6 +90,7 @@ class ClientOperationServiceImplIssueDispatchTest {
     private EventProducer eventProducer;
     private CertificateLocationRepository certificateLocationRepository;
     private CertificatePendingIssueClaimWriter claimWriter;
+    private RaProfileRepository raProfileRepository;
 
     private UUID certUuid;
     private Certificate certificate;
@@ -99,6 +112,11 @@ class ClientOperationServiceImplIssueDispatchTest {
 
         service = new ClientOperationServiceImpl();
         service.setCertificateRepository(certificateRepository);
+        raProfileRepository = mock(RaProfileRepository.class);
+        service.setRaProfileRepository(raProfileRepository);
+        service
+                .setRequestFormatResolver(new RequestFormatResolver(
+                        new CertificateTypeHandlerRegistry(List.of(new X509CertificateTypeHandler()))));
         service.setCertificateRegistrationRepository(certificateRegistrationRepository);
         service.setCertificateLocationRepository(certificateLocationRepository);
         service.setAdapterFactory(adapterFactory);
@@ -137,7 +155,27 @@ class ClientOperationServiceImplIssueDispatchTest {
         when(adapterFactory.forAuthority(ArgumentMatchers.any())).thenReturn(adapter);
         when(certificateRegistrationRepository.findByCertificateUuid(certUuid)).thenReturn(Optional.empty());
         when(certificateRepository.findAndLockWithAssociationsByUuid(certUuid)).thenReturn(Optional.of(certificate));
+        when(certificateRepository.findAndLockFreshByUuid(certUuid)).thenReturn(Optional.of(certificate));
         when(certificateRepository.findWithAssociationsByUuid(certUuid)).thenReturn(Optional.of(certificate));
+    }
+
+    @Test
+    void throwsUnsupportedNamingTheType_whenIssuingForATypeWithoutAHandlerThatNamesAFormat() {
+        // given — the request names pkcs10, so only the type can refuse it
+        ClientCertificateIssueRequestDto request = new ClientCertificateIssueRequestDto();
+        request.setCertificateType(CertificateType.SSH);
+        request.setFormat(CertificateRequestFormat.PKCS10);
+        SecuredParentUUID authorityUuid = SecuredParentUUID.fromUUID(UUID.randomUUID());
+        SecuredUUID raProfileUuid = SecuredUUID.fromUUID(UUID.randomUUID());
+
+        // when
+        ThrowingCallable issue = () -> service.issueCertificate(authorityUuid, raProfileUuid, request, null);
+
+        // then
+        assertThatThrownBy(issue)
+                .isInstanceOf(UnsupportedCertificateTypeException.class)
+                .hasMessageContaining(CertificateType.SSH.getCode());
+        verifyNoInteractions(raProfileRepository);
     }
 
     @Test
@@ -167,6 +205,37 @@ class ClientOperationServiceImplIssueDispatchTest {
         // then
         verify(adapter).issue(ArgumentMatchers.eq(certificate), ArgumentMatchers.any());
         verify(certificateService).issueRequestedCertificate(certUuid, certificateData, List.of());
+    }
+
+    @Test
+    void issuesTheRequest_whenTheCertificateStillHoldsTheRequestItsIssueWasQueuedFor() throws Exception {
+        // given
+        UUID queuedFor = UUID.randomUUID();
+        certificate.setCertificateRequestUuid(queuedFor);
+        when(adapter.issue(ArgumentMatchers.eq(certificate), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.syncOk("cert-data", List.of(), CertificateType.X509));
+
+        // when
+        service.issueCertificateAction(certUuid, queuedFor, true);
+
+        // then
+        verify(adapter).issue(ArgumentMatchers.eq(certificate), ArgumentMatchers.any());
+    }
+
+    @Test
+    void issuesNothing_whenTheCertificateHoldsAnotherRequestThanItsIssueWasQueuedFor() throws Exception {
+        // given — a late issue queued for a request the certificate no longer holds
+        certificate.setCertificateRequestUuid(UUID.randomUUID());
+        UUID replacedRequestUuid = UUID.randomUUID();
+
+        // when
+        service.issueCertificateAction(certUuid, replacedRequestUuid, true);
+
+        // then
+        Mockito.verifyNoInteractions(adapter);
+        verify(stateMachine, never())
+                .transition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.PENDING_ISSUE),
+                        ArgumentMatchers.any(), ArgumentMatchers.any());
     }
 
     @Test
@@ -236,22 +305,20 @@ class ClientOperationServiceImplIssueDispatchTest {
 
     @Test
     void rollsBackFailTransaction_whenReReadUnderLockFailsDuringFailureHandling() throws Exception {
-        // given — the connector call fails, and the subsequent re-read under lock inside
-        // failClaimedCertificate itself fails (e.g. the row vanished); the failure-handling
-        // transaction must roll back rather than leaving a half-applied FAILED transition
+        // given — the connector call fails, and the re-read under lock while failing the certificate fails too
         TransactionStatus claimTx = mock(TransactionStatus.class);
         TransactionStatus failTx = mock(TransactionStatus.class);
         when(transactionManager.getTransaction(ArgumentMatchers.any())).thenReturn(claimTx, failTx);
         when(adapter.issue(ArgumentMatchers.any(), ArgumentMatchers.any()))
                 .thenThrow(new ConnectorException("upstream refused"));
-        when(certificateRepository.findAndLockWithAssociationsByUuid(certUuid))
-                .thenReturn(Optional.of(certificate))
+        when(certificateRepository.findAndLockFreshByUuid(certUuid))
                 .thenThrow(new IllegalStateException("certificate row vanished"));
 
-        // when / then
-        assertThatThrownBy(() -> service.issueCertificateAction(certUuid, true))
-                .isInstanceOf(CertificateOperationException.class);
+        // when
+        ThrowingCallable issue = () -> service.issueCertificateAction(certUuid, true);
 
+        // then
+        assertThatThrownBy(issue).isInstanceOf(CertificateOperationException.class);
         verify(transactionManager).rollback(failTx);
         verify(stateMachine, never())
                 .transition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.FAILED),
@@ -335,6 +402,56 @@ class ClientOperationServiceImplIssueDispatchTest {
     }
 
     @Test
+    void doesNotLogConnectorText_whenIssueFails() throws Exception {
+        // given
+        var connectorEcho = "connector-echo-7f3a";
+        stubIssueFailingWithConnectorText(connectorEcho);
+        ListAppender<ILoggingEvent> logged = captureServiceLogs();
+
+        // when
+        ThrowingCallable issue = () -> service.issueCertificateAction(certUuid, true);
+
+        // then
+        assertThatThrownBy(issue).isInstanceOf(CertificateOperationException.class);
+        assertThat(collectLoggedText(logged))
+                .isNotEmpty()
+                .noneSatisfy(line -> assertThat(line).contains(connectorEcho));
+    }
+
+    @Test
+    void throwsWithoutConnectorText_whenIssueFails() throws Exception {
+        // given
+        var connectorEcho = "connector-echo-7f3a";
+        stubIssueFailingWithConnectorText(connectorEcho);
+
+        // when
+        ThrowingCallable issue = () -> service.issueCertificateAction(certUuid, true);
+
+        // then
+        assertThatThrownBy(issue)
+                .isInstanceOf(CertificateOperationException.class)
+                .hasMessageContaining(certUuid.toString())
+                .hasMessageNotContaining(connectorEcho);
+    }
+
+    @Test
+    void keepsConnectorTextInFailedReason_whenIssueFails() throws Exception {
+        // given
+        var connectorEcho = "connector-echo-7f3a";
+        stubIssueFailingWithConnectorText(connectorEcho);
+
+        // when
+        ThrowingCallable issue = () -> service.issueCertificateAction(certUuid, true);
+
+        // then
+        assertThatThrownBy(issue).isInstanceOf(CertificateOperationException.class);
+        verify(stateMachine)
+                .transition(ArgumentMatchers.eq(certificate), ArgumentMatchers.eq(CertificateState.FAILED),
+                        ArgumentMatchers.eq(CertificateEvent.ISSUE), ArgumentMatchers.contains(connectorEcho),
+                        ArgumentMatchers.any());
+    }
+
+    @Test
     void recordsEventHistoryButDoesNotFail_whenPostAcceptanceCompletionFails() throws Exception {
         // given — the connector delivered a real certificate synchronously (post-acceptance), but the local
         // completion step then throws with a leaky message
@@ -362,6 +479,43 @@ class ClientOperationServiceImplIssueDispatchTest {
                                 .argThat(msg -> msg.contains("completing local state failed")
                                         && !msg.contains(leakySecret)),
                         ArgumentMatchers.eq(""));
+    }
+
+    @Test
+    void keepsConnectorTextInHistory_whenCompletingTheIssuanceFails() throws Exception {
+        // given
+        var connectorEcho = "connector-echo-7f3a";
+        stubSynchronousIssueFailingToCompleteWithConnectorText(connectorEcho);
+
+        // when
+        ThrowingCallable issue = () -> service.issueCertificateAction(certUuid, true);
+
+        // then
+        assertThatThrownBy(issue).isInstanceOf(CertificateOperationException.class);
+        verify(certificateEventHistoryService)
+                .addEventHistory(ArgumentMatchers.eq(certUuid), ArgumentMatchers.eq(CertificateEvent.ISSUE),
+                        ArgumentMatchers.eq(CertificateEventStatus.FAILED),
+                        ArgumentMatchers.contains("completing local state failed"), ArgumentMatchers.eq(""));
+        verify(certificateEventHistoryService)
+                .addEventHistory(ArgumentMatchers.eq(certUuid), ArgumentMatchers.eq(CertificateEvent.ISSUE),
+                        ArgumentMatchers.eq(CertificateEventStatus.FAILED), ArgumentMatchers.contains(connectorEcho),
+                        ArgumentMatchers.eq(""));
+    }
+
+    @Test
+    void throwsWithoutConnectorText_whenCompletingTheIssuanceFails() throws Exception {
+        // given
+        var connectorEcho = "connector-echo-7f3a";
+        stubSynchronousIssueFailingToCompleteWithConnectorText(connectorEcho);
+
+        // when
+        ThrowingCallable issue = () -> service.issueCertificateAction(certUuid, true);
+
+        // then
+        assertThatThrownBy(issue)
+                .isInstanceOf(CertificateOperationException.class)
+                .hasMessageContaining("completing local state failed")
+                .hasMessageNotContaining(connectorEcho);
     }
 
     @Test
@@ -657,6 +811,31 @@ class ClientOperationServiceImplIssueDispatchTest {
                 .supports(ArgumentMatchers.any(AuthorityInstanceReference.class),
                         ArgumentMatchers.eq(FeatureFlag.CERTIFICATE_STATUS_POLLING)))
                 .thenReturn(true);
+    }
+
+    private void stubSynchronousIssueFailingToCompleteWithConnectorText(String connectorText) throws Exception {
+        var certificateData = "cert-data";
+        when(adapter.issue(ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.syncOk(certificateData, List.of(), CertificateType.X509));
+        doAnswer(invocation -> {
+            throw new ConnectorException("authority refused: " + connectorText);
+        }).when(certificateService).issueRequestedCertificate(certUuid, certificateData, List.of());
+    }
+
+    private void stubIssueFailingWithConnectorText(String connectorText) throws Exception {
+        when(adapter.issue(ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenThrow(new ConnectorException("authority refused: " + connectorText));
+        when(stateMachine.canTransition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.FAILED)))
+                .thenReturn(true);
+    }
+
+    private static List<String> collectLoggedText(ListAppender<ILoggingEvent> logged) {
+        return logged.list
+                .stream()
+                .map(event -> event.getFormattedMessage() + (event.getThrowableProxy() == null
+                        ? ""
+                        : ThrowableProxyUtil.asString(event.getThrowableProxy())))
+                .toList();
     }
 
     private static ListAppender<ILoggingEvent> captureServiceLogs() {

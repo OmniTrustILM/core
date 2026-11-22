@@ -15,8 +15,9 @@ import com.otilm.api.model.client.signing.protocols.tsp.TspActivationDetailDto;
 import com.otilm.api.model.common.BulkActionMessageDto;
 import com.otilm.api.model.common.PaginationResponseDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
-import com.otilm.api.model.common.signature.SignatureFamily;
 import com.otilm.api.model.common.signature.SignatureLevel;
+import com.otilm.api.model.connector.signatures.contentsigning.common.ContentSigningFormattingAttributesDto;
+import com.otilm.api.model.connector.signatures.contentsigning.declaration.SignatureFamilyDeclarationDto;
 import com.otilm.api.model.core.certificate.CertificateDto;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.api.model.core.signing.SigningProtocol;
@@ -70,6 +71,9 @@ public interface SigningProfileExternalService {
     List<CertificateDto> listSigningCertificates(SigningWorkflowType signingWorkflowType, boolean qualifiedTimestamp,
             boolean requireNonRepudiation, Set<String> requiredExtendedKeyUsageOids);
 
+    List<SignatureFamilyDeclarationDto> listSignatureFormattingConnectorDeclarations(UUID connectorUuid,
+            SecuredUUID signingProfileUuid) throws NotFoundException;
+
     List<BaseAttribute> listSignatureAttributesForCertificate(SecuredUUID certificateUuid)
             throws NotFoundException, ConnectorException;
 
@@ -77,17 +81,17 @@ public interface SigningProfileExternalService {
             throws NotFoundException, ConnectorException, AttributeException;
 
     /**
-     * Lists the formatting attribute descriptors a content signing profile of this family and ceiling can reach. They
-     * are merged into the single flat set that profile save validates against.
+     * Lists the formatting attribute descriptors a content-signing profile of this family and level reaches. The
+     * descriptors a signing request may set come back apart from the rest.
      *
      * @param connectorUuid the Signature Formatting Provider to ask
      * @param family the family the profile produces, which the provider must advertise
-     * @param maxLevel the profile's ceiling, which decides the operations the merge covers
+     * @param level the profile's level, which decides the operations the merge covers
      * @param signingProfileUuid authorization only, and absent while the profile is still being created
-     * @return the merged descriptors, in the order the reachable operations declare them
+     * @return the descriptors merged by name, in the order the reachable operations declare them
      */
-    List<BaseAttribute> listContentSigningFormattingConnectorAttributes(UUID connectorUuid, SignatureFamily family,
-            SignatureLevel maxLevel, SecuredUUID signingProfileUuid)
+    ContentSigningFormattingAttributesDto listContentSigningFormattingConnectorAttributes(UUID connectorUuid,
+            String family, SignatureLevel level, SecuredUUID signingProfileUuid)
             throws NotFoundException, ConnectorException, AttributeException;
 
     PaginationResponseDto<SigningRecordListDto> listSigningRecordsForSigningProfile(SecuredUUID uuid,

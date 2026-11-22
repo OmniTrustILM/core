@@ -12,6 +12,8 @@ import com.otilm.core.signing.tsa.messages.IssuedTimestamp;
 import com.otilm.core.signing.tsa.messages.TimestampImprint;
 import java.math.BigInteger;
 import java.time.Instant;
+import java.util.List;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -19,7 +21,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import static com.otilm.core.util.builders.ResolvedManagedContentSigningProfileBuilder.aResolvedContentSigningProfile;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.catchThrowableOfType;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -35,9 +37,9 @@ class LiveContentSigningAcquisitionsTest {
     @Mock
     InternalTimestampSource timestampSource;
 
-    /** The algorithm is asked before there is anything to sign, so answering it must not exercise the key. */
+    /** The algorithm is asked before there is anything to sign, so answering it must sign nothing. */
     @Test
-    void answersTheAlgorithmItWouldSignWithWithoutSigning() throws SigningEngineException {
+    void answersTheAlgorithmItWouldSignWithWithoutSigning() throws Exception {
         // given
         ResolvedManagedContentSigningProfile profile = aResolvedContentSigningProfile().build();
         when(signerFactory.signatureAlgorithm(profile.resolvedScheme()))
@@ -53,22 +55,23 @@ class LiveContentSigningAcquisitionsTest {
     }
 
     @Test
-    void signsTheDtbsWithTheProfilesManagedKey() throws SigningEngineException {
+    void signsEveryDtbsWithTheProfilesManagedKey() throws Exception {
         // given
         ResolvedManagedContentSigningProfile profile = aResolvedContentSigningProfile().build();
+        List<byte[]> dtbsList = List.of("dtbs-1".getBytes(), "dtbs-2".getBytes());
         when(signerFactory.create(profile.resolvedScheme())).thenReturn(signer);
-        when(signer.sign("dtbs".getBytes())).thenReturn("signature".getBytes());
+        when(signer.signAll(dtbsList)).thenReturn(List.of("signature-1".getBytes(), "signature-2".getBytes()));
 
         // when
-        byte[] signature = new LiveContentSigningAcquisitions(signerFactory, timestampSource)
-                .signatureValue(profile, "dtbs".getBytes());
+        List<byte[]> signatures = new LiveContentSigningAcquisitions(signerFactory, timestampSource)
+                .signDtbs(profile, dtbsList);
 
         // then
-        assertThat(signature).isEqualTo("signature".getBytes());
+        assertThat(signatures).containsExactly("signature-1".getBytes(), "signature-2".getBytes());
     }
 
     @Test
-    void issuesTheSignatureTimestampFromTheReferencedProfile() throws SigningEngineException {
+    void issuesTheSignatureTimestampFromTheReferencedProfile() throws Exception {
         // given
         ResolvedManagedContentSigningProfile profile = aResolvedContentSigningProfile()
                 .withTimestampSourceProfileName("internal-tsa")
@@ -79,29 +82,29 @@ class LiveContentSigningAcquisitionsTest {
 
         // when
         IssuedTimestamp timestamp = new LiveContentSigningAcquisitions(signerFactory, timestampSource)
-                .signatureTimestamp(profile, imprint, "signatureTimestamp");
+                .timestampSignature(profile, imprint, "signatureTimestamp");
 
         // then
         assertThat(timestamp).isEqualTo(issued);
     }
 
     @Test
-    void refusesToTimestampWhenTheProfileNamesNoSource() {
+    void refusesToTimestamp_whenTheProfileNamesNoSource() {
         // given: a SIGNED-only profile resolved without a timestamp source
         ResolvedManagedContentSigningProfile profile = aResolvedContentSigningProfile()
                 .withTimestampSourceProfileName(null)
                 .build();
 
         // when
-        SigningEngineException thrown = catchThrowableOfType(
-                () -> new LiveContentSigningAcquisitions(signerFactory, timestampSource)
-                        .signatureTimestamp(profile, new TimestampImprint(DigestAlgorithm.SHA_256, new byte[32]),
-                                "signatureTimestamp"),
-                SigningEngineException.class);
+        ThrowingCallable timestampSignature = () -> new LiveContentSigningAcquisitions(signerFactory, timestampSource)
+                .timestampSignature(profile, new TimestampImprint(DigestAlgorithm.SHA_256, new byte[32]),
+                        "signatureTimestamp");
 
         // then: the profile name is diagnostic detail, so it stays in the log and never reaches the wire
-        assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED);
-        assertThat(thrown.getMessage()).isEqualTo("Internal error while timestamping the signature");
-        assertThat(thrown.operatorMessage()).contains(profile.name());
+        assertThatThrownBy(timestampSignature).isInstanceOfSatisfying(SigningEngineException.class, thrown -> {
+            assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED);
+            assertThat(thrown.getMessage()).isEqualTo("Internal error while timestamping the signature");
+            assertThat(thrown.operatorMessage()).contains(profile.name());
+        });
     }
 }

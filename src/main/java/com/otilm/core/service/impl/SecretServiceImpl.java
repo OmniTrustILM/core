@@ -48,6 +48,7 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
 import com.otilm.core.attribute.engine.ConnectorRequestAttributesBuilder;
 import com.otilm.core.attribute.engine.ListingSortResolver;
+import com.otilm.core.attribute.engine.OutboundSecretContainment;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.comparator.SearchFieldDataComparator;
@@ -168,6 +169,13 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
     private AttributeColumnProjector attributeColumnProjector;
 
     private ListingSortResolver listingSortResolver;
+
+    private OutboundSecretContainment outboundContainment;
+
+    @Autowired
+    public void setOutboundContainment(OutboundSecretContainment outboundContainment) {
+        this.outboundContainment = outboundContainment;
+    }
 
     @Autowired
     public void setActionProducer(ActionProducer actionProducer) {
@@ -944,6 +952,15 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
     @Override
     @ExternalAuthorization(resource = Resource.SECRET, action = ResourceAction.GET_SECRET_CONTENT)
     public SecretContent getSecretContent(UUID uuid) throws NotFoundException, ConnectorException, AttributeException {
+        return getSecretContent(uuid, false);
+    }
+
+    /**
+     * @param withoutTheVaultsWords whether a refusal from the vault loses its words: the request carries the vault
+     * profile's own credentials, which whoever resolves a reference to the secret may not read
+     */
+    private SecretContent getSecretContent(UUID uuid, boolean withoutTheVaultsWords)
+            throws NotFoundException, ConnectorException, AttributeException {
         Secret secret = getSecretEntity(uuid);
         if (invalidSecretState(secret)) {
             throw new ValidationException("Secret %s is in state %s and cannot be retrieved"
@@ -966,11 +983,16 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
                         .builder(Resource.SECRET, secret.getUuid())
                         .connector(connectorUuid)
                         .build());
-        ConnectorDetailDto connectorDetailDto = loadSecretRequestDto(connectorUuid, secret.getSourceVaultProfile(),
-                secret, secretAttributes, secretRequestDto);
-        SecretContentResponseDto secretContent = connectorApiFactory
-                .getSecretApiClient(connectorDetailDto)
-                .getSecretContent(connectorDetailDto, secretRequestDto, latestVersion.getVaultVersion());
+        requireVaultConnector(connectorUuid);
+        SecretContentResponseDto secretContent;
+        try {
+            ConnectorDetailDto connectorDetailDto = loadSecretRequestDto(connectorUuid, secret.getSourceVaultProfile(),
+                    secret, secretAttributes, secretRequestDto);
+            secretContent = fetchSecretContent(connectorDetailDto, secretRequestDto, latestVersion, secret,
+                    withoutTheVaultsWords);
+        } catch (ConnectorException e) {
+            throw withoutTheVaultsWords ? outboundContainment.withoutWords(e, requestFor(secret)) : e;
+        }
         String secretContentFingerprint = null;
         try {
             secretContentFingerprint = SecretsUtil.calculateSecretContentFingerprint(secretContent.getContent());
@@ -1224,12 +1246,39 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
         }
     }
 
+    /**
+     * The vault's answer to the content request. A validation refusal loses its words only here, where it can only be
+     * the vault's: the preparation before it raises Core's own, which keep theirs.
+     */
+    private SecretContentResponseDto fetchSecretContent(ConnectorDetailDto connector,
+            com.otilm.api.model.connector.secrets.SecretRequestDto request, SecretVersion version, Secret secret,
+            boolean withoutTheVaultsWords) throws ConnectorException {
+        try {
+            return connectorApiFactory
+                    .getSecretApiClient(connector)
+                    .getSecretContent(connector, request, version.getVaultVersion());
+        } catch (ValidationException e) {
+            throw withoutTheVaultsWords ? outboundContainment.validationRefusalWithoutWords(requestFor(secret)) : e;
+        }
+    }
+
+    private static void requireVaultConnector(UUID connectorUuid) {
+        if (connectorUuid == null) {
+            throw new ValidationException(
+                    "Cannot load attributes for secret operation, when vault instance is not associated with connector");
+        }
+    }
+
+    private static String requestFor(Secret secret) {
+        return "request for secret '%s'".formatted(secret.getName());
+    }
+
     @Override
     @ExternalAuthorization(resource = Resource.SECRET, action = ResourceAction.GET_SECRET_CONTENT)
     public ResourceObjectContentData getResourceObjectContent(UUID uuid)
             throws NotFoundException, ConnectorException, AttributeException {
         ResourceSecretContentData resourceSecretContentData = new ResourceSecretContentData();
-        SecretContent contentDto = getSecretContent(uuid);
+        SecretContent contentDto = getSecretContent(uuid, true);
         resourceSecretContentData.setContent(contentDto);
         return resourceSecretContentData;
     }
@@ -1401,10 +1450,7 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
             UUID vaultProfileUuid, SecretType type, List<RequestAttribute> secretAttributes,
             SecretOperationRequest secretOperationRequest)
             throws ConnectorException, NotFoundException, AttributeException {
-        if (connectorUuid == null) {
-            throw new ValidationException(
-                    "Cannot load attributes for secret operation, when vault instance is not associated with connector");
-        }
+        requireVaultConnector(connectorUuid);
 
         ConnectorDetailDto connectorDetailDto = connectorService.getConnector(SecuredUUID.fromUUID(connectorUuid));
 

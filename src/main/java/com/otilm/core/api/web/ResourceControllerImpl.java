@@ -2,6 +2,8 @@ package com.otilm.core.api.web;
 
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.interfaces.core.web.ResourceController;
+import com.otilm.api.model.core.auth.ObjectAllowedActionsRequestDto;
+import com.otilm.api.model.core.auth.ObjectAllowedActionsResponseDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.logging.enums.Module;
 import com.otilm.api.model.core.logging.enums.Operation;
@@ -60,5 +62,13 @@ public class ResourceControllerImpl implements ResourceController {
     @AuditLogged(module = Module.CORE, resource = Resource.RESOURCE_EVENT, operation = Operation.LIST)
     public Map<ResourceEvent, List<ResourceEventDto>> listAllResourceEvents() {
         return resourceService.listAllResourceEvents();
+    }
+
+    @Override
+    @AuditLogged(module = Module.AUTH, resource = Resource.RESOURCE, operation = Operation.LIST)
+    public ObjectAllowedActionsResponseDto listObjectAllowedActions(
+            @LogResource(resource = true, affiliated = true) Resource resource,
+            ObjectAllowedActionsRequestDto request) {
+        return resourceService.listObjectAllowedActions(resource, request);
     }
 }

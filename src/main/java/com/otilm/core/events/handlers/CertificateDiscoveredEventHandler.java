@@ -169,6 +169,7 @@ public class CertificateDiscoveredEventHandler extends EventHandler<Certificate>
         CertificateDiscoveredEventData eventData = new CertificateDiscoveredEventData();
         eventData.setCertificateUuid(certificate.getUuid());
         eventData.setFingerprint(certificate.getFingerprint());
+        eventData.setDisplayName(CertificateUtil.formatCommonName(certificate.getCommonName()));
         eventData.setSerialNumber(certificate.getSerialNumber());
         if (X509CertificateEntity.fromOrNull(certificate) instanceof X509CertificateEntity x509Certificate) {
             eventData.setSubjectDn(x509Certificate.getSubjectDn());

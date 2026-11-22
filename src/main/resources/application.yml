@@ -38,7 +38,8 @@ caching:
   tsp-profiles:
     ttl-minutes: ${TSP_PROFILES_CACHE_TTL_MINUTES:5}   # How long a cached TSP profile is considered valid
     max-size: ${TSP_PROFILES_CACHE_MAX_SIZE:100}       # Max cache entries; a profile uses up to 2 (name + UUID), so effective profile capacity is up to half this
-  # Signing Profile cache caches SigningProfileModel by profile name for the signing/timestamping hot path
+  # Signing Profile cache caches SigningProfileModel by profile name for the signing/timestamping hot path;
+  # its TTL and size also bound the signature formatters' cached attribute definitions
   signing-profiles:
     ttl-minutes: ${SIGNING_PROFILES_CACHE_TTL_MINUTES:5}   # How long a cached signing profile model is considered valid
     max-size: ${SIGNING_PROFILES_CACHE_MAX_SIZE:100}       # Maximum number of cached signing profile models
@@ -53,6 +54,9 @@ caching:
 
 certificate:
   chain:
+    # Issuer links followed per chain query, not per path. Where a path is cut, validation does not check revocation
+    # of the CA at the cut and stores a fresh result for it, which postpones that CA's own scheduled validation, so
+    # EST can still trust a revoked CA there as an anchor.
     max-depth: 20
   validation:
     batch-size: 10
@@ -70,6 +74,12 @@ cmp:
       feature:
         timeout: 20
   verbose: false
+
+# EST settings (a duration without a unit is in seconds)
+est:
+  protocol:
+    issue-wait:
+      interval: 1s   # how often the state is checked while waiting; at least 100ms
 
 # Discovery settings
 discovery:
@@ -92,15 +102,10 @@ discovery:
     # How long a non-terminal run may hold no pending work row before the reaper fails it. Covers the initiate
     # window, where the run row exists before its first agenda rows.
     reap-grace: ${DISCOVERY_WORK_REAP_GRACE:PT5M}
-    # How far out a worker parks the agenda row when it direct-publishes the next tick itself, so a due-now row
-    # cannot let the sweep publish a competing one. Must exceed one tick's duration.
-    continuation-backstop: ${DISCOVERY_WORK_CONTINUATION_BACKSTOP:PT1M}
-    # Least time a claimed row waits before the sweep may publish it again, so a tick slower than its own rung is
-    # not published twice while it runs. Above the slowest connector call -- the connection-acquisition, connect
-    # and response timeouts under connector.api-client, taken together -- and above every ladder's last rung, so an
-    # idle tick of any type settles here. Only idle ticks wait on it: a drain with more to fetch direct-publishes
-    # its continuation.
-    claim-floor: ${DISCOVERY_WORK_CLAIM_FLOOR:PT50S}
+    # How long a claimed row stays leased to its tick, which renews it while working; a row whose tick died waits
+    # this long before the sweep claims it again. Must outlast the slowest connector call (connection-acquisition,
+    # connect and response timeouts under connector.api-client) plus staging, or a second tick runs beside the first.
+    lease-duration: ${DISCOVERY_WORK_LEASE_DURATION:PT2M}
     # How long a stopped run waits between status polls. It reports nothing new while paused, but it is still
     # watched: its connector can still fail or cancel it.
     stopped-poll-interval: ${DISCOVERY_WORK_STOPPED_POLL_INTERVAL:PT5M}
@@ -115,13 +120,9 @@ discovery:
       # connector answer, so a scan the connector keeps reporting on never times out.
       max-attempts: 720
     by-type:
-      # Ladders start at PT1S, not PT0S: a zero first rung leaves a just-claimed row still due, so one sweep could
-      # claim and publish it twice.
-      #
       # STATUS has its own ladder: it is the tick that brings back the connector's counters and its view of the run,
-      # so its last rung is how stale a run's progress can be and how late Core learns a scan finished. DRAIN already
-      # calls the same connector every claim-floor, so a slower rung buys nothing. max-attempts rises with the shorter
-      # rungs to keep the same wall-clock allowance for a connector that stops answering.
+      # so its last rung is how stale a run's progress can be and how late Core learns a scan finished. max-attempts
+      # rises with the shorter rungs to keep the same wall-clock allowance for a connector that stops answering.
       STATUS:
         delays:
           - PT1S
@@ -129,24 +130,40 @@ discovery:
           - PT15S
           - PT30S
         max-attempts: 6000
+      # A failed drain or processing tick is retried at its own rung once its call returns, so 170 attempts on this
+      # ladder tolerate failures for at least 83 minutes, and longer when each call runs to its timeouts.
       DRAIN:
         delays:
           - PT1S
           - PT5S
           - PT30S
-        max-attempts: 100
+        max-attempts: 170
       PROCESS:
         delays:
           - PT1S
           - PT5S
           - PT30S
-        max-attempts: 100
+        max-attempts: 170
   run:
     # How long a stopped run waits for resume before the reaper cancels it: past this the connector's checkpoint
     # cannot be assumed to exist.
     stopped-max-duration: ${DISCOVERY_RUN_STOPPED_MAX_DURATION:P7D}
-  # Bounds on a single DRAIN tick's page. max-bytes is sized for the proxy envelope rather than the contract's
-  # 10 MiB transport cap, so a tunneled page has headroom.
+  # Delivery modes offered to Discovery v2 connectors, most preferred first (wire codes, comma-separated). Removing
+  # checkpointed makes a connector that supports only checkpointed delivery refuse every new run and every resume.
+  # Runs already in checkpointed delivery keep draining in it until they end.
+  delivery:
+    modes: ${DISCOVERY_DELIVERY_MODES:checkpointed,buffered}
+  slice:
+    # How long a checkpointed run may receive nothing but "busy" answers on its drain before each one counts against
+    # the drain budget again.
+    max-busy-wait: ${DISCOVERY_SLICE_MAX_BUSY_WAIT:PT30M}
+    # How many checkpointed runs one Core node drains, and so has scanning, at once; a run over the cap waits for the
+    # next sweep. Must be below the upper bound of messaging.concurrency.provider-discovery-work (Core refuses to start
+    # otherwise), so status, processing and buffered drains keep consumers.
+    max-concurrent-per-node: ${DISCOVERY_SLICE_MAX_CONCURRENT_PER_NODE:8}
+  # Bounds on a single DRAIN tick's page. While discovery.delivery.modes offers checkpointed, at least 100 items and
+  # 1 MiB; keep them there until runs started in checkpointed delivery have finished. max-bytes is sized for the proxy
+  # envelope rather than the contract's 10 MiB transport cap, so a tunneled page has headroom.
   drain:
     max-items: ${DISCOVERY_DRAIN_MAX_ITEMS:500}
     max-bytes: ${DISCOVERY_DRAIN_MAX_BYTES:5242880}
@@ -307,6 +324,8 @@ spring:
     schemas: ${DB_SCHEMA:core}
     table: core_schema_history
   jpa:
+    # Core registers the interceptor itself, leaving the EST endpoints out (OpenEntityManagerInViewConfig)
+    open-in-view: false
     properties:
       hibernate:
         default_schema: ${DB_SCHEMA:core}
@@ -401,7 +420,7 @@ messaging:
     time-quality-config-request: 5
     time-quality-results: 5
     provider-status-poll: 1-5
-    provider-discovery-work: 1-3
+    provider-discovery-work: 1-12
 
 # Proxy configuration for connector communication via message queue
 proxy:
@@ -436,6 +455,14 @@ validation:
   crl:
     read-timeout: 2000
     connect-timeout: 1000
+    # Largest CRL Core reads; a CRL is held in memory while it is checked and stored
+    max-size: 64MB
+    # Longest a whole CRL download may take; the read timeout bounds each read only
+    download-timeout: 60s
+    # CRLs of different issuers read at the same time
+    max-concurrent-downloads: 2
+    # How long a failed CRL download is reported for further certificates of its issuer before it is tried again
+    retry-after-failure: 60s
   ocsp:
     read-timeout: 1000
     connect-timeout: 1000

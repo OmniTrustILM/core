@@ -1,10 +1,12 @@
 package com.otilm.core.service.cmp.message.handler;
 
+import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.interfaces.core.cmp.error.CmpCrmfValidationException;
 import com.otilm.api.model.core.certificate.CertificateChainResponseDto;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.certificate.X509CertificateDetail;
 import com.otilm.api.model.core.cmp.CmpTransactionState;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.core.dao.entity.Certificate;
@@ -15,6 +17,7 @@ import com.otilm.core.service.cmp.configurations.ConfigurationContext;
 import com.otilm.core.service.cmp.message.CmpTransactionService;
 import com.otilm.core.service.cmp.message.protection.ProtectionStrategy;
 import com.otilm.core.service.handler.CertificateValidationStatusPoller;
+import com.otilm.core.util.SecretLeakProbe;
 import java.lang.reflect.UndeclaredThrowableException;
 import java.math.BigInteger;
 import java.security.KeyPair;
@@ -54,6 +57,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.anyString;
 import static org.mockito.Mockito.eq;
@@ -96,7 +100,7 @@ class CrmfMessageHandlerTest {
         // that resolves during the wait — both surface here as VALID).
         UUID leafUuid = UUID.randomUUID();
         Certificate leaf = leafCertificate(leafUuid);
-        CertificateDetailDto leafDto = certificateDto(leafUuid.toString(), CertificateValidationStatus.NOT_CHECKED);
+        CertificateDetail leafDto = certificateDto(leafUuid.toString(), CertificateValidationStatus.NOT_CHECKED);
         when(certificateService.getCertificateChain(any(SecuredUUID.class), eq(true)))
                 .thenReturn(chainResponse(leafDto));
         when(validationStatusPoller.resolveOrKeep(leafDto)).thenReturn(CertificateValidationStatus.VALID);
@@ -112,7 +116,7 @@ class CrmfMessageHandlerTest {
         // within the budget, the leaf still passes.
         UUID leafUuid = UUID.randomUUID();
         Certificate leaf = leafCertificate(leafUuid);
-        CertificateDetailDto leafDto = certificateDto(leafUuid.toString(), CertificateValidationStatus.NOT_CHECKED);
+        CertificateDetail leafDto = certificateDto(leafUuid.toString(), CertificateValidationStatus.NOT_CHECKED);
         when(certificateService.getCertificateChain(any(SecuredUUID.class), eq(true)))
                 .thenReturn(chainResponse(leafDto));
         when(validationStatusPoller.resolveOrKeep(leafDto)).thenReturn(CertificateValidationStatus.NOT_CHECKED);
@@ -126,7 +130,7 @@ class CrmfMessageHandlerTest {
     void rejectsLeaf_whenResolveOrKeepReturnsInvalid() throws NotFoundException {
         UUID leafUuid = UUID.randomUUID();
         Certificate leaf = leafCertificate(leafUuid);
-        CertificateDetailDto leafDto = certificateDto(leafUuid.toString(), CertificateValidationStatus.NOT_CHECKED);
+        CertificateDetail leafDto = certificateDto(leafUuid.toString(), CertificateValidationStatus.NOT_CHECKED);
         when(certificateService.getCertificateChain(any(SecuredUUID.class), eq(true)))
                 .thenReturn(chainResponse(leafDto));
         when(validationStatusPoller.resolveOrKeep(leafDto)).thenReturn(CertificateValidationStatus.INVALID);
@@ -145,9 +149,8 @@ class CrmfMessageHandlerTest {
         // waited on and advertised. The leaf here is VALID; the CA entry is NOT_CHECKED.
         UUID leafUuid = UUID.randomUUID();
         Certificate leaf = leafCertificate(leafUuid);
-        CertificateDetailDto leafDto = certificateDto(leafUuid.toString(), CertificateValidationStatus.VALID);
-        CertificateDetailDto caDto = certificateDto(UUID.randomUUID().toString(),
-                CertificateValidationStatus.NOT_CHECKED);
+        CertificateDetail leafDto = certificateDto(leafUuid.toString(), CertificateValidationStatus.VALID);
+        CertificateDetail caDto = certificateDto(UUID.randomUUID().toString(), CertificateValidationStatus.NOT_CHECKED);
         when(certificateService.getCertificateChain(any(SecuredUUID.class), eq(true)))
                 .thenReturn(chainResponse(leafDto, caDto));
         when(validationStatusPoller.resolveOrKeep(leafDto)).thenReturn(CertificateValidationStatus.VALID);
@@ -196,6 +199,39 @@ class CrmfMessageHandlerTest {
         assertThat(certResponse.getCertReqId().getValue()).isEqualTo(BigInteger.ZERO);
     }
 
+    @Test
+    void logsTheFailureWithoutTheConnectorsText_whenTheConnectorRefusesToSignTheWaitingResponse() throws Exception {
+        // given
+        CmpTransactionService cmpTransactionService = mock(CmpTransactionService.class);
+        when(cmpTransactionService.createTransactionEntity(anyString(), any(), anyString(), any(), any()))
+                .thenReturn(new CmpTransaction());
+        CrmfIrCrMessageHandler irCrMessageHandler = mock(CrmfIrCrMessageHandler.class);
+        when(irCrMessageHandler.getTransactionState()).thenReturn(CmpTransactionState.CERT_ISSUED);
+        handler.setCmpTransactionService(cmpTransactionService);
+        handler.setCrmfIrCrMessageHandler(irCrMessageHandler);
+        var echoedSecret = "token-pin-the-connector-echoed";
+        ConfigurationContext configuration = configurationWithMockedProtection();
+        when(configuration.getProtectionStrategy().createProtection(any(PKIHeader.class), any(PKIBody.class)))
+                .thenThrow(new ConnectorException(echoedSecret));
+        CertRequest certRequest = new CertRequest(new ASN1Integer(0),
+                new CertTemplateBuilder().setSubject(new X500Name("CN=cmp-certificate")).build(), null);
+        PKIMessage request = irMessage(certRequest);
+        ClientCertificateDataResponseDto requestedCert = new ClientCertificateDataResponseDto();
+        requestedCert.setUuid(UUID.randomUUID().toString());
+
+        // when
+        List<String> logged;
+        try (SecretLeakProbe probe = SecretLeakProbe.capture()) {
+            catchThrowable(() -> ReflectionTestUtils
+                    .invokeMethod(handler, "handleAsynchronousAcceptance", request.getHeader().getTransactionID(),
+                            request, configuration, "ir", requestedCert, certRequest));
+            logged = probe.logged();
+        }
+
+        // then
+        SecretLeakProbe.assertNoneReveals(logged, echoedSecret);
+    }
+
     private static PKIMessage irMessage(CertRequest certRequest) {
         PKIHeader header = new PKIHeaderBuilder(PKIHeader.CMP_2000, new GeneralName(new X500Name("CN=test-sender")),
                 new GeneralName(new X500Name("CN=test-recipient")))
@@ -235,15 +271,15 @@ class CrmfMessageHandlerTest {
         return aCertificate().withUuid(uuid).withSerialNumber("01").build();
     }
 
-    private static CertificateChainResponseDto chainResponse(CertificateDetailDto... certificates) {
+    private static CertificateChainResponseDto chainResponse(CertificateDetail... certificates) {
         CertificateChainResponseDto response = new CertificateChainResponseDto();
         response.setCompleteChain(true);
         response.setCertificates(List.of(certificates));
         return response;
     }
 
-    private static CertificateDetailDto certificateDto(String uuid, CertificateValidationStatus status) {
-        CertificateDetailDto dto = new CertificateDetailDto();
+    private static CertificateDetail certificateDto(String uuid, CertificateValidationStatus status) {
+        CertificateDetail dto = new X509CertificateDetail();
         dto.setUuid(uuid);
         dto.setFingerprint("aa:bb:cc");
         dto.setValidationStatus(status);

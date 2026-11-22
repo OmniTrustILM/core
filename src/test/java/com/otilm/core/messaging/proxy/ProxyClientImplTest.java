@@ -34,7 +34,9 @@ import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -43,6 +45,7 @@ import org.springframework.http.ResponseEntity;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Named.named;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.eq;
@@ -504,6 +507,63 @@ class ProxyClientImplTest {
                 .isInstanceOf(ConnectorException.class);
     }
 
+    @Test
+    @Timeout(value = 5, unit = TimeUnit.SECONDS)
+    void throwsClientErrorWithItsStatus_whenTheProxyCategoryIsUnknown() throws Exception {
+        // given
+        ConnectorDto connector = createConnector("proxy-001");
+        ConnectorResponse conflict = answeredError(HttpStatus.CONFLICT.value(), "unknown", "application/json", """
+                {"message":"key already exists"}""");
+        replyWith(conflict);
+
+        // when
+        ThrowingCallable send = () -> proxyClient.sendRequest(connector, "/v1/test", "POST", null, Map.class);
+
+        // then
+        assertThatThrownBy(send)
+                .isInstanceOfSatisfying(ConnectorClientException.class,
+                        clientError -> assertThat(clientError.getHttpStatus()).isEqualTo(HttpStatus.CONFLICT));
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {404, 409, 503})
+    @Timeout(value = 5, unit = TimeUnit.SECONDS)
+    void attachesTheConnector_whenTheReplyCarriesOnlyAStatus(int errorStatus) {
+        // given
+        ConnectorDto connector = createConnector("proxy-001");
+        replyWith(ConnectorResponse.builder().statusCode(errorStatus).build());
+
+        // when
+        ThrowingCallable send = () -> proxyClient.sendRequest(connector, "/v1/test", "GET", null, String.class);
+
+        // then
+        assertThatThrownBy(send)
+                .isInstanceOfSatisfying(ConnectorException.class,
+                        failure -> assertThat(failure.getConnector()).isSameAs(connector));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"404, not_found", "409, unknown", "503, server_error"})
+    @Timeout(value = 5, unit = TimeUnit.SECONDS)
+    void attachesTheConnector_whenTheProxyFilesTheErrorUnderACategory(int errorStatus, String errorCategory) {
+        // given
+        ConnectorDto connector = createConnector("proxy-001");
+        replyWith(ConnectorResponse
+                .builder()
+                .statusCode(errorStatus)
+                .error("HTTP " + errorStatus)
+                .errorCategory(errorCategory)
+                .build());
+
+        // when
+        ThrowingCallable send = () -> proxyClient.sendRequest(connector, "/v1/test", "GET", null, String.class);
+
+        // then
+        assertThatThrownBy(send)
+                .isInstanceOfSatisfying(ConnectorException.class,
+                        failure -> assertThat(failure.getConnector()).isSameAs(connector));
+    }
+
     // ==================== Error Handling - HTTP Errors ====================
 
     @Test
@@ -691,13 +751,14 @@ class ProxyClientImplTest {
                 .errorCategory("unknown")
                 .build();
         return Stream
-                .of(Arguments.of("error body of another type", bodyOfAnotherType, ConnectorException.class, "HTTP 422"),
+                .of(Arguments
+                        .of("error body of another type", bodyOfAnotherType, ValidationException.class, "HTTP 422"),
                         Arguments
                                 .of("problem detail with an unknown error code", unknownErrorCode,
                                         ConnectorEntityNotFoundException.class, "HTTP 404"),
-                        Arguments.of("empty problem detail", emptyProblemDetail, ConnectorException.class, "HTTP 422"),
+                        Arguments.of("empty problem detail", emptyProblemDetail, ValidationException.class, "HTTP 422"),
                         Arguments
-                                .of("error body without headers", bodyWithoutHeaders, ConnectorException.class,
+                                .of("error body without headers", bodyWithoutHeaders, ValidationException.class,
                                         "HTTP 422"));
     }
 
@@ -1448,6 +1509,43 @@ class ProxyClientImplTest {
         assertThat(result.getStatusCode().value()).isEqualTo(200);
     }
 
+    @ParameterizedTest
+    @MethodSource("bodilessNon2xxStatuses")
+    @Timeout(value = 5, unit = TimeUnit.SECONDS)
+    void sendRequestForEntity_keepsTheStatus_whenTheReplyIsABodilessNon2xxBelow400(int nonSuccessStatus)
+            throws Exception {
+        // given
+        ConnectorDto connector = createConnector("proxy-001");
+        replyWith(ConnectorResponse.builder().statusCode(nonSuccessStatus).build());
+
+        // when
+        ResponseEntity<Void> result = proxyClient
+                .sendRequestForEntity(connector, "/v2/authorityProvider/authorities/a/certificates/issue/cancel",
+                        "POST", null, Void.class);
+
+        // then
+        assertThat(result.getStatusCode().value()).isEqualTo(nonSuccessStatus);
+        assertThat(result.getStatusCode().is2xxSuccessful()).isFalse();
+    }
+
+    @Test
+    @Timeout(value = 5, unit = TimeUnit.SECONDS)
+    void sendRequestForEntity_throwsConnectorCommunicationException_whenTheReplyHasNoValidStatus() {
+        // given
+        ConnectorDto connector = createConnector("proxy-001");
+        int noHttpStatus = 0;
+        replyWith(ConnectorResponse.builder().statusCode(noHttpStatus).build());
+
+        // when
+        ThrowingCallable sendRequestForEntity = () -> proxyClient
+                .sendRequestForEntity(connector, "/v1/test", "POST", null, Void.class);
+
+        // then
+        assertThatThrownBy(sendRequestForEntity)
+                .isInstanceOf(ConnectorCommunicationException.class)
+                .hasMessageContaining("no valid HTTP status");
+    }
+
     // ==================== Helper Methods ====================
 
     private ConnectorDto createConnector(String proxyCode) {
@@ -1558,5 +1656,11 @@ class ProxyClientImplTest {
                     assertThat(clientException.getHttpStatus()).isEqualTo(HttpStatus.FORBIDDEN);
                     assertThat(clientException.getConnector()).isNotNull();
                 });
+    }
+
+    private static Stream<Arguments> bodilessNon2xxStatuses() {
+        return Stream
+                .of(Arguments.of(named("302 found", 302)), Arguments.of(named("307 temporary redirect", 307)),
+                        Arguments.of(named("unrecognised 3xx", 399)), Arguments.of(named("unrecognised 1xx", 199)));
     }
 }

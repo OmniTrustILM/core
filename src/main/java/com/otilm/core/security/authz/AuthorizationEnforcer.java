@@ -35,6 +35,22 @@ public interface AuthorizationEnforcer {
      */
     void enforce(Resource resource, ResourceAction action, List<SecuredUUID> objectUuids) throws AccessDeniedException;
 
+    /** Whether the current principal may perform {@code action} on the object, decided exactly as {@code enforce}. */
+    boolean isAuthorized(Resource resource, ResourceAction action, SecuredUUID objectUuid);
+
+    /**
+     * Whether the current principal may perform {@code action} on {@code resource} as a whole, decided exactly as an
+     * endpoint that checks the resource without an object.
+     */
+    boolean isAuthorized(Resource resource, ResourceAction action);
+
+    /**
+     * Whether the current principal may perform {@code action} on the object under its parent, decided exactly as an
+     * {@code @ExternalAuthorization} naming {@code parentResource} and {@code parentAction} decides it.
+     */
+    boolean isAuthorized(Resource resource, ResourceAction action, SecuredUUID objectUuid, Resource parentResource,
+            ResourceAction parentAction, SecuredParentUUID parentUuid);
+
     /**
      * Checks method and exact-object votes within the caller's remaining budget, without session, cache or owner/group
      * fallback. The caller must freshly resolve and verify the supplied principal before each call.

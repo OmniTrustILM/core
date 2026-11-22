@@ -10,10 +10,12 @@ import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.config.cache.CacheEvictor;
 import com.otilm.core.config.cache.ReadThroughCache;
+import com.otilm.core.events.ConnectorChangedEvent;
 import com.otilm.core.model.crypto.KeyOperationScope;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.cache.CacheManager;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
 /**
@@ -74,7 +76,9 @@ public class KeyOperationCache {
     }
 
     /** Forgets what was read for the connector, as an edit to it may change the definitions behind its rows. */
-    public void forgetConnector(UUID connectorUuid) {
+    @EventListener
+    public void forgetConnector(ConnectorChangedEvent changed) {
+        UUID connectorUuid = changed.connectorUuid();
         cacheEvictor
                 .evictIf(CacheConfig.TOKEN_SCOPE_ATTRIBUTES_CACHE, key -> key instanceof ObjectAttributeContentInfo rows
                         && connectorUuid.equals(rows.connectorUuid()));

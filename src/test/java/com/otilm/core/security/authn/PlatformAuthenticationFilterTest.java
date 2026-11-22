@@ -20,6 +20,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -125,6 +126,24 @@ class PlatformAuthenticationFilterTest {
         assertNull(SecurityContextHolder.getContext().getAuthentication());
         assertEquals(401, response.getStatus());
         verifyNoInteractions(authClient, filterChain);
+    }
+
+    @Test
+    void challengesWithProtectedResourceMetadata_whenCertificateIsRejected() throws Exception {
+        // given
+        var malformedCertificate = ":dGVzdA==:";
+        request.addHeader(CERT_HEADER_NAME, malformedCertificate);
+        request.setScheme("https");
+        request.setServerName("ilm.example.com");
+        request.setServerPort(443);
+
+        // when
+        filter.doFilter(request, response, filterChain);
+
+        // then
+        assertThat(response.getHeader("WWW-Authenticate"))
+                .isEqualTo(
+                        "Bearer resource_metadata=\"https://ilm.example.com/.well-known/oauth-protected-resource/api\"");
     }
 
     @Test

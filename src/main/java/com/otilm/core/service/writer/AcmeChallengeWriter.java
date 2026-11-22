@@ -3,6 +3,7 @@ package com.otilm.core.service.writer;
 import com.otilm.api.model.core.acme.AuthorizationStatus;
 import com.otilm.api.model.core.acme.ChallengeStatus;
 import com.otilm.api.model.core.acme.OrderStatus;
+import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.core.dao.entity.acme.AcmeAuthorization;
 import com.otilm.core.dao.entity.acme.AcmeChallenge;
 import com.otilm.core.dao.entity.acme.AcmeOrder;
@@ -38,6 +39,9 @@ import org.springframework.transaction.annotation.Transactional;
 public class AcmeChallengeWriter {
 
     private static final Logger logger = LoggerFactory.getLogger(AcmeChallengeWriter.class);
+
+    private static final String CERTIFICATE_NOT_ISSUED = "The certificate was not issued";
+    private static final String REQUEST_NOT_SUBMITTED = "The certificate request could not be submitted";
 
     private final AcmeOrderRepository acmeOrderRepository;
     private final AcmeAuthorizationRepository acmeAuthorizationRepository;
@@ -170,17 +174,75 @@ public class AcmeChallengeWriter {
             return order;
         }
         OrderStatus statusBefore = order.getStatus();
-        OrderStatus statusFromCertificate = AcmeChallengeStateMachine
-                .statusFromCertificate(order.getCertificateReference().getState());
-        if (statusFromCertificate == statusBefore) {
+        CertificateState certificateState = order.getCertificateReference().getState();
+        OrderStatus statusFromCertificate = AcmeChallengeStateMachine.statusFromCertificate(certificateState);
+        // An order invalidated before it kept a reason gets one too, without counting its outcome again.
+        boolean reasonMissing = order.getErrorDetail() == null && isNotIssued(certificateState);
+        if (statusFromCertificate == statusBefore && !reasonMissing) {
             return order;
         }
-        logger
-                .info("ACME order {} status changed from {} to {}", order.getOrderId(), statusBefore,
-                        statusFromCertificate);
+        if (statusFromCertificate != statusBefore) {
+            logger
+                    .info("ACME order {} status changed from {} to {}", order.getOrderId(), statusBefore,
+                            statusFromCertificate);
+        }
         order.setStatus(statusFromCertificate);
+        if (reasonMissing) {
+            order.setErrorDetail(CERTIFICATE_NOT_ISSUED);
+        }
         acmeOrderRepository.save(order);
         countOrderOutcome(order, statusBefore);
+        return order;
+    }
+
+    /**
+     * Moves a ready order with no certificate requested yet to processing for its finalize request. A second finalize
+     * request for the order finds it taken and submits nothing.
+     *
+     * @return whether the order was ready and this call moved it to processing
+     */
+    @Transactional
+    public boolean claimForFinalize(UUID orderUuid) {
+        AcmeOrder order = lockOrderRow(orderUuid);
+        if (order.getStatus() != OrderStatus.READY || order.getCertificateReferenceUuid() != null) {
+            return false;
+        }
+        order.setStatus(OrderStatus.PROCESSING);
+        acmeOrderRepository.save(order);
+        return true;
+    }
+
+    /**
+     * Links the certificate a finalize request submitted to its order; linking it again changes nothing. The status
+     * stays as it stands: processing while the certificate is issued, or invalid if an account deactivation closed the
+     * order during the submission.
+     *
+     * @return the order as it stands after this call
+     */
+    @Transactional
+    public AcmeOrder recordFinalizeSubmission(UUID orderUuid, String certificateId, UUID certificateUuid) {
+        AcmeOrder order = lockOrderRow(orderUuid);
+        order.setCertificateId(certificateId);
+        order.setCertificateReferenceUuid(certificateUuid);
+        acmeOrderRepository.save(order);
+        return order;
+    }
+
+    /**
+     * Closes an order whose finalize submission failed and counts the failure, unless an account deactivation during
+     * the submission closed it first.
+     *
+     * @return the order as it stands after this call
+     */
+    @Transactional
+    public AcmeOrder failFinalizeSubmission(UUID orderUuid) {
+        AcmeOrder order = lockOrderRow(orderUuid);
+        OrderStatus statusBefore = order.getStatus();
+        if (statusBefore == OrderStatus.PROCESSING) {
+            order.setStatus(OrderStatus.INVALID);
+            order.setErrorDetail(REQUEST_NOT_SUBMITTED);
+        }
+        recordOrderTransition(order, statusBefore);
         return order;
     }
 
@@ -203,27 +265,13 @@ public class AcmeChallengeWriter {
     }
 
     /**
-     * Counts a valid order against its account.
-     */
-    @Transactional
-    public void countValidOrder(UUID accountUuid) {
-        acmeAccountRepository.incrementValidOrders(accountUuid, OffsetDateTime.now(ZoneOffset.UTC));
-    }
-
-    /**
      * Locks the order row and re-reads the order, all of its authorizations and all of their challenges. The
      * persistence context may already hold any of these rows from reads made before the lock was taken, and every
      * decision below depends on their current state, not on what a sibling looked like before another request
      * committed.
      */
     private AcmeOrder lockOrder(UUID orderUuid) {
-        AcmeOrder order = acmeOrderRepository
-                .findWithLockByUuid(orderUuid)
-                .orElseThrow(() -> new IllegalStateException("ACME order " + orderUuid + " no longer exists"));
-        // Changes made earlier in the same transaction are written before the rows are re-read: refresh discards
-        // what is still pending, and a query on the order table alone need not have flushed them.
-        entityManager.flush();
-        entityManager.refresh(order);
+        AcmeOrder order = lockOrderRow(orderUuid);
         for (AcmeAuthorization authorization : order.getAuthorizations()) {
             entityManager.refresh(authorization);
             authorization.getChallenges().forEach(entityManager::refresh);
@@ -231,10 +279,32 @@ public class AcmeChallengeWriter {
         return order;
     }
 
+    /**
+     * Locks the order row and re-reads the order alone, for a decision that rests only on the order's own status and
+     * certificate.
+     */
+    private AcmeOrder lockOrderRow(UUID orderUuid) {
+        AcmeOrder order = acmeOrderRepository
+                .findWithLockByUuid(orderUuid)
+                .orElseThrow(() -> new IllegalStateException("ACME order " + orderUuid + " no longer exists"));
+        // Changes made earlier in the same transaction are written before the rows are re-read: refresh discards
+        // what is still pending, and a query on the order table alone need not have flushed them.
+        entityManager.flush();
+        entityManager.refresh(order);
+        return order;
+    }
+
     private AcmeChallenge challengeUnderLock(String challengeId) {
         return acmeChallengeRepository
                 .findWithContextByChallengeId(challengeId)
                 .orElseThrow(() -> new IllegalStateException("ACME challenge " + challengeId + " no longer exists"));
+    }
+
+    /**
+     * Whether the certificate ended without being issued, as opposed to one issued and later revoked or archived.
+     */
+    private static boolean isNotIssued(CertificateState certificateState) {
+        return certificateState == CertificateState.FAILED || certificateState == CertificateState.REJECTED;
     }
 
     private void recordOrderTransition(AcmeOrder order, OrderStatus statusBefore) {

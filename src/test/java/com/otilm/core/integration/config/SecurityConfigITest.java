@@ -33,10 +33,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.core.convert.support.GenericConversionService;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.oauth2.core.OAuth2AccessToken;
 import org.springframework.security.oauth2.core.OAuth2RefreshToken;
+import org.springframework.security.oauth2.jwt.BadJwtException;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.session.jdbc.JdbcIndexedSessionRepository;
 import org.springframework.session.web.http.SessionRepositoryFilter;
@@ -44,8 +46,10 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -86,6 +90,8 @@ class SecurityConfigITest extends BaseSpringBootTestNoAuth {
     static final String CERTIFICATE_USER_USERNAME = "certificate-user";
     static final String CERTIFICATE_HEADER_VALUE = com.otilm.core.security.authn.ForwardedCertificateFixtures.LEAF_DER;
     static final String TOKEN_USER_USERNAME = "token-user";
+    static final String METADATA_URL = "http://localhost/.well-known/oauth-protected-resource/api";
+    static final String EXPECTED_CHALLENGE = "Bearer resource_metadata=\"" + METADATA_URL + "\"";
 
     Jwt mockJwt;
     String tokenValue;
@@ -226,6 +232,69 @@ class SecurityConfigITest extends BaseSpringBootTestNoAuth {
         verify(jwtDecoder, never()).decode(Mockito.anyString());
         mockServer.verify(1, WireMock.postRequestedFor(WireMock.urlEqualTo("/auth")));
         assertCertificateNotCached();
+    }
+
+    @Test
+    void challengesWithProtectedResourceMetadata_whenNoCredentialsAreSent() throws Exception {
+        // given
+        var unauthenticatedRequest = get("/v1/auth/profile").with(request -> {
+            request.setRemoteAddr("10.0.0.1");
+            return request;
+        });
+
+        // when
+        ResultActions response = mvc.perform(unauthenticatedRequest);
+
+        // then
+        response.andExpect(status().isUnauthorized());
+        assertThat(extractChallenge(response)).isEqualTo(EXPECTED_CHALLENGE);
+    }
+
+    @Test
+    void challengesWithInvalidTokenAndMetadata_whenBearerTokenIsRefused() throws Exception {
+        // given
+        var refusedToken = "not-a-valid-token";
+        when(jwtDecoder.decode(refusedToken)).thenThrow(new BadJwtException("refused"));
+        var requestWithRefusedToken = get("/v1/auth/profile").header("Authorization", "Bearer " + refusedToken);
+
+        // when
+        ResultActions response = mvc.perform(requestWithRefusedToken);
+
+        // then
+        response.andExpect(status().isUnauthorized());
+        assertThat(extractChallenge(response))
+                .startsWith("Bearer error=\"invalid_token\"")
+                .endsWith(", resource_metadata=\"" + METADATA_URL + "\"")
+                .containsOnlyOnce("resource_metadata=");
+    }
+
+    @Test
+    void servesMetadata_whenAnInvalidBearerTokenIsSent() throws Exception {
+        // given
+        var refusedToken = "not-a-valid-token";
+        when(jwtDecoder.decode(refusedToken)).thenThrow(new BadJwtException("refused"));
+        var metadataRequest = get("/.well-known/oauth-protected-resource/api")
+                .header("Authorization", "Bearer " + refusedToken);
+
+        // when
+        ResultActions response = mvc.perform(metadataRequest);
+
+        // then
+        response.andExpect(status().isOk());
+    }
+
+    @Test
+    void challengesWithProtectedResourceMetadata_whenForwardedCertificateIsRejected() throws Exception {
+        // given
+        var malformedCertificate = ":dGVzdA==:";
+        var requestWithMalformedCertificate = get("/v1/auth/profile").header("X-APP-CERTIFICATE", malformedCertificate);
+
+        // when
+        ResultActions response = mvc.perform(requestWithMalformedCertificate);
+
+        // then
+        response.andExpect(status().isUnauthorized());
+        assertThat(extractChallenge(response)).isEqualTo(EXPECTED_CHALLENGE);
     }
 
     private void enableValidBearer() {
@@ -510,4 +579,7 @@ class SecurityConfigITest extends BaseSpringBootTestNoAuth {
                                         """.formatted(userInfoUsername))));
     }
 
+    private static String extractChallenge(ResultActions response) {
+        return response.andReturn().getResponse().getHeader(HttpHeaders.WWW_AUTHENTICATE);
+    }
 }

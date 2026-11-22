@@ -12,7 +12,41 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface CrlRepository extends SecurityFilterRepository<Crl, Long> {
+
+    /**
+     * Until when a stored CRL, and the delta CRL last applied to it, are current, and whether it lists a serial number.
+     * A projection, so its values are those of the row even when the persistence context of the request still holds the
+     * CRL as it was read before an update.
+     */
+    interface CrlStateView {
+        Date getNextUpdate();
+
+        Date getNextUpdateDelta();
+
+        long getListedEntries();
+
+        default boolean lists() {
+            return getListedEntries() > 0;
+        }
+    }
+
     Optional<Crl> findByIssuerDnAndSerialNumber(String issuerDn, String serialNumber);
+
+    /**
+     * Reads the validity of a CRL and whether it lists the serial number, in one statement: the entries and the dates
+     * come from one snapshot, which two statements do not give while another request refreshes the CRL between them.
+     *
+     * @param serialNumber the serial number as {@code CrlEntry} stores it: lower-case hexadecimal
+     */
+    @Query("""
+            SELECT c.nextUpdate AS nextUpdate, c.nextUpdateDelta AS nextUpdateDelta,
+                   (SELECT COUNT(e) FROM CrlEntry e
+                     WHERE e.id.crlUuid = c.uuid AND e.id.serialNumber = :serialNumber) AS listedEntries
+              FROM Crl c
+             WHERE c.uuid = :uuid
+            """)
+    Optional<CrlStateView> findStateByUuidAndSerialNumber(@Param("uuid") UUID uuid,
+            @Param("serialNumber") String serialNumber);
 
     List<Crl> findByCaCertificateUuid(UUID caCertificateUuid);
 

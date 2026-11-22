@@ -49,8 +49,8 @@ public class KeyImportGates {
     public static final String NOT_OFFERED = "Token profile %s does not import a %s.";
     public static final String ALGORITHM_NOT_OFFERED = "Token profile %s does not import the %s algorithm for a %s.";
     public static final String PROFILE_CHANGED = "Token profile %s changed while its import was checked. Try again.";
-    public static final String NOT_UPDATABLE = "Key %s holds the same public key, and you may not update it.";
-    public static final String HELD_IN_TOKEN = "Key %s holds the same public key under a token instance, without its "
+    public static final String NOT_UPDATABLE = "Key '%s' holds the same public key, and you may not update it.";
+    public static final String HELD_IN_TOKEN = "Key '%s' holds the same public key under a token instance, without its "
             + "private key.";
 
     private final AuthorizationEnforcer authorizationEnforcer;

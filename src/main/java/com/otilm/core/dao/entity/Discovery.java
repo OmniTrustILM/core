@@ -1,13 +1,20 @@
 package com.otilm.core.dao.entity;
 
 import com.fasterxml.jackson.annotation.JsonBackReference;
+import com.otilm.api.model.client.discovery.DiscoveryWindowMode;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
+import com.otilm.api.model.connector.discovery.v2.DiscoveryDeliveryMode;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryProgressDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
+import com.otilm.core.dao.converter.DiscoveryDeliveryModeConverter;
+import com.otilm.core.dao.converter.DiscoveryWindowModeConverter;
+import com.otilm.core.dao.converter.DurationIsoConverter;
+import com.otilm.core.dao.converter.ReplaceOnlyMutability;
 import com.otilm.core.dao.entity.workflows.Trigger;
 import jakarta.persistence.Column;
 import jakarta.persistence.ConstraintMode;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -21,6 +28,7 @@ import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import java.io.Serial;
 import java.io.Serializable;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -35,6 +43,7 @@ import lombok.Setter;
 import lombok.ToString;
 import org.hibernate.annotations.Formula;
 import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.annotations.Mutability;
 import org.hibernate.annotations.SQLJoinTableRestriction;
 import org.hibernate.proxy.HibernateProxy;
 import org.hibernate.type.SqlTypes;
@@ -125,6 +134,16 @@ public class Discovery extends UniquelyIdentifiedAndAudited implements Serializa
 
     // ---- What the provider is doing, and what it has handed over ----
 
+    // How the run's results travel from its connector, as the connector chose at initiate or at the last resume. Null
+    // on a v1 run and on a v2 run whose connector has not answered yet.
+    @Column(name = "delivery_mode")
+    @Convert(converter = DiscoveryDeliveryModeConverter.class)
+    private DiscoveryDeliveryMode deliveryMode;
+
+    // Fences what a tick writes for a checkpointed run; CheckpointRevision says what raises it and what it blocks.
+    @Column(name = "checkpoint_revision", nullable = false)
+    private long checkpointRevision;
+
     // The connector's opaque run handle, nulled on every terminal transition. Null on a v1 run.
     // S1948: every entity is Serializable via UniquelyIdentifiedObject, but nothing Java-serializes them today --
     // Jackson owns this JSONB field's persistence shape -- so the suppression holds only until Discovery enters a
@@ -132,6 +151,7 @@ public class Discovery extends UniquelyIdentifiedAndAudited implements Serializa
     @SuppressWarnings("java:S1948")
     @Column(name = "checkpoint", columnDefinition = "jsonb")
     @JdbcTypeCode(SqlTypes.JSON)
+    @Mutability(ReplaceOnlyMutability.class)
     private List<MetadataAttribute> checkpoint;
 
     // The connector's latest progress report, stamped with when it was recorded. Null on a v1 run and until the
@@ -151,6 +171,22 @@ public class Discovery extends UniquelyIdentifiedAndAudited implements Serializa
     // status answer that arrives out of order be recognised and dropped. Null until the first answer, and on a v1 run.
     @Column(name = "connector_highest_sequence")
     private Long connectorHighestSequence;
+
+    // ---- How much of the target it covers ----
+
+    // The window the run was asked to cover. Null when the request gave none; the run then covers the whole target.
+    @Column(name = "window_mode")
+    @Convert(converter = DiscoveryWindowModeConverter.class)
+    private DiscoveryWindowMode windowMode;
+
+    // How far back from the start of the run to discover; set only for the lookback mode.
+    @Column(name = "window_lookback")
+    @Convert(converter = DurationIsoConverter.class)
+    private Duration windowLookback;
+
+    // The instant the window opened at, as resolved when the run started. Null when the run covers the whole target.
+    @Column(name = "discover_since")
+    private OffsetDateTime discoverSince;
 
     // ---- What it found ----
 

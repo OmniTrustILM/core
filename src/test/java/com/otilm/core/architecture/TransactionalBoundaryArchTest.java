@@ -1,10 +1,12 @@
 package com.otilm.core.architecture;
 
 import com.tngtech.archunit.base.DescribedPredicate;
+import com.tngtech.archunit.core.domain.JavaAnnotation;
 import com.tngtech.archunit.core.domain.JavaCall;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.core.domain.JavaMethodCall;
+import com.tngtech.archunit.core.domain.properties.HasAnnotations;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
@@ -13,6 +15,7 @@ import com.tngtech.archunit.lang.ArchRule;
 import com.tngtech.archunit.lang.ConditionEvents;
 import com.tngtech.archunit.lang.SimpleConditionEvent;
 import com.tngtech.archunit.library.freeze.FreezingArchRule;
+import java.util.Optional;
 import java.util.Set;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.repository.Repository;
@@ -28,11 +31,12 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
  * Enforces the transactional-boundary refactor invariants.
  *
  * <p>
- * <b>Rule A</b> — a method effectively annotated {@code @Transactional(propagation = NOT_SUPPORTED)} (either at method
- * level or inherited from its declaring class) must not call
- * {@code save/saveAll/saveAndFlush/delete/deleteAll/deleteAllInBatch/deleteInBatch/flush} on any {@code Repository}.
- * Such a call from a no-tx context either fails outright ({@code TransactionRequiredException} for {@code @Modifying})
- * or silently loses the write (detached-entity save with no dirty checking). Use a {@code *Writer} bean instead.
+ * <b>Rule A</b> — a method effectively annotated {@code @Transactional(propagation = NOT_SUPPORTED)} (at method level,
+ * through a composed annotation such as {@code @OutsideTransaction}, or inherited from its declaring class) must not
+ * call {@code save/saveAll/saveAndFlush/delete/deleteAll/deleteAllInBatch/deleteInBatch/flush} on any
+ * {@code Repository}. Such a call from a no-tx context either fails outright ({@code TransactionRequiredException} for
+ * {@code @Modifying}) or silently loses the write (detached-entity save with no dirty checking). Use a {@code *Writer}
+ * bean instead.
  * </p>
  *
  * <p>
@@ -73,9 +77,9 @@ public class TransactionalBoundaryArchTest {
     // ---- Rule A: no writes from NOT_SUPPORTED ----
 
     @ArchTest
-    static final ArchRule no_repository_writes_from_not_supported_methods = noMethods()
+    static final ArchRule no_repository_writes_from_not_supported_methods = methods()
             .that(EFFECTIVELY_NOT_SUPPORTED)
-            .should(new ArchCondition<JavaMethod>("call a forbidden write method on a Repository") {
+            .should(new ArchCondition<JavaMethod>("not call a forbidden write method on a Repository") {
                 @Override
                 public void check(JavaMethod method, ConditionEvents events) {
                     for (JavaMethodCall call : method.getMethodCallsFromSelf()) {
@@ -170,13 +174,25 @@ public class TransactionalBoundaryArchTest {
             });
 
     private static Propagation effectivePropagation(JavaMethod method) {
-        if (method.isAnnotatedWith(Transactional.class)) {
-            return method.getAnnotationOfType(Transactional.class).propagation();
+        return transactionalOf(method)
+                .or(() -> transactionalOf(method.getOwner()))
+                .map(Transactional::propagation)
+                .orElse(null);
+    }
+
+    /**
+     * Spring also honours a {@code @Transactional} placed on a composed annotation such as {@code @OutsideTransaction}.
+     */
+    private static Optional<Transactional> transactionalOf(HasAnnotations<?> element) {
+        if (element.isAnnotatedWith(Transactional.class)) {
+            return Optional.of(element.getAnnotationOfType(Transactional.class));
         }
-        JavaClass clazz = method.getOwner();
-        if (clazz.isAnnotatedWith(Transactional.class)) {
-            return clazz.getAnnotationOfType(Transactional.class).propagation();
-        }
-        return null;
+        return element
+                .getAnnotations()
+                .stream()
+                .map(JavaAnnotation::getRawType)
+                .filter(annotationType -> annotationType.isAnnotatedWith(Transactional.class))
+                .map(annotationType -> annotationType.getAnnotationOfType(Transactional.class))
+                .findFirst();
     }
 }

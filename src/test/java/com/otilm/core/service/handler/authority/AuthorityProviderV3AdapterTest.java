@@ -2,6 +2,7 @@ package com.otilm.core.service.handler.authority;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.api.clients.ApiClientConnectorInfo;
+import com.otilm.api.exception.ConnectionServiceException;
 import com.otilm.api.exception.ConnectorCommunicationException;
 import com.otilm.api.exception.ConnectorEntityNotFoundException;
 import com.otilm.api.exception.ConnectorException;
@@ -14,11 +15,13 @@ import com.otilm.api.interfaces.client.v3.CertificateSyncApiClient;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
+import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
+import com.otilm.api.model.common.attribute.v3.content.IntegerAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.ResourceObjectContent;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceSecretContentData;
@@ -57,6 +60,7 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.OutboundSecretContainment;
 import com.otilm.core.attribute.engine.OutboundSecretLeakException;
+import com.otilm.core.attribute.engine.records.ObjectAttributeContent;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
@@ -71,16 +75,21 @@ import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.handler.OperationAttributeResolver;
 import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.util.CertificateTestUtil;
+import com.otilm.core.util.SecretEncodingVersion;
+import com.otilm.core.util.SecretsUtil;
 import java.net.URI;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
+import java.security.Security;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.GeneralName;
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.operator.ContentSigner;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 import org.bouncycastle.pkcs.PKCS10CertificationRequestBuilder;
@@ -90,6 +99,9 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -100,6 +112,8 @@ import org.springframework.http.ResponseEntity;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static com.otilm.core.util.builders.CertificateRequestEntityBuilder.aCertificateRequest;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -112,6 +126,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
@@ -123,6 +138,8 @@ import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class AuthorityProviderV3AdapterTest {
+
+    private static final String TEST_APPLICATION_ENCRYPTION_KEY = "test123";
 
     @Mock
     ConnectorInternalService connectorService;
@@ -848,6 +865,115 @@ class AuthorityProviderV3AdapterTest {
         assertEquals(CancelOutcome.NOT_TRACKED, result.outcome());
     }
 
+    @ParameterizedTest
+    @CsvSource({"OPERATION_NOT_TRACKED, 404", "OPERATION_NOT_TRACKED, 422", "REGISTRATION_NOT_FOUND, 422"})
+    void returnsNotTracked_whenNotTrackedCodeCarriesASupportedStatus(ErrorCode code, int status)
+            throws ConnectorException {
+        // given
+        var problem = new ConnectorProblemException(problemWithStatus(code, status));
+        when(certClientV3.cancelIssue(eq(connectorInfo), any())).thenThrow(problem);
+
+        // when
+        CancelResult result = adapter.cancel(cert, CertificateOperation.ISSUE);
+
+        // then
+        assertThat(result.outcome()).isEqualTo(CancelOutcome.NOT_TRACKED);
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "OPERATION_NOT_TRACKED, 500",
+            "OPERATION_NOT_TRACKED, 503",
+            "OPERATION_NOT_TRACKED, 400",
+            "REGISTRATION_NOT_FOUND, 503",
+            "OPERATION_PAST_POINT_OF_NO_RETURN, 500",
+            "OPERATION_PAST_POINT_OF_NO_RETURN, 503",
+            "OPERATION_PAST_POINT_OF_NO_RETURN, 404"})
+    void propagatesProblem_whenCancelStatusIsNotOneTheContractDefinesForTheCode(ErrorCode code, int status)
+            throws ConnectorException {
+        // given
+        var problem = new ConnectorProblemException(problemWithStatus(code, status));
+        when(certClientV3.cancelIssue(eq(connectorInfo), any())).thenThrow(problem);
+
+        // when
+        ThrowingCallable cancel = () -> adapter.cancel(cert, CertificateOperation.ISSUE);
+
+        // then
+        assertThatThrownBy(cancel).isSameAs(problem);
+    }
+
+    private static ProblemDetailExtended problemWithStatus(ErrorCode code, int status) {
+        ProblemDetailExtended problem = ProblemDetailExtended
+                .fromErrorCode(code, "connector answer", URI.create("https://example.com"), null);
+        problem.setStatus(status);
+        return problem;
+    }
+
+    @Test
+    void throwsNotSentWithoutCallingTheConnector_whenASecretOfTheCancelRequestIsNotFound() throws ConnectorException {
+        // given
+        var secretNotFound = new ConnectorEntityNotFoundException("Secret content not found");
+        when(operationAttributeResolver.resolveForConnectorRequestAsSystem(eq(authority.getConnectorUuid()), any()))
+                .thenThrow(secretNotFound);
+
+        // when
+        ThrowingCallable cancel = () -> adapter.cancel(cert, CertificateOperation.ISSUE);
+
+        // then
+        assertThatThrownBy(cancel)
+                .isInstanceOfSatisfying(CancelNotSentException.class,
+                        e -> assertThat(e.reason()).isSameAs(secretNotFound));
+        verifyNoInteractions(certClientV3);
+    }
+
+    @Test
+    void throwsNotSentWithoutCallingTheConnector_whenAReferenceOfTheCancelRequestIsInvalid() throws ConnectorException {
+        // given
+        var disabledSecret = new ValidationException("Secret is disabled");
+        when(operationAttributeResolver.resolveForConnectorRequestAsSystem(eq(authority.getConnectorUuid()), any()))
+                .thenThrow(disabledSecret);
+
+        // when
+        ThrowingCallable cancel = () -> adapter.cancel(cert, CertificateOperation.ISSUE);
+
+        // then
+        assertThatThrownBy(cancel)
+                .isInstanceOfSatisfying(CancelNotSentException.class,
+                        e -> assertThat(e.reason()).isSameAs(disabledSecret));
+        verifyNoInteractions(certClientV3);
+    }
+
+    @Test
+    void throwsNotSentWithoutCallingTheConnector_whenTheConnectorIsNotFound() throws Exception {
+        // given
+        when(connectorService.getConnectorForApiClient(authority.getConnectorUuid()))
+                .thenThrow(new NotFoundException("connector missing"));
+
+        // when
+        ThrowingCallable cancel = () -> adapter.cancel(cert, CertificateOperation.ISSUE);
+
+        // then
+        assertThatThrownBy(cancel)
+                .isInstanceOfSatisfying(CancelNotSentException.class,
+                        e -> assertThat(e.reason()).isInstanceOf(ConnectorException.class));
+        verifyNoInteractions(certClientV3);
+    }
+
+    @Test
+    void throwsConnectionServiceException_whenCancelAnswersRedirect() throws ConnectorException {
+        // given
+        ResponseEntity<Void> redirect = ResponseEntity.status(HttpStatus.FOUND).build();
+        when(certClientV3.cancelIssue(eq(connectorInfo), any())).thenReturn(redirect);
+
+        // when
+        ThrowingCallable cancel = () -> adapter.cancel(cert, CertificateOperation.ISSUE);
+
+        // then
+        assertThatThrownBy(cancel)
+                .isInstanceOfSatisfying(ConnectionServiceException.class,
+                        e -> assertThat(e.getHttpStatus()).isEqualTo(HttpStatus.FOUND));
+    }
+
     // ---- connector not found -> ConnectorException ----
 
     @Test
@@ -1209,6 +1335,109 @@ class AuthorityProviderV3AdapterTest {
     }
 
     @Test
+    void flagsTheReasonForOperatorsOnly_whenItQuotesASecretThePollSent() throws Exception {
+        // given
+        var sentSecret = "s3cr3t-token";
+        var reasonQuotingSecret = "upstream login with " + sentSecret + " refused";
+        resolveAttributesToSecret(sentSecret);
+        answerIssueStatusFailed(reasonQuotingSecret);
+
+        // when
+        StatusPollResult result = adapter.pollStatus(cert, CertificateOperation.ISSUE);
+
+        // then
+        assertThat(result.reason()).isEqualTo(reasonQuotingSecret);
+        assertThat(result.requesterReason()).isNull();
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = Resource.class, names = {"AUTHORITY", "RA_PROFILE", "CERTIFICATE"})
+    void flagsTheReasonForOperatorsOnly_whenItQuotesAnEncryptedValueTheConnectorReceived(Resource scope)
+            throws Exception {
+        // given
+        var encryptedValue = "upstream-api-password";
+        var reasonQuotingValue = "login with " + encryptedValue + " refused";
+        ObjectAttributeContent encryptedRow = sealedRow("apiPassword", encryptedValue);
+        lenient().when(attributeEngine.getStoredObjectDataAttributesContent(any())).thenReturn(List.of());
+        doReturn(List.of(encryptedRow))
+                .when(attributeEngine)
+                .getStoredObjectDataAttributesContent(argThat(info -> info != null && info.objectType() == scope));
+        RequestAttribute resolvedPlain = new RequestAttributeV3(encryptedRow.uuid(), encryptedRow.name(),
+                AttributeContentType.STRING,
+                List.<BaseAttributeContentV3<?>>of(new StringAttributeContentV3(encryptedValue)));
+        lenient()
+                .when(operationAttributeResolver
+                        .resolveForConnectorRequestAsSystem(eq(authority.getConnectorUuid()), any()))
+                .thenReturn(List.of(resolvedPlain));
+        answerIssueStatusFailed(reasonQuotingValue);
+
+        // when
+        StatusPollResult result = adapter.pollStatus(cert, CertificateOperation.ISSUE);
+
+        // then
+        assertThat(result.requesterReason()).isNull();
+    }
+
+    @Test
+    void flagsTheReasonForOperatorsOnly_whenItQuotesAnEncryptedNumberThePollSent() throws Exception {
+        // given
+        var encryptedPin = 48151623;
+        var reasonQuotingPin = "token login with PIN " + encryptedPin + " refused";
+        ObjectAttributeContent encryptedRow = sealedRow("tokenPin", String.valueOf(encryptedPin));
+        lenient().when(attributeEngine.getStoredObjectDataAttributesContent(any())).thenReturn(List.of());
+        doReturn(List.of(encryptedRow))
+                .when(attributeEngine)
+                .getStoredObjectDataAttributesContent(
+                        argThat(info -> info != null && info.objectType() == Resource.AUTHORITY));
+        RequestAttribute resolvedPin = new RequestAttributeV3(encryptedRow.uuid(), encryptedRow.name(),
+                AttributeContentType.INTEGER,
+                List.<BaseAttributeContentV3<?>>of(new IntegerAttributeContentV3(encryptedPin)));
+        when(operationAttributeResolver.resolveForConnectorRequestAsSystem(eq(authority.getConnectorUuid()), any()))
+                .thenReturn(List.of(resolvedPin));
+        answerIssueStatusFailed(reasonQuotingPin);
+
+        // when
+        StatusPollResult result = adapter.pollStatus(cert, CertificateOperation.ISSUE);
+
+        // then
+        assertThat(result.requesterReason()).isNull();
+    }
+
+    @Test
+    void returnsTheStatusWithTheReasonKeptFromTheRequester_whenTheSentSecretsCannotBeRead() throws Exception {
+        // given
+        var authorityReason = "domain is on the deny list";
+        lenient().when(attributeEngine.getStoredObjectDataAttributesContent(any())).thenReturn(List.of());
+        doThrow(new IllegalStateException("database unavailable"))
+                .when(attributeEngine)
+                .getStoredObjectDataAttributesContent(
+                        argThat(info -> info != null && info.objectType() == Resource.CERTIFICATE));
+        answerIssueStatusFailed(authorityReason);
+
+        // when
+        StatusPollResult result = adapter.pollStatus(cert, CertificateOperation.ISSUE);
+
+        // then
+        assertThat(result.status()).isEqualTo(CertificateOperationStatus.FAILED);
+        assertThat(result.reason()).isEqualTo(authorityReason);
+        assertThat(result.requesterReason()).isNull();
+    }
+
+    @Test
+    void keepsTheReasonForTheRequester_whenItQuotesNoSecretThePollSent() throws Exception {
+        // given
+        var authorityReason = "domain is on the deny list";
+        resolveAttributesToSecret("s3cr3t-token");
+        answerIssueStatusFailed(authorityReason);
+
+        // when
+        StatusPollResult result = adapter.pollStatus(cert, CertificateOperation.ISSUE);
+
+        // then
+        assertThat(result.requesterReason()).isEqualTo(authorityReason);
+    }
+
+    @Test
     void pollStatusWrapsReferenceValidationAsConnectorException() throws ConnectorException {
         // CertificateStatusPollListener recovers only from ConnectorException, and that catch is the sole path by
         // which a failing poll fails the certificate out. An unwrapped ValidationException escapes it and leaves the
@@ -1232,5 +1461,33 @@ class AuthorityProviderV3AdapterTest {
 
         assertEquals(CancelOutcome.CANCELLED, result.outcome());
         verify(certClientV3).cancelRevoke(eq(connectorInfo), any());
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private void resolveAttributesToSecret(String secret) throws ConnectorException {
+        ResourceObjectContent secretContent = new ResourceObjectContent();
+        secretContent.setData(new ResourceSecretContentData("u", "n", new ApiKeySecretContent(secret)));
+        RequestAttribute resolvedSecret = new RequestAttributeV3(UUID.randomUUID(), "oauthClient",
+                AttributeContentType.RESOURCE, List.<BaseAttributeContentV3<?>>of(secretContent));
+        when(operationAttributeResolver.resolveForConnectorRequestAsSystem(eq(authority.getConnectorUuid()), any()))
+                .thenReturn(List.of(resolvedSecret));
+    }
+
+    private void answerIssueStatusFailed(String reason) throws ConnectorException {
+        CertificateOperationStatusResponseDto resp = new CertificateOperationStatusResponseDto();
+        resp.setStatus(CertificateOperationStatus.FAILED);
+        resp.setReason(reason);
+        when(certClientV3.getIssueStatus(eq(connectorInfo), any(CertificateOperationStatusRequestDtoV3.class)))
+                .thenReturn(resp);
+    }
+
+    /** A row as the attribute engine stores a protected value, sealed under the test application's key. */
+    private static ObjectAttributeContent sealedRow(String name, String value) {
+        Security.addProvider(new BouncyCastleProvider());
+        new SecretsUtil().setEncryptionKeyStatic(TEST_APPLICATION_ENCRYPTION_KEY);
+        String sealed = SecretsUtil.encryptAndEncodeSecretString(value, SecretEncodingVersion.V1);
+        return new ObjectAttributeContent(UUID.randomUUID(), name, name, AttributeType.DATA,
+                AttributeContentType.STRING, new StringAttributeContentV3(), 3, sealed);
     }
 }

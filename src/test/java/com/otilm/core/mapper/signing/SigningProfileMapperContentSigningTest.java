@@ -6,15 +6,13 @@ import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
 import com.otilm.api.model.client.signing.profile.workflow.ContentSigningWorkflowDto;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.client.signing.profile.workflow.timestamp.InternalTimestampSourceDto;
-import com.otilm.api.model.common.signature.SignatureFamily;
 import com.otilm.api.model.common.signature.SignatureLevel;
-import com.otilm.api.model.common.signature.SignatureParameterGroup;
-import com.otilm.api.model.common.signature.parameters.pades.PadesSignatureParametersDto;
 import com.otilm.core.dao.entity.signing.SigningProfile;
 import com.otilm.core.dao.entity.signing.SigningProfileVersion;
 import com.otilm.core.model.signing.CertificatePurposeRequirements;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.workflow.ManagedContentSigningWorkflow;
+import com.otilm.core.util.SignatureFamilyFixtures;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -23,12 +21,9 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import static com.otilm.core.util.CertificateTestData.DOCUMENT_SIGNING_OID;
-import static com.otilm.core.util.builders.PadesSignatureParametersDtoBuilder.aPadesParameters;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class SigningProfileMapperContentSigningTest {
-
-    private static final long DOCUMENT_SIZE_CAP = 5_242_880L;
 
     // ── ToManagedContentSigningModel ──────────────────────────────────────────
 
@@ -36,7 +31,7 @@ class SigningProfileMapperContentSigningTest {
     class ToManagedContentSigningModel {
 
         @Test
-        void carriesTheLevelLadderFields() {
+        void carriesTheLevelLadderFields_whenTheVersionSetsThem() {
             // given
             var connectorUuid = UUID.randomUUID();
             var timestampSourceUuid = UUID.randomUUID();
@@ -49,10 +44,9 @@ class SigningProfileMapperContentSigningTest {
                     .toManagedContentSigningModel(aHeader(), version, List.of(), List.of());
 
             // then
-            assertThat(model.workflow().family()).isEqualTo(SignatureFamily.PADES);
-            assertThat(model.workflow().maxLevel()).isEqualTo(SignatureLevel.TIMESTAMPED);
+            assertThat(model.workflow().family()).isEqualTo(SignatureFamilyFixtures.PADES);
+            assertThat(model.workflow().level()).isEqualTo(SignatureLevel.TIMESTAMPED);
             assertThat(model.workflow().timestampSourceProfileUuid()).isEqualTo(timestampSourceUuid);
-            assertThat(model.workflow().documentSizeCap()).isEqualTo(DOCUMENT_SIZE_CAP);
             assertThat(model.workflow().signatureFormattingConnectorUuid()).isEqualTo(connectorUuid);
             assertThat(model.workflow().certificatePurpose())
                     .isEqualTo(new CertificatePurposeRequirements(true, Set.of(DOCUMENT_SIGNING_OID)));
@@ -79,30 +73,29 @@ class SigningProfileMapperContentSigningTest {
         void mapsToAnEmptyAllowList_whenTheVersionStoresNull() {
             // given
             SigningProfileVersion version = aContentSigningVersion();
-            version.setAllowedRequestParameterGroups(null);
+            version.setAllowedRequestAttributes(null);
 
             // when
             SigningProfileModel<ManagedContentSigningWorkflow, ?> model = SigningProfileMapper
                     .toManagedContentSigningModel(aHeader(), version, List.of(), List.of());
 
             // then
-            assertThat(model.workflow().parameterPolicy().allowedGroups()).isEmpty();
+            assertThat(model.workflow().allowedRequestAttributes()).isEmpty();
         }
 
         @Test
-        void dropsAnUnknownStoredGroup_andKeepsTheKnownOnes() {
+        void carriesTheStoredAllowList_whenTheVersionStoresNames() {
             // given
-            var storedCodes = List.of("retired_group", SignatureParameterGroup.SIGNATURE_CONTEXT.getCode());
+            var allowedNames = List.of("signature-context", "reason");
             SigningProfileVersion version = aContentSigningVersion();
-            version.setAllowedRequestParameterGroups(new ArrayList<>(storedCodes));
+            version.setAllowedRequestAttributes(new ArrayList<>(allowedNames));
 
             // when
             SigningProfileModel<ManagedContentSigningWorkflow, ?> model = SigningProfileMapper
                     .toManagedContentSigningModel(aHeader(), version, List.of(), List.of());
 
             // then
-            assertThat(model.workflow().parameterPolicy().allowedGroups())
-                    .containsExactly(SignatureParameterGroup.SIGNATURE_CONTEXT);
+            assertThat(model.workflow().allowedRequestAttributes()).containsExactlyInAnyOrderElementsOf(allowedNames);
         }
     }
 
@@ -112,7 +105,7 @@ class SigningProfileMapperContentSigningTest {
     class ToDto {
 
         @Test
-        void carriesTheLevelLadderFields() {
+        void carriesTheLevelLadderFields_whenTheVersionSetsThem() {
             // given
             var timestampSourceUuid = UUID.randomUUID();
             SigningProfileVersion version = aContentSigningVersion();
@@ -124,9 +117,8 @@ class SigningProfileMapperContentSigningTest {
 
             // then
             ContentSigningWorkflowDto workflow = (ContentSigningWorkflowDto) dto.getWorkflow();
-            assertThat(workflow.getFamily()).isEqualTo(SignatureFamily.PADES);
-            assertThat(workflow.getMaxLevel()).isEqualTo(SignatureLevel.TIMESTAMPED);
-            assertThat(workflow.getDocumentSizeCap()).isEqualTo(DOCUMENT_SIZE_CAP);
+            assertThat(workflow.getFamily()).isEqualTo(SignatureFamilyFixtures.PADES);
+            assertThat(workflow.getLevel()).isEqualTo(SignatureLevel.TIMESTAMPED);
             assertThat(workflow.isRequireNonRepudiation()).isTrue();
             assertThat(workflow.getRequiredExtendedKeyUsageOids()).containsExactly(DOCUMENT_SIGNING_OID);
             assertThat(workflow.getTimestampSource())
@@ -188,12 +180,11 @@ class SigningProfileMapperContentSigningTest {
         }
 
         @Test
-        void carriesTheAllowListAndTheTypedDefaults() {
-            // given — the version stores the group as its code
-            var allowedGroup = SignatureParameterGroup.SIGNATURE_CONTEXT;
+        void carriesTheAllowListInItsStoredOrder_whenTheVersionStoresNames() {
+            // given
+            var allowedNames = List.of("signature-context", "reason");
             SigningProfileVersion version = aContentSigningVersion();
-            version.setAllowedRequestParameterGroups(new ArrayList<>(List.of(allowedGroup.getCode())));
-            version.setDefaultSignatureParameters(aPadesParameters().withReason("Contract approval").build());
+            version.setAllowedRequestAttributes(new ArrayList<>(allowedNames));
 
             // when
             SigningProfileDto dto = SigningProfileMapper
@@ -201,8 +192,7 @@ class SigningProfileMapperContentSigningTest {
 
             // then
             ContentSigningWorkflowDto workflow = (ContentSigningWorkflowDto) dto.getWorkflow();
-            assertThat(workflow.getAllowedRequestParameterGroups()).containsExactly(allowedGroup);
-            assertThat(workflow.getDefaultSignatureParameters()).isInstanceOf(PadesSignatureParametersDto.class);
+            assertThat(workflow.getAllowedRequestAttributes()).containsExactlyElementsOf(allowedNames);
         }
     }
 
@@ -223,9 +213,8 @@ class SigningProfileMapperContentSigningTest {
         version.setSigningScheme(SigningScheme.MANAGED);
         version.setManagedSigningType(ManagedSigningType.STATIC_KEY);
         version.setSignatureFormattingConnectorUuid(UUID.randomUUID());
-        version.setSignatureFamily(SignatureFamily.PADES);
-        version.setMaxSignatureLevel(SignatureLevel.TIMESTAMPED);
-        version.setDocumentSizeCap(DOCUMENT_SIZE_CAP);
+        version.setSignatureFamily(SignatureFamilyFixtures.PADES);
+        version.setSignatureLevel(SignatureLevel.TIMESTAMPED);
         version.setRequireNonRepudiation(true);
         version.setRequiredExtendedKeyUsageOids(List.of(DOCUMENT_SIGNING_OID));
         return version;

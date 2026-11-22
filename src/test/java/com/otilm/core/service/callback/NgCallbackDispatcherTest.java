@@ -22,12 +22,14 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionStatus;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -48,7 +50,7 @@ class NgCallbackDispatcherTest {
     private ApiClientConnectorInfo connector;
 
     @BeforeEach
-    void setUp() {
+    void wireDispatcherAndConnector() {
         connectorApiFactory = Mockito.mock(ConnectorApiFactory.class);
         client = Mockito.mock(AttributesSyncApiClient.class);
         attributeEngine = Mockito.mock(AttributeEngine.class);
@@ -56,7 +58,8 @@ class NgCallbackDispatcherTest {
         txManager = Mockito.mock(PlatformTransactionManager.class);
 
         dispatcher = new NgCallbackDispatcher(connectorApiFactory, attributeEngine, definitionResolver,
-                new OutboundSecretContainment(new com.fasterxml.jackson.databind.ObjectMapper()));
+                new OutboundSecretContainment(
+                        new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules()));
         dispatcher.setTransactionManager(txManager);
 
         connector = Mockito.mock(ApiClientConnectorInfo.class);
@@ -87,6 +90,82 @@ class NgCallbackDispatcherTest {
     }
 
     @Test
+    void dropsTheConnectorsWords_whenItsRefusalCarriesASecretExpandedForTheCallback() throws Exception {
+        // given
+        String expandedSecret = "super-secret-token-123";
+        ProblemDetailExtended refusal = ProblemDetailExtended
+                .fromErrorCode(ErrorCode.VALIDATION_FAILED, "client " + expandedSecret + " was rejected", null, null);
+        Mockito.when(client.callback(any(), any())).thenThrow(new ConnectorProblemException(refusal));
+        Set<String> expandedSecrets = new HashSet<>(Set.of(expandedSecret));
+
+        // when
+        ThrowingCallable dispatch = () -> dispatcher
+                .dispatchNgCallback(connector, context(), new RequestAttributeCallback(), expandedSecrets);
+
+        // then
+        assertThatThrownBy(dispatch)
+                .isInstanceOf(ConnectorProblemException.class)
+                .hasMessageContaining("The connector refused the callback (VALIDATION_FAILED).")
+                .hasMessageNotContaining(expandedSecret);
+    }
+
+    @Test
+    void dropsTheConnectorsWords_whenItsRefusalCarriesNoSecretButTheCallbackCarriedOne() throws Exception {
+        // given
+        String wordsWithoutTheSecret = "authority otpki-staging does not belong to this connector";
+        ProblemDetailExtended refusal = ProblemDetailExtended
+                .fromErrorCode(ErrorCode.VALIDATION_FAILED, wordsWithoutTheSecret, null, null);
+        Mockito.when(client.callback(any(), any())).thenThrow(new ConnectorProblemException(refusal));
+        Set<String> expandedSecrets = new HashSet<>(Set.of("super-secret-token-123"));
+
+        // when
+        ThrowingCallable dispatch = () -> dispatcher
+                .dispatchNgCallback(connector, context(), new RequestAttributeCallback(), expandedSecrets);
+
+        // then
+        assertThatThrownBy(dispatch)
+                .isInstanceOf(ConnectorProblemException.class)
+                .hasMessageContaining("The connector refused the callback (VALIDATION_FAILED).")
+                .hasMessageNotContaining(wordsWithoutTheSecret);
+    }
+
+    @Test
+    void dropsTheConnectorsWords_whenAPlainValidationRefusalAnswersACallbackCarryingASecret() throws Exception {
+        // given
+        Mockito
+                .when(client.callback(any(), any()))
+                .thenThrow(new ValidationException("client super-secret-token-123 was rejected"));
+        Set<String> expandedSecrets = new HashSet<>(Set.of("super-secret-token-123"));
+
+        // when
+        ThrowingCallable dispatch = () -> dispatcher
+                .dispatchNgCallback(connector, context(), new RequestAttributeCallback(), expandedSecrets);
+
+        // then
+        assertThatThrownBy(dispatch)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageNotContaining("super-secret-token-123");
+    }
+
+    @Test
+    void keepsTheConnectorsWords_whenTheCallbackCarriedNoSecret() throws Exception {
+        // given
+        String unknownAuthority = "authority otpki-staging does not belong to this connector";
+        ProblemDetailExtended refusal = ProblemDetailExtended
+                .fromErrorCode(ErrorCode.VALIDATION_FAILED, unknownAuthority, null, null);
+        Mockito.when(client.callback(any(), any())).thenThrow(new ConnectorProblemException(refusal));
+
+        // when
+        ThrowingCallable dispatch = () -> dispatcher
+                .dispatchNgCallback(connector, context(), new RequestAttributeCallback(), new HashSet<>());
+
+        // then
+        assertThatThrownBy(dispatch)
+                .isInstanceOf(ConnectorProblemException.class)
+                .hasMessageContaining(unknownAuthority);
+    }
+
+    @Test
     void allowsResponseThatDoesNotEchoAnyExpandedSecret() throws Exception {
         AttributeCallbackResponseDto response = new AttributeCallbackResponseDto();
         response.setContent(List.of(new StringAttributeContentV3("harmless-public-value")));
@@ -96,6 +175,24 @@ class NgCallbackDispatcherTest {
 
         assertDoesNotThrow(() -> dispatcher
                 .dispatchNgCallback(connector, context(), new RequestAttributeCallback(), expandedSecrets));
+    }
+
+    @Test
+    void keepsCoresWords_whenTheDefinitionRefreshFailsForACallbackCarryingASecret() throws Exception {
+        // given
+        ProblemDetailExtended problem = ProblemDetailExtended
+                .fromErrorCode(ErrorCode.ATTRIBUTE_DEFINITION_NOT_FOUND, "unknown to connector", null, null);
+        Mockito.when(client.callback(any(), any())).thenThrow(new ConnectorProblemException(problem));
+        ValidationException coresRefusal = new ValidationException("Attribute definition 'ca' could not be resolved");
+        Mockito.when(definitionResolver.resolveForced(any(), any(), any(), any())).thenThrow(coresRefusal);
+        Set<String> expandedSecrets = new HashSet<>(Set.of("super-secret-token-123"));
+
+        // when
+        ThrowingCallable dispatch = () -> dispatcher
+                .dispatchNgCallback(connector, context(), new RequestAttributeCallback(), expandedSecrets);
+
+        // then
+        assertThatThrownBy(dispatch).isSameAs(coresRefusal);
     }
 
     @Test

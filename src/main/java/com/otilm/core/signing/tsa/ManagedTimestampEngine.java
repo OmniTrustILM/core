@@ -25,6 +25,7 @@ import com.otilm.core.util.serialnumber.SerialNumberGenerator;
 import java.math.BigInteger;
 import java.security.MessageDigest;
 import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 import org.bouncycastle.cms.jcajce.JcaSimpleSignerInfoVerifierBuilder;
 import org.bouncycastle.tsp.TSPValidationException;
@@ -32,6 +33,7 @@ import org.bouncycastle.tsp.TimeStampToken;
 import org.bouncycastle.tsp.TimeStampTokenInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Component;
 
 /**
@@ -127,8 +129,8 @@ public class ManagedTimestampEngine {
             recordSigning(signingProfile, request, serialNumber, genTime, encodedToken, protocol);
             return new IssuedTimestamp(encodedToken, serialNumber, genTime);
 
-        } catch (SigningEngineException e) {
-            // keeps engine failures out of the catch-all below, which would collapse their classification
+        } catch (SigningEngineException | AccessDeniedException e) {
+            // keeps engine failures and denials out of the catch-all below, which would collapse their classification
             throw e;
         } catch (TSPValidationException e) {
             throw new SigningEngineException(SigningEngineFailure.SIGNER_FAULT, "timestamp signature validation failed",
@@ -253,7 +255,7 @@ public class ManagedTimestampEngine {
                     .source(signingProfile, request, serialNumber, genTime, encodedToken, protocol);
             signingRecordStrategyFactory
                     .strategyFor(signingProfile.recordPolicy().persistenceMode())
-                    .recordSigning(source);
+                    .recordSigning(signingProfile, List.of(source));
         } catch (Exception e) {
             logger
                     .error("Failed to record signing for signing profile '{}'; the timestamp was issued regardless",

@@ -55,7 +55,7 @@ public class DiscoveryWorkSweeper {
      * + read + reschedule) happens in {@link DiscoveryWorkClaimer}.
      */
     public void sweep() {
-        // One cutoff for the whole sweep: a claimed row is rescheduled past it (first rung >= PT1S),
+        // One cutoff for the whole sweep: a claimed row is leased, and due again only past it,
         // so no batch of this sweep can claim the same row twice, however long publishing takes.
         OffsetDateTime dueCutoff = OffsetDateTime.now(ZoneOffset.UTC);
         int enqueued = 0;

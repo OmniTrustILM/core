@@ -35,11 +35,13 @@ import com.otilm.core.model.discovery.DiscoveryWorkType;
 import com.otilm.core.service.handler.discovery.DiscoveryStatusTickWorker;
 import com.otilm.core.service.handler.discovery.DiscoveryV2Client;
 import com.otilm.core.service.writer.discovery.DiscoveryMessageWriter;
+import com.otilm.core.service.writer.discovery.DiscoveryWorkTick;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.DiscoveryCheckpointFixture;
 import com.otilm.core.util.DiscoveryInterfaceFixture;
 import com.otilm.core.util.RefusedDefinitionInserts;
+import com.otilm.core.util.seeders.DiscoveryWorkTickSeeder;
 import java.net.URI;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -82,6 +84,8 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
     @Autowired
     private DiscoveryWorkRepository workRepository;
     @Autowired
+    private DiscoveryWorkTickSeeder tickSeeder;
+    @Autowired
     private DiscoveryMessageRepository messageRepository;
     @Autowired
     private DiscoveryMessageWriter messageWriter;
@@ -112,7 +116,7 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         armStatusRow(run, 40);
         answers(statusResponse(DiscoveryRunState.RUNNING));
 
-        worker.tick(run.getUuid(), 40);
+        worker.tick(admitTick(run, 40));
 
         assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.IN_PROGRESS);
         assertThat(reload(run).getConnectorState()).isEqualTo("running");
@@ -133,7 +137,7 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         answers(response);
         OffsetDateTime polledAt = OffsetDateTime.now(ZoneOffset.UTC);
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
 
         Discovery reloaded = reload(run);
         assertThat(reloaded.getProgress().getTargetsProcessed()).isEqualTo(31L);
@@ -153,12 +157,12 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
         armStatusRow(run, 0);
         answers(runningAt(90L, 4_000L));
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
         OffsetDateTime recordedAt = reload(run).getProgress().getUpdatedAt();
 
         // The straggler: taken earlier, so it carries a lower sequence and lower counters.
         answers(runningAt(40L, 1_000L));
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
 
         Discovery reloaded = reload(run);
         assertThat(reloaded.getProgress().getTargetsProcessed())
@@ -175,10 +179,10 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
         armStatusRow(run, 0);
         answers(runningAt(40L, 1_000L));
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
 
         answers(runningAt(90L, 4_000L));
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
 
         Discovery reloaded = reload(run);
         assertThat(reloaded.getProgress().getTargetsProcessed()).isEqualTo(4_000L);
@@ -194,19 +198,19 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
         armStatusRow(run, 0);
         answers(runningAt(90L, 4_000L));
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
 
         DiscoveryStatusResponseDto unnumbered = runningAt(90L, 9_000L);
         unnumbered.setHighestSequence(null);
         answers(unnumbered);
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
 
         assertThat(reload(run).getProgress().getTargetsProcessed()).isEqualTo(9_000L);
     }
 
     /**
      * A paused run reports nothing new, and the reaper lets one stay stopped for days. Left on the live cadence it
-     * would ask a paused connector the same question every claim floor for that whole window.
+     * would ask a paused connector the same question on every live poll for that whole window.
      */
     @Test
     void stoppedAnswer_backsTheStatusPollOff() throws Exception {
@@ -217,7 +221,7 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         answers(statusResponse(DiscoveryRunState.STOPPED));
         OffsetDateTime polledAt = OffsetDateTime.now(ZoneOffset.UTC);
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
 
         assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.STOPPED);
         assertThat(statusRow(run).getNextDueAt())
@@ -242,7 +246,7 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         response.setProgress(progress);
         answers(response);
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
 
         assertThat(reload(run).getConnectorTotalCertificatesDiscovered()).isEqualTo(612);
     }
@@ -260,7 +264,7 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         response.setProgress(progress);
         answers(response);
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
 
         assertThat(reload(run).getConnectorTotalCertificatesDiscovered()).isEqualTo(97);
     }
@@ -280,7 +284,7 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         response.setProgress(progress);
         answers(response);
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
 
         assertThat(reload(run).getProgress().getUpdatedAt())
                 .as("the connector's own value must not survive")
@@ -301,14 +305,14 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         progress.setTargetsFailed(12L);
         reporting.setProgress(progress);
         answers(reporting);
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
 
         armStatusRow(run, 0);
         DiscoveryStatusResponseDto silent = statusResponse(DiscoveryRunState.RUNNING);
         silent.setProgress(new DiscoveryProgressDto());
         answers(silent);
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
 
         Discovery reloaded = reload(run);
         assertThat(reloaded.getProgress()).isNotNull();
@@ -329,7 +333,7 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         response.setProgress(progress);
         answers(response);
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
 
         // A sweep of address space fails most of what it attempts; without this the run detail cannot tell
         // "examined 42 of 65534" from "found 42, nothing else to look at".
@@ -342,7 +346,7 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         armStatusRow(run, 0);
         answers(statusResponse(DiscoveryRunState.STOPPED));
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
 
         Discovery reloaded = reload(run);
         assertThat(reloaded.getStatus()).isEqualTo(DiscoveryStatus.STOPPED);
@@ -358,7 +362,7 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         armStatusRow(run, 0);
         answers(statusResponse(DiscoveryRunState.STOPPED));
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
 
         assertThat(reload(run).getStoppedAt())
                 .as("the deadline is measured from the original pause, or a paused run could never expire")
@@ -374,7 +378,7 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         armStatusRow(run, 0);
         answers(statusResponse(DiscoveryRunState.RUNNING));
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
 
         Discovery reloaded = reload(run);
         assertThat(reloaded.getStatus())
@@ -404,7 +408,7 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
             return statusResponse(DiscoveryRunState.RUNNING);
         });
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
 
         Discovery reloaded = reload(run);
         assertThat(reloaded.getStatus())
@@ -414,12 +418,31 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
     }
 
     @Test
+    void appliesNothing_whenAnotherTickTookTheRowDuringTheCall() throws Exception {
+        // given
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        DiscoveryWorkTick tick = admitTick(run, 0);
+        when(client.status(any())).thenAnswer(invocation -> {
+            leaseToAnotherTick(run);
+            return statusResponse(DiscoveryRunState.FAILED);
+        });
+
+        // when
+        worker.tick(tick);
+
+        // then
+        assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.IN_PROGRESS);
+        assertThat(agenda(run)).as("the new holder's row stays for it to poll").hasSize(1);
+    }
+
+    @Test
     void completedAnswer_leavesTheRunInProgressAndArmsTheDrain() throws Exception {
         Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
         armStatusRow(run, 0);
         answers(statusResponse(DiscoveryRunState.COMPLETED));
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
 
         Discovery reloaded = reload(run);
         assertThat(reloaded.getStatus())
@@ -437,7 +460,7 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         armStatusRow(run, 0);
         answers(statusResponse(DiscoveryRunState.FAILED));
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
 
         Discovery reloaded = reload(run);
         assertThat(reloaded.getStatus()).isEqualTo(DiscoveryStatus.FAILED);
@@ -462,7 +485,7 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         armStatusRow(run, 0);
         answers(statusResponse(DiscoveryRunState.CANCELLED));
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
 
         assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.CANCELLED);
         assertThat(agenda(run)).isEmpty();
@@ -482,8 +505,8 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         armStatusRow(run, 0);
         answers(completedWithTargets(10, 5, 3));
 
-        worker.tick(run.getUuid(), 0);
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
+        worker.tick(admitTick(run, 0));
 
         assertThat(messageRepository.findByDiscoveryUuidOrderByIdAsc(run.getUuid()))
                 .as("filed when the connector finishes, not on every answer that repeats it")
@@ -500,12 +523,12 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
         armStatusRow(run, 0);
         answers(completedWithTargets(10, 5, 3));
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
         answers(statusResponse(DiscoveryRunState.RUNNING));
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
         answers(completedWithTargets(10, 5, 3));
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
 
         assertThat(messageRepository.findByDiscoveryUuidOrderByIdAsc(run.getUuid()))
                 .as("the same failed targets are not counted a second time")
@@ -519,10 +542,10 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
         armStatusRow(run, 0);
         answers(statusResponse(DiscoveryRunState.COMPLETED));
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
         answers(completedWithTargets(10, 5, 3));
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
 
         assertThat(messageRepository.findByDiscoveryUuidOrderByIdAsc(run.getUuid()))
                 .as("progress is optional on every answer, so the counts can arrive after the first completed one")
@@ -545,7 +568,7 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         }
         answers(completedWithTargets(10, 5, 3));
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
 
         assertThat(messageRepository.findByDiscoveryUuidOrderByIdAsc(run.getUuid()))
                 .as("the count of unreadable targets lands on its own row, not folded into the suppression row")
@@ -561,7 +584,7 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         armStatusRow(run, 0);
         answers(completedWithTargets(10, 10, 0));
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
 
         assertThat(messageRepository.findByDiscoveryUuidOrderByIdAsc(run.getUuid()))
                 .as("a target with nothing on it is a normal outcome")
@@ -579,7 +602,7 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         response.setProgress(progress);
         answers(response);
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
 
         assertThat(reload(run).getProgress())
                 .as("a report of empty targets alone still says something")
@@ -594,7 +617,7 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         armStatusRow(run, 0);
         when(client.status(any())).thenThrow(notFound());
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
 
         Discovery reloaded = reload(run);
         assertThat(reloaded.getStatus()).isEqualTo(DiscoveryStatus.FAILED);
@@ -611,7 +634,7 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         armStatusRow(run, 3);
         when(client.status(any())).thenThrow(new ConnectorException("connection refused"));
 
-        worker.tick(run.getUuid(), 3);
+        worker.tick(admitTick(run, 3));
 
         assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.IN_PROGRESS);
         assertThat(agenda(run)).as("the row stays: the claimer already pushed it up the backoff ladder").hasSize(1);
@@ -627,7 +650,7 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         when(client.status(any())).thenThrow(new ConnectorException("connection refused"));
         int lastAttempt = workProperties.scheduleFor(DiscoveryWorkType.STATUS).maxAttempts() - 1;
 
-        worker.tick(run.getUuid(), lastAttempt);
+        worker.tick(admitTick(run, lastAttempt));
 
         Discovery reloaded = reload(run);
         assertThat(reloaded.getStatus()).isEqualTo(DiscoveryStatus.FAILED);
@@ -644,7 +667,7 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         stateless.setHighestSequence(0L);
         answers(stateless);
 
-        worker.tick(run.getUuid(), 3);
+        worker.tick(admitTick(run, 3));
 
         // The state is required on the wire, so its absence must not be read as an answer (see
         // DiscoveryStatusTickWorker#tick).
@@ -661,7 +684,7 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         answers(new DiscoveryStatusResponseDto());
         int lastAttempt = workProperties.scheduleFor(DiscoveryWorkType.STATUS).maxAttempts() - 1;
 
-        worker.tick(run.getUuid(), lastAttempt);
+        worker.tick(admitTick(run, lastAttempt));
 
         Discovery reloaded = reload(run);
         assertThat(reloaded.getStatus()).isEqualTo(DiscoveryStatus.FAILED);
@@ -674,7 +697,7 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         Discovery run = v2Run(DiscoveryStatus.COMPLETED);
         armStatusRow(run, 0);
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
 
         assertThat(agenda(run)).isEmpty();
         assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.COMPLETED);
@@ -688,7 +711,7 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         armStatusRow(run, 0);
         workWriter.schedule(run.getUuid(), DiscoveryWorkType.PROCESS, OffsetDateTime.now(ZoneOffset.UTC).plusHours(1));
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
 
         // The swap released the connector handle. Calling status here would read the resulting 404 as "the run
         // vanished" and end a healthy import as FAILED.
@@ -701,10 +724,19 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
     }
 
     @Test
-    void tickForADeletedRun_isDroppedWithoutFailing() {
-        worker.tick(UUID.randomUUID(), 0);
+    void dropsTheTick_whenItsRunWasDeletedWhileItWasQueued() throws Exception {
+        // given
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        DiscoveryWorkTick admitted = admitTick(run, 0);
+        discoveryRepository.delete(run);
 
+        // when
+        worker.tick(admitted);
+
+        // then
         assertThat(workRepository.findAll()).isEmpty();
+        verify(client, never()).status(any());
     }
 
     // ---- the connector's metadata statement about the run ----
@@ -715,7 +747,7 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         armStatusRow(run, 0);
         answers(saying(DiscoveryRunState.RUNNING, "resolver", "10.0.0.53"));
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
 
         assertThat(recordedMetadata(run)).containsExactly(entry("resolver", "10.0.0.53"));
     }
@@ -725,10 +757,10 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
         armStatusRow(run, 0);
         answers(saying(DiscoveryRunState.RUNNING, "resolver", "10.0.0.53"));
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
 
         answers(saying(DiscoveryRunState.RUNNING, "scanWindow", "02:00-04:00"));
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
 
         assertThat(recordedMetadata(run))
                 .as("a present list is the complete set: what it omits is retracted")
@@ -740,10 +772,10 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
         armStatusRow(run, 0);
         answers(saying(DiscoveryRunState.RUNNING, "resolver", "10.0.0.53"));
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
 
         answers(statusResponse(DiscoveryRunState.RUNNING));
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
 
         assertThat(recordedMetadata(run)).containsExactly(entry("resolver", "10.0.0.53"));
     }
@@ -753,12 +785,12 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
         armStatusRow(run, 0);
         answers(saying(DiscoveryRunState.RUNNING, "resolver", "10.0.0.53"));
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
 
         DiscoveryStatusResponseDto silent = statusResponse(DiscoveryRunState.RUNNING);
         silent.setMeta(List.of());
         answers(silent);
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
 
         assertThat(recordedMetadata(run)).isEmpty();
     }
@@ -769,7 +801,7 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         armStatusRow(run, 0);
         answers(saying(DiscoveryRunState.RUNNING, "dump", "x".repeat(70 * 1024)));
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
 
         assertThat(recordedMetadata(run)).isEmpty();
         assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.IN_PROGRESS);
@@ -787,13 +819,13 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
         armStatusRow(run, 0);
         answers(saying(DiscoveryRunState.RUNNING, "resolver", "10.0.0.53"));
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
 
         DiscoveryStatusResponseDto malformed = statusResponse(DiscoveryRunState.RUNNING);
         // The checkpoint fixture: identity but no properties, which is fine for a handle and not for metadata.
         malformed.setMeta(DiscoveryCheckpointFixture.checkpoint("bare", "x"));
         answers(malformed);
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
 
         assertThat(recordedMetadata(run)).containsExactly(entry("resolver", "10.0.0.53"));
         assertThat(messageRepository.findAll())
@@ -811,13 +843,13 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
         armStatusRow(run, 0);
         answers(saying(DiscoveryRunState.RUNNING, "resolver", "10.0.0.53"));
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
 
         DiscoveryStatusResponseDto refused = statusResponse(DiscoveryRunState.RUNNING);
         // Well-formed to the worker's eye and refused by the engine: content that carries no data.
         refused.setMeta(List.of(statement("resolver", new StringAttributeContentV3((String) null))));
         answers(refused);
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
 
         assertThat(recordedMetadata(run)).containsExactly(entry("resolver", "10.0.0.53"));
         assertThat(messageRepository.findAll())
@@ -834,7 +866,7 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         RefusedDefinitionInserts.install(jdbcTemplate);
         answers(saying(DiscoveryRunState.RUNNING, RefusedDefinitionInserts.REFUSED_NAME, "x"));
 
-        assertThatCode(() -> worker.tick(run.getUuid(), 0)).doesNotThrowAnyException();
+        assertThatCode(() -> worker.tick(admitTick(run, 0))).doesNotThrowAnyException();
 
         assertThat(reload(run).getConnectorState()).isEqualTo("running");
         assertThat(messageRepository.findAll())
@@ -849,7 +881,7 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         armStatusRow(run, 0);
         answers(saying(DiscoveryRunState.FAILED, "lastTarget", "172.16.4.110:443"));
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(admitTick(run, 0));
 
         assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.FAILED);
         assertThat(recordedMetadata(run)).containsExactly(entry("lastTarget", "172.16.4.110:443"));
@@ -939,6 +971,17 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         workWriter
                 .reschedule(run.getUuid(), DiscoveryWorkType.STATUS, attempt,
                         OffsetDateTime.now(ZoneOffset.UTC).plusHours(1));
+    }
+
+    private DiscoveryWorkTick admitTick(Discovery run, int attempt) {
+        return tickSeeder.admitTick(run.getUuid(), DiscoveryWorkType.STATUS, attempt);
+    }
+
+    /** What a reclaim or a lifecycle change does to a running tick: its row is now leased to another token. */
+    private void leaseToAnotherTick(Discovery run) {
+        workWriter
+                .scheduleLeased(run.getUuid(), DiscoveryWorkType.STATUS, UUID.randomUUID(),
+                        OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(2));
     }
 
     private DiscoveryWork statusRow(Discovery run) {

@@ -28,11 +28,13 @@ import com.otilm.api.model.core.settings.PlatformSettingsDto;
 import com.otilm.api.model.core.settings.PlatformSettingsUpdateDto;
 import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.SettingsSectionCategory;
+import com.otilm.api.model.core.settings.SigningSettingsDto;
 import com.otilm.api.model.core.settings.UtilsSettingsDto;
 import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsDto;
 import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsUpdateDto;
 import com.otilm.api.model.core.settings.authentication.JwkDto;
 import com.otilm.api.model.core.settings.authentication.JwkSetLoadFailure;
+import com.otilm.api.model.core.settings.authentication.OAuth2ApplicationSettingsDto;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsResponseDto;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsUpdateDto;
@@ -44,11 +46,13 @@ import com.otilm.core.cbom.sync.CbomSyncPolicy;
 import com.otilm.core.certificate.request.DefaultRequestAttributeSet;
 import com.otilm.core.dao.entity.Setting;
 import com.otilm.core.dao.repository.SettingRepository;
+import com.otilm.core.exception.PreconditionFailedException;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.service.SettingExternalService;
 import com.otilm.core.service.SettingInternalService;
+import com.otilm.core.service.TaggedOAuth2ProviderSettings;
 import com.otilm.core.service.TriggerExternalService;
 import com.otilm.core.service.TriggerInternalService;
 import com.otilm.core.service.registration.CertificateRegistrationDefaults;
@@ -80,6 +84,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -105,6 +110,7 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
     public static final String CBOM_SYNC_ASSET_INGEST_ENABLED_NAME = "cbomSyncAssetIngestEnabled";
     public static final String CBOM_SYNC_ASSET_BATCH_SIZE_NAME = "cbomSyncAssetBatchSize";
     public static final String CBOM_SYNC_INGEST_RETRY_AFTER_SECONDS_NAME = "cbomSyncIngestRetryAfterSeconds";
+    public static final String SIGNING_MAX_ITEMS_PER_REQUEST_NAME = "maxItemsPerRequest";
     public static final String CERTIFICATES_VALIDATION_SETTINGS_NAME = "certificatesValidation";
     public static final String CERTIFICATES_REGISTRATION_SETTINGS_NAME = "certificatesRegistration";
     public static final String CERTIFICATES_UPLOAD_SETTINGS_NAME = "certificatesUpload";
@@ -126,12 +132,11 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
     private static final Map<String, BrandingField> BRANDING_FIELDS = brandingFields();
 
     /**
-     * The corrupt text last reported per utils setting. The read runs on every cache refresh, so a value is reported
-     * when it appears, whenever its text changes, and again after a valid or unset read has cleared the entry; three
-     * entries at most. A refresh that read a corrupt value racing a request that read its correction can leave the
+     * The corrupt text last reported per setting, keyed by its qualified name; {@link #storedInteger} says when a value
+     * is reported again. A refresh that read a corrupt value racing a request that read its correction can leave the
      * entry behind for one refresh cycle; the next read clears it.
      */
-    private final Map<String, String> lastReportedCorruptUtilsValue = new ConcurrentHashMap<>();
+    private final Map<String, String> lastReportedCorruptValue = new ConcurrentHashMap<>();
 
     private final ObjectMapper wireMapper;
     private final SettingsCache settingsCache;
@@ -195,37 +200,40 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
         // Utils
         Map<String, Setting> utilsSettings = mappedSettings.get(SettingsSectionCategory.PLATFORM_UTILS.getCode());
         UtilsSettingsDto utilsSettingsDto = new UtilsSettingsDto();
-        utilsSettingsDto.setUtilsServiceUrl(utilsValue(utilsSettings, UTILS_SERVICE_URL_NAME));
-        utilsSettingsDto.setCbomRepositoryUrl(utilsValue(utilsSettings, CBOM_REPOSITORY_URL_NAME));
+        utilsSettingsDto.setUtilsServiceUrl(storedValue(utilsSettings, UTILS_SERVICE_URL_NAME));
+        utilsSettingsDto.setCbomRepositoryUrl(storedValue(utilsSettings, CBOM_REPOSITORY_URL_NAME));
         // The CBOM sync policy reads back with its defaults filled in, so a form shows what the sync will use.
         utilsSettingsDto
-                .setCbomSyncOverlapSeconds(utilsInteger(utilsSettings, CBOM_SYNC_OVERLAP_SECONDS_NAME,
-                        CbomSyncPolicy.DEFAULT_OVERLAP_SECONDS, 0, UtilsSettingsDto.MAX_CBOM_SYNC_OVERLAP_SECONDS));
+                .setCbomSyncOverlapSeconds(storedInteger(utilsSettings, SettingsSectionCategory.PLATFORM_UTILS,
+                        CBOM_SYNC_OVERLAP_SECONDS_NAME, CbomSyncPolicy.DEFAULT_OVERLAP_SECONDS, 0,
+                        UtilsSettingsDto.MAX_CBOM_SYNC_OVERLAP_SECONDS));
         utilsSettingsDto
-                .setCbomSyncSkippedRetryRuns(utilsInteger(utilsSettings, CBOM_SYNC_SKIPPED_RETRY_RUNS_NAME,
-                        CbomSyncPolicy.DEFAULT_SKIPPED_RETRY_RUNS, 0,
+                .setCbomSyncSkippedRetryRuns(storedInteger(utilsSettings, SettingsSectionCategory.PLATFORM_UTILS,
+                        CBOM_SYNC_SKIPPED_RETRY_RUNS_NAME, CbomSyncPolicy.DEFAULT_SKIPPED_RETRY_RUNS, 0,
                         UtilsSettingsDto.MAX_CBOM_SYNC_SKIPPED_RETRY_RUNS));
         utilsSettingsDto
-                .setCbomSyncMaxIngestDocuments(utilsInteger(utilsSettings, CBOM_SYNC_MAX_INGEST_DOCUMENTS_NAME,
-                        CbomSyncPolicy.DEFAULT_MAX_INGEST_DOCUMENTS, 0,
+                .setCbomSyncMaxIngestDocuments(storedInteger(utilsSettings, SettingsSectionCategory.PLATFORM_UTILS,
+                        CBOM_SYNC_MAX_INGEST_DOCUMENTS_NAME, CbomSyncPolicy.DEFAULT_MAX_INGEST_DOCUMENTS, 0,
                         UtilsSettingsDto.MAX_CBOM_SYNC_MAX_INGEST_DOCUMENTS));
         utilsSettingsDto
-                .setCbomSyncSkipRetentionDays(utilsInteger(utilsSettings, CBOM_SYNC_SKIP_RETENTION_DAYS_NAME,
-                        CbomSyncPolicy.DEFAULT_SKIP_RETENTION_DAYS, UtilsSettingsDto.MIN_CBOM_SYNC_SKIP_RETENTION_DAYS,
+                .setCbomSyncSkipRetentionDays(storedInteger(utilsSettings, SettingsSectionCategory.PLATFORM_UTILS,
+                        CBOM_SYNC_SKIP_RETENTION_DAYS_NAME, CbomSyncPolicy.DEFAULT_SKIP_RETENTION_DAYS,
+                        UtilsSettingsDto.MIN_CBOM_SYNC_SKIP_RETENTION_DAYS,
                         UtilsSettingsDto.MAX_CBOM_SYNC_SKIP_RETENTION_DAYS));
         utilsSettingsDto
-                .setCbomSyncPageSize(
-                        utilsInteger(utilsSettings, CBOM_SYNC_PAGE_SIZE_NAME, CbomSyncPolicy.DEFAULT_PAGE_SIZE,
-                                UtilsSettingsDto.MIN_CBOM_SYNC_PAGE_SIZE, UtilsSettingsDto.MAX_CBOM_SYNC_PAGE_SIZE));
+                .setCbomSyncPageSize(storedInteger(utilsSettings, SettingsSectionCategory.PLATFORM_UTILS,
+                        CBOM_SYNC_PAGE_SIZE_NAME, CbomSyncPolicy.DEFAULT_PAGE_SIZE,
+                        UtilsSettingsDto.MIN_CBOM_SYNC_PAGE_SIZE, UtilsSettingsDto.MAX_CBOM_SYNC_PAGE_SIZE));
         utilsSettingsDto
-                .setCbomSyncAssetIngestEnabled(utilsBoolean(utilsSettings, CBOM_SYNC_ASSET_INGEST_ENABLED_NAME,
-                        CbomSyncPolicy.DEFAULT_ASSET_INGEST_ENABLED));
+                .setCbomSyncAssetIngestEnabled(storedBoolean(utilsSettings, SettingsSectionCategory.PLATFORM_UTILS,
+                        CBOM_SYNC_ASSET_INGEST_ENABLED_NAME, CbomSyncPolicy.DEFAULT_ASSET_INGEST_ENABLED));
         utilsSettingsDto
-                .setCbomSyncAssetBatchSize(utilsInteger(utilsSettings, CBOM_SYNC_ASSET_BATCH_SIZE_NAME,
-                        CbomSyncPolicy.DEFAULT_ASSET_BATCH_SIZE, UtilsSettingsDto.MIN_CBOM_SYNC_ASSET_BATCH_SIZE,
+                .setCbomSyncAssetBatchSize(storedInteger(utilsSettings, SettingsSectionCategory.PLATFORM_UTILS,
+                        CBOM_SYNC_ASSET_BATCH_SIZE_NAME, CbomSyncPolicy.DEFAULT_ASSET_BATCH_SIZE,
+                        UtilsSettingsDto.MIN_CBOM_SYNC_ASSET_BATCH_SIZE,
                         UtilsSettingsDto.MAX_CBOM_SYNC_ASSET_BATCH_SIZE));
         utilsSettingsDto
-                .setCbomSyncIngestRetryAfterSeconds(utilsInteger(utilsSettings,
+                .setCbomSyncIngestRetryAfterSeconds(storedInteger(utilsSettings, SettingsSectionCategory.PLATFORM_UTILS,
                         CBOM_SYNC_INGEST_RETRY_AFTER_SECONDS_NAME, CbomSyncPolicy.DEFAULT_INGEST_RETRY_AFTER_SECONDS, 0,
                         UtilsSettingsDto.MAX_CBOM_SYNC_INGEST_RETRY_AFTER_SECONDS));
         platformSettings.setUtils(utilsSettingsDto);
@@ -295,8 +303,20 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
         platformSettings
                 .setBranding(
                         readBrandingSettings(mappedSettings.get(SettingsSectionCategory.PLATFORM_BRANDING.getCode())));
+        platformSettings
+                .setSigning(
+                        readSigningSettings(mappedSettings.get(SettingsSectionCategory.PLATFORM_SIGNING.getCode())));
 
         return platformSettings;
+    }
+
+    private SigningSettingsDto readSigningSettings(Map<String, Setting> signingSettings) {
+        SigningSettingsDto signing = new SigningSettingsDto();
+        signing
+                .setMaxItemsPerRequest(storedInteger(signingSettings, SettingsSectionCategory.PLATFORM_SIGNING,
+                        SIGNING_MAX_ITEMS_PER_REQUEST_NAME, SigningSettingsDto.DEFAULT_MAX_ITEMS_PER_REQUEST,
+                        SigningSettingsDto.MIN_ITEMS_PER_REQUEST, SigningSettingsDto.MAX_ITEMS_PER_REQUEST_CEILING));
+        return signing;
     }
 
     private record BrandingField(Function<BrandingSettingsUpdateDto, String> fromUpdate,
@@ -415,8 +435,8 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
 
     /**
      * The stored row of one platform setting, or a new unsaved one for it. The caller holds the category's advisory
-     * lock ({@code lockUtilsWrites}, {@code lockCertificateWrites}) from before the rows were read: this inserts when
-     * it finds no row, and two writers that both find none would insert the name twice.
+     * lock from before the rows were read: this inserts when it finds no row, and two writers that both find none would
+     * insert the name twice.
      */
     private static Setting platformSetting(Map<String, Setting> categorySettings, SettingsSectionCategory category,
             String name) {
@@ -454,13 +474,16 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
     @ExternalAuthorization(resource = Resource.SETTINGS, action = ResourceAction.UPDATE)
     public void updatePlatformSettings(PlatformSettingsUpdateDto platformSettings) {
         // Held before the rows are read, as for branding: a value is written by looking for its row and inserting when
-        // there is none, so two concurrent first updates would otherwise insert a name twice. Utils first, then
-        // certificates, always in this order, so the two keys cannot wait on each other.
+        // there is none, so two concurrent first updates would otherwise insert a name twice. The locks always follow
+        // the order utils, certificates, signing. A fixed order keeps the keys from waiting on each other.
         if (platformSettings.getUtils() != null) {
             settingRepository.lockUtilsWrites();
         }
         if (platformSettings.getCertificates() != null) {
             settingRepository.lockCertificateWrites();
+        }
+        if (platformSettings.getSigning() != null) {
+            settingRepository.lockSigningWrites();
         }
         List<Setting> settings = settingRepository.findBySection(SettingsSection.PLATFORM);
         Map<String, Map<String, Setting>> mappedSettings = mapSettingsByCategory(settings);
@@ -470,6 +493,9 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
         }
         if (platformSettings.getCertificates() != null) {
             updateCertificateSettings(platformSettings, mappedSettings);
+        }
+        if (platformSettings.getSigning() != null) {
+            updateSigningSettings(platformSettings, mappedSettings);
         }
 
         // Refresh the cache only once the transaction commits; otherwise a later rollback would
@@ -483,103 +509,121 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
         Map<String, Setting> platformUtilsSettings = mappedSettings
                 .get(SettingsSectionCategory.PLATFORM_UTILS.getCode());
         UtilsSettingsDto utils = platformSettings.getUtils();
-        upsertUtilsSetting(platformUtilsSettings, UTILS_SERVICE_URL_NAME, utils.getUtilsServiceUrl());
-        upsertUtilsSetting(platformUtilsSettings, CBOM_REPOSITORY_URL_NAME, utils.getCbomRepositoryUrl());
+        writePlatformSetting(platformUtilsSettings, SettingsSectionCategory.PLATFORM_UTILS, UTILS_SERVICE_URL_NAME,
+                utils.getUtilsServiceUrl());
+        writePlatformSetting(platformUtilsSettings, SettingsSectionCategory.PLATFORM_UTILS, CBOM_REPOSITORY_URL_NAME,
+                utils.getCbomRepositoryUrl());
         // Stored as text like every setting. An unset value removes the row, and the read falls back to the default.
-        upsertUtilsSetting(platformUtilsSettings, CBOM_SYNC_OVERLAP_SECONDS_NAME,
-                integerText(utils.getCbomSyncOverlapSeconds()));
-        upsertUtilsSetting(platformUtilsSettings, CBOM_SYNC_SKIPPED_RETRY_RUNS_NAME,
-                integerText(utils.getCbomSyncSkippedRetryRuns()));
-        upsertUtilsSetting(platformUtilsSettings, CBOM_SYNC_MAX_INGEST_DOCUMENTS_NAME,
-                integerText(utils.getCbomSyncMaxIngestDocuments()));
-        upsertUtilsSetting(platformUtilsSettings, CBOM_SYNC_SKIP_RETENTION_DAYS_NAME,
-                integerText(utils.getCbomSyncSkipRetentionDays()));
-        upsertUtilsSetting(platformUtilsSettings, CBOM_SYNC_PAGE_SIZE_NAME, integerText(utils.getCbomSyncPageSize()));
+        writePlatformSetting(platformUtilsSettings, SettingsSectionCategory.PLATFORM_UTILS,
+                CBOM_SYNC_OVERLAP_SECONDS_NAME, integerText(utils.getCbomSyncOverlapSeconds()));
+        writePlatformSetting(platformUtilsSettings, SettingsSectionCategory.PLATFORM_UTILS,
+                CBOM_SYNC_SKIPPED_RETRY_RUNS_NAME, integerText(utils.getCbomSyncSkippedRetryRuns()));
+        writePlatformSetting(platformUtilsSettings, SettingsSectionCategory.PLATFORM_UTILS,
+                CBOM_SYNC_MAX_INGEST_DOCUMENTS_NAME, integerText(utils.getCbomSyncMaxIngestDocuments()));
+        writePlatformSetting(platformUtilsSettings, SettingsSectionCategory.PLATFORM_UTILS,
+                CBOM_SYNC_SKIP_RETENTION_DAYS_NAME, integerText(utils.getCbomSyncSkipRetentionDays()));
+        writePlatformSetting(platformUtilsSettings, SettingsSectionCategory.PLATFORM_UTILS, CBOM_SYNC_PAGE_SIZE_NAME,
+                integerText(utils.getCbomSyncPageSize()));
         // The one field the stored-as-sent rule does not cover: left out, it keeps the stored value. Both of its
         // values are expressible, so nothing becomes unreachable, and a client that sends the section without it
         // cannot restart an ingest an operator has stopped.
         if (utils.getCbomSyncAssetIngestEnabled() != null) {
-            upsertUtilsSetting(platformUtilsSettings, CBOM_SYNC_ASSET_INGEST_ENABLED_NAME,
-                    booleanText(utils.getCbomSyncAssetIngestEnabled()));
+            writePlatformSetting(platformUtilsSettings, SettingsSectionCategory.PLATFORM_UTILS,
+                    CBOM_SYNC_ASSET_INGEST_ENABLED_NAME, booleanText(utils.getCbomSyncAssetIngestEnabled()));
         }
-        upsertUtilsSetting(platformUtilsSettings, CBOM_SYNC_ASSET_BATCH_SIZE_NAME,
-                integerText(utils.getCbomSyncAssetBatchSize()));
-        upsertUtilsSetting(platformUtilsSettings, CBOM_SYNC_INGEST_RETRY_AFTER_SECONDS_NAME,
-                integerText(utils.getCbomSyncIngestRetryAfterSeconds()));
+        writePlatformSetting(platformUtilsSettings, SettingsSectionCategory.PLATFORM_UTILS,
+                CBOM_SYNC_ASSET_BATCH_SIZE_NAME, integerText(utils.getCbomSyncAssetBatchSize()));
+        writePlatformSetting(platformUtilsSettings, SettingsSectionCategory.PLATFORM_UTILS,
+                CBOM_SYNC_INGEST_RETRY_AFTER_SECONDS_NAME, integerText(utils.getCbomSyncIngestRetryAfterSeconds()));
     }
 
-    /** Writes one utils value; an unset value leaves no row behind, as the branding writes do. */
-    private void upsertUtilsSetting(Map<String, Setting> platformUtilsSettings, String name, String value) {
-        Setting stored = platformUtilsSettings == null ? null : platformUtilsSettings.get(name);
+    /** An unset value deletes its row, as the branding writes do. */
+    private void writePlatformSetting(Map<String, Setting> categorySettings, SettingsSectionCategory category,
+            String name, String value) {
+        Setting stored = categorySettings == null ? null : categorySettings.get(name);
         if (value == null) {
             if (stored != null) {
                 settingRepository.delete(stored);
             }
             return;
         }
-        Setting setting = platformSetting(platformUtilsSettings, SettingsSectionCategory.PLATFORM_UTILS, name);
+        Setting setting = platformSetting(categorySettings, category, name);
         setting.setValue(value);
         settingRepository.save(setting);
     }
 
-    private static String utilsValue(Map<String, Setting> utilsSettings, String name) {
-        Setting setting = utilsSettings == null ? null : utilsSettings.get(name);
+    private static String storedValue(Map<String, Setting> categorySettings, String name) {
+        Setting setting = categorySettings == null ? null : categorySettings.get(name);
         return setting == null ? null : setting.getValue();
     }
 
     /**
      * A stored value that is not an integer, or lies outside the bounds the API validates on the way in -- only a
-     * manual edit can put one there -- reads as the default, so the sync keeps running on a known value rather than
+     * manual edit can put one there -- reads as the default, so its reader keeps running on a known value rather than
      * failing on a corrupt one. Reported when it appears, whenever its text changes, and again after it was corrected
      * -- not on every cache refresh, which is where this runs.
      */
-    private int utilsInteger(Map<String, Setting> utilsSettings, String name, int defaultValue, int minValue,
-            int maxValue) {
-        String value = utilsValue(utilsSettings, name);
+    private int storedInteger(Map<String, Setting> categorySettings, SettingsSectionCategory category, String name,
+            int defaultValue, int minValue, int maxValue) {
+        String value = storedValue(categorySettings, name);
+        String setting = qualifiedSettingName(category, name);
         if (value == null || value.isBlank()) {
-            lastReportedCorruptUtilsValue.remove(name);
+            lastReportedCorruptValue.remove(setting);
             return defaultValue;
         }
         try {
             int parsed = Integer.parseInt(value.trim());
             if (parsed < minValue || parsed > maxValue) {
-                reportCorruptUtilsValue(name, value, "outside %d..%d".formatted(minValue, maxValue), defaultValue);
+                reportCorruptValue(setting, value, "outside %d..%d".formatted(minValue, maxValue), defaultValue);
                 return defaultValue;
             }
-            lastReportedCorruptUtilsValue.remove(name);
+            lastReportedCorruptValue.remove(setting);
             return parsed;
         } catch (NumberFormatException e) {
-            reportCorruptUtilsValue(name, value, "not an integer", defaultValue);
+            reportCorruptValue(setting, value, "not an integer", defaultValue);
             return defaultValue;
         }
     }
 
     /**
-     * As {@link #utilsInteger}, for a flag. Spelled out rather than {@code Boolean.parseBoolean}, which reads every
+     * As {@link #storedInteger}, for a flag. Spelled out rather than {@code Boolean.parseBoolean}, which reads every
      * text that is not {@code true} as {@code false} -- so a typo in the asset-ingest row would silently stop every
      * ingest rather than read as the corrupt value it is.
      */
-    private boolean utilsBoolean(Map<String, Setting> utilsSettings, String name, boolean defaultValue) {
-        String value = utilsValue(utilsSettings, name);
+    private boolean storedBoolean(Map<String, Setting> categorySettings, SettingsSectionCategory category, String name,
+            boolean defaultValue) {
+        String value = storedValue(categorySettings, name);
+        String setting = qualifiedSettingName(category, name);
         if (value == null || value.isBlank()) {
-            lastReportedCorruptUtilsValue.remove(name);
+            lastReportedCorruptValue.remove(setting);
             return defaultValue;
         }
         String text = value.trim();
         if (Boolean.TRUE.toString().equalsIgnoreCase(text) || Boolean.FALSE.toString().equalsIgnoreCase(text)) {
-            lastReportedCorruptUtilsValue.remove(name);
+            lastReportedCorruptValue.remove(setting);
             return Boolean.parseBoolean(text);
         }
-        reportCorruptUtilsValue(name, value, "neither true nor false", defaultValue);
+        reportCorruptValue(setting, value, "neither true nor false", defaultValue);
         return defaultValue;
     }
 
-    private void reportCorruptUtilsValue(String name, String value, String problem, Object defaultValue) {
-        if (!value.equals(lastReportedCorruptUtilsValue.put(name, value))) {
+    private static String qualifiedSettingName(SettingsSectionCategory category, String name) {
+        return category.getCode() + "." + name;
+    }
+
+    private void reportCorruptValue(String setting, String value, String problem, Object defaultValue) {
+        if (!value.equals(lastReportedCorruptValue.put(setting, value))) {
             logger
-                    .warn("Platform setting {} holds '{}', {}; using the default {} until it is corrected", name, value,
-                            problem, defaultValue);
+                    .warn("Platform setting {} holds '{}', {}; using the default {} until it is corrected", setting,
+                            value, problem, defaultValue);
         }
+    }
+
+    private void updateSigningSettings(PlatformSettingsUpdateDto platformSettings,
+            Map<String, Map<String, Setting>> mappedSettings) {
+        Map<String, Setting> signingSettings = mappedSettings.get(SettingsSectionCategory.PLATFORM_SIGNING.getCode());
+        writePlatformSetting(signingSettings, SettingsSectionCategory.PLATFORM_SIGNING,
+                SIGNING_MAX_ITEMS_PER_REQUEST_NAME, integerText(platformSettings.getSigning().getMaxItemsPerRequest()));
     }
 
     private static String integerText(Integer value) {
@@ -892,9 +936,38 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
     @ExternalAuthorization(resource = Resource.SETTINGS, action = ResourceAction.DETAIL)
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public OAuth2ProviderSettingsResponseDto getOAuth2ProviderSettings(String providerName, boolean withClientSecret) {
-        Setting setting = settingRepository
+        return toOAuth2ProviderSettingsResponse(findOAuth2ProviderSetting(providerName), providerName,
+                withClientSecret);
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.SETTINGS, action = ResourceAction.DETAIL)
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public TaggedOAuth2ProviderSettings getTaggedOAuth2ProviderSettings(String providerName) {
+        Setting setting = findOAuth2ProviderSetting(providerName);
+        if (setting == null) {
+            return new TaggedOAuth2ProviderSettings(null, null);
+        }
+        OAuth2ProviderSettingsResponseDto settingsDto = toOAuth2ProviderSettingsResponse(setting, providerName, false);
+        return new TaggedOAuth2ProviderSettings(settingsDto, entityTagOf(setting, providerName));
+    }
+
+    private Setting findOAuth2ProviderSetting(String providerName) {
+        return settingRepository
                 .findBySectionAndCategoryAndName(SettingsSection.AUTHENTICATION,
                         SettingsSectionCategory.OAUTH2_PROVIDER.getCode(), providerName);
+    }
+
+    private String entityTagOf(Setting setting, String providerName) {
+        try {
+            return OAuth2ProviderSettingsEntityTag.of(setting.getValue());
+        } catch (JsonProcessingException e) {
+            throw new ValidationException(DESERIALIZATION_ERROR_MESSAGE.formatted(providerName));
+        }
+    }
+
+    private OAuth2ProviderSettingsResponseDto toOAuth2ProviderSettingsResponse(Setting setting, String providerName,
+            boolean withClientSecret) {
         OAuth2ProviderSettingsResponseDto settingsDto = null;
         if (setting != null) {
             try {
@@ -929,15 +1002,29 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
 
     @Override
     @ExternalAuthorization(resource = Resource.SETTINGS, action = ResourceAction.UPDATE)
-    public void updateOAuth2ProviderSettings(String providerName, OAuth2ProviderSettingsUpdateDto settingsDto) {
+    public void updateOAuth2ProviderSettings(String providerName, String ifMatch,
+            OAuth2ProviderSettingsUpdateDto settingsDto) {
         normalizeAndValidateOAuth2ProviderSettings(settingsDto);
 
         settingRepository.lockOAuth2ProviderWrites();
+        verifyOAuth2ProviderPrecondition(providerName, ifMatch);
         validateIssuerUniqueness(providerName, settingsDto.getIssuerUrl());
 
         persistOAuth2Provider(providerName, settingsDto);
         cacheAfterCommit(
                 () -> settingsCache.cacheSettings(SettingsSection.AUTHENTICATION, getAuthenticationSettings(true)));
+    }
+
+    private void verifyOAuth2ProviderPrecondition(String providerName, String ifMatch) {
+        if (StringUtils.isBlank(ifMatch)) {
+            return;
+        }
+        Setting stored = findOAuth2ProviderSetting(providerName);
+        if (stored == null || !OAuth2ProviderSettingsEntityTag.matches(ifMatch, entityTagOf(stored, providerName))) {
+            throw new PreconditionFailedException(
+                    "OAuth2 provider '%s' was changed since it was read. Reload it and try again."
+                            .formatted(providerName));
+        }
     }
 
     private void persistOAuth2Provider(String providerName, OAuth2ProviderSettingsUpdateDto settingsDto) {
@@ -1026,6 +1113,7 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
 
     private void normalizeAndValidateOAuth2ProviderSettings(OAuth2ProviderSettingsUpdateDto settingsDto) {
         normalizeAndValidateDelegationSettings(settingsDto);
+        normalizeAndValidateApplicationSettings(settingsDto);
         String jwkSet = settingsDto.getJwkSet();
         if (jwkSet != null && jwkSet.isBlank()) {
             settingsDto.setJwkSet(null);
@@ -1070,6 +1158,93 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
         settingsDto.setAllowedDelegates(new ArrayList<>(identifiers));
     }
 
+    private static void normalizeAndValidateApplicationSettings(OAuth2ProviderSettingsUpdateDto settingsDto) {
+        OAuth2ApplicationSettingsDto applications = settingsDto.getApplications();
+        if (applications == null) {
+            return;
+        }
+        if (applications.isEnabled() && isBlank(settingsDto.getIssuerUrl())) {
+            throw new ValidationException("Sign-in for applications requires the provider's issuer URL.");
+        }
+        if (applications.isEnabled() && !isPublishableIssuer(settingsDto.getIssuerUrl())) {
+            throw new ValidationException(
+                    "Sign-in for applications requires an http or https issuer URL with a valid host name and without credentials, query or fragment.");
+        }
+        applications.setName(blankToNull(applications.getName()));
+        applications.setClientId(blankToNull(applications.getClientId()));
+        applications.setResource(blankToNull(applications.getResource()));
+        if (applications.getClientId() != null && applications.getClientId().equals(settingsDto.getClientId())) {
+            throw new ValidationException("The client ID for applications must differ from the provider's client ID.");
+        }
+        applications.setScopes(normalizeApplicationScopes(applications.getScopes()));
+        validateApplicationResource(applications.getResource());
+    }
+
+    private static List<String> normalizeApplicationScopes(List<String> scopes) {
+        Set<String> normalized = new LinkedHashSet<>();
+        if (scopes != null) {
+            for (String scope : scopes) {
+                if (scope == null || scope.isBlank()) {
+                    throw new ValidationException("Scopes for applications must not contain blank entries.");
+                }
+                normalized.add(scope.trim());
+            }
+        }
+        return new ArrayList<>(normalized);
+    }
+
+    static void validateApplicationResource(String resource) {
+        if (resource == null) {
+            return;
+        }
+        URI uri;
+        try {
+            uri = new URI(resource);
+        } catch (URISyntaxException e) {
+            throw new ValidationException("The resource for applications must be an absolute http or https URI.");
+        }
+        String scheme = uri.getScheme();
+        if (!isHttpScheme(scheme) || uri.getHost() == null) {
+            throw new ValidationException("The resource for applications must be an absolute http or https URI.");
+        }
+        if (uri.getRawUserInfo() != null) {
+            throw new ValidationException("The resource for applications must not contain credentials.");
+        }
+        if (uri.getRawFragment() != null) {
+            throw new ValidationException("The resource for applications must not contain a fragment.");
+        }
+    }
+
+    /**
+     * The issuer is published to anyone as an OAuth issuer identifier, so it must be an http or https URI with a valid
+     * host name and no credentials, query or fragment. A host {@code java.net.URI} cannot parse, such as one with an
+     * underscore, leaves no host and is refused.
+     */
+    private static boolean isPublishableIssuer(String url) {
+        URI issuer;
+        try {
+            issuer = new URI(url.trim());
+        } catch (URISyntaxException e) {
+            return false;
+        }
+        String scheme = issuer.getScheme();
+        boolean http = isHttpScheme(scheme);
+        return http && issuer.getHost() != null && issuer.getRawUserInfo() == null && issuer.getRawQuery() == null
+                && issuer.getRawFragment() == null;
+    }
+
+    private static boolean isHttpScheme(String scheme) {
+        return "http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme);
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
+
+    private static String blankToNull(String value) {
+        return isBlank(value) ? null : value.trim();
+    }
+
     private URL parseJwkSetUrl(String jwkSetUrl) {
         URI uri;
         try {
@@ -1079,7 +1254,7 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
                     "JWK Set URL is invalid: %s at index %d.".formatted(e.getReason(), e.getIndex()));
         }
         String scheme = uri.getScheme();
-        if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) {
+        if (!isHttpScheme(scheme)) {
             throw new ValidationException("JWK Set URL must use http or https.");
         }
         if (uri.getHost() == null || uri.getHost().isBlank()) {

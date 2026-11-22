@@ -5,6 +5,7 @@ import com.otilm.api.exception.AlreadyExistException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.core.logging.Sensitive;
 import com.otilm.core.logging.LogRedaction;
+import com.otilm.core.logging.RedactedFailure;
 import java.lang.reflect.Parameter;
 import java.util.Arrays;
 import org.aspectj.lang.ProceedingJoinPoint;
@@ -62,12 +63,11 @@ public class LoggingAdvice {
             log.trace("Method {} result: {}", path, getValue(result));
             return result;
         } catch (AcmeProblemDocumentException | ValidationException | AlreadyExistException e) {
-            log
-                    .error(e.getClass().getSimpleName() + " when calling " + path + " Exception: "
-                            + e.getLocalizedMessage());
+            String detail = RedactedFailure.isConnectorWritten(e) ? "" : " Exception: " + e.getLocalizedMessage();
+            log.error("{} when calling {}{}", e.getClass().getSimpleName(), path, detail);
             throw e;
         } catch (Exception e) {
-            log.error("Exception when calling " + path, e);
+            log.error("Exception when calling {}", path, RedactedFailure.forLog(e));
             throw e;
         } finally {
             long elapsedTime = System.currentTimeMillis() - start;

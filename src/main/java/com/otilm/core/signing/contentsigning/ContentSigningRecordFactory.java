@@ -50,9 +50,9 @@ public class ContentSigningRecordFactory {
                 .protocol(protocol)
                 .signingTime(signingTime)
                 .requestedBy(AuthHelper.getActingUserOrNull())
-                .displayName("%s %s".formatted(signingProfile.name(), result.level().getFormatName(profile.family())))
+                .displayName("%s %s".formatted(signingProfile.name(), profile.levelName()))
                 .requestMetadataJson(buildRequestMetadataJson(signingProfile, profile, result))
-                .signedDocument(result.signedDocument())
+                .signedDocument(result.output())
                 .signature(signatureValue)
                 .dtbs(dtbs)
                 .timestampTokenSerialNumbers(TimestampTokenSerialNumbers.hex(result.timestampSerials()))
@@ -65,7 +65,7 @@ public class ContentSigningRecordFactory {
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("signingProfileName", signingProfile.name());
         metadata.put("signingProfileVersion", signingProfile.version());
-        metadata.put("family", profile.family().name());
+        metadata.put("family", profile.family());
         metadata.put("signatureLevel", result.level().name());
         metadata.put("timestampTokenSerialNumbers", TimestampTokenSerialNumbers.hex(result.timestampSerials()));
         try {

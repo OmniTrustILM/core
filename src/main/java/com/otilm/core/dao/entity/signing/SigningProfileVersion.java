@@ -4,9 +4,7 @@ import com.otilm.api.model.client.signing.profile.record.SigningRecordPersistenc
 import com.otilm.api.model.client.signing.profile.scheme.ManagedSigningType;
 import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
-import com.otilm.api.model.common.signature.SignatureFamily;
 import com.otilm.api.model.common.signature.SignatureLevel;
-import com.otilm.api.model.common.signature.parameters.SignatureParametersDto;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.RaProfile;
@@ -108,18 +106,14 @@ public class SigningProfileVersion extends UniquelyIdentifiedAndAudited {
     private Connector signatureFormattingConnector;
 
     @Column(name = "signature_family")
-    @Enumerated(EnumType.STRING)
-    private SignatureFamily signatureFamily;
+    private String signatureFamily;
 
-    @Column(name = "max_signature_level")
+    @Column(name = "signature_level")
     @Enumerated(EnumType.STRING)
-    private SignatureLevel maxSignatureLevel;
+    private SignatureLevel signatureLevel;
 
     @Column(name = "timestamp_source_profile_uuid")
     private UUID timestampSourceProfileUuid;
-
-    @Column(name = "document_size_cap")
-    private Long documentSizeCap;
 
     @Column(name = "require_non_repudiation", nullable = false)
     private boolean requireNonRepudiation;
@@ -128,13 +122,9 @@ public class SigningProfileVersion extends UniquelyIdentifiedAndAudited {
     @JdbcTypeCode(SqlTypes.ARRAY)
     private List<String> requiredExtendedKeyUsageOids = new ArrayList<>();
 
-    @Column(name = "allowed_request_parameter_groups")
+    @Column(name = "allowed_request_attributes", nullable = false)
     @JdbcTypeCode(SqlTypes.ARRAY)
-    private List<String> allowedRequestParameterGroups = new ArrayList<>();
-
-    @Column(name = "default_signature_parameters", columnDefinition = "jsonb")
-    @JdbcTypeCode(SqlTypes.JSON)
-    private SignatureParametersDto defaultSignatureParameters;
+    private List<String> allowedRequestAttributes = new ArrayList<>();
 
     @Column(name = "qualified_timestamp")
     private Boolean qualifiedTimestamp;

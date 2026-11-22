@@ -1,12 +1,14 @@
 package com.otilm.core.dao.repository.custom.impl;
 
 import com.otilm.api.model.core.certificate.CertificateDto;
+import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.custom.CustomCertificateRepository;
 import com.otilm.core.security.ai.AiReadInvocationContext;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.handler.StoredCertificateHealthProjector;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import jakarta.persistence.PersistenceContext;
 import java.util.List;
 import java.util.Optional;
@@ -91,5 +93,15 @@ public class CustomCertificateRepositoryImpl implements CustomCertificateReposit
     @Override
     public void bulkUpdateQuery(String query) {
         entityManager.createQuery(query).executeUpdate();
+    }
+
+    @Override
+    public Optional<Certificate> findAndLockFreshByUuid(UUID uuid) {
+        Certificate certificate = entityManager.find(Certificate.class, uuid);
+        if (certificate == null) {
+            return Optional.empty();
+        }
+        entityManager.refresh(certificate, LockModeType.PESSIMISTIC_WRITE);
+        return Optional.of(certificate);
     }
 }

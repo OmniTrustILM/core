@@ -38,7 +38,6 @@ import org.bouncycastle.asn1.crmf.CertReqMessages;
 import org.slf4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * <p>
@@ -56,8 +55,8 @@ import org.springframework.transaction.annotation.Transactional;
  * "https://doc.primekey.com/bouncycastle/how-to-guides-pki-at-the-edge/how-to-generate-key-pairs-and-certification-requests#HowtoGenerateKeyPairsandCertificationRequests-GenerateCRMFCertificationRequestusingCMP">How
  * to generate CRMF request</a>
  */
+// Not @Transactional: a transaction here would keep its connection while the submission takes another.
 @Component
-@Transactional
 public class CrmfIrCrMessageHandler implements MessageHandler<ClientCertificateDataResponseDto> {
 
     private static final List<Integer> ALLOWED_TYPES = List
@@ -155,6 +154,7 @@ public class CrmfIrCrMessageHandler implements MessageHandler<ClientCertificateD
             ClientCertificateIssueRequestDto dto = new ClientCertificateIssueRequestDto();
             dto.setRequest(Base64.getEncoder().encodeToString(crmf.getEncoded()));
             dto.setFormat(CertificateRequestFormat.CRMF);
+            dto.setAttributes(configuration.getClientOperationAttributes(false));
             dto.setAuthorizationSecret(configuration.getMatchedChallenge());
             RaProfile raProfile = configuration.getRaProfile();
             ClientCertificateDataResponseDto response = clientOperationExternalService

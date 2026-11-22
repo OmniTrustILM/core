@@ -3,6 +3,7 @@ package com.otilm.core.signing.record;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import java.util.function.Supplier;
 import org.springframework.stereotype.Component;
 
 /**
@@ -32,24 +33,25 @@ public class SigningRecordMetrics {
         this.registry = registry;
     }
 
-    // --- Stage 1: intake funnel — one tick per record() call ------------------------------------------
+    // --- Stage 1: intake funnel ------------------------------------------------------------------------
 
     /**
-     * All intake attempts (every {@code record()} call), the funnel denominator.
+     * All signing operations entering intake, the funnel denominator.
      */
     public Counter intake(String mode) {
         return Counter.builder("signing_record.intake").tag("mode", mode).register(registry);
     }
 
     /**
-     * Intake calls dropped because the record policy has no recordable content.
+     * Signing operations dropped at intake by a record policy with recording disabled.
      */
     public Counter intakeSkipped(String mode) {
         return Counter.builder("signing_record.intake.skipped").tag("mode", mode).register(registry);
     }
 
     /**
-     * Intake calls whose synchronous handoff was refused; {@code reason} is one of the {@code REASON_*} constants.
+     * Signing operations whose synchronous handoff was refused; {@code reason} is one of the {@code REASON_*}
+     * constants.
      */
     public Counter intakeFailed(String mode, String reason) {
         return Counter
@@ -123,19 +125,25 @@ public class SigningRecordMetrics {
 
     // --- Timing --------------------------------------------------------------------------------------
 
-    public Timer writeDuration(String mode) {
-        return Timer.builder("signing_record.write.duration").tag("mode", mode).register(registry);
+    public Timer writeDuration(String mode, boolean batch) {
+        return Timer
+                .builder("signing_record.write.duration")
+                .tag("mode", mode)
+                .tag("batch", Boolean.toString(batch))
+                .register(registry);
     }
 
     /**
-     * Runs {@code action}, recording its duration under {@link #writeDuration(String)} for {@code mode}.
+     * Times one write as a single sample, on the mode's batch timer when it holds more than one record. Single-record
+     * writes keep percentiles of their own.
      */
-    public void timed(String mode, Runnable action) {
+    public <T> T timed(String mode, int records, Supplier<T> action) {
+        Timer timer = writeDuration(mode, records > 1);
         Timer.Sample sample = Timer.start(registry);
         try {
-            action.run();
+            return action.get();
         } finally {
-            sample.stop(writeDuration(mode));
+            sample.stop(timer);
         }
     }
 }

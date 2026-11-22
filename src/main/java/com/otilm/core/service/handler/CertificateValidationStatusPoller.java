@@ -1,16 +1,18 @@
 package com.otilm.core.service.handler;
 
-import com.otilm.api.exception.NotFoundException;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
-import com.otilm.core.security.authz.SecuredUUID;
-import com.otilm.core.service.CertificateInternalService;
+import com.otilm.core.dao.repository.CertificateRepository;
+import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Resolves a freshly-issued certificate's {@link CertificateValidationStatus}, waiting briefly for the asynchronous
@@ -28,16 +30,25 @@ public class CertificateValidationStatusPoller {
     private static final long POLL_INTERVAL_MS = 250L;
 
     /**
-     * Default wait budget for {@link #resolveOrKeep(CertificateDetailDto)}. The validation listener typically lands
-     * within ~100 ms of issuance; 3 s covers slow OCSP/CRL checks without stretching the request unreasonably.
+     * Default wait budget for {@link #resolveOrKeep(CertificateDetail)}. The validation listener typically lands within
+     * ~100 ms of issuance; 3 s covers slow OCSP/CRL checks without stretching the request unreasonably.
      */
     private static final long DEFAULT_WAIT_MS = 3_000L;
 
-    private CertificateInternalService certificateService;
+    private CertificateRepository certificateRepository;
+
+    private TransactionTemplate sampleTransaction;
 
     @Autowired
-    public void setCertificateService(CertificateInternalService certificateService) {
-        this.certificateService = certificateService;
+    public void setCertificateRepository(CertificateRepository certificateRepository) {
+        this.certificateRepository = certificateRepository;
+    }
+
+    @Autowired
+    public void setTransactionManager(PlatformTransactionManager transactionManager) {
+        TransactionTemplate readOnlyTransaction = new TransactionTemplate(transactionManager);
+        readOnlyTransaction.setReadOnly(true);
+        this.sampleTransaction = readOnlyTransaction;
     }
 
     /**
@@ -53,36 +64,35 @@ public class CertificateValidationStatusPoller {
      * </p>
      *
      * <p>
-     * Runs with {@link Propagation#NOT_SUPPORTED} so the caller's transaction is suspended for the duration of the wait
-     * rather than held open across the sleeps (see core/CLAUDE.md "Transactions and external calls"). Each sample
-     * re-reads through {@link CertificateInternalService#getCertificateEntity}, which — with no ambient transaction —
-     * runs in its own short transaction, so nothing is pinned between samples.
+     * Each sample reads only the status ({@link CertificateRepository#findValidationStatusByUuid}): under open-in-view
+     * the request's EntityManager may hold the certificate as the caller loaded it, and an entity read would return
+     * that copy for the whole budget. The caller's transaction is suspended ({@link Propagation#NOT_SUPPORTED}) so a
+     * sample cannot flush the caller's changes and hold their row locks across the sleeps; each sample runs in its own
+     * short read-only transaction.
      * </p>
      *
      * @param certificate the certificate whose status to resolve (its DTO status is the starting point)
      * @return the validation status observed when the wait ended
      */
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public CertificateValidationStatus resolveOrKeep(CertificateDetailDto certificate) {
+    public CertificateValidationStatus resolveOrKeep(CertificateDetail certificate) {
         return resolveOrKeep(certificate, DEFAULT_WAIT_MS);
     }
 
     /**
-     * Budget-parameterised variant of {@link #resolveOrKeep(CertificateDetailDto)}. Package-private so unit tests can
+     * Budget-parameterised variant of {@link #resolveOrKeep(CertificateDetail)}. Package-private so unit tests can
      * drive a short wait; not the transactional entry point — it is invoked from the public method, which has already
      * suspended the caller's transaction.
      */
-    CertificateValidationStatus resolveOrKeep(CertificateDetailDto certificate, long budgetMs) {
+    CertificateValidationStatus resolveOrKeep(CertificateDetail certificate, long budgetMs) {
         if (certificate.getValidationStatus() != CertificateValidationStatus.NOT_CHECKED) {
             return certificate.getValidationStatus();
         }
-        SecuredUUID certUuid = SecuredUUID.fromString(certificate.getUuid());
+        UUID certUuid = UUID.fromString(certificate.getUuid());
         long deadline = System.currentTimeMillis() + budgetMs;
         try {
-            CertificateValidationStatus status = certificateService
-                    .getCertificateEntity(certUuid)
-                    .getValidationStatus();
-            while (status == CertificateValidationStatus.NOT_CHECKED) {
+            Optional<CertificateValidationStatus> status = readStatus(certUuid);
+            while (status.isPresent() && status.get() == CertificateValidationStatus.NOT_CHECKED) {
                 long remaining = deadline - System.currentTimeMillis();
                 if (remaining <= 0) {
                     break;
@@ -90,16 +100,21 @@ public class CertificateValidationStatusPoller {
                 // Clamp to the remaining budget so total wait never exceeds budgetMs, even
                 // when budgetMs is smaller than one sampling interval.
                 TimeUnit.MILLISECONDS.sleep(Math.min(POLL_INTERVAL_MS, remaining));
-                status = certificateService.getCertificateEntity(certUuid).getValidationStatus();
+                status = readStatus(certUuid);
             }
-            return status;
-        } catch (NotFoundException e) {
-            log.warn("UUID={} | certificate not found while waiting for validation status", certificate.getUuid());
-            return certificate.getValidationStatus();
+            if (status.isEmpty()) {
+                log.warn("UUID={} | certificate not found while waiting for validation status", certificate.getUuid());
+                return certificate.getValidationStatus();
+            }
+            return status.get();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             log.debug("UUID={} | validation-status wait interrupted; keeping current status", certificate.getUuid());
             return certificate.getValidationStatus();
         }
+    }
+
+    private Optional<CertificateValidationStatus> readStatus(UUID certUuid) {
+        return sampleTransaction.execute(status -> certificateRepository.findValidationStatusByUuid(certUuid));
     }
 }

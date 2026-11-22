@@ -4,13 +4,17 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
+import com.otilm.api.model.client.connector.v2.attribute.AttributeDefinitionsDto;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
-import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
-import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
+import com.otilm.api.model.common.attribute.common.content.data.ProtectionLevel;
+import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
+import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
+
+import static com.otilm.core.util.builders.DataAttributeV3Builder.aDataAttribute;
 
 /**
  * Mock of a V2 timestamping formatting connector — stubs {@code GET /v2/info} advertising
@@ -25,47 +29,80 @@ import java.util.UUID;
  */
 public class TimestampingFormattingConnectorMock extends BaseConnectorMock {
 
+    private static final String ATTRIBUTES_PATH = "/v2/attributes";
+
     TimestampingFormattingConnectorMock() {
         super(new TimestampingFormatDtbsTransformer(), new TimestampingFormatResponseTransformer());
         stubV2InfoDetails(List
                 .of(interfaceInfo(ConnectorInterface.INFO, List.of()),
                         interfaceInfo(ConnectorInterface.HEALTH, List.of()),
                         interfaceInfo(ConnectorInterface.METRICS, List.of()),
+                        interfaceInfo(ConnectorInterface.ATTRIBUTES, List.of()),
                         interfaceInfo(ConnectorInterface.SIGNATURE_FORMATTING, List.of(FeatureFlag.TIMESTAMPING))));
     }
 
-    /**
-     * Stubs the signature-formatting attributes endpoint to advertise no attributes (empty list).
-     */
+    /** Stubs the Attributes interface with an empty definition list. */
     public TimestampingFormattingConnectorMock stubFormattingAttributes() {
-        server
-                .stubFor(WireMock
-                        .get(WireMock.urlPathMatching(".*/v1/signatureProvider/formatting/attributes"))
-                        .willReturn(WireMock.okJson("[]")));
+        return stubAttributeDefinitions(List.of());
+    }
+
+    /**
+     * Stubs the Attributes interface to publish a single STRING attribute definition. Takes precedence over
+     * {@link #stubFormattingAttributes()} when called after it.
+     */
+    public TimestampingFormattingConnectorMock stubFormattingAttributeDefinition(UUID attrUuid, String attrName,
+            boolean required) {
+        return stubAttributeDefinitions(List.of(definition(attrUuid, attrName, AttributeContentType.STRING, required)));
+    }
+
+    /** Stubs the Attributes interface to publish a single optional attribute definition of the given content type. */
+    public TimestampingFormattingConnectorMock stubFormattingAttributeDefinition(UUID attrUuid, String attrName,
+            AttributeContentType contentType) {
+        return stubAttributeDefinitions(List.of(definition(attrUuid, attrName, contentType, false)));
+    }
+
+    /** Stubs the Attributes interface to answer 200 without a body. */
+    public TimestampingFormattingConnectorMock stubFormattingAttributesWithoutBody() {
+        server.stubFor(WireMock.get(WireMock.urlPathMatching(".*" + ATTRIBUTES_PATH)).willReturn(WireMock.ok()));
         return this;
     }
 
     /**
-     * Stubs the signature-formatting attributes endpoint to advertise a single STRING attribute definition. Takes
-     * precedence over {@link #stubFormattingAttributes()} when called after it.
+     * Stubs the Attributes interface to publish a single encrypted, read-only STRING attribute whose fixed value is the
+     * given one.
      */
-    public TimestampingFormattingConnectorMock stubFormattingAttributeDefinition(UUID attrUuid, String attrName,
+    public TimestampingFormattingConnectorMock stubEncryptedReadOnlyAttributeDefinition(UUID attrUuid, String attrName,
+            String fixedValue) {
+        DataAttributeV3 def = aDataAttribute().withUuid(attrUuid).withName(attrName).build();
+        def.setContent(List.of(new StringAttributeContentV3(fixedValue)));
+        def.getProperties().setReadOnly(true);
+        def.getProperties().setProtectionLevel(ProtectionLevel.ENCRYPTED);
+        return stubAttributeDefinitions(List.of(def));
+    }
+
+    /** The number of requests Core made for this connector's attribute definitions. */
+    public int attributeDefinitionListings() {
+        return server.findAll(WireMock.getRequestedFor(WireMock.urlPathMatching(".*" + ATTRIBUTES_PATH))).size();
+    }
+
+    private static DataAttributeV3 definition(UUID attrUuid, String attrName, AttributeContentType contentType,
             boolean required) {
-        DataAttributeV2 def = new DataAttributeV2();
-        def.setUuid(attrUuid.toString());
-        def.setName(attrName);
-        def.setContentType(AttributeContentType.STRING);
-        DataAttributeProperties props = new DataAttributeProperties();
-        props.setLabel(attrName);
-        props.setRequired(required);
-        def.setProperties(props);
+        DataAttributeV3 def = aDataAttribute().withUuid(attrUuid).withName(attrName).build();
+        def.setContentType(contentType);
+        def.getProperties().setRequired(required);
+        return def;
+    }
+
+    private TimestampingFormattingConnectorMock stubAttributeDefinitions(List<DataAttributeV3> definitions) {
+        AttributeDefinitionsDto published = new AttributeDefinitionsDto();
+        published.setDefinitions(List.copyOf(definitions));
         try {
             server
                     .stubFor(WireMock
-                            .get(WireMock.urlPathMatching(".*/v1/signatureProvider/formatting/attributes"))
-                            .willReturn(WireMock.okJson(OBJECT_MAPPER.writeValueAsString(List.of(def)))));
+                            .get(WireMock.urlPathMatching(".*" + ATTRIBUTES_PATH))
+                            .willReturn(WireMock.okJson(OBJECT_MAPPER.writeValueAsString(published))));
         } catch (JsonProcessingException e) {
-            throw new RuntimeException("Failed to serialize attribute definition for WireMock stub", e);
+            throw new IllegalStateException("Failed to serialize attribute definitions for WireMock stub", e);
         }
         return this;
     }

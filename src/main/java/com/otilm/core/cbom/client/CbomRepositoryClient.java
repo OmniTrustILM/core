@@ -1,5 +1,6 @@
 package com.otilm.core.cbom.client;
 
+import com.otilm.api.clients.ApiClientCodecs;
 import com.otilm.api.exception.CbomRepositoryException;
 import com.otilm.api.model.core.cbom.CbomUploadRequestDto;
 import com.otilm.api.model.core.settings.PlatformSettingsDto;
@@ -30,6 +31,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.codec.ClientCodecConfigurer;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
@@ -52,12 +54,20 @@ public class CbomRepositoryClient {
 
     private final WebClient client;
 
-    public CbomRepositoryClient(WebClient client, @Value("${cbom.client.max-buffer-size:20971520}") int maxBufferSize) {
-        this.client = client
-                .mutate()
-                .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(maxBufferSize))
-                .filter(ExchangeFilterFunction.ofResponseProcessor(CbomRepositoryClient::handleHttpExceptions))
-                .build();
+    public CbomRepositoryClient(WebClient connectorClient,
+            @Value("${cbom.client.max-buffer-size:20971520}") int maxBufferSize) {
+        this.client = connectorClient.mutate().codecs(configurer -> {
+            detachFromSharedJsonDecoder(configurer);
+            configurer.defaultCodecs().maxInMemorySize(maxBufferSize);
+        }).filter(ExchangeFilterFunction.ofResponseProcessor(CbomRepositoryClient::handleHttpExceptions)).build();
+    }
+
+    /**
+     * A mutated client shares the connector client's JSON decoder. A buffer limit set on that decoder reaches every
+     * connector response.
+     */
+    private static void detachFromSharedJsonDecoder(ClientCodecConfigurer configurer) {
+        ApiClientCodecs.configureJsonCodecs(configurer);
     }
 
     public BomCreateResponseDto create(final CbomUploadRequestDto data) throws CbomRepositoryException {

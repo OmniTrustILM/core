@@ -4,10 +4,7 @@ import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.signing.profile.workflow.ContentSigningWorkflowRequestDto;
 import com.otilm.api.model.client.signing.profile.workflow.timestamp.InternalTimestampSourceRequestDto;
 import com.otilm.api.model.client.signing.profile.workflow.timestamp.TimestampSourceRequestDto;
-import com.otilm.api.model.common.signature.SignatureFamily;
 import com.otilm.api.model.common.signature.SignatureLevel;
-import com.otilm.api.model.common.signature.SignatureParameterGroup;
-import com.otilm.api.model.common.signature.parameters.SignatureParametersDto;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -19,14 +16,12 @@ public class ContentSigningWorkflowRequestDtoBuilder {
 
     private UUID signatureFormattingConnectorUuid = null;
     private List<RequestAttribute> signatureFormattingConnectorAttributes = new ArrayList<>();
-    private SignatureFamily family = null;
-    private SignatureLevel maxLevel = null;
+    private String family = null;
+    private SignatureLevel level = null;
     private TimestampSourceRequestDto timestampSource = null;
     private Boolean requireNonRepudiation;
     private Set<String> requiredExtendedKeyUsageOids = new LinkedHashSet<>();
-    private Long documentSizeCap = null;
-    private Set<SignatureParameterGroup> allowedRequestParameterGroups = new LinkedHashSet<>();
-    private SignatureParametersDto defaultSignatureParameters = null;
+    private Set<String> allowedRequestAttributes = new LinkedHashSet<>();
 
     public static ContentSigningWorkflowRequestDtoBuilder aContentSigningWorkflow() {
         return new ContentSigningWorkflowRequestDtoBuilder();
@@ -43,23 +38,18 @@ public class ContentSigningWorkflowRequestDtoBuilder {
         return this;
     }
 
-    public ContentSigningWorkflowRequestDtoBuilder withFamily(SignatureFamily family) {
+    public ContentSigningWorkflowRequestDtoBuilder withFamily(String family) {
         this.family = family;
         return this;
     }
 
-    public ContentSigningWorkflowRequestDtoBuilder withMaxLevel(SignatureLevel maxLevel) {
-        this.maxLevel = maxLevel;
+    public ContentSigningWorkflowRequestDtoBuilder withLevel(SignatureLevel level) {
+        this.level = level;
         return this;
     }
 
     public ContentSigningWorkflowRequestDtoBuilder withInternalTimestampSource(UUID uuid) {
         this.timestampSource = new InternalTimestampSourceRequestDto(uuid);
-        return this;
-    }
-
-    public ContentSigningWorkflowRequestDtoBuilder withDocumentSizeCap(Long documentSizeCap) {
-        this.documentSizeCap = documentSizeCap;
         return this;
     }
 
@@ -73,15 +63,8 @@ public class ContentSigningWorkflowRequestDtoBuilder {
         return this;
     }
 
-    public ContentSigningWorkflowRequestDtoBuilder withAllowedRequestParameterGroups(
-            SignatureParameterGroup... groups) {
-        this.allowedRequestParameterGroups = new LinkedHashSet<>(List.of(groups));
-        return this;
-    }
-
-    public ContentSigningWorkflowRequestDtoBuilder withDefaultSignatureParameters(
-            SignatureParametersDto defaultSignatureParameters) {
-        this.defaultSignatureParameters = defaultSignatureParameters;
+    public ContentSigningWorkflowRequestDtoBuilder withAllowedRequestAttributes(String... names) {
+        this.allowedRequestAttributes = new LinkedHashSet<>(List.of(names));
         return this;
     }
 
@@ -90,13 +73,11 @@ public class ContentSigningWorkflowRequestDtoBuilder {
         dto.setSignatureFormattingConnectorUuid(signatureFormattingConnectorUuid);
         dto.setSignatureFormattingConnectorAttributes(signatureFormattingConnectorAttributes);
         dto.setFamily(family);
-        dto.setMaxLevel(maxLevel);
+        dto.setLevel(level);
         dto.setTimestampSource(timestampSource);
-        dto.setDocumentSizeCap(documentSizeCap);
         dto.setRequireNonRepudiation(requireNonRepudiation);
         dto.setRequiredExtendedKeyUsageOids(requiredExtendedKeyUsageOids);
-        dto.setAllowedRequestParameterGroups(allowedRequestParameterGroups);
-        dto.setDefaultSignatureParameters(defaultSignatureParameters);
+        dto.setAllowedRequestAttributes(allowedRequestAttributes);
         return dto;
     }
 }

@@ -1,5 +1,6 @@
 package com.otilm.core.service.cmp.message.handler;
 
+import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.interfaces.core.cmp.error.CmpProcessingException;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.core.dao.entity.Certificate;
@@ -9,6 +10,7 @@ import com.otilm.core.dao.entity.cmp.CmpTransaction;
 import com.otilm.core.service.cmp.configurations.ConfigurationContext;
 import com.otilm.core.service.cmp.message.CmpTransactionService;
 import com.otilm.core.service.cmp.message.protection.ProtectionStrategy;
+import com.otilm.core.util.SecretLeakProbe;
 import java.math.BigInteger;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -18,6 +20,7 @@ import java.util.Base64;
 import java.util.Date;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Stream;
 import org.bouncycastle.asn1.ASN1Integer;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import org.bouncycastle.asn1.DERBitString;
@@ -38,12 +41,17 @@ import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
 import org.bouncycastle.operator.ContentSigner;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Named;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Mockito;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
+import static org.junit.jupiter.api.Named.named;
 
 /**
  * Unit tests for {@link PollReqMessageHandler}.
@@ -384,6 +392,42 @@ class PollReqMessageHandlerTest {
         assertThatThrownBy(() -> handler.handle(pollReqMessage(), cfg))
                 .isInstanceOf(CmpProcessingException.class)
                 .hasRootCauseMessage("forced protection failure");
+    }
+
+    @ParameterizedTest
+    @MethodSource("polledCertificates")
+    void logsTheFailureWithoutTheConnectorsText_whenTheConnectorRefusesToSignTheAnswer(Certificate certificate)
+            throws Exception {
+        // given
+        var echoedSecret = "token-pin-the-connector-echoed";
+        ConfigurationContext cfg = configurationWithMockedProtection();
+        Mockito
+                .when(cfg
+                        .getProtectionStrategy()
+                        .createProtection(Mockito.any(PKIHeader.class), Mockito.any(PKIBody.class)))
+                .thenThrow(new ConnectorException(echoedSecret));
+        CmpTransaction trx = transactionWithCert(certificate);
+        trx.setOriginalRequestBodyType(PKIBody.TYPE_INIT_REQ);
+        Mockito.when(cmpTransactionService.findByTransactionId(Mockito.anyString())).thenReturn(List.of(trx));
+
+        // when
+        List<String> logged;
+        try (SecretLeakProbe probe = SecretLeakProbe.capture()) {
+            catchThrowable(() -> handler.handle(pollReqMessage(), cfg));
+            logged = probe.logged();
+        }
+
+        // then
+        SecretLeakProbe.assertNoneReveals(logged, echoedSecret);
+    }
+
+    private static Stream<Named<Certificate>> polledCertificates() {
+        Certificate issued = certificateInState(UUID.randomUUID(), CertificateState.ISSUED);
+        issued.setCertificateContent(certificateContentWithRealPem());
+        return Stream
+                .of(named("a pending certificate, answered by a pollRep",
+                        certificateInState(CertificateState.PENDING_ISSUE)),
+                        named("an issued certificate, answered with the certificate", issued));
     }
 
     private static Certificate certificateInState(UUID uuid, CertificateState state) {

@@ -5,6 +5,7 @@ import com.otilm.api.interfaces.core.cmp.error.CmpProcessingException;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.cmp.CmpTransaction;
+import com.otilm.core.logging.RedactedFailure;
 import com.otilm.core.service.cmp.configurations.ConfigurationContext;
 import com.otilm.core.service.cmp.message.CmpTransactionService;
 import com.otilm.core.service.cmp.message.builder.PkiMessageBuilder;
@@ -143,7 +144,7 @@ public class PollReqMessageHandler implements MessageHandler<PKIMessage> {
                     .build();
         } catch (Exception e) {
             ASN1OctetString tid = request.getHeader().getTransactionID();
-            log.error("TID={} | failed to build pollRep response", tid, e);
+            log.error("TID={} | failed to build pollRep response", tid, RedactedFailure.forLog(e));
             throw new CmpProcessingException(tid, PKIFailureInfo.systemFailure, "failed to build pollRep response", e);
         }
     }
@@ -182,7 +183,7 @@ public class PollReqMessageHandler implements MessageHandler<PKIMessage> {
         } catch (CmpBaseException e) {
             throw e;
         } catch (Exception e) {
-            log.error("TID={} | failed to build cert-ready pollReq response", tid, e);
+            log.error("TID={} | failed to build cert-ready pollReq response", tid, RedactedFailure.forLog(e));
             throw new CmpProcessingException(tid, PKIFailureInfo.systemFailure,
                     "failed to build cert-ready response: " + e.getMessage(), e);
         }

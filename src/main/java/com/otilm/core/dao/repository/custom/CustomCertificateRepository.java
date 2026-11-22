@@ -1,6 +1,7 @@
 package com.otilm.core.dao.repository.custom;
 
 import com.otilm.api.model.core.certificate.CertificateDto;
+import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.handler.StoredCertificateHealthProjector;
 import java.util.List;
@@ -15,4 +16,10 @@ public interface CustomCertificateRepository {
             UUID certificate);
 
     void bulkUpdateQuery(String query);
+
+    /**
+     * Locks the certificate's row and reads it from the database. A copy the persistence context already holds is
+     * overwritten, as a request-wide EntityManager may have read the certificate before another transaction changed it.
+     */
+    Optional<Certificate> findAndLockFreshByUuid(UUID uuid);
 }
