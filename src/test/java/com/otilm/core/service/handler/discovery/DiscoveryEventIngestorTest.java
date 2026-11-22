@@ -264,7 +264,7 @@ class DiscoveryEventIngestorTest {
     /**
      * A key with public material, or with none when {@code publicKey} is null: only material gives Core an identity.
      */
-    private DiscoveredItemDto keyItem(long sequence, String uniqueRef, String publicKey) {
+    private static DiscoveredItemDto keyItem(long sequence, String uniqueRef, String publicKey) {
         DiscoveredKeyDto payload = (publicKey == null ? aPublicKey() : aPublicKey().withSpki(publicKey))
                 .withFingerprint("whatever-the-connector-computed")
                 .build();

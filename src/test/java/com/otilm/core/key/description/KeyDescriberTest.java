@@ -33,6 +33,8 @@ import static org.junit.jupiter.params.provider.Arguments.arguments;
 
 class KeyDescriberTest {
 
+    // ── FromSpki ──────────────────────────────────────────────────────────────
+
     @Nested
     class FromSpki {
 
@@ -149,6 +151,8 @@ class KeyDescriberTest {
         }
     }
 
+    // ── FromIdentifier ────────────────────────────────────────────────────────
+
     @Nested
     class FromIdentifier {
 
@@ -252,6 +256,8 @@ class KeyDescriberTest {
             assertThat(described).isEqualTo(new DescribedKey(KeyAlgorithm.MLDSA, null, null));
         }
     }
+
+    // ── FromStatement ─────────────────────────────────────────────────────────
 
     @Nested
     class FromStatement {

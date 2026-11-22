@@ -21,6 +21,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class ProviderKeyItemsTest {
 
+    // ── Described ─────────────────────────────────────────────────────────────
+
     @Nested
     class Described {
 
@@ -53,6 +55,8 @@ class ProviderKeyItemsTest {
         }
     }
 
+    // ── DescribedPair ─────────────────────────────────────────────────────────
+
     @Nested
     class DescribedPair {
 
@@ -63,7 +67,7 @@ class ProviderKeyItemsTest {
             var opaquePrivate = privateItem(KeyAlgorithm.ECDSA, 256, new KeyMaterial(KeyFormat.RAW, "b3BhcXVl"));
 
             // when
-            var described = ProviderKeyItems.describedPair(publicSibling, opaquePrivate);
+            ProviderKeyItems.DescribedPair described = ProviderKeyItems.describedPair(publicSibling, opaquePrivate);
 
             // then
             assertThat(described.privateKey())
@@ -81,7 +85,7 @@ class ProviderKeyItemsTest {
             var privateHalf = privateItem(KeyAlgorithm.ECDSA, null, ownPkcs8);
 
             // when
-            var described = ProviderKeyItems.describedPair(unrelatedSibling, privateHalf);
+            ProviderKeyItems.DescribedPair described = ProviderKeyItems.describedPair(unrelatedSibling, privateHalf);
 
             // then
             assertThat(described.privateKey().parameterSet()).isEqualTo("P-384");
@@ -94,7 +98,7 @@ class ProviderKeyItemsTest {
             var opaquePrivate = privateItem(KeyAlgorithm.MLDSA, 15616, null);
 
             // when
-            var described = ProviderKeyItems.describedPair(publicSibling, opaquePrivate);
+            ProviderKeyItems.DescribedPair described = ProviderKeyItems.describedPair(publicSibling, opaquePrivate);
 
             // then
             assertThat(described.privateKey())
@@ -109,7 +113,7 @@ class ProviderKeyItemsTest {
             var privateHalf = privateItem(KeyAlgorithm.RSA, null, storedIdentifierOf(pair));
 
             // when
-            var described = ProviderKeyItems.describedPair(publicItem(pair), privateHalf);
+            ProviderKeyItems.DescribedPair described = ProviderKeyItems.describedPair(publicItem(pair), privateHalf);
 
             // then
             assertThat(described.privateKey().length()).isEqualTo(2048);
@@ -123,12 +127,14 @@ class ProviderKeyItemsTest {
             var privateHalf = privateItem(KeyAlgorithm.RSA, lengthAConnectorGotWrong, storedIdentifierOf(pair));
 
             // when
-            var described = ProviderKeyItems.describedPair(publicItem(pair), privateHalf);
+            ProviderKeyItems.DescribedPair described = ProviderKeyItems.describedPair(publicItem(pair), privateHalf);
 
             // then
             assertThat(described.privateKey().length()).isEqualTo(2048);
         }
     }
+
+    // ── DescribedByAssociation ────────────────────────────────────────────────
 
     @Nested
     class DescribedByAssociation {
