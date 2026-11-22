@@ -1,6 +1,7 @@
 package com.otilm.core.service.acme;
 
 import com.otilm.api.exception.AcmeProblemDocumentException;
+import com.otilm.api.exception.PlatformException;
 import com.otilm.api.model.core.acme.Problem;
 import java.io.IOException;
 import java.io.InputStream;
@@ -195,7 +196,7 @@ public final class AcmeHttpChallengeValidator {
     }
 
     /** A fetch stopped at one of the limits, with the reason worded to follow "the challenge failed:". */
-    private static final class ChallengeFetchException extends Exception {
+    private static final class ChallengeFetchException extends Exception implements PlatformException {
 
         private final Problem problem;
 

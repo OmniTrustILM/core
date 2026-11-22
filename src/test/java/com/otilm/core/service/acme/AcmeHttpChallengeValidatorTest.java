@@ -48,6 +48,8 @@ class AcmeHttpChallengeValidatorTest {
     private static final Duration DEADLINE = Duration.ofSeconds(5);
     /** Bounds how long a silent host holds a connection its client never closes. */
     private static final int HOLD_LIMIT_MILLIS = 20_000;
+    /** Well below the read timeout, so only the cancelled fetch, not its own timeouts, can close in time. */
+    private static final Duration CONNECTION_CLOSE_WAIT = Duration.ofSeconds(2);
 
     private WireMockServer challengeHost;
 
@@ -166,7 +168,8 @@ class AcmeHttpChallengeValidatorTest {
         // given
         var deadlineShorterThanReadTimeout = Duration.ofMillis(800);
         try (ServerSocket silentHost = loopbackServerSocket()) {
-            Thread.ofVirtual().start(() -> readRequestWithoutAnswering(silentHost));
+            var heldConnection = new FutureTask<Void>(() -> readRequestWithoutAnswering(silentHost), null);
+            Thread.ofVirtual().start(heldConnection);
             AcmeHttpChallengeValidator validator = validatorThrough(silentHost.getLocalPort(),
                     deadlineShorterThanReadTimeout);
 
@@ -180,6 +183,9 @@ class AcmeHttpChallengeValidatorTest {
             assertThat(Duration.ofNanos(System.nanoTime() - start))
                     .as("stopped by the deadline, not by the read timeout")
                     .isLessThan(Duration.ofMillis(READ_TIMEOUT_MILLIS));
+            assertThat(heldConnection)
+                    .as("the fetch closed its connection once validation stopped waiting")
+                    .succeedsWithin(CONNECTION_CLOSE_WAIT);
         }
     }
 
@@ -212,7 +218,8 @@ class AcmeHttpChallengeValidatorTest {
         // given
         var deadlineShorterThanFraming = Duration.ofSeconds(1);
         try (ServerSocket framingHost = loopbackServerSocket()) {
-            Thread.ofVirtual().start(() -> serveEndlessChunkSizeLine(framingHost));
+            var framingConnection = new FutureTask<Void>(() -> serveEndlessChunkSizeLine(framingHost), null);
+            Thread.ofVirtual().start(framingConnection);
             AcmeHttpChallengeValidator validator = validatorThrough(framingHost.getLocalPort(),
                     deadlineShorterThanFraming);
 
@@ -226,6 +233,9 @@ class AcmeHttpChallengeValidatorTest {
             assertThat(Duration.ofNanos(System.nanoTime() - start))
                     .as("stopped by the deadline, while one read of the chunk framing still runs")
                     .isLessThan(Duration.ofMillis(READ_TIMEOUT_MILLIS));
+            assertThat(framingConnection)
+                    .as("the fetch closed its connection once validation stopped waiting")
+                    .succeedsWithin(CONNECTION_CLOSE_WAIT);
         }
     }
 
@@ -271,7 +281,8 @@ class AcmeHttpChallengeValidatorTest {
         // given
         long declaredBodyFarAboveLimit = 16L * 1024 * 1024;
         try (ServerSocket verboseHost = loopbackServerSocket()) {
-            var served = new FutureTask<>(() -> serveBody(verboseHost, declaredBodyFarAboveLimit));
+            var served = new FutureTask<>(
+                    () -> serveKeyAuthorizationPaddedWithLineBreaks(verboseHost, declaredBodyFarAboveLimit));
             Thread.ofVirtual().start(served);
 
             // when
@@ -321,11 +332,12 @@ class AcmeHttpChallengeValidatorTest {
     }
 
     /**
-     * Answers with a body of the declared length, written until the client hangs up.
+     * Answers with the key authorization followed by line breaks up to the declared length, a body that matches once
+     * its line breaks are dropped, written until the client hangs up.
      *
      * @return how many body bytes the host got to write
      */
-    private static long serveBody(ServerSocket server, long declaredLength) {
+    private static long serveKeyAuthorizationPaddedWithLineBreaks(ServerSocket server, long declaredLength) {
         long written = 0;
         try (Socket client = server.accept()) {
             client.setSoTimeout(HOLD_LIMIT_MILLIS);
@@ -334,11 +346,15 @@ class AcmeHttpChallengeValidatorTest {
             out
                     .write(("HTTP/1.1 200 OK\r\nContent-Length: " + declaredLength + "\r\n\r\n")
                             .getBytes(StandardCharsets.US_ASCII));
-            byte[] chunk = new byte[8 * 1024];
-            Arrays.fill(chunk, (byte) 'a');
+            byte[] keyAuthorization = KEY_AUTHORIZATION.getBytes(StandardCharsets.US_ASCII);
+            out.write(keyAuthorization);
+            written += keyAuthorization.length;
+            byte[] lineBreaks = new byte[8 * 1024];
+            Arrays.fill(lineBreaks, (byte) '\n');
             while (written < declaredLength) {
-                out.write(chunk);
-                written += chunk.length;
+                int length = (int) Math.min(lineBreaks.length, declaredLength - written);
+                out.write(lineBreaks, 0, length);
+                written += length;
             }
             out.flush();
         } catch (IOException connectionEnded) {
