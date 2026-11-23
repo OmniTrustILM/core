@@ -5,10 +5,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.catchThrowable;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.entry;
 
 class BatchLoaderTest {
@@ -65,13 +66,17 @@ class BatchLoaderTest {
             return Map.of(owned, true);
         }, false);
         failingOnce.announce(List.of(owned, notOwned));
-        Throwable failedRead = catchThrowable(() -> failingOnce.get(List.of(owned)));
+
+        // when
+        ThrowingCallable failingRead = () -> failingOnce.get(List.of(owned));
+
+        // then
+        assertThatThrownBy(failingRead).isInstanceOf(IllegalStateException.class);
 
         // when
         Map<UUID, Boolean> retried = failingOnce.get(List.of(notOwned));
 
         // then
-        assertThat(failedRead).isInstanceOf(IllegalStateException.class);
         assertThat(retried).containsExactly(entry(notOwned, false));
         assertThat(attempts).containsExactly(Set.of(owned, notOwned), Set.of(owned, notOwned));
     }
