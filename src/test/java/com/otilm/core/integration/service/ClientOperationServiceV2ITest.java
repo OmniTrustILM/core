@@ -1926,6 +1926,27 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
+    void rekeysWithoutAskingTheAuthorityForItsTypes_whenAProtocolRequestsTheRekey() throws Exception {
+        // given
+        stubAuthorityProviderAttributesEndpoints();
+        doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedTypes(any());
+        var subjectDn = "CN=rekey-through-protocol";
+        storeAsCurrentCertificate(CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null), subjectDn);
+        KeyPair newKeys = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+        ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
+        request.setRequest(generatePkcs10(newKeys, subjectDn));
+
+        // when
+        ClientCertificateDataResponseDto rekeyed = clientOperationInternalService
+                .rekeyCertificateThroughProtocol(authorityInstanceReference.getSecuredParentUuid(),
+                        raProfile.getSecuredUuid(), certificate.getUuid().toString(), request);
+
+        // then
+        assertThat(certificateRepository.findByUuid(UUID.fromString(rekeyed.getUuid()))).isPresent();
+        verify(authorityCertificateTypes, never()).requireSupport(any(), any());
+    }
+
+    @Test
     void submitCertificateRequest_storesV2SignatureAttributesForALegacyProviderKey() throws Exception {
         // given
         stubAuthorityProviderAttributesEndpoints();

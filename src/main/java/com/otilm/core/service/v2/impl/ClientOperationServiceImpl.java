@@ -719,9 +719,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      * Asks the authority whether it issues the type, except for a protocol request: the protocols request X.509 only,
      * and what the authority returns is checked against the requested type when it is stored.
      */
-    private void requireAuthoritySupport(CertificateType type, RaProfile raProfile,
-            CertificateProtocolInfo protocolInfo) {
-        if (protocolInfo == null) {
+    private void requireAuthoritySupport(CertificateType type, RaProfile raProfile, boolean throughProtocol) {
+        if (!throughProtocol) {
             authorityCertificateTypes.requireSupport(type, raProfile);
         }
     }
@@ -741,7 +740,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             throw new ValidationException(String
                     .format("Cannot issue certificate with disabled RA profile. Ra Profile: %s", raProfile.getName()));
         }
-        requireAuthoritySupport(request.getCertificateType(), raProfile, protocolInfo);
+        requireAuthoritySupport(request.getCertificateType(), raProfile, protocolInfo != null);
 
         ClientCertificateRequestDto certificateRequestDto = new ClientCertificateRequestDto();
         certificateRequestDto.setRaProfileUuid(raProfileUuid.getValue());
@@ -2631,7 +2630,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             CertificateOperationException, CertificateRequestException, ConnectorException, AttributeException {
         Certificate oldCertificate = validateOldCertificateForOperation(certificateUuid, raProfileUuid.toString(),
                 ResourceAction.RENEW, authorityUuid);
-        requireAuthoritySupport(oldCertificate.getCertificateType(), oldCertificate.getRaProfile(), protocolInfo);
+        requireAuthoritySupport(oldCertificate.getCertificateType(), oldCertificate.getRaProfile(),
+                protocolInfo != null);
         if (request != null) {
             request.setFormat(requestFormatResolver.resolve(request.getFormat(), oldCertificate.getCertificateType()));
         }
@@ -2873,7 +2873,18 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             String certificateUuid, ClientCertificateRekeyRequestDto request)
             throws NotFoundException, CertificateException, CertificateOperationException, CertificateRequestException,
             ConnectorException, AttributeException {
-        return submitAndQueueRekey(authorityUuid, raProfileUuid, certificateUuid, request, null, null);
+        return submitAndQueueRekey(authorityUuid, raProfileUuid, certificateUuid, request, null, null, false);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.DETAIL,
+            parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
+    public ClientCertificateDataResponseDto rekeyCertificateThroughProtocol(SecuredParentUUID authorityUuid,
+            SecuredUUID raProfileUuid, String certificateUuid, ClientCertificateRekeyRequestDto request)
+            throws NotFoundException, CertificateException, CertificateOperationException, CertificateRequestException,
+            ConnectorException, AttributeException {
+        return submitAndQueueRekey(authorityUuid, raProfileUuid, certificateUuid, request, null, null, true);
     }
 
     @Override
@@ -2884,18 +2895,18 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             String certificateUuid, ClientCertificateRekeyRequestDto request, CertificateProtocolInfo protocolInfo,
             Consumer<UUID> beforeDispatch) throws NotFoundException, CertificateException,
             CertificateOperationException, CertificateRequestException, ConnectorException, AttributeException {
-        return submitAndQueueRekey(authorityUuid, raProfileUuid, certificateUuid, request, protocolInfo,
-                beforeDispatch);
+        return submitAndQueueRekey(authorityUuid, raProfileUuid, certificateUuid, request, protocolInfo, beforeDispatch,
+                protocolInfo != null);
     }
 
     private ClientCertificateDataResponseDto submitAndQueueRekey(SecuredParentUUID authorityUuid,
             SecuredUUID raProfileUuid, String certificateUuid, ClientCertificateRekeyRequestDto request,
-            CertificateProtocolInfo protocolInfo, Consumer<UUID> beforeDispatch)
+            CertificateProtocolInfo protocolInfo, Consumer<UUID> beforeDispatch, boolean throughProtocol)
             throws NotFoundException, CertificateException, CertificateOperationException, CertificateRequestException,
             ConnectorException, AttributeException {
         Certificate oldCertificate = validateOldCertificateForOperation(certificateUuid, raProfileUuid.toString(),
                 ResourceAction.REKEY, authorityUuid);
-        requireAuthoritySupport(oldCertificate.getCertificateType(), oldCertificate.getRaProfile(), protocolInfo);
+        requireAuthoritySupport(oldCertificate.getCertificateType(), oldCertificate.getRaProfile(), throughProtocol);
         if (request != null) {
             request.setFormat(requestFormatResolver.resolve(request.getFormat(), oldCertificate.getCertificateType()));
         }

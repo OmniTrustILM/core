@@ -121,7 +121,7 @@ public class KurMessageHandlerTest {
 
         // -- GIVEN
         given(certificateRepository.findBySerialNumberIgnoreCase(any())).willReturn(Optional.of(issuedCertificated));
-        given(clientOperationService.rekeyCertificate(any(), any(), any(), any()))
+        given(clientOperationService.rekeyCertificateThroughProtocol(any(), any(), any(), any()))
                 .willReturn(new ClientCertificateDataResponseDto());
 
         // -- THEN
@@ -207,7 +207,7 @@ public class KurMessageHandlerTest {
                 certificateKeyService, null, null);
         configuration.setProtectionCertificate(issuedCertificated);
         given(certificateRepository.findBySerialNumberIgnoreCase(any())).willReturn(Optional.of(issuedCertificated));
-        given(clientOperationService.rekeyCertificate(any(), any(), any(), any()))
+        given(clientOperationService.rekeyCertificateThroughProtocol(any(), any(), any(), any()))
                 .willReturn(new ClientCertificateDataResponseDto());
 
         // when
@@ -216,7 +216,7 @@ public class KurMessageHandlerTest {
         // then
         assertThat(response).isNotNull();
         verify(clientOperationService)
-                .rekeyCertificate(any(), any(), eq(issuedCertificated.getUuid().toString()), any());
+                .rekeyCertificateThroughProtocol(any(), any(), eq(issuedCertificated.getUuid().toString()), any());
     }
 
 }
