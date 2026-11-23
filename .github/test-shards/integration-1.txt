@@ -27,6 +27,7 @@ com/otilm/core/integration/config/ProductionAutoConfigurationITest.java
 com/otilm/core/integration/config/SecurityConfigITest.java
 com/otilm/core/integration/config/SessionConfigITest.java
 com/otilm/core/integration/config/TspSecurityChainITest.java
+com/otilm/core/integration/dao/DatabaseConnectionHandlingITest.java
 com/otilm/core/integration/dao/entity/CertificatePendingRevokeFieldsITest.java
 com/otilm/core/integration/dao/entity/CertificateTypeViewITest.java
 com/otilm/core/integration/dao/entity/CryptographicKeyItemKeyMetaITest.java
