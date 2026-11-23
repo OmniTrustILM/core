@@ -6214,8 +6214,9 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
             // then
             assertThatThrownBy(renew)
                     .isInstanceOf(CertificateOperationException.class)
-                    .hasMessage("Connector accepted renewal but local update failed for certificate %s: internal error"
-                            .formatted(successorUuid));
+                    .hasMessageContaining(
+                            "Connector accepted renewal but local update failed for certificate " + successorUuid)
+                    .hasMessageNotContaining("internal db detail");
             assertFailedHistory(CertificateEvent.RENEW,
                     "Connector accepted renewal but local update failed: internal error");
         }
@@ -6444,8 +6445,9 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
             // then
             assertThatThrownBy(rekey)
                     .isInstanceOf(CertificateOperationException.class)
-                    .hasMessage("Connector accepted rekey but local update failed for certificate %s: internal error"
-                            .formatted(successorUuid));
+                    .hasMessageContaining(
+                            "Connector accepted rekey but local update failed for certificate " + successorUuid)
+                    .hasMessageNotContaining("internal db detail");
             assertFailedHistory(CertificateEvent.REKEY,
                     "Connector accepted rekey but local update failed: internal error");
         }
