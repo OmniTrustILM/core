@@ -67,8 +67,10 @@ import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.core.attribute.CsrAttributes;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
+import com.otilm.core.certificate.type.CertificateTypeHandler;
 import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
 import com.otilm.core.certificate.type.IssuedCertificateRefusedException;
+import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
 import com.otilm.core.certificate.type.X509CertificateTypeHandler;
 import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.dao.entity.AttributeContent2Object;
@@ -214,6 +216,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
@@ -1034,7 +1037,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
         }
 
         @Test
-        void storesTheUploadedCertificateAsIssuedWithItsType() throws Exception {
+        void storesTheCertificateAsIssuedWithItsType_whenItIsUploaded() throws Exception {
             // given
             var request = anUploadCertificateRequest().withCertificate(x509Cert).build();
 
@@ -1498,6 +1501,29 @@ class CertificateServiceITest extends BaseSpringBootTest {
         }
 
         @Test
+        void readsAndStoresTheCertificateThroughTheHandlerOfTheNamedType() throws Exception {
+            // given
+            var content = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
+            X509CertificateTypeHandler namedTypeHandler = spy(x509Handler);
+            certificateService.setTypeHandlerRegistry(new CertificateTypeHandlerRegistry(List.of(namedTypeHandler)));
+
+            // when
+            Certificate created;
+            try {
+                created = certificateService.createCertificate(content, CertificateType.X509);
+            } finally {
+                certificateService.setTypeHandlerRegistry(typeHandlerRegistry);
+            }
+
+            // then
+            verify(namedTypeHandler).parseCertificate(any());
+            verify(namedTypeHandler).newCertificate();
+            verify(namedTypeHandler).stampIssued(any(), any());
+            verify(namedTypeHandler).contentToStore(any());
+            assertThat(created.getFingerprint()).isEqualTo(CertificateUtil.getThumbprint(x509Cert));
+        }
+
+        @Test
         void refusesNamingTheType_whenCreatingACertificateOfATypeWithoutAHandler() throws Exception {
             // given
             var content = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
@@ -1508,24 +1534,62 @@ class CertificateServiceITest extends BaseSpringBootTest {
 
             // then
             assertThatThrownBy(create)
-                    .isInstanceOf(com.otilm.api.exception.CertificateException.class)
-                    .hasMessageContaining(typeWithoutAHandler.toString());
+                    .isInstanceOf(UnsupportedCertificateTypeException.class)
+                    .hasMessageContaining(typeWithoutAHandler.getCode());
+        }
+
+        @Test
+        void refusesNamingTheType_whenCreatingACertificateOfATypeThatCannotBeStored() throws Exception {
+            // given
+            var content = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
+            var typeWithoutAnEntity = CertificateType.SSH;
+            CertificateTypeHandler handlerWithoutAnEntity = mock(CertificateTypeHandler.class);
+            when(handlerWithoutAnEntity.typeCode()).thenReturn(typeWithoutAnEntity.getCode());
+            certificateService
+                    .setTypeHandlerRegistry(new CertificateTypeHandlerRegistry(List.of(handlerWithoutAnEntity)));
+
+            // when
+            ThrowingCallable create = () -> certificateService.createCertificate(content, typeWithoutAnEntity);
+
+            // then
+            try {
+                assertThatThrownBy(create)
+                        .isInstanceOf(UnsupportedCertificateTypeException.class)
+                        .hasMessageContaining(typeWithoutAnEntity.getCode())
+                        .hasMessageContaining("cannot be stored");
+                verify(handlerWithoutAnEntity, never()).parseCertificate(any());
+            } finally {
+                certificateService.setTypeHandlerRegistry(typeHandlerRegistry);
+            }
         }
 
         @Test
         void refusesTheContent_whenItIsNotACertificateOfTheNamedType() {
             // given
+            var namedType = CertificateType.X509;
             var notACertificate = Base64
                     .getEncoder()
                     .encodeToString("not a certificate".getBytes(StandardCharsets.UTF_8));
 
             // when
-            ThrowingCallable create = () -> certificateService.createCertificate(notACertificate, CertificateType.X509);
+            ThrowingCallable create = () -> certificateService.createCertificate(notACertificate, namedType);
 
             // then
             assertThatThrownBy(create)
                     .isInstanceOf(com.otilm.api.exception.CertificateException.class)
-                    .hasMessageContaining(CertificateType.X509.getLabel());
+                    .hasMessageContaining(namedType.getLabel());
+        }
+
+        @Test
+        void throwsIllegalArgument_whenTheContentOfTheNamedTypeIsNotBase64() {
+            // given
+            var invalidBase64 = "%%%";
+
+            // when
+            ThrowingCallable create = () -> certificateService.createCertificate(invalidBase64, CertificateType.X509);
+
+            // then — a runtime failure, so that a location sync it interrupts is rolled back as a whole
+            assertThatThrownBy(create).isInstanceOf(IllegalArgumentException.class);
         }
 
         @Test

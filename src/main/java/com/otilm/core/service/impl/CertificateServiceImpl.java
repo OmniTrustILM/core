@@ -83,6 +83,7 @@ import com.otilm.core.certificate.type.CertificateTypeHandler;
 import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
 import com.otilm.core.certificate.type.IssuedCertificateRefusedException;
 import com.otilm.core.certificate.type.ParsedCertificate;
+import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
 import com.otilm.core.comparator.SearchFieldDataComparator;
 import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.dao.entity.Certificate;
@@ -1555,20 +1556,16 @@ public class CertificateServiceImpl
             throws com.otilm.api.exception.CertificateException {
         // by default, we are working with the X.509 certificate
         CertificateType effectiveType = certificateType != null ? certificateType : CertificateType.X509;
-        CertificateTypeHandler handler = typeHandlerRegistry.find(effectiveType.getCode()).orElse(null);
-        if (handler == null) {
-            String message = "Unsupported type of the certificate: " + effectiveType;
-            log.debug(message);
-            throw new com.otilm.api.exception.CertificateException(message);
+        CertificateTypeHandler handler = typeHandlerRegistry.require(effectiveType.getCode());
+        if (!handler.storesCertificates()) {
+            throw UnsupportedCertificateTypeException.notStored(handler.typeCode());
         }
-        ParsedCertificate parsed;
-        try {
-            parsed = handler
-                    .parseCertificate(CertificateUtil.decodeCertificateContent(certificateData))
-                    .orElseThrow(() -> new CertificateException(
-                            "The content is not a certificate of type " + effectiveType.getLabel()));
-        } catch (CertificateException | IllegalArgumentException e) {
-            String message = "Failed to get parse the certificate " + certificateData + " > " + e.getMessage();
+        ParsedCertificate parsed = handler
+                .parseCertificate(CertificateUtil.decodeCertificateContent(certificateData))
+                .orElse(null);
+        if (parsed == null) {
+            String message = "Failed to get parse the certificate " + certificateData
+                    + " > The content is not a certificate of type " + effectiveType.getLabel();
             log.error(message);
             throw new com.otilm.api.exception.CertificateException(message);
         }

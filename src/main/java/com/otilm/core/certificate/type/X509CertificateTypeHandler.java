@@ -356,6 +356,11 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
     }
 
     @Override
+    public boolean storesCertificates() {
+        return true;
+    }
+
+    @Override
     public Certificate newCertificate() {
         return new X509CertificateEntity();
     }

@@ -9,6 +9,7 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
 import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry.DetectedCertificate;
 import com.otilm.core.certificate.type.ParsedCertificate;
+import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.events.handlers.CertificateUploadedEventHandler;
 import com.otilm.core.messaging.jms.producers.EventProducer;
@@ -108,7 +109,9 @@ public class CertificateUploadServiceImpl implements CertificateUploadService {
 
     // a type that is recognised but has no entity is refused here, by name, before the upload event is produced
     private static ParsedCertificate requireStorable(DetectedCertificate detected) {
-        detected.handler().newCertificate();
+        if (!detected.handler().storesCertificates()) {
+            throw UnsupportedCertificateTypeException.notStored(detected.handler().typeCode());
+        }
         return detected.certificate();
     }
 }

@@ -23,6 +23,7 @@ import com.otilm.core.certificate.type.CertificateTypeHandler;
 import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
 import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry.DetectedCertificate;
 import com.otilm.core.certificate.type.ParsedCertificate;
+import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.workflows.EventHistory;
@@ -117,12 +118,7 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
         return EventDataBuilder.getCertificateUploadedEventData(object);
     }
 
-    @Override
-    protected EventContext<Certificate> prepareContext(EventMessage eventMessage) throws EventException {
-        return prepareContext(eventMessage, null);
-    }
-
-    private EventContext<Certificate> prepareContext(EventMessage eventMessage, Certificate certificate)
+    private EventContext<Certificate> createContext(EventMessage eventMessage, Certificate certificate)
             throws EventException {
         EventContext<Certificate> context = new EventContext<>(eventMessage, triggerEvaluator, certificate, null);
         fetchEventTriggers(context, null, null); // triggers without resource and its UUID are platform ones
@@ -149,10 +145,17 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
             saveEventHistory(eventHistory, EventStatus.FAILED);
             return;
         }
-        Certificate certificate = handler.stampIssued(handler.newCertificate(), parsed);
+        Certificate certificate;
+        try {
+            certificate = handler.stampIssued(handler.newCertificate(), parsed);
+        } catch (UnsupportedCertificateTypeException e) {
+            logger.error("Unable to store the uploaded certificate {}: {}", fingerprint, e.getMessage());
+            saveEventHistory(eventHistory, EventStatus.FAILED);
+            return;
+        }
         certificate.setState(CertificateState.ISSUED);
         certificate.setFingerprint(fingerprint);
-        EventContext<Certificate> context = prepareContext(eventMessage, certificate);
+        EventContext<Certificate> context = createContext(eventMessage, certificate);
         CertificateEventData eventData = (CertificateEventData) getEventData(certificate, eventMessageData);
         // Always a non-null list, even if the request omitted custom attributes entirely: a real Java null passed down
         // to the
