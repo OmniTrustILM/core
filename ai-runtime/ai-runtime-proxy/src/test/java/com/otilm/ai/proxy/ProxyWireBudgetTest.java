@@ -34,7 +34,7 @@ class ProxyWireBudgetTest {
             serve(server);
             try (var runner = SocketChannel.open(java.net.UnixDomainSocketAddress.of(socket))) {
                 var bytes = new java.io.ByteArrayOutputStream();
-                FrameCodec.writeRequest(bytes, WireBodies.bootstrap());
+                FrameCodec.writeRequest(bytes, ProxyWireFixtures.bootstrapRequest());
                 Thread sender = Thread.ofPlatform().start(() -> {
                     try {
                         for (byte value : bytes.toByteArray()) {
@@ -86,7 +86,7 @@ class ProxyWireBudgetTest {
                         }))) {
             serve(server);
             try (var unread = SocketChannel.open(java.net.UnixDomainSocketAddress.of(socket))) {
-                FrameCodec.writeRequest(Channels.newOutputStream(unread), WireBodies.bootstrap());
+                FrameCodec.writeRequest(Channels.newOutputStream(unread), ProxyWireFixtures.bootstrapRequest());
                 unread.shutdownOutput();
                 long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
                 while ((firstHandler.get() == null || firstHandler.get().isAlive()) && System.nanoTime() < until) {
@@ -97,7 +97,7 @@ class ProxyWireBudgetTest {
                 assertFalse(firstChild.get().isAlive());
                 assertEquals(1, fixture.requests.get());
                 try (var next = SocketChannel.open(java.net.UnixDomainSocketAddress.of(socket))) {
-                    FrameCodec.writeRequest(Channels.newOutputStream(next), WireBodies.bootstrap());
+                    FrameCodec.writeRequest(Channels.newOutputStream(next), ProxyWireFixtures.bootstrapRequest());
                     next.shutdownOutput();
                     assertEquals(ProxyReply.Outcome.UPSTREAM_REPLY,
                             FrameCodec.readReply(Channels.newInputStream(next)).outcome());

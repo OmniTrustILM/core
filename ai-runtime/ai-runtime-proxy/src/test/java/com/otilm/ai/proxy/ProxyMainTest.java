@@ -186,7 +186,7 @@ class ProxyMainTest {
                     try (var client = java.nio.channels.SocketChannel.open(java.net.UnixDomainSocketAddress.of(path))) {
                         FrameCodec
                                 .writeRequest(java.nio.channels.Channels.newOutputStream(client),
-                                        WireBodies.bootstrap());
+                                        ProxyWireFixtures.bootstrapRequest());
                         client.shutdownOutput();
                         outcome.set(FrameCodec.readReply(java.nio.channels.Channels.newInputStream(client)).outcome());
                     } catch (Exception unavailable) {

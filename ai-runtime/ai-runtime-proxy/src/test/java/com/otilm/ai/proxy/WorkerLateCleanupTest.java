@@ -25,7 +25,9 @@ class WorkerLateCleanupTest {
         var closes = new java.util.concurrent.atomic.AtomicInteger();
         try (var fixture = new LocalTlsFixture(identity)) {
             var frame = new java.io.ByteArrayOutputStream();
-            FrameCodec.writeReply(frame, new ProxyReply(ProxyReply.Outcome.UNKNOWN, WireBodies.CALL, 0, new byte[0]));
+            FrameCodec
+                    .writeReply(frame,
+                            new ProxyReply(ProxyReply.Outcome.UNKNOWN, ProxyWireFixtures.CALL, 0, new byte[0]));
             Process owned = new WorkerProcessTest.Unreapable(frame.toByteArray()) {
                 final OutputStream pipe = new java.io.ByteArrayOutputStream() {
                     @Override
@@ -73,7 +75,7 @@ class WorkerLateCleanupTest {
             try (var worker = new WorkerProcess(fixture.configuration(), (command, environment) -> owned,
                     () -> scheduler)) {
                 var result = java.util.concurrent.CompletableFuture
-                        .supplyAsync(() -> worker.execute(WireBodies.bootstrap(), System.nanoTime()));
+                        .supplyAsync(() -> worker.execute(ProxyWireFixtures.bootstrapRequest(), System.nanoTime()));
                 assertTrue(stopped.await(1, TimeUnit.SECONDS));
                 Thread aborter = Thread.ofPlatform().start(() -> {
                     worker.abort();

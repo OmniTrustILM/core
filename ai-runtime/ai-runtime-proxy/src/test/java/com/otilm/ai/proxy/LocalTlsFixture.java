@@ -79,7 +79,7 @@ final class LocalTlsFixture implements AutoCloseable {
                 .createServerSocket(0, 16, InetAddress.getLoopbackAddress());
         listener.setNeedClientAuth(true);
         listener.setEnabledProtocols(new String[]{"TLSv1.3", "TLSv1.2"});
-        respond(200, "", WireBodies.PENDING);
+        respond(200, "", ProxyWireFixtures.PENDING);
         acceptor = Thread.ofPlatform().daemon().name("synthetic-core-accept").start(this::accept);
     }
 

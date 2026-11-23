@@ -33,7 +33,7 @@ class IdentityFilesTest {
                 parameters.setEndpointIdentificationAlgorithm("HTTPS");
                 socket.setSSLParameters(parameters);
                 socket.startHandshake();
-                byte[] body = WireBodies.bootstrap().payload();
+                byte[] body = ProxyWireFixtures.bootstrapRequest().payload();
                 socket
                         .getOutputStream()
                         .write(("POST /fixed HTTP/1.1\r\nHost: core.test\r\nContent-Length: " + body.length
@@ -64,16 +64,18 @@ class IdentityFilesTest {
             var configuration = new ProxyConfiguration(old.coreOrigin(), old.coreAddress(), mount.resolve("tls.crt"),
                     mount.resolve("tls.key"), old.serverCaFile());
             CoreRpcClient client = new CoreRpcClient(configuration);
-            assertEquals(ProxyReply.Outcome.UPSTREAM_REPLY, client.execute(WireBodies.bootstrap()).outcome());
+            assertEquals(ProxyReply.Outcome.UPSTREAM_REPLY,
+                    client.execute(ProxyWireFixtures.bootstrapRequest()).outcome());
             assertEquals(fixture.client.certificate().getSerialNumber(), fixture.peerSerial);
             Files.createSymbolicLink(mount.resolve("..next"), second.getFileName());
             Files
                     .move(mount.resolve("..next"), mount.resolve("..data"), StandardCopyOption.ATOMIC_MOVE,
                             StandardCopyOption.REPLACE_EXISTING);
-            assertEquals(ProxyReply.Outcome.UPSTREAM_REPLY, client.execute(WireBodies.bootstrap()).outcome());
+            assertEquals(ProxyReply.Outcome.UPSTREAM_REPLY,
+                    client.execute(ProxyWireFixtures.bootstrapRequest()).outcome());
             assertEquals(rotated.certificate().getSerialNumber(), fixture.peerSerial);
             Files.delete(second.resolve("tls.key"));
-            assertEquals(ProxyReply.Outcome.NOT_SENT, client.execute(WireBodies.bootstrap()).outcome());
+            assertEquals(ProxyReply.Outcome.NOT_SENT, client.execute(ProxyWireFixtures.bootstrapRequest()).outcome());
             assertEquals(2, fixture.requests.get());
         }
     }
@@ -85,7 +87,7 @@ class IdentityFilesTest {
                     .writeString(directory.resolve("tls.crt"), Files.readString(directory.resolve("tls.crt"))
                             + Files.readString(directory.resolve("ca.pem")));
             assertEquals(ProxyReply.Outcome.UPSTREAM_REPLY,
-                    new CoreRpcClient(fixture.configuration()).execute(WireBodies.bootstrap()).outcome());
+                    new CoreRpcClient(fixture.configuration()).execute(ProxyWireFixtures.bootstrapRequest()).outcome());
             assertEquals(1, fixture.requests.get());
         }
     }
@@ -142,7 +144,7 @@ class IdentityFilesTest {
                 default -> throw new AssertionError(failure);
             }
             assertEquals(ProxyReply.Outcome.NOT_SENT,
-                    new CoreRpcClient(fixture.configuration()).execute(WireBodies.bootstrap()).outcome());
+                    new CoreRpcClient(fixture.configuration()).execute(ProxyWireFixtures.bootstrapRequest()).outcome());
             assertEquals(0, fixture.connections.get());
         }
     }

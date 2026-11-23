@@ -27,9 +27,9 @@ class WorkerProcessTest {
     @Test
     void acceptsOnlyACompleteCorrelatedReplyAndActualNormalWorkerExit() throws Exception {
         try (var fixture = new LocalTlsFixture(directory); var worker = new WorkerProcess(fixture.configuration())) {
-            var result = worker.execute(WireBodies.bootstrap(), System.nanoTime());
+            var result = worker.execute(ProxyWireFixtures.bootstrapRequest(), System.nanoTime());
             assertEquals(ProxyReply.Outcome.UPSTREAM_REPLY, result.reply().outcome());
-            assertEquals(WireBodies.CALL, result.reply().correlationId());
+            assertEquals(ProxyWireFixtures.CALL, result.reply().correlationId());
             assertTrue(result.healthy());
             assertTrue(worker.healthy());
             assertEquals(1, fixture.requests.get());
@@ -45,7 +45,8 @@ class WorkerProcessTest {
                 started.set(child);
                 return child;
             })) {
-                var result = worker.execute(WireBodies.bootstrap(), System.nanoTime() - TimeUnit.SECONDS.toNanos(6));
+                var result = worker
+                        .execute(ProxyWireFixtures.bootstrapRequest(), System.nanoTime() - TimeUnit.SECONDS.toNanos(6));
                 assertEquals(ProxyReply.Outcome.NOT_SENT, result.reply().outcome());
                 assertEquals(null, started.get());
             }
@@ -62,7 +63,7 @@ class WorkerProcessTest {
                 return process;
             })) {
                 long accepted = System.nanoTime() - TimeUnit.SECONDS.toNanos(4);
-                var result = worker.execute(WireBodies.bootstrap(), accepted);
+                var result = worker.execute(ProxyWireFixtures.bootstrapRequest(), accepted);
                 assertEquals(ProxyReply.Outcome.UNKNOWN, result.reply().outcome());
                 assertTrue(result.healthy());
                 assertNotNull(owned.get());
@@ -87,7 +88,7 @@ class WorkerProcessTest {
                 return child(Crash.class.getName());
             })) {
                 assertEquals(ProxyReply.Outcome.UNKNOWN,
-                        worker.execute(WireBodies.bootstrap(), System.nanoTime()).reply().outcome());
+                        worker.execute(ProxyWireFixtures.bootstrapRequest(), System.nanoTime()).reply().outcome());
                 var command = captured.get();
                 assertNotNull(command);
                 assertEquals(Path.of(System.getProperty("java.home"), "bin/java").toString(), command.getFirst());
@@ -117,7 +118,7 @@ class WorkerProcessTest {
             })) {
                 long accepted = System.nanoTime()
                         - (mode.equals("close-then-hang") || mode.equals("drip") ? TimeUnit.SECONDS.toNanos(4) : 0);
-                var result = worker.execute(WireBodies.bootstrap(), accepted);
+                var result = worker.execute(ProxyWireFixtures.bootstrapRequest(), accepted);
                 assertEquals(mode.equals("valid") ? ProxyReply.Outcome.UPSTREAM_REPLY : ProxyReply.Outcome.UNKNOWN,
                         result.reply().outcome());
                 assertTrue(result.healthy());
@@ -138,11 +139,11 @@ class WorkerProcessTest {
         try (var fixture = new LocalTlsFixture(directory)) {
             var frame = new java.io.ByteArrayOutputStream();
             FrameCodec
-                    .writeReply(frame, new ProxyReply(ProxyReply.Outcome.UPSTREAM_REPLY, WireBodies.CALL, 200,
-                            WireBodies.PENDING));
+                    .writeReply(frame, new ProxyReply(ProxyReply.Outcome.UPSTREAM_REPLY, ProxyWireFixtures.CALL, 200,
+                            ProxyWireFixtures.PENDING));
             var failed = new Unreapable(frame.toByteArray());
             try (var worker = new WorkerProcess(fixture.configuration(), (command, environment) -> failed)) {
-                var result = worker.execute(WireBodies.bootstrap(), System.nanoTime());
+                var result = worker.execute(ProxyWireFixtures.bootstrapRequest(), System.nanoTime());
                 assertEquals(ProxyReply.Outcome.UNKNOWN, result.reply().outcome());
                 assertFalse(result.healthy());
                 assertFalse(worker.healthy());
@@ -164,7 +165,7 @@ class WorkerProcessTest {
                 starts.incrementAndGet();
                 throw new AssertionError("watchdog failure must prevent launch");
             }, () -> shutdown)) {
-                var result = worker.execute(WireBodies.bootstrap(), System.nanoTime());
+                var result = worker.execute(ProxyWireFixtures.bootstrapRequest(), System.nanoTime());
                 assertFalse(result.healthy());
                 assertFalse(worker.healthy());
                 assertEquals(0, starts.get());
@@ -201,7 +202,7 @@ class WorkerProcessTest {
                 throw new AssertionError("aborted before launch");
             }, () -> scheduler)) {
                 var result = java.util.concurrent.CompletableFuture
-                        .supplyAsync(() -> worker.execute(WireBodies.bootstrap(), System.nanoTime()));
+                        .supplyAsync(() -> worker.execute(ProxyWireFixtures.bootstrapRequest(), System.nanoTime()));
                 assertTrue(entered.await(2, TimeUnit.SECONDS));
                 worker.abort();
                 release.countDown();
@@ -285,7 +286,8 @@ class WorkerProcessTest {
             try (var worker = new WorkerProcess(fixture.configuration(), (command, environment) -> blocked)) {
                 var result = java.util.concurrent.CompletableFuture
                         .supplyAsync(() -> worker
-                                .execute(WireBodies.bootstrap(), System.nanoTime() - TimeUnit.SECONDS.toNanos(4)));
+                                .execute(ProxyWireFixtures.bootstrapRequest(),
+                                        System.nanoTime() - TimeUnit.SECONDS.toNanos(4)));
                 try {
                     assertTrue(entered.await(2, TimeUnit.SECONDS));
                     long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(4);
@@ -314,10 +316,10 @@ class WorkerProcessTest {
             })) {
                 worker.abort();
                 assertEquals(ProxyReply.Outcome.NOT_SENT,
-                        worker.execute(WireBodies.bootstrap(), System.nanoTime()).reply().outcome());
+                        worker.execute(ProxyWireFixtures.bootstrapRequest(), System.nanoTime()).reply().outcome());
                 assertEquals(0, starts.get());
                 assertEquals(ProxyReply.Outcome.UNKNOWN,
-                        worker.execute(WireBodies.bootstrap(), System.nanoTime()).reply().outcome());
+                        worker.execute(ProxyWireFixtures.bootstrapRequest(), System.nanoTime()).reply().outcome());
                 assertFalse(worker.healthy());
                 assertEquals(0, starts.get());
             }
@@ -330,7 +332,7 @@ class WorkerProcessTest {
                 var worker = new WorkerProcess(fixture.configuration(), (command, environment) -> {
                     throw new java.io.IOException("PRIVATE_LAUNCH_CANARY");
                 })) {
-            var result = worker.execute(WireBodies.bootstrap(), System.nanoTime());
+            var result = worker.execute(ProxyWireFixtures.bootstrapRequest(), System.nanoTime());
             assertEquals(ProxyReply.Outcome.UNKNOWN, result.reply().outcome());
             assertFalse(result.healthy());
             assertFalse(worker.healthy());
@@ -355,7 +357,8 @@ class WorkerProcessTest {
             };
             try (var worker = new WorkerProcess(fixture.configuration(), (command, environment) -> owned)) {
                 var result = org.junit.jupiter.api.Assertions
-                        .assertDoesNotThrow(() -> worker.execute(WireBodies.bootstrap(), System.nanoTime()));
+                        .assertDoesNotThrow(
+                                () -> worker.execute(ProxyWireFixtures.bootstrapRequest(), System.nanoTime()));
                 assertFalse(result.healthy());
                 assertTrue(owned.killed);
                 assertTrue(owned.outputClosed);
@@ -374,7 +377,7 @@ class WorkerProcessTest {
             var frame = new java.io.ByteArrayOutputStream();
             FrameCodec
                     .writeReply(frame, new ProxyReply(ProxyReply.Outcome.UNKNOWN,
-                            WireBodies.bootstrap().correlationId(), 0, new byte[0]));
+                            ProxyWireFixtures.bootstrapRequest().correlationId(), 0, new byte[0]));
             var gets = new java.util.concurrent.atomic.AtomicInteger();
             Process owned = new Unreapable(frame.toByteArray()) {
                 final OutputStream pipe = new java.io.FilterOutputStream(new java.io.ByteArrayOutputStream()) {
@@ -426,7 +429,7 @@ class WorkerProcessTest {
             };
             try (var worker = new WorkerProcess(fixture.configuration(), (command, environment) -> owned)) {
                 var result = java.util.concurrent.CompletableFuture
-                        .supplyAsync(() -> worker.execute(WireBodies.bootstrap(), System.nanoTime()));
+                        .supplyAsync(() -> worker.execute(ProxyWireFixtures.bootstrapRequest(), System.nanoTime()));
                 assertTrue(atClose.await(1, TimeUnit.SECONDS));
                 Thread aborter = Thread.ofPlatform().start(worker::abort);
                 try {
@@ -535,7 +538,7 @@ class WorkerProcessTest {
                     .writeReply(frame,
                             new ProxyReply(ProxyReply.Outcome.UPSTREAM_REPLY,
                                     mode.equals("wrong-id") ? java.util.UUID.randomUUID() : request.correlationId(),
-                                    200, WireBodies.PENDING));
+                                    200, ProxyWireFixtures.PENDING));
             if (mode.equals("drip")) {
                 for (byte value : frame.toByteArray()) {
                     System.out.write(value);

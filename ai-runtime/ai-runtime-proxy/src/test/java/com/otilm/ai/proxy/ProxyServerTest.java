@@ -154,7 +154,7 @@ class ProxyServerTest {
                 assertTrue(Files.exists(path));
                 assertEquals("rw-rw----", PosixFilePermissions.toString(Files.getPosixFilePermissions(path)));
                 try (var client = connect(path)) {
-                    FrameCodec.writeRequest(Channels.newOutputStream(client), WireBodies.bootstrap());
+                    FrameCodec.writeRequest(Channels.newOutputStream(client), ProxyWireFixtures.bootstrapRequest());
                     client.shutdownOutput();
                     assertEquals(ProxyReply.Outcome.UPSTREAM_REPLY,
                             FrameCodec.readReply(Channels.newInputStream(client)).outcome());
@@ -184,7 +184,7 @@ class ProxyServerTest {
             serve(server);
             assertTrue(Files.exists(path));
             var frame = new ByteArrayOutputStream();
-            FrameCodec.writeRequest(frame, WireBodies.bootstrap());
+            FrameCodec.writeRequest(frame, ProxyWireFixtures.bootstrapRequest());
             byte[] invalid = mode.equals("json")
                     ? frame.toByteArray()
                     : java.util.Arrays.copyOf(frame.toByteArray(), frame.size() + 1);
@@ -219,7 +219,7 @@ class ProxyServerTest {
             serve(server);
             assertTrue(Files.exists(path));
             try (var client = connect(path)) {
-                FrameCodec.writeRequest(Channels.newOutputStream(client), WireBodies.bootstrap());
+                FrameCodec.writeRequest(Channels.newOutputStream(client), ProxyWireFixtures.bootstrapRequest());
                 assertEquals(-1, Channels.newInputStream(client).read());
             }
             assertEquals(0, creates.get());
@@ -242,7 +242,7 @@ class ProxyServerTest {
             fixture.stall = true;
             serve(server);
             try (var first = connect(path)) {
-                FrameCodec.writeRequest(Channels.newOutputStream(first), WireBodies.bootstrap());
+                FrameCodec.writeRequest(Channels.newOutputStream(first), ProxyWireFixtures.bootstrapRequest());
                 first.shutdownOutput();
                 fixture.requestArrived.get(4, TimeUnit.SECONDS);
                 try (var second = connect(path)) {
@@ -291,8 +291,8 @@ class ProxyServerTest {
         AtomicInteger creates = new AtomicInteger();
         var frame = new ByteArrayOutputStream();
         FrameCodec
-                .writeReply(frame,
-                        new ProxyReply(ProxyReply.Outcome.UPSTREAM_REPLY, WireBodies.CALL, 200, WireBodies.PENDING));
+                .writeReply(frame, new ProxyReply(ProxyReply.Outcome.UPSTREAM_REPLY, ProxyWireFixtures.CALL, 200,
+                        ProxyWireFixtures.PENDING));
         try (var fixture = new LocalTlsFixture(identity);
                 var server = new ProxyServer(path, fixture.configuration(), selfPolicy(), () -> {
                     creates.incrementAndGet();
@@ -301,7 +301,7 @@ class ProxyServerTest {
                 })) {
             serve(server);
             try (var client = connect(path)) {
-                FrameCodec.writeRequest(Channels.newOutputStream(client), WireBodies.bootstrap());
+                FrameCodec.writeRequest(Channels.newOutputStream(client), ProxyWireFixtures.bootstrapRequest());
                 client.shutdownOutput();
                 assertEquals(ProxyReply.Outcome.UNKNOWN,
                         FrameCodec.readReply(Channels.newInputStream(client)).outcome());
@@ -360,7 +360,7 @@ class ProxyServerTest {
                         }))) {
             serve(server);
             try (var client = connect(path)) {
-                FrameCodec.writeRequest(Channels.newOutputStream(client), WireBodies.bootstrap());
+                FrameCodec.writeRequest(Channels.newOutputStream(client), ProxyWireFixtures.bootstrapRequest());
                 client.shutdownOutput();
                 assertTrue(entered.await(2, TimeUnit.SECONDS));
                 Thread first = Thread.ofPlatform().daemon().start(() -> {
@@ -438,7 +438,7 @@ class ProxyServerTest {
                 })) {
             Thread loop = serve(server);
             try (var client = connect(path)) {
-                FrameCodec.writeRequest(Channels.newOutputStream(client), WireBodies.bootstrap());
+                FrameCodec.writeRequest(Channels.newOutputStream(client), ProxyWireFixtures.bootstrapRequest());
                 client.shutdownOutput();
                 assertTrue(entered.await(2, TimeUnit.SECONDS));
                 Thread reader = Thread.ofPlatform().daemon().start(() -> {
@@ -551,7 +551,7 @@ class ProxyServerTest {
                 })) {
             serve(server);
             try (var client = connect(path)) {
-                FrameCodec.writeRequest(Channels.newOutputStream(client), WireBodies.bootstrap());
+                FrameCodec.writeRequest(Channels.newOutputStream(client), ProxyWireFixtures.bootstrapRequest());
                 client.shutdownOutput();
                 assertEquals(-1, Channels.newInputStream(client).read());
             }

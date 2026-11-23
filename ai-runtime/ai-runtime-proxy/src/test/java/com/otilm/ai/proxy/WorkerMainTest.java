@@ -21,14 +21,14 @@ class WorkerMainTest {
         try (var fixture = new LocalTlsFixture(directory)) {
             Process process = worker(fixture.configuration());
             try {
-                FrameCodec.writeRequest(process.getOutputStream(), WireBodies.bootstrap());
+                FrameCodec.writeRequest(process.getOutputStream(), ProxyWireFixtures.bootstrapRequest());
                 process.getOutputStream().close();
                 byte[] output = process.getInputStream().readNBytes(4125);
                 assertTrue(process.waitFor(7, TimeUnit.SECONDS));
                 assertEquals(0, process.exitValue());
                 ProxyReply reply = FrameCodec.readReply(new ByteArrayInputStream(output));
                 assertEquals(ProxyReply.Outcome.UPSTREAM_REPLY, reply.outcome());
-                assertArrayEquals(WireBodies.PENDING, reply.payload());
+                assertArrayEquals(ProxyWireFixtures.PENDING, reply.payload());
                 assertEquals(1, fixture.requests.get());
             } finally {
                 process.destroyForcibly();
@@ -42,7 +42,7 @@ class WorkerMainTest {
         try (var fixture = new LocalTlsFixture(directory)) {
             Process process = worker(fixture.configuration());
             try {
-                FrameCodec.writeRequest(process.getOutputStream(), WireBodies.bootstrap());
+                FrameCodec.writeRequest(process.getOutputStream(), ProxyWireFixtures.bootstrapRequest());
                 process.getOutputStream().write(0);
                 process.getOutputStream().close();
                 assertEquals(0, process.getInputStream().readNBytes(4125).length);
@@ -60,7 +60,7 @@ class WorkerMainTest {
         try (var fixture = new LocalTlsFixture(directory)) {
             Process process = worker(fixture.configuration());
             try {
-                FrameCodec.writeRequest(process.getOutputStream(), WireBodies.bootstrap());
+                FrameCodec.writeRequest(process.getOutputStream(), ProxyWireFixtures.bootstrapRequest());
                 process.getOutputStream().flush();
                 assertTrue(process.waitFor(7, TimeUnit.SECONDS));
                 assertEquals(0, process.getInputStream().readNBytes(4125).length);
@@ -77,10 +77,10 @@ class WorkerMainTest {
         try (var fixture = new LocalTlsFixture(directory)) {
             Process process = worker(fixture.configuration(), LingeringDependencyWorker.class.getName());
             try {
-                FrameCodec.writeRequest(process.getOutputStream(), WireBodies.bootstrap());
+                FrameCodec.writeRequest(process.getOutputStream(), ProxyWireFixtures.bootstrapRequest());
                 process.getOutputStream().close();
-                byte[] frame = process.getInputStream().readNBytes(28 + WireBodies.PENDING.length);
-                assertEquals(28 + WireBodies.PENDING.length, frame.length);
+                byte[] frame = process.getInputStream().readNBytes(28 + ProxyWireFixtures.PENDING.length);
+                assertEquals(28 + ProxyWireFixtures.PENDING.length, frame.length);
                 assertTrue(process.waitFor(7, TimeUnit.SECONDS));
                 assertEquals(ProxyReply.Outcome.UPSTREAM_REPLY,
                         FrameCodec.readReply(new ByteArrayInputStream(frame)).outcome());

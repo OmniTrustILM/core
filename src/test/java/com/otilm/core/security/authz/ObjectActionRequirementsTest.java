@@ -26,10 +26,11 @@ import java.util.TreeSet;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ObjectActionRequirementsTest {
 
@@ -55,12 +56,18 @@ class ObjectActionRequirementsTest {
     }
 
     @Test
-    void refusesGenericUuidActionDiscoveryForAiModels() {
+    void rejectsGenericUuidDiscovery_whenResourceIsAiModel() {
+        // given
         ObjectActionResolver resolver = new ObjectActionResolver(null, null);
+        List<UUID> objectUuids = List.of(UUID.randomUUID());
 
-        assertThatExceptionOfType(ValidationException.class)
-                .isThrownBy(() -> resolver.resolve(Resource.AI_MODEL, List.of(UUID.randomUUID())))
-                .withMessageContaining("Resource aiModels has no objects identified by UUID");
+        // when
+        ThrowingCallable resolveAiModelObjects = () -> resolver.resolve(Resource.AI_MODEL, objectUuids);
+
+        // then
+        assertThatThrownBy(resolveAiModelObjects)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Resource aiModels has no objects identified by UUID");
     }
 
     @Test

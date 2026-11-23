@@ -3,14 +3,47 @@ package com.otilm.core.service.ai;
 import java.io.IOException;
 import java.net.Socket;
 import java.sql.Connection;
+import java.sql.SQLException;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.Mockito.mock;
 
+@ExtendWith(MockitoExtension.class)
 class AiRuntimeJdbcCleanupFailureTest {
+    @Mock
+    private Connection delegateConnection;
+
     @Test
-    void socketCloseFailureNeverQualifiesOwnedCleanup() throws Exception {
+    void failsConnectionCleanup_whenSocketCloseFails() throws Exception {
+        // given
+        var owner = ownerWithFailingSocketClose();
+
+        // when
+        ThrowingCallable closeConnections = owner::closeConnections;
+
+        // then
+        assertThatThrownBy(closeConnections).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void failsOwnerClose_whenSocketCloseFails() throws Exception {
+        // given
+        var owner = ownerWithFailingSocketClose();
+
+        // when
+        ThrowingCallable closeOwner = owner::close;
+
+        // then
+        assertThatThrownBy(closeOwner).isInstanceOf(IllegalStateException.class);
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private AiRuntimeJdbcDeadline ownerWithFailingSocketClose() throws Exception {
         var owner = new AiRuntimeJdbcDeadline();
         Connection connection = owner.connect(() -> {
             try {
@@ -21,12 +54,11 @@ class AiRuntimeJdbcCleanupFailureTest {
                     }
                 });
             } catch (IOException failure) {
-                throw new java.sql.SQLException(failure);
+                throw new SQLException(failure);
             }
-            return mock(Connection.class);
+            return delegateConnection;
         });
         connection.close();
-        assertThatThrownBy(owner::closeConnections).isInstanceOf(IllegalStateException.class);
-        assertThatThrownBy(owner::close).isInstanceOf(IllegalStateException.class);
+        return owner;
     }
 }

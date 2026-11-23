@@ -130,7 +130,9 @@ class FixedCoreHttpTest {
             assertDoesNotThrow(() -> {
                 try (var client = FixedCoreHttp.open(endpoint, context, TimeUnit.SECONDS.toNanos(2))) {
                     var post = new HttpPost(endpoint.origin().resolve("/fixed"));
-                    post.setEntity(new ByteArrayEntity(WireBodies.bootstrap().payload(), ContentType.APPLICATION_JSON));
+                    post
+                            .setEntity(new ByteArrayEntity(ProxyWireFixtures.bootstrapRequest().payload(),
+                                    ContentType.APPLICATION_JSON));
                     try (var response = client.executeOpen(null, post, null)) {
                         assertEquals(200, response.getCode());
                         response.getEntity().getContent().readAllBytes();
