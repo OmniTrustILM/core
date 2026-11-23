@@ -42,6 +42,9 @@ class AllResourcesGrantTest {
     private static Stream<Arguments> principals() {
         return Stream
                 .of(Arguments.of("unparseable principal", "not json", false),
+                        Arguments
+                                .of("all resources allowed, then another value",
+                                        createPermissions("true", null) + " {}", false),
                         Arguments.of("absent principal", null, false), Arguments.of("no permissions", "{}", false),
                         Arguments.of("all resources not allowed", createPermissions("false", null), false),
                         Arguments.of("all resources allowed as text", createPermissions("\"true\"", null), false),

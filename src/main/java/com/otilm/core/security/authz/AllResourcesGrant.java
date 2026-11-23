@@ -1,6 +1,7 @@
 package com.otilm.core.security.authz;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.HashSet;
@@ -30,7 +31,11 @@ record AllResourcesGrant(boolean allowAllResources, Set<String> resourcesWithDen
     static AllResourcesGrant of(ObjectMapper objectMapper, String rawPrincipal) {
         JsonNode permissions;
         try {
-            permissions = objectMapper.readTree(rawPrincipal).path("permissions");
+            permissions = objectMapper
+                    .readerFor(JsonNode.class)
+                    .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+                    .<JsonNode>readValue(rawPrincipal)
+                    .path("permissions");
         } catch (JsonProcessingException | IllegalArgumentException e) {
             return NONE;
         }
