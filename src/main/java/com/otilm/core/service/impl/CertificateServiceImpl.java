@@ -2767,25 +2767,26 @@ public class CertificateServiceImpl
 
     /** Links the alternative key of a hybrid X.509 certificate; other types have none. */
     private void uploadAlternativeKey(Certificate certificate, ParsedCertificate issued) throws CertificateException {
-        byte[] alternativeKey = alternativeKeyOf(issued);
-        if (alternativeKey != null) {
-            uploadCertificateKey(null, certificate, alternativeKey);
+        Optional<byte[]> alternativeKey = alternativeKeyOf(issued);
+        if (alternativeKey.isPresent()) {
+            uploadCertificateKey(null, certificate, alternativeKey.get());
         }
     }
 
     @Override
     public void uploadCertificateKeys(Certificate certificate, ParsedCertificate content) throws CertificateException {
-        uploadCertificateKey(content.properties().publicKey(), certificate, alternativeKeyOf(content));
+        uploadCertificateKey(content.properties().publicKey(), certificate, alternativeKeyOf(content).orElse(null));
     }
 
-    /** The alternative key of a hybrid X.509 certificate, or null: no other type has one. */
-    private static byte[] alternativeKeyOf(ParsedCertificate certificate) throws CertificateException {
+    /** The alternative key of a hybrid X.509 certificate; no other type has one. */
+    private static Optional<byte[]> alternativeKeyOf(ParsedCertificate certificate) throws CertificateException {
         if (!CertificateType.X509.getCode().equals(certificate.typeCode())) {
-            return null;
+            return Optional.empty();
         }
-        return CertificateUtil
-                .getX509Certificate(certificate.encoded())
-                .getExtensionValue(Extension.subjectAltPublicKeyInfo.getId());
+        return Optional
+                .ofNullable(CertificateUtil
+                        .getX509Certificate(certificate.encoded())
+                        .getExtensionValue(Extension.subjectAltPublicKeyInfo.getId()));
     }
 
     @Override
