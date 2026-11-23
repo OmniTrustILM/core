@@ -57,7 +57,9 @@ class CertificateTypeHandlerExceptionMappingTest {
     void answersWithBadGatewayNamingTheRaProfile_whenTheAuthorityCannotSayWhichTypesItIssues() throws Exception {
         // given
         var raProfileName = "ssh-profile";
-        var unavailable = new CertificateTypesUnavailableException(raProfileName, new ConnectorException("down"));
+        var connectorText = "text written by the connector";
+        var unavailable = new CertificateTypesUnavailableException(raProfileName,
+                new ConnectorException(connectorText));
         var handlerMethod = ExceptionHandlingAdvice.class
                 .getMethod("handleCertificateTypesUnavailableException", CertificateTypesUnavailableException.class);
 
@@ -65,7 +67,7 @@ class CertificateTypeHandlerExceptionMappingTest {
         ErrorMessageDto body = advice.handleCertificateTypesUnavailableException(unavailable);
 
         // then
-        assertThat(body.getMessage()).contains(raProfileName);
+        assertThat(body.getMessage()).contains(raProfileName).doesNotContain(connectorText);
         assertThat(handlerMethod.getAnnotation(ResponseStatus.class).value()).isEqualTo(HttpStatus.BAD_GATEWAY);
     }
 }

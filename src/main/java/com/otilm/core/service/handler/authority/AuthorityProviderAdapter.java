@@ -129,8 +129,9 @@ public interface AuthorityProviderAdapter {
             throws ConnectorException;
 
     /**
-     * The certificate types the authority issues through the RA profile. v3 asks the connector and resolves a connector
-     * that does not offer the operation to X.509 only; v2 has no such operation and always answers X.509 only.
+     * The certificate types the authority issues through the RA profile, never empty. v3 asks the connector and
+     * resolves a connector that does not offer the operation, or lists nothing, to X.509 only; v2 has no such operation
+     * and always answers X.509 only.
      */
     Set<CertificateType> listCertificateTypes(AuthorityInstanceReference authority, RaProfile raProfile)
             throws ConnectorException;

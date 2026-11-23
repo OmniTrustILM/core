@@ -534,5 +534,4 @@ class AuthorityProviderV2AdapterTest {
         // then
         assertThat(types).containsExactly(CertificateType.X509);
     }
-
 }

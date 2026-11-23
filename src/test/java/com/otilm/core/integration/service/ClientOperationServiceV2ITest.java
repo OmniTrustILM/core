@@ -726,6 +726,43 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
+    void submitsWithoutAskingTheAuthorityForItsTypes_whenAProtocolRequestsTheCertificate() throws Exception {
+        // given
+        stubIssueEndpoints();
+        doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedTypes(any());
+        CertificateProtocolInfo protocolInfo = CertificateProtocolInfo.est(UUID.randomUUID());
+
+        // when
+        ClientCertificateDataResponseDto response = clientOperationInternalService
+                .issueCertificate(authorityInstanceReference.getSecuredParentUuid(), raProfile.getSecuredUuid(),
+                        issueRequest(), protocolInfo);
+
+        // then
+        assertThat(certificateRepository.findByUuid(UUID.fromString(response.getUuid()))).isPresent();
+        verify(authorityCertificateTypes, never()).requireSupport(any(), any());
+    }
+
+    @Test
+    void refusesBeforeStoring_whenARequestOutsideAProtocolAsksForATypeTheAuthorityDoesNotIssue() throws Exception {
+        // given
+        stubIssueEndpoints();
+        doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedTypes(any());
+        long certificatesBefore = certificateRepository.count();
+        ClientCertificateIssueRequestDto request = issueRequest();
+
+        // when
+        ThrowingCallable issue = () -> clientOperationInternalService
+                .issueCertificate(authorityInstanceReference.getSecuredParentUuid(), raProfile.getSecuredUuid(),
+                        request, null);
+
+        // then
+        assertThatThrownBy(issue)
+                .isInstanceOf(UnsupportedCertificateTypeException.class)
+                .hasMessageContaining(raProfile.getName());
+        assertThat(certificateRepository.count()).isEqualTo(certificatesBefore);
+    }
+
+    @Test
     void issueCertificate_commitsTheStore_whenTheProtocolInfoHasNoOnStoredHook() throws Exception {
         // given
         stubIssueEndpoints();
@@ -999,6 +1036,9 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                 .of(operation("list issue attributes",
                         (service, authority, profile, certificateUuid) -> service
                                 .listIssueCertificateAttributes(authority, profile)),
+                        operation("list certificate types",
+                                (service, authority, profile, certificateUuid) -> service
+                                        .listSupportedCertificateTypes(authority, profile)),
                         operation("list register attributes",
                                 (service, authority, profile, certificateUuid) -> service
                                         .listRegisterCertificateAttributes(authority, profile)),

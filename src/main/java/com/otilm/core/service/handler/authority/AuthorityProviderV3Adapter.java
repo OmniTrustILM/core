@@ -288,7 +288,7 @@ public class AuthorityProviderV3Adapter extends AbstractAuthorityProviderAdapter
                 List.of(SupportedCertificateTypeDtoV3.of(CertificateType.X509)), "the supported certificate types");
         Set<CertificateType> types = EnumSet.noneOf(CertificateType.class);
         listed.forEach(entry -> types.add(entry.getCertificateType()));
-        return types;
+        return types.isEmpty() ? EnumSet.of(CertificateType.X509) : types;
     }
 
     @Override

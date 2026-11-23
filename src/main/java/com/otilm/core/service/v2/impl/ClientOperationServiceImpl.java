@@ -715,6 +715,17 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         return submitAndQueueIssue(authorityUuid, raProfileUuid, request, protocolInfo, beforeDispatch);
     }
 
+    /**
+     * Asks the authority whether it issues the type, except for a protocol request: the protocols request X.509 only,
+     * and what the authority returns is checked against the requested type when it is stored.
+     */
+    private void requireAuthoritySupport(CertificateType type, RaProfile raProfile,
+            CertificateProtocolInfo protocolInfo) {
+        if (protocolInfo == null) {
+            authorityCertificateTypes.requireSupport(type, raProfile);
+        }
+    }
+
     private ClientCertificateDataResponseDto submitAndQueueIssue(final SecuredParentUUID authorityUuid,
             final SecuredUUID raProfileUuid, final ClientCertificateIssueRequestDto request,
             final CertificateProtocolInfo protocolInfo, final Consumer<UUID> beforeDispatch)
@@ -730,7 +741,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             throw new ValidationException(String
                     .format("Cannot issue certificate with disabled RA profile. Ra Profile: %s", raProfile.getName()));
         }
-        authorityCertificateTypes.requireSupport(request.getCertificateType(), raProfile);
+        requireAuthoritySupport(request.getCertificateType(), raProfile, protocolInfo);
 
         ClientCertificateRequestDto certificateRequestDto = new ClientCertificateRequestDto();
         certificateRequestDto.setRaProfileUuid(raProfileUuid.getValue());
@@ -2620,7 +2631,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             CertificateOperationException, CertificateRequestException, ConnectorException, AttributeException {
         Certificate oldCertificate = validateOldCertificateForOperation(certificateUuid, raProfileUuid.toString(),
                 ResourceAction.RENEW, authorityUuid);
-        authorityCertificateTypes.requireSupport(oldCertificate.getCertificateType(), oldCertificate.getRaProfile());
+        requireAuthoritySupport(oldCertificate.getCertificateType(), oldCertificate.getRaProfile(), protocolInfo);
         if (request != null) {
             request.setFormat(requestFormatResolver.resolve(request.getFormat(), oldCertificate.getCertificateType()));
         }
@@ -2884,7 +2895,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             ConnectorException, AttributeException {
         Certificate oldCertificate = validateOldCertificateForOperation(certificateUuid, raProfileUuid.toString(),
                 ResourceAction.REKEY, authorityUuid);
-        authorityCertificateTypes.requireSupport(oldCertificate.getCertificateType(), oldCertificate.getRaProfile());
+        requireAuthoritySupport(oldCertificate.getCertificateType(), oldCertificate.getRaProfile(), protocolInfo);
         if (request != null) {
             request.setFormat(requestFormatResolver.resolve(request.getFormat(), oldCertificate.getCertificateType()));
         }

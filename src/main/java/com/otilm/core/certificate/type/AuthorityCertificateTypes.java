@@ -2,6 +2,8 @@ package com.otilm.core.certificate.type;
 
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationError;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.RaProfile;
@@ -10,14 +12,15 @@ import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * The certificate types the authority of an RA profile can issue, as its connector answers each time it is asked. A
- * connector that cannot say issues X.509 only.
+ * connector that cannot say, or lists nothing, issues X.509 only.
  */
 @Component
 public class AuthorityCertificateTypes {
+
+    private static final String CONNECTOR_UNAVAILABLE_MESSAGE = "Connector of the Authority is not available / deleted";
 
     private final RaProfileRepository raProfileRepository;
     private final AuthorityProviderAdapterFactory adapterFactory;
@@ -28,12 +31,17 @@ public class AuthorityCertificateTypes {
         this.adapterFactory = adapterFactory;
     }
 
-    @Transactional(readOnly = true)
+    /**
+     * @throws NotFoundException when the RA profile does not exist or its authority has no connector
+     */
     public Set<CertificateType> supportedTypes(UUID raProfileUuid) throws ConnectorException, NotFoundException {
         RaProfile raProfile = raProfileRepository
                 .findWithAuthorityByUuid(raProfileUuid)
                 .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
         AuthorityInstanceReference authority = raProfile.getAuthorityInstanceReference();
+        if (authority.getConnector() == null) {
+            throw new NotFoundException(CONNECTOR_UNAVAILABLE_MESSAGE);
+        }
         return adapterFactory.forAuthority(authority).listCertificateTypes(authority, raProfile);
     }
 
@@ -42,7 +50,6 @@ public class AuthorityCertificateTypes {
      *
      * @throws CertificateTypesUnavailableException when the authority could not be asked
      */
-    @Transactional(readOnly = true)
     public void requireSupport(CertificateType type, RaProfile raProfile) {
         CertificateType effectiveType = type != null ? type : CertificateType.X509;
         Set<CertificateType> supported;
@@ -51,7 +58,7 @@ public class AuthorityCertificateTypes {
         } catch (ConnectorException e) {
             throw new CertificateTypesUnavailableException(raProfile.getName(), e);
         } catch (NotFoundException e) {
-            throw new IllegalStateException(e);
+            throw new ValidationException(ValidationError.create(e.getMessage()));
         }
         if (!supported.contains(effectiveType)) {
             throw UnsupportedCertificateTypeException

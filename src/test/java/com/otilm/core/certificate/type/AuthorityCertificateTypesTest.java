@@ -1,8 +1,10 @@
 package com.otilm.core.certificate.type;
 
 import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
+import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
@@ -21,6 +23,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -41,12 +45,13 @@ class AuthorityCertificateTypesTest {
     @BeforeEach
     void createRaProfileOfAnAuthority() {
         var authority = new AuthorityInstanceReference();
+        authority.setConnector(new Connector());
         raProfile = new RaProfile();
         raProfile.setUuid(UUID.randomUUID());
         raProfile.setName(RA_PROFILE_NAME);
         raProfile.setAuthorityInstanceReference(authority);
         when(raProfileRepository.findWithAuthorityByUuid(raProfile.getUuid())).thenReturn(Optional.of(raProfile));
-        when(adapterFactory.forAuthority(authority)).thenReturn(adapter);
+        lenient().when(adapterFactory.forAuthority(authority)).thenReturn(adapter);
         authorityCertificateTypes = new AuthorityCertificateTypes(raProfileRepository, adapterFactory);
     }
 
@@ -119,6 +124,19 @@ class AuthorityCertificateTypesTest {
                 .hasMessageContaining(RA_PROFILE_NAME)
                 .hasMessageNotContaining(connectorFailure.getMessage())
                 .hasCause(connectorFailure);
+    }
+
+    @Test
+    void refusesNamingTheMissingConnector_whenTheAuthorityHasNone() {
+        // given
+        raProfile.getAuthorityInstanceReference().setConnector(null);
+
+        // when
+        ThrowingCallable check = () -> authorityCertificateTypes.requireSupport(CertificateType.X509, raProfile);
+
+        // then
+        assertThatThrownBy(check).isInstanceOf(ValidationException.class).hasMessageContaining("not available");
+        verifyNoInteractions(adapter);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

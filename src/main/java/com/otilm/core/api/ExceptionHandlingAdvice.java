@@ -34,6 +34,7 @@ import com.otilm.core.exception.PreconditionFailedException;
 import com.otilm.core.exception.UnsupportedAuthorityVersionException;
 import com.otilm.core.exception.UnsupportedCryptographyProviderVersionException;
 import com.otilm.core.exception.UnsupportedDiscoveryVersionException;
+import com.otilm.core.logging.RedactedFailure;
 import com.otilm.core.security.authn.PlatformAuthenticationException;
 import com.otilm.core.security.exception.AuthenticationServiceException;
 import com.otilm.core.util.AuthHelper;
@@ -335,18 +336,18 @@ public class ExceptionHandlingAdvice {
         return ErrorMessageDto.getInstance(messageBuilder.toString());
     }
 
+    @ExceptionHandler(CertificateTypesUnavailableException.class)
+    @ResponseStatus(HttpStatus.BAD_GATEWAY)
+    public ErrorMessageDto handleCertificateTypesUnavailableException(CertificateTypesUnavailableException ex) {
+        LOG.info("HTTP 502: {}", ex.getMessage(), RedactedFailure.forLog(ex));
+        return ErrorMessageDto.getInstance(ex.getMessage());
+    }
+
     /**
      * Handler for {@link ConnectorCommunicationException}.
      *
      * @return
      */
-    @ExceptionHandler(CertificateTypesUnavailableException.class)
-    @ResponseStatus(HttpStatus.BAD_GATEWAY)
-    public ErrorMessageDto handleCertificateTypesUnavailableException(CertificateTypesUnavailableException ex) {
-        LOG.info("HTTP 502: {}", ex.getMessage(), ex.getCause());
-        return ErrorMessageDto.getInstance(ex.getMessage());
-    }
-
     @ExceptionHandler(ConnectorCommunicationException.class)
     @ResponseStatus(HttpStatus.SERVICE_UNAVAILABLE)
     public ErrorMessageDto handleConnectorCommunicationException(ConnectorCommunicationException ex) {

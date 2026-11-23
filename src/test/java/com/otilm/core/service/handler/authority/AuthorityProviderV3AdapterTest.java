@@ -1493,7 +1493,7 @@ class AuthorityProviderV3AdapterTest {
         }
 
         @Test
-        void returnsNoTypes_whenTheConnectorListsNone() throws Exception {
+        void returnsX509Only_whenTheConnectorListsNoTypes() throws Exception {
             // given
             when(authorityClientV3.listCertificateTypes(eq(connectorInfo), any())).thenReturn(List.of());
 
@@ -1501,15 +1501,22 @@ class AuthorityProviderV3AdapterTest {
             Set<CertificateType> types = adapter.listCertificateTypes(authority, raProfile);
 
             // then
-            assertThat(types).isEmpty();
+            assertThat(types).containsExactly(CertificateType.X509);
         }
 
         @Test
-        void asksForTheRaProfile_whenListingTheTypes() throws Exception {
+        void sendsTheAttributesOfTheAuthorityAndTheRaProfile_whenListingTheTypes() throws Exception {
             // given
-            var raProfileAttribute = new RequestAttributeV3(UUID.randomUUID(), "template", AttributeContentType.STRING,
-                    List.<BaseAttributeContentV3<?>>of(new StringAttributeContentV3()));
-            when(attributeEngine.getRequestObjectDataAttributesContent(any())).thenReturn(List.of(raProfileAttribute));
+            var authorityAttribute = createStringAttribute("caUrl");
+            var raProfileAttribute = createStringAttribute("template");
+            when(attributeEngine
+                    .getRequestObjectDataAttributesContent(
+                            argThat(info -> info != null && info.objectType() == Resource.AUTHORITY)))
+                    .thenReturn(List.of(authorityAttribute));
+            when(attributeEngine
+                    .getRequestObjectDataAttributesContent(
+                            argThat(info -> info != null && info.objectType() == Resource.RA_PROFILE)))
+                    .thenReturn(List.of(raProfileAttribute));
             when(operationAttributeResolver.resolveForConnectorRequestAsSystem(eq(authority.getConnectorUuid()), any()))
                     .thenAnswer(invocation -> invocation.getArgument(1));
             when(authorityClientV3.listCertificateTypes(eq(connectorInfo), any())).thenReturn(List.of());
@@ -1520,12 +1527,12 @@ class AuthorityProviderV3AdapterTest {
 
             // then
             verify(authorityClientV3).listCertificateTypes(eq(connectorInfo), sent.capture());
-            assertThat(sent.getValue().getRaProfileAttributes()).isNotNull();
-            assertThat(sent.getValue().getAuthorityAttributes()).isNotNull();
+            assertThat(sent.getValue().getAuthorityAttributes()).containsExactly(authorityAttribute);
+            assertThat(sent.getValue().getRaProfileAttributes()).containsExactly(raProfileAttribute);
         }
 
         @ParameterizedTest
-        @MethodSource("com.otilm.core.service.handler.authority.AuthorityProviderV3AdapterTest#notOfferedAnswers")
+        @MethodSource("notOfferedAnswers")
         void returnsX509Only_whenTheConnectorDoesNotOfferTheOperation(ConnectorException notOffered) throws Exception {
             // given
             when(authorityClientV3.listCertificateTypes(eq(connectorInfo), any())).thenThrow(notOffered);
@@ -1561,26 +1568,34 @@ class AuthorityProviderV3AdapterTest {
             // then
             assertThatThrownBy(listTypes).isSameAs(serverError);
         }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        static Stream<Arguments> notOfferedAnswers() {
+            var notFoundWithoutCode = new ProblemDetailExtended();
+            notFoundWithoutCode.setStatus(HttpStatus.NOT_FOUND.value());
+            return Stream
+                    .of(arguments(named("bare 404", new ConnectorEntityNotFoundException("no such route"))),
+                            arguments(named("bare 501",
+                                    new ConnectorServerException("Not Implemented", HttpStatus.NOT_IMPLEMENTED))),
+                            arguments(named("operation not supported",
+                                    new ConnectorProblemException(ProblemDetailExtended
+                                            .fromErrorCode(ErrorCode.OPERATION_NOT_SUPPORTED, "no types", null,
+                                                    null)))),
+                            arguments(named("resource not found problem",
+                                    new ConnectorProblemException(ProblemDetailExtended
+                                            .fromErrorCode(ErrorCode.RESOURCE_NOT_FOUND, "no route", null, null)))),
+                            arguments(named("404 problem without a code",
+                                    new ConnectorProblemException(notFoundWithoutCode))));
+        }
+
+        private static RequestAttribute createStringAttribute(String name) {
+            return new RequestAttributeV3(UUID.randomUUID(), name, AttributeContentType.STRING,
+                    List.<BaseAttributeContentV3<?>>of(new StringAttributeContentV3()));
+        }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
-
-    static Stream<Arguments> notOfferedAnswers() {
-        var notFoundWithoutCode = new ProblemDetailExtended();
-        notFoundWithoutCode.setStatus(HttpStatus.NOT_FOUND.value());
-        return Stream
-                .of(arguments(named("bare 404", new ConnectorEntityNotFoundException("no such route"))),
-                        arguments(named("bare 501",
-                                new ConnectorServerException("Not Implemented", HttpStatus.NOT_IMPLEMENTED))),
-                        arguments(named("operation not supported",
-                                new ConnectorProblemException(ProblemDetailExtended
-                                        .fromErrorCode(ErrorCode.OPERATION_NOT_SUPPORTED, "no types", null, null)))),
-                        arguments(named("resource not found problem",
-                                new ConnectorProblemException(ProblemDetailExtended
-                                        .fromErrorCode(ErrorCode.RESOURCE_NOT_FOUND, "no route", null, null)))),
-                        arguments(named("404 problem without a code",
-                                new ConnectorProblemException(notFoundWithoutCode))));
-    }
 
     private void resolveAttributesToSecret(String secret) throws ConnectorException {
         ResourceObjectContent secretContent = new ResourceObjectContent();
