@@ -69,7 +69,7 @@ public interface ClientOperationExternalService {
 
     /** The certificate types that can be issued through the RA profile, as its authority reports them. */
     List<SupportedCertificateTypeDto> listSupportedCertificateTypes(SecuredParentUUID authorityUuid,
-            SecuredUUID raProfileUuid) throws ConnectorException, NotFoundException;
+            SecuredUUID raProfileUuid) throws NotFoundException;
 
     List<BaseAttribute> listRegisterCertificateAttributes(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid)
             throws ConnectorException, NotFoundException;

@@ -33,8 +33,9 @@ public class AuthorityCertificateTypes {
 
     /**
      * @throws NotFoundException when the RA profile does not exist or its authority has no connector
+     * @throws CertificateTypesUnavailableException when the authority could not be asked
      */
-    public Set<CertificateType> supportedTypes(UUID raProfileUuid) throws ConnectorException, NotFoundException {
+    public Set<CertificateType> supportedTypes(UUID raProfileUuid) throws NotFoundException {
         RaProfile raProfile = raProfileRepository
                 .findWithAuthorityByUuid(raProfileUuid)
                 .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
@@ -42,7 +43,11 @@ public class AuthorityCertificateTypes {
         if (authority.getConnector() == null) {
             throw new NotFoundException(CONNECTOR_UNAVAILABLE_MESSAGE);
         }
-        return adapterFactory.forAuthority(authority).listCertificateTypes(authority, raProfile);
+        try {
+            return adapterFactory.forAuthority(authority).listCertificateTypes(authority, raProfile);
+        } catch (ConnectorException e) {
+            throw new CertificateTypesUnavailableException(raProfile.getName(), e);
+        }
     }
 
     /**
@@ -55,8 +60,6 @@ public class AuthorityCertificateTypes {
         Set<CertificateType> supported;
         try {
             supported = supportedTypes(raProfile.getUuid());
-        } catch (ConnectorException e) {
-            throw new CertificateTypesUnavailableException(raProfile.getName(), e);
         } catch (NotFoundException e) {
             throw new ValidationException(ValidationError.create(e.getMessage()));
         }

@@ -215,7 +215,7 @@ class V3OptionalSchemaITest extends BaseSpringBootTest {
 
         // ── Helpers ───────────────────────────────────────────────────────────
 
-        static Stream<Arguments> answersListingNothing() {
+        private static Stream<Arguments> answersListingNothing() {
             return Stream
                     .of(arguments(named("an empty list", okJson("[]"))), arguments(named("no body",
                             aResponse().withStatus(200).withHeader("Content-Type", "application/json"))));

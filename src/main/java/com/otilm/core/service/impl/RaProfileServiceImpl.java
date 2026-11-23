@@ -731,7 +731,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
     @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.ANY,
             parentResource = Resource.AUTHORITY, parentAction = ResourceAction.ANY)
     public List<SupportedCertificateTypeDto> listSupportedCertificateTypes(SecuredParentUUID authorityUuid,
-            SecuredUUID uuid) throws ConnectorException, NotFoundException {
+            SecuredUUID uuid) throws NotFoundException {
         RaProfile raProfile = getRaProfileEntity(uuid);
         requireUnderAuthority(raProfile, authorityUuid, uuid);
         return authorityCertificateTypes

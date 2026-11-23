@@ -489,7 +489,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.ANY,
             parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
     public List<SupportedCertificateTypeDto> listSupportedCertificateTypes(SecuredParentUUID authorityUuid,
-            SecuredUUID raProfileUuid) throws ConnectorException, NotFoundException {
+            SecuredUUID raProfileUuid) throws NotFoundException {
         RaProfile raProfile = raProfileRepository
                 .findByUuidAndEnabledIsTrue(raProfileUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));

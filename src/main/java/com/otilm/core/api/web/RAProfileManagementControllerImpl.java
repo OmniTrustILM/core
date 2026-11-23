@@ -376,7 +376,7 @@ public class RAProfileManagementControllerImpl implements RAProfileManagementCon
             operation = Operation.LIST)
     public List<SupportedCertificateTypeDto> listSupportedCertificateTypes(
             @LogResource(uuid = true, affiliated = true) String authorityUuid,
-            @LogResource(uuid = true) String raProfileUuid) throws ConnectorException, NotFoundException {
+            @LogResource(uuid = true) String raProfileUuid) throws NotFoundException {
         return raProfileService
                 .listSupportedCertificateTypes(SecuredParentUUID.fromString(authorityUuid),
                         SecuredUUID.fromString(raProfileUuid));

@@ -4,7 +4,6 @@ import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
-import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
@@ -20,6 +19,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import static com.otilm.core.util.builders.ConnectorBuilder.aConnector;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -45,7 +45,7 @@ class AuthorityCertificateTypesTest {
     @BeforeEach
     void createRaProfileOfAnAuthority() {
         var authority = new AuthorityInstanceReference();
-        authority.setConnector(new Connector());
+        authority.setConnector(aConnector().build());
         raProfile = new RaProfile();
         raProfile.setUuid(UUID.randomUUID());
         raProfile.setName(RA_PROFILE_NAME);

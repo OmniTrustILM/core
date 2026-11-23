@@ -119,6 +119,7 @@ import org.springframework.http.ResponseEntity;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static com.otilm.core.util.builders.CertificateRequestEntityBuilder.aCertificateRequest;
+import static com.otilm.core.util.builders.RequestAttributeV3Builder.aCustomAttribute;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -1507,8 +1508,8 @@ class AuthorityProviderV3AdapterTest {
         @Test
         void sendsTheAttributesOfTheAuthorityAndTheRaProfile_whenListingTheTypes() throws Exception {
             // given
-            var authorityAttribute = createStringAttribute("caUrl");
-            var raProfileAttribute = createStringAttribute("template");
+            var authorityAttribute = aCustomAttribute().withName("caUrl").build();
+            var raProfileAttribute = aCustomAttribute().withName("template").build();
             when(attributeEngine
                     .getRequestObjectDataAttributesContent(
                             argThat(info -> info != null && info.objectType() == Resource.AUTHORITY)))
@@ -1571,7 +1572,7 @@ class AuthorityProviderV3AdapterTest {
 
         // ── Helpers ───────────────────────────────────────────────────────────
 
-        static Stream<Arguments> notOfferedAnswers() {
+        private static Stream<Arguments> notOfferedAnswers() {
             var notFoundWithoutCode = new ProblemDetailExtended();
             notFoundWithoutCode.setStatus(HttpStatus.NOT_FOUND.value());
             return Stream
@@ -1587,11 +1588,6 @@ class AuthorityProviderV3AdapterTest {
                                             .fromErrorCode(ErrorCode.RESOURCE_NOT_FOUND, "no route", null, null)))),
                             arguments(named("404 problem without a code",
                                     new ConnectorProblemException(notFoundWithoutCode))));
-        }
-
-        private static RequestAttribute createStringAttribute(String name) {
-            return new RequestAttributeV3(UUID.randomUUID(), name, AttributeContentType.STRING,
-                    List.<BaseAttributeContentV3<?>>of(new StringAttributeContentV3()));
         }
     }
 
