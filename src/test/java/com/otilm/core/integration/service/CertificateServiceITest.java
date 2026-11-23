@@ -68,6 +68,7 @@ import com.otilm.core.attribute.CsrAttributes;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
+import com.otilm.core.certificate.type.IssuedCertificateRefusedException;
 import com.otilm.core.certificate.type.X509CertificateTypeHandler;
 import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.dao.entity.AttributeContent2Object;
@@ -2890,6 +2891,98 @@ class CertificateServiceITest extends BaseSpringBootTest {
             var certUuid = cert.getUuid();
             assertThatThrownBy(() -> certificateService.issueRequestedCertificate(certUuid, pemCert, null))
                     .isInstanceOf(InvalidTransitionException.class);
+        }
+
+        @Test
+        void issuesTheCertificate_whenTheAuthorityStatesTheRequestedType() throws Exception {
+            // given
+            UUID requestedUuid = savePendingIssueCertificate();
+            var issuedContent = X509ObjectToString.toPem(generateEndEntityCertificate("CN=StatedType-EE"));
+            var statedType = CertificateType.X509;
+
+            // when
+            certificateService.issueRequestedCertificate(requestedUuid, issuedContent, null, statedType);
+
+            // then
+            Certificate reloaded = certificateRepository.findByUuid(requestedUuid).orElseThrow();
+            assertThat(reloaded.getState()).isEqualTo(CertificateState.ISSUED);
+        }
+
+        @Test
+        void refusesTheCertificate_whenTheAuthorityStatesAnotherTypeThanRequested() throws Exception {
+            // given
+            UUID requestedUuid = savePendingIssueCertificate();
+            var issuedContent = X509ObjectToString.toPem(generateEndEntityCertificate("CN=OtherType-EE"));
+            var statedType = CertificateType.SSH;
+
+            // when
+            ThrowingCallable issue = () -> certificateService
+                    .issueRequestedCertificate(requestedUuid, issuedContent, null, statedType);
+
+            // then
+            assertThatThrownBy(issue)
+                    .isInstanceOf(IssuedCertificateRefusedException.class)
+                    .hasMessageContaining(statedType.getLabel())
+                    .hasMessageContaining(CertificateType.X509.getLabel());
+            assertNotStoredAsIssued(requestedUuid);
+        }
+
+        @Test
+        void refusesTheContent_whenItIsNotACertificateOfTheRequestedType() {
+            // given
+            UUID requestedUuid = savePendingIssueCertificate();
+            var notACertificate = Base64
+                    .getEncoder()
+                    .encodeToString("not a certificate".getBytes(StandardCharsets.UTF_8));
+
+            // when
+            ThrowingCallable issue = () -> certificateService
+                    .issueRequestedCertificate(requestedUuid, notACertificate, null, null);
+
+            // then
+            assertThatThrownBy(issue)
+                    .isInstanceOf(IssuedCertificateRefusedException.class)
+                    .hasMessageContaining(CertificateType.X509.getLabel());
+            assertNotStoredAsIssued(requestedUuid);
+        }
+
+        @Test
+        void refusesTheContent_whenItIsNotValidBase64() {
+            // given
+            UUID requestedUuid = savePendingIssueCertificate();
+            var invalidBase64 = "%%%";
+
+            // when
+            ThrowingCallable issue = () -> certificateService
+                    .issueRequestedCertificate(requestedUuid, invalidBase64, null, null);
+
+            // then
+            assertThatThrownBy(issue)
+                    .isInstanceOf(IssuedCertificateRefusedException.class)
+                    .hasMessageContaining(CertificateType.X509.getLabel());
+            assertNotStoredAsIssued(requestedUuid);
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private UUID savePendingIssueCertificate() {
+            return certificateRepository
+                    .save(aCertificate().withRaProfile(raProfile).withState(CertificateState.PENDING_ISSUE).build())
+                    .getUuid();
+        }
+
+        private void assertNotStoredAsIssued(UUID certificateUuid) {
+            Certificate reloaded = certificateRepository.findByUuid(certificateUuid).orElseThrow();
+            assertThat(reloaded.getState()).isEqualTo(CertificateState.PENDING_ISSUE);
+            assertThat(reloaded.getCertificateContent()).isNull();
+        }
+
+        private static X509Certificate generateEndEntityCertificate(String subjectDn) throws Exception {
+            KeyPair issuerKeys = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+            X509Certificate issuer = CertificateGeneratorHelper.generateCACertificate(issuerKeys, subjectDn + "-Root");
+            KeyPair holderKeys = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+            return CertificateGeneratorHelper
+                    .generateEndEntityCertificate(issuerKeys, issuer, holderKeys, subjectDn, null);
         }
     }
 
