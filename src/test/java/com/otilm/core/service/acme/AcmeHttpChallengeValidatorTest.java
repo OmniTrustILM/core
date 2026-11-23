@@ -432,7 +432,9 @@ class AcmeHttpChallengeValidatorTest {
 
     /**
      * Answers with a redirect whose status line and {@code Location} arrive but whose remaining headers never do, and
-     * serves the key authorization to a client that follows that redirect anyway.
+     * serves the key authorization to a client that follows that redirect anyway. One more header line follows
+     * {@code Location}: the JDK keeps a header line back until the next one starts, so only then is {@code Location}
+     * readable from the connection.
      */
     private static void serveRedirectWhoseHeadersStallThenKeyAuthorization(ServerSocket server) {
         try (Socket stalled = server.accept()) {
@@ -440,7 +442,8 @@ class AcmeHttpChallengeValidatorTest {
             OutputStream out = stalled.getOutputStream();
             out
                     .write(("HTTP/1.1 302 Found\r\nLocation: http://" + IDENTIFIER
-                            + "/.well-known/acme-challenge/moved\r\n").getBytes(StandardCharsets.US_ASCII));
+                            + "/.well-known/acme-challenge/moved\r\nCache-Control: no-store\r\n")
+                            .getBytes(StandardCharsets.US_ASCII));
             out.flush();
             try (Socket followed = server.accept()) {
                 readRequestHead(followed.getInputStream());

@@ -143,7 +143,9 @@ public final class AcmeHttpChallengeValidator {
 
     /**
      * The body of a redirect that is followed is neither compared nor held to the size limit: only the body the chain
-     * ends with is, and a redirect page may be larger than the limit.
+     * ends with is, and a redirect page may be larger than the limit. The status and headers parsed before a read of
+     * the header block failed stay readable, so a redirect is followed only once {@code getInputStream()}, which
+     * rethrows that failure, has returned; its body is still not read.
      */
     private ChallengeResponse request(URL url, boolean mayRedirect) throws IOException, ChallengeFetchException {
         HttpURLConnection connection = (HttpURLConnection) connectionOpener.open(url);
@@ -157,6 +159,7 @@ public final class AcmeHttpChallengeValidator {
             boolean redirect = 300 <= responseCode && responseCode <= 399;
             String location = connection.getHeaderField(AcmeConstants.LOCATION_HEADER_NAME);
             if (redirect && location != null && mayRedirect) {
+                connection.getInputStream();
                 return new ChallengeResponse(null, location);
             }
             String body = 100 <= responseCode && responseCode <= 399 ? readBody(connection) : "";
