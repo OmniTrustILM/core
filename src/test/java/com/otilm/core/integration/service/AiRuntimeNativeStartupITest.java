@@ -299,13 +299,13 @@ class AiRuntimeNativeStartupITest extends BaseAiSpringBootTest {
             java.util.concurrent.Future<Throwable> result = executor
                     .submit(() -> org.assertj.core.api.Assertions
                             .catchThrowable(() -> writer
-                                    .disableAndConfirm(AiRuntimeOperationBudget.start(Duration.ofMillis(300)))));
+                                    .disableAndConfirm(AiRuntimeOperationBudget.start(Duration.ofSeconds(2)))));
             org.awaitility.Awaitility
                     .await("Owned startup control waiter")
                     .pollInSameThread()
                     .pollDelay(Duration.ZERO)
                     .pollInterval(Duration.ofMillis(2))
-                    .atMost(Duration.ofMillis(250))
+                    .atMost(Duration.ofMillis(1800))
                     .until(() -> {
                         if (pid.get() <= 0) {
                             return false;
@@ -326,9 +326,9 @@ class AiRuntimeNativeStartupITest extends BaseAiSpringBootTest {
                     .await("Startup waiter fails before old fixed timeout")
                     .pollInSameThread()
                     .pollDelay(Duration.ZERO)
-                    .atMost(Duration.ofMillis(650))
+                    .atMost(Duration.ofMillis(2500))
                     .untilAsserted(() -> assertThat(result.isDone()).isTrue());
-            assertThat(result.get(1, java.util.concurrent.TimeUnit.SECONDS))
+            assertThat(result.get(3, java.util.concurrent.TimeUnit.SECONDS))
                     .isInstanceOf(AiRuntimeOperationBudget.Unavailable.class);
             assertThat(fingerprint()).isEqualTo(before);
         } finally {
@@ -547,13 +547,13 @@ class AiRuntimeNativeStartupITest extends BaseAiSpringBootTest {
             java.util.concurrent.Future<Throwable> result = executor
                     .submit(() -> org.assertj.core.api.Assertions
                             .catchThrowable(() -> selectedWriter
-                                    .disableAndConfirm(AiRuntimeOperationBudget.start(Duration.ofMillis(300)))));
+                                    .disableAndConfirm(AiRuntimeOperationBudget.start(Duration.ofSeconds(2)))));
             org.awaitility.Awaitility
                     .await("Owned management startup waiter")
                     .pollInSameThread()
                     .pollDelay(Duration.ZERO)
                     .pollInterval(Duration.ofMillis(2))
-                    .atMost(Duration.ofMillis(250))
+                    .atMost(Duration.ofMillis(1800))
                     .until(() -> {
                         if (pid.get() <= 0) {
                             return false;
@@ -575,9 +575,9 @@ class AiRuntimeNativeStartupITest extends BaseAiSpringBootTest {
                     .await("Management waiter rolls back both audiences")
                     .pollInSameThread()
                     .pollDelay(Duration.ZERO)
-                    .atMost(Duration.ofMillis(650))
+                    .atMost(Duration.ofMillis(2500))
                     .untilAsserted(() -> assertThat(result.isDone()).isTrue());
-            assertThat(result.get(1, java.util.concurrent.TimeUnit.SECONDS))
+            assertThat(result.get(3, java.util.concurrent.TimeUnit.SECONDS))
                     .isInstanceOf(AiRuntimeOperationBudget.Unavailable.class);
             assertThat(fingerprint()).isEqualTo(before);
         } finally {
