@@ -356,6 +356,11 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
     }
 
     @Override
+    public Certificate newCertificate() {
+        return new X509CertificateEntity();
+    }
+
+    @Override
     public Certificate stampIssued(Certificate certificate, ParsedCertificate issued) {
         X509CertificateEntity entity = X509CertificateEntity.from(certificate);
         CertificateUtil.stampIssuedFields(entity, x509Of(issued));

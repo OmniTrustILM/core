@@ -96,6 +96,15 @@ public interface CertificateTypeHandler {
     byte[] encode(List<ParsedCertificate> certificates, CertificateFormat format, CertificateFormatEncoding encoding);
 
     /**
+     * A new, empty certificate entity of the type, for a certificate that enters the inventory with its content.
+     *
+     * @throws UnsupportedCertificateTypeException when certificates of the type cannot be stored, which is the default
+     */
+    default Certificate newCertificate() {
+        throw UnsupportedCertificateTypeException.notStored(typeCode());
+    }
+
+    /**
      * Fills the certificate with what the type stores about an issued certificate and returns it as the entity of the
      * type. The state of the certificate is left as it is.
      */

@@ -15,6 +15,7 @@ import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.core.certificate.type.stub.StubCertificateTypeHandler;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.helpers.CertificateGeneratorHelper.CertificateChainInfo;
 import com.otilm.core.oid.OidHandler;
@@ -804,6 +805,18 @@ class X509CertificateTypeHandlerTest {
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("Failed to generate the CSR")
                 .hasMessageContaining(signingFailure);
+    }
+
+    @Test
+    void createsAnEmptyX509Entity_whenAskedForANewCertificate() {
+        // given — the X.509 type stores its certificates in the X.509 entity
+
+        // when
+        Certificate created = handler.newCertificate();
+
+        // then
+        assertThat(created).isInstanceOf(X509CertificateEntity.class);
+        assertThat(created.getState()).isNull();
     }
 
     @Test

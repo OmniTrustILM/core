@@ -99,10 +99,16 @@ public class CertificateUploadServiceImpl implements CertificateUploadService {
         byte[] content = Base64.getDecoder().decode(certificateData);
         return certificateTypeHandlerRegistry
                 .detectCertificate(content)
-                .map(DetectedCertificate::certificate)
+                .map(CertificateUploadServiceImpl::requireStorable)
                 .orElseGet(() -> {
                     CertificateUtil.parseUploadedCertificateContent(certificateData);
                     throw new ValidationException("Uploaded certificate content has invalid or unsupported format.");
                 });
+    }
+
+    // a type that is recognised but has no entity is refused here, by name, before the upload event is produced
+    private static ParsedCertificate requireStorable(DetectedCertificate detected) {
+        detected.handler().newCertificate();
+        return detected.certificate();
     }
 }

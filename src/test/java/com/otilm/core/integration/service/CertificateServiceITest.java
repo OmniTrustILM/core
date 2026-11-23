@@ -1034,6 +1034,22 @@ class CertificateServiceITest extends BaseSpringBootTest {
         }
 
         @Test
+        void storesTheUploadedCertificateAsIssuedWithItsType() throws Exception {
+            // given
+            var request = anUploadCertificateRequest().withCertificate(x509Cert).build();
+
+            // when
+            UuidDto uploaded = certificateService.uploadSync(request);
+
+            // then
+            Certificate stored = certificateRepository.findByUuid(UUID.fromString(uploaded.getUuid())).orElseThrow();
+            assertThat(stored).isInstanceOf(X509CertificateEntity.class);
+            assertThat(stored.getCertificateType()).isEqualTo(CertificateType.X509);
+            assertThat(stored.getState()).isEqualTo(CertificateState.ISSUED);
+            assertThat(stored.getSerialNumber()).isEqualTo(x509Cert.getSerialNumber().toString(16));
+        }
+
+        @Test
         void throwsNotUploaded_whenIgnoreTriggerMatches() throws Exception {
             // given
             certificateUploadTriggerSeeder.seedIgnoreTrigger();
@@ -1463,6 +1479,53 @@ class CertificateServiceITest extends BaseSpringBootTest {
             } finally {
                 certificateService.setTypeHandlerRegistry(typeHandlerRegistry);
             }
+        }
+
+        @Test
+        void storesTheCertificateAsIssuedWithItsType_whenCreatingItFromContentOfANamedType() throws Exception {
+            // given
+            var content = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
+            var namedType = CertificateType.X509;
+
+            // when
+            Certificate created = certificateService.createCertificate(content, namedType);
+
+            // then
+            assertThat(created).isInstanceOf(X509CertificateEntity.class);
+            assertThat(created.getCertificateType()).isEqualTo(namedType);
+            assertThat(created.getState()).isEqualTo(CertificateState.ISSUED);
+            assertThat(created.getCertificateContent().getContent()).isNotBlank();
+        }
+
+        @Test
+        void refusesNamingTheType_whenCreatingACertificateOfATypeWithoutAHandler() throws Exception {
+            // given
+            var content = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
+            var typeWithoutAHandler = CertificateType.SSH;
+
+            // when
+            ThrowingCallable create = () -> certificateService.createCertificate(content, typeWithoutAHandler);
+
+            // then
+            assertThatThrownBy(create)
+                    .isInstanceOf(com.otilm.api.exception.CertificateException.class)
+                    .hasMessageContaining(typeWithoutAHandler.toString());
+        }
+
+        @Test
+        void refusesTheContent_whenItIsNotACertificateOfTheNamedType() {
+            // given
+            var notACertificate = Base64
+                    .getEncoder()
+                    .encodeToString("not a certificate".getBytes(StandardCharsets.UTF_8));
+
+            // when
+            ThrowingCallable create = () -> certificateService.createCertificate(notACertificate, CertificateType.X509);
+
+            // then
+            assertThatThrownBy(create)
+                    .isInstanceOf(com.otilm.api.exception.CertificateException.class)
+                    .hasMessageContaining(CertificateType.X509.getLabel());
         }
 
         @Test

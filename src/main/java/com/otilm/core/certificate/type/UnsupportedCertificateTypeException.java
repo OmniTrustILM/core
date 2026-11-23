@@ -23,6 +23,10 @@ public class UnsupportedCertificateTypeException extends ValidationException {
                 "The operation " + operation + " is not supported for certificates of type " + typeCode);
     }
 
+    public static UnsupportedCertificateTypeException notStored(String typeCode) {
+        return new UnsupportedCertificateTypeException("Certificates of type " + typeCode + " cannot be stored");
+    }
+
     public static UnsupportedCertificateTypeException notIssuedByAuthority(String typeCode, String raProfileName) {
         return new UnsupportedCertificateTypeException("The authority of the RA profile " + raProfileName
                 + " does not issue certificates of type " + typeCode);
