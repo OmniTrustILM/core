@@ -76,13 +76,13 @@ ConfigPath='/etc/runsc/config.toml'
     if owner.ticks is None:raise FileNotFoundError('synthetic absent original process')
     return '10 (synthetic) '+' '.join(['R']+['0']*18+[str(owner.ticks)])
   class Groups:
-   def walk(self,on_error):return [('/synthetic',['kubepods-burstable-pod'+UID.replace('-','_')+'.slice'] if owner.cgroup else [],[])]
+   def walk(self,on_error):return [('/synthetic',[owner.cgroup+'kubepods-burstable-pod'+UID.replace('-','_')+'.slice'] if owner.cgroup is not None else [],[])]
   def path(*parts):
    if parts==('/proc',):return Proc()
    if parts==('/sys/fs/cgroup',):return Groups()
    return real(*parts)
   module=types.ModuleType('pathlib');module.Path=path
-  for ticks,cgroup,code in [(None,False,0),(101,False,0),(100,False,2),(None,True,2)]:
+  for ticks,cgroup,code in [(None,None,0),(101,None,0),(100,None,2),(None,'',2),(None,'kubelet-',2)]:
    with self.subTest(ticks=ticks,cgroup=cgroup),patch.dict(sys.modules,{'pathlib':module}):
     self.ticks=ticks;self.cgroup=cgroup
     with self.assertRaises(SystemExit) as stopped:invoke('cleanup_host.py',self.root,UID)

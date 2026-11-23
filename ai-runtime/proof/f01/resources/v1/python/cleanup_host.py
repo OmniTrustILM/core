@@ -19,8 +19,10 @@ for check in checks:
  try:
   if check=='podCgroup':
    name='kubepods-burstable-pod'+uid.replace('-','_')+'.slice'
+   # kind's kubelet prefixes the Pod slice with "kubelet-".
+   owned={name,'kubelet-'+name}
    for _,names,_ in pathlib.Path('/sys/fs/cgroup').walk(on_error=scan_error):
-    _require(name not in names, 'owned Pod cgroup survives')
+    _require(owned.isdisjoint(names), 'owned Pod cgroup survives')
   elif check=='sentry':
    m=json.loads((out/'cleanup-mapping.json').read_text())
    if m['status']!='VALID':continue

@@ -478,8 +478,8 @@
     },
     {
       "path": "resources/v1/python/cleanup_host.py",
-      "bytes": 1726,
-      "sha256": "bb80df2f4b78125362525d8c9a8110cefb0f680838c29d31708f7d655226c90e"
+      "bytes": 1824,
+      "sha256": "019e9ae0101cbb30307fff453f5698c00cf3c64b6aa0da53a6d3525af85e5656"
     },
     {
       "path": "resources/v1/python/cleanup_mapping.py",
