@@ -79,7 +79,7 @@ public class DatabaseMigration {
         V202609101100__GrantSecretContentToAcme(1954353889),
         V202610181200__RepairDateAttributeContent(-875815430),
         V202611131010__CreateEstUserAndPermissions(-807394915),
-        V202611211201__DescribeKeyItems(130142283);
+        V202611211201__DescribeKeyItems(-1237744660);
 
         private final int checksum;
 

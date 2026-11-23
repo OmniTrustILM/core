@@ -18,7 +18,8 @@ public class KeySizeUtil {
     }
 
     /**
-     * An RSA or DSA key is sized by its own parameters. Any other key is looked up in Core's parameter table.
+     * An RSA or DSA key is sized by its own parameters, any other key by Core's parameter table, and an EC key the
+     * table cannot size by its curve's field.
      *
      * @param publicKey Public Key of the certificate
      * @return Key Size of the public Key, or -1 when unknown

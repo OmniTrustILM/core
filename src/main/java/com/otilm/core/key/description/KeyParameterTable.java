@@ -20,7 +20,7 @@ import org.bouncycastle.asn1.x9.X9ObjectIdentifiers;
 
 /**
  * Core's table of key parameters: the algorithm of each AlgorithmIdentifier OID, the CycloneDX name of each curve, and
- * the signature-algorithm code and per-half size of each post-quantum parameter set.
+ * the name and per-half size of each post-quantum parameter set.
  */
 final class KeyParameterTable {
 
@@ -28,7 +28,7 @@ final class KeyParameterTable {
      * A post-quantum parameter set with the size in bits its standard gives each half.
      *
      * @param algorithm the algorithm the parameter set belongs to
-     * @param name the signature-algorithm code naming it
+     * @param name the parameter set's name
      * @param publicKeyBits the size of its public key
      * @param privateKeyBits the size of its private key
      */

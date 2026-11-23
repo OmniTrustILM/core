@@ -168,7 +168,7 @@ public class V202611211201__DescribeKeyItems extends BaseJavaMigration {
         return items.stream().map(StoredItem::keyUuid).filter(Objects::nonNull).distinct().toList();
     }
 
-    /** A token-held private item takes its agreeing public siblings' AlgorithmIdentifier as key data. */
+    /** Describes the item among its key's live items, and a destroyed item from its statement alone. */
     static ItemUpdate described(StoredItem item, List<StoredItem> itemsOfKey) {
         if (DESTROYED_STATES.contains(item.state())) {
             return item.updatedTo(asStated(item));
@@ -183,6 +183,7 @@ public class V202611211201__DescribeKeyItems extends BaseJavaMigration {
         return item.identifiedAs(described, storedIdentifier(item, half, related));
     }
 
+    /** A private item stored without key data gets the AlgorithmIdentifier from its public siblings. */
     private static String storedIdentifier(StoredItem item, KeyHalf half, List<KeyHalf> related) {
         if (!heldByTheTokenAlone(item)) {
             return KEEPS_ITS_KEY_DATA;
