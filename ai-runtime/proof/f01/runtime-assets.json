@@ -518,8 +518,8 @@
     },
     {
       "path": "resources/v1/python/verify_floor_runtime.py",
-      "bytes": 1139,
-      "sha256": "291c4e3d7c4eebe0bdef14ac81047fbfed794c5e29608c09f377c9c039b6ba3a"
+      "bytes": 1309,
+      "sha256": "74ffdfbb838eb855a7f30641290485005ef45aec078a3827da13a04f5e024489"
     },
     {
       "path": "resources/v1/python/verify_handler_addition.py",

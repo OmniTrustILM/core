@@ -101,6 +101,16 @@ ConfigPath='/etc/runsc/config.toml'
     except SystemExit:pass
    self.assertEqual(len(calls),2 if returned==UID else 1)
   self.assertTrue((self.root/'outer-stop.txt').read_text().startswith('FAILED'))
+ def test_floor_supervisor_marks_failure_when_observation_is_unavailable(self):
+  import subprocess,time
+  for returncode,stdout,code,marked in [(1,'',1,True),(0,'not json',1,True),(0,'',None,False)]:
+   with self.subTest(returncode=returncode,stdout=stdout):
+    marker=self.root/'outer-stop.txt'
+    if marker.exists():marker.unlink()
+    result=types.SimpleNamespace(returncode=returncode,stdout=stdout,stderr='')
+    with patch.object(subprocess,'run',lambda args,**kwargs:result),patch.object(time,'sleep'):
+     with self.assertRaises(SystemExit) as stopped:invoke('verify_floor_runtime.py',UID,self.root)
+    self.assertEqual(stopped.exception.code,code);self.assertEqual(marker.exists(),marked)
  def test_accounting_dispatch_uses_plain_source_and_propagates_exact_child_failure(self):
   source=self.root/'observer.py';out=self.root/'out';out.mkdir()
   code="import json\ndef accounting_producer(out,control,observer):\n (out/'called.json').write_text(json.dumps([control,observer]))\n raise SystemExit(3)\ndef accounting_finish(out,control):\n (out/'called.json').write_text(json.dumps([control]))\n"
