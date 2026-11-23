@@ -476,8 +476,10 @@ class KeyProviderV1AdapterTest {
     }
 
     @Test
-    void throwsValidationException_whenModeIsPrehashedDigest() {
+    void throwsValidationException_whenModeIsDataDigest() {
         // given
+        var unsupportedMode = SignatureInputMode.DATA_DIGEST;
+        var expectedRefusal = "cannot sign data digests";
         CryptographicKeyItemOperationModel context = keyItem(KeyAlgorithm.RSA,
                 new RemoteKeyReference.UuidReference(UUID.randomUUID()), UUID.randomUUID());
         SignDataRequestDto request = new SignDataRequestDto();
@@ -485,12 +487,10 @@ class KeyProviderV1AdapterTest {
         request.setData(List.of());
 
         // when
-        ThrowingCallable sign = () -> adapter.signData(context, request, SignatureInputMode.PREHASHED_DIGEST);
+        ThrowingCallable sign = () -> adapter.signData(context, request, unsupportedMode);
 
         // then
-        assertThatThrownBy(sign)
-                .isInstanceOf(ValidationException.class)
-                .hasMessageContaining("cannot sign prehashed digests");
+        assertThatThrownBy(sign).isInstanceOf(ValidationException.class).hasMessageContaining(expectedRefusal);
         verifyNoInteractions(operationsClient);
     }
 
