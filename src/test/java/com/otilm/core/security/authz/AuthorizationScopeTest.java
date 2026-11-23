@@ -67,22 +67,19 @@ class AuthorizationScopeTest {
         assertThat(firstBatchOpen.await(5, TimeUnit.SECONDS)).isTrue();
 
         // when
-        AssociationReader secondReader;
-        boolean secondGranted;
+        BatchView second;
         try {
-            secondReader = scope
+            second = scope
                     .batched(administrator, Resource.CERTIFICATE, List.of(),
-                            () -> scope.associationsFor(administrator));
-            secondGranted = scope
-                    .batched(administrator, Resource.CERTIFICATE, List.of(),
-                            () -> scope.grantFor(administrator).grants(CERTIFICATES));
+                            () -> new BatchView(scope.associationsFor(administrator),
+                                    scope.grantFor(administrator).grants(CERTIFICATES)));
         } finally {
             secondBatchDone.countDown();
         }
 
         // then
-        assertThat(secondGranted).isTrue();
-        assertThat(firstReader.get(5, TimeUnit.SECONDS)).isNotSameAs(secondReader);
+        assertThat(second.granted()).isTrue();
+        assertThat(firstReader.get(5, TimeUnit.SECONDS)).isNotSameAs(second.reader());
     }
 
     @Test
@@ -179,6 +176,9 @@ class AuthorizationScopeTest {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private record BatchView(AssociationReader reader, boolean granted) {
+    }
 
     private AuthorizationScope createScope(boolean cacheEnabled) {
         return new AuthorizationScope(entityManagerFactory, new ObjectMapper(),
