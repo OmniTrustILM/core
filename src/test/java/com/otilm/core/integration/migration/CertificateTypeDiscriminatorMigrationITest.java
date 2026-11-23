@@ -4,6 +4,7 @@ import com.otilm.core.dao.entity.X509CertificateRequestEntity;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CertificateRequestRepository;
 import com.otilm.core.util.builders.CertificateRequestEntityBuilder;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.ResultSet;
@@ -28,9 +29,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class CertificateTypeDiscriminatorMigrationITest extends BaseMigrationTest {
 
+    private static final String BACKFILL_RESOURCE = "db/migration/V202611051000__certificate_type_discriminator_backfill.sql";
     private static final List<String> MIGRATION_RESOURCES = List
-            .of("db/migration/V202611051000__certificate_type_discriminator_backfill.sql",
-                    "db/migration/V202611051001__certificate_type_discriminator_constraint.sql",
+            .of("db/migration/V202611051001__certificate_type_discriminator_constraint.sql",
                     "db/migration/V202611051002__certificate_type_discriminator_validate.sql",
                     "db/migration/V202611051003__certificate_type_discriminator_not_null.sql");
 
@@ -100,8 +101,16 @@ class CertificateTypeDiscriminatorMigrationITest extends BaseMigrationTest {
             generatedCertificatesWithoutType = count(statement, "certificate", "certificate_type IS NULL");
             generatedRequestsWithoutType = count(statement, "certificate_request", "certificate_type IS NULL");
 
+            // the backfill runs outside a transaction, which a resetting transaction pooler hands a connection whose
+            // search_path lacks the schema
+            statement.execute("SET search_path TO public");
+            try {
+                statement.execute(loadMigrationScript(BACKFILL_RESOURCE));
+            } finally {
+                statement.execute("SET search_path TO " + dbSchema);
+            }
             for (String migration : MIGRATION_RESOURCES) {
-                statement.execute(new ClassPathResource(migration).getContentAsString(StandardCharsets.UTF_8));
+                statement.execute(loadMigrationScript(migration));
             }
         }
 
@@ -213,6 +222,12 @@ class CertificateTypeDiscriminatorMigrationITest extends BaseMigrationTest {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private String loadMigrationScript(String resource) throws IOException {
+        return new ClassPathResource(resource)
+                .getContentAsString(StandardCharsets.UTF_8)
+                .replace("${flyway:defaultSchema}", dbSchema);
+    }
 
     private void generateRowsWithoutType(Statement statement, String table, UUID templateUuid) throws SQLException {
         String columns = copiedColumns(statement, table);
