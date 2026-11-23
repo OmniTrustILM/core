@@ -94,6 +94,7 @@ class ClientOperationServiceImplIssueDispatchTest {
     private CertificateLocationRepository certificateLocationRepository;
     private CertificatePendingIssueClaimWriter claimWriter;
     private RaProfileRepository raProfileRepository;
+    private AuthorityCertificateTypes authorityCertificateTypes;
 
     private UUID certUuid;
     private Certificate certificate;
@@ -120,7 +121,8 @@ class ClientOperationServiceImplIssueDispatchTest {
         var typeHandlerRegistry = new CertificateTypeHandlerRegistry(List.of(new X509CertificateTypeHandler()));
         service.setRequestFormatResolver(new RequestFormatResolver(typeHandlerRegistry));
         service.setTypeHandlerRegistry(typeHandlerRegistry);
-        service.setAuthorityCertificateTypes(mock(AuthorityCertificateTypes.class));
+        authorityCertificateTypes = mock(AuthorityCertificateTypes.class);
+        service.setAuthorityCertificateTypes(authorityCertificateTypes);
         service.setCertificateRegistrationRepository(certificateRegistrationRepository);
         service.setCertificateLocationRepository(certificateLocationRepository);
         service.setAdapterFactory(adapterFactory);
@@ -198,6 +200,9 @@ class ClientOperationServiceImplIssueDispatchTest {
         raProfile.setAuthorityInstanceReferenceUuid(authorityUuid);
         UUID raProfileUuid = UUID.randomUUID();
         when(raProfileRepository.findByUuid(raProfileUuid)).thenReturn(Optional.of(raProfile));
+        doThrow(UnsupportedCertificateTypeException.notIssuedByAuthority(notIssued.getCode(), raProfile.getName()))
+                .when(authorityCertificateTypes)
+                .requireSupport(notIssued, raProfile);
         ClientCertificateIssueRequestDto request = new ClientCertificateIssueRequestDto();
         request.setCertificateType(notIssued);
         request.setFormat(CertificateRequestFormat.PKCS10);
