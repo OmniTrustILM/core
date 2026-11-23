@@ -190,7 +190,7 @@ class EstServerKeyGenerationKeyRecoveryITest extends BaseSpringBootTest {
                 .stubSignatureAlgorithmAttribute(SignatureAlgorithm.SHA256_WITH_ECDSA)
                 .stubRealSigning(tokenKeyPair.getPrivate(), SignatureAlgorithm.SHA256_WITH_ECDSA)
                 .stubExportKeyAttributes("[]")
-                .stubExportOf(tokenKeyPair, KeyAlgorithm.ECDSA, P256_LENGTH)
+                .stubExportOf(tokenKeyPair, KeyAlgorithm.ECDSA)
                 .stubDestroyKey();
         tokenProfile = tokenProfiles.seedKeyExportingTokenProfile(token.getUrl(), KeyAlgorithm.ECDSA);
         delivery.deliverQueuedActions();
@@ -490,9 +490,7 @@ class EstServerKeyGenerationKeyRecoveryITest extends BaseSpringBootTest {
     void refusesAsInternalErrorAndKeepsTheCertificateAndKey_whenTheExportedKeyIsNotTheCertifiedKey() throws Exception {
         // given
         seedRecoveringProfile(routes.seedRaProfile(authority, RA_PROFILE_NAME));
-        token
-                .stubExportOf(PkiFixtures.keyPair().getPrivate(), tokenKeyPair.getPublic(), KeyAlgorithm.ECDSA,
-                        P256_LENGTH);
+        token.stubExportOf(PkiFixtures.keyPair().getPrivate(), tokenKeyPair.getPublic(), KeyAlgorithm.ECDSA);
 
         // when
         ThrowingCallable generate = this::generate;

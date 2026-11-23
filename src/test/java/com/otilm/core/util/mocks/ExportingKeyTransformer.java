@@ -27,10 +27,9 @@ class ExportingKeyTransformer implements ResponseDefinitionTransformerV2 {
     /**
      * @param protectedKey the private key the envelope protects
      * @param algorithm the algorithm of the described key
-     * @param length the length of the described key
      * @param describedKey the public key the answer describes
      */
-    record ExportedKey(PrivateKey protectedKey, KeyAlgorithm algorithm, int length, PublicKey describedKey) {
+    record ExportedKey(PrivateKey protectedKey, KeyAlgorithm algorithm, PublicKey describedKey) {
     }
 
     void register(ExportedKey key) {
@@ -49,8 +48,7 @@ class ExportingKeyTransformer implements ResponseDefinitionTransformerV2 {
             byte[] envelope = ExportEnvelopeFixtures.pinnedEnvelope(key.protectedKey(), passphrase);
             return ResponseDefinitionBuilder
                     .like(serveEvent.getResponseDefinition())
-                    .withBody(ExportEnvelopeFixtures
-                            .keyPairResponseJson(envelope, key.algorithm(), key.length(), key.describedKey()))
+                    .withBody(ExportEnvelopeFixtures.keyPairResponseJson(envelope, key.algorithm(), key.describedKey()))
                     .build();
         } catch (Exception e) {
             throw new IllegalStateException("Failed to export the key in the WireMock exporting-key transformer", e);

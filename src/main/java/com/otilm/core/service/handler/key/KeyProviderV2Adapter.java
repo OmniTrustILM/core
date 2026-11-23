@@ -66,6 +66,7 @@ import com.otilm.api.model.connector.cryptography.v2.key.ListKeysRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.ListKeysResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.ListedKeyPairV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.PrivateKeyDataResponseV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.PrivateKeyDataV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.PublicKeyDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.PublicKeyDataV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.ResolveKeysRequestV2Dto;
@@ -96,6 +97,9 @@ import com.otilm.core.attribute.engine.AttributeVersionHelper;
 import com.otilm.core.attribute.engine.OutboundSecretContainment;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContent;
 import com.otilm.core.client.CryptographyV2ApiClients;
+import com.otilm.core.key.description.KeyParameters;
+import com.otilm.core.key.description.ProviderKeyItems;
+import com.otilm.core.key.description.ProviderKeyItems.DescribedPair;
 import com.otilm.core.key.normalization.NormalizedKey;
 import com.otilm.core.model.crypto.CryptographicKeyFullModel;
 import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
@@ -128,6 +132,7 @@ import java.util.UUID;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import lombok.extern.slf4j.Slf4j;
+import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
@@ -240,8 +245,7 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
             return keyItems;
         }
         if (body instanceof SecretKeyDataResponseV2Dto secretKey) {
-            ProviderKeyItem secretKeyItem = toKeyItem(keyName, secretKey.getKeyData(), secretKey.getKeyMeta(),
-                    KEPT_ON_TOKEN);
+            ProviderKeyItem secretKeyItem = toSecretKeyItem(keyName, secretKey);
             log
                     .info("A secret key has been created for token profile {} through connector {}; Key reference: {}",
                             tokenProfile.toIdentifierString(), connectorInfo.getUuid(),
@@ -292,13 +296,29 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         PrivateKeyDataResponseV2Dto privateKey = response.getPrivateKeyData();
         String privateKeyName = ProviderKeyPair.privateKeyName(keyName);
         ProviderKeyItem privateKeyItem = toKeyItem(privateKeyName, privateKey.getKeyData(), privateKey.getKeyMeta(),
-                KEPT_ON_TOKEN);
-        return List.of(publicKeyItem, privateKeyItem);
+                storedIdentifier(privateKey, publicKey));
+        DescribedPair described = ProviderKeyItems.describedPair(publicKeyItem, privateKeyItem);
+        return List.of(described.publicKey(), described.privateKey());
     }
 
     private static KeyMaterial spkiMaterial(PublicKeyDataResponseV2Dto publicKey) {
         byte[] publicKeySpki = publicKey.getKeyData().getPublicKeySpki();
         return new KeyMaterial(KeyFormat.SPKI, Base64.getEncoder().encodeToString(publicKeySpki));
+    }
+
+    private static KeyMaterial storedIdentifier(PrivateKeyDataResponseV2Dto privateKey,
+            PublicKeyDataResponseV2Dto publicKey) {
+        byte[] ownIdentifier = privateKey.getKeyData().getAlgorithmIdentifier();
+        if (ownIdentifier != null) {
+            return new KeyMaterial(KeyFormat.ALGORITHM_IDENTIFIER, Base64.getEncoder().encodeToString(ownIdentifier));
+        }
+        if (publicKey == null) {
+            return KEPT_ON_TOKEN;
+        }
+        return KeyParameters
+                .ofSpki(publicKey.getKeyData().getPublicKeySpki())
+                .map(parameters -> new KeyMaterial(KeyFormat.ALGORITHM_IDENTIFIER, parameters.base64Identifier()))
+                .orElse(KEPT_ON_TOKEN);
     }
 
     private ProviderKeyItem toKeyItem(String name, KeyDataV2Dto data, List<MetadataAttribute> keyMeta,
@@ -309,8 +329,21 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
             case SECRET -> KeyType.SECRET_KEY;
         };
         RemoteKeyReference reference = new RemoteKeyReference.MetadataReference(keyMeta);
-        return new ProviderKeyItem(name, type, data.getAlgorithm(), data.getLength(), reference, material,
+        return new ProviderKeyItem(name, type, data.getAlgorithm(), statedLength(data), reference, material,
                 data.getMetadata());
+    }
+
+    private ProviderKeyItem toSecretKeyItem(String keyName, SecretKeyDataResponseV2Dto secretKey) {
+        ProviderKeyItem stated = toKeyItem(keyName, secretKey.getKeyData(), secretKey.getKeyMeta(), KEPT_ON_TOKEN);
+        return ProviderKeyItems.described(stated);
+    }
+
+    private static Integer statedLength(KeyDataV2Dto data) {
+        return switch (data) {
+            case SecretKeyDataV2Dto secretKey -> secretKey.getLength();
+            case PrivateKeyDataV2Dto privateKey -> privateKey.getLength();
+            case PublicKeyDataV2Dto sizedBySpki -> null;
+        };
     }
 
     @Override
@@ -348,9 +381,16 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         ProviderKeyPair keyPair = entry.getKey() == null ? null : toListedKeyPair((ListedKeyPairV2Dto) entry.getKey());
         KeyDataV2Dto keyData = entry.getKeyData();
         KeyAlgorithm algorithm = keyData == null ? null : keyData.getAlgorithm();
-        Integer length = keyData == null ? null : keyData.getLength();
+        Integer length = keyData == null ? null : statedLength(keyData);
         return new ProviderKeyEntry(entry.getStatus(), entry.getDiagnostic(), entry.getStorageName(), keyPair,
-                algorithm, length);
+                algorithm, length, identifierOf(keyData));
+    }
+
+    private static AlgorithmIdentifier identifierOf(KeyDataV2Dto keyData) {
+        if (!(keyData instanceof PrivateKeyDataV2Dto privateKey) || privateKey.getAlgorithmIdentifier() == null) {
+            return null;
+        }
+        return AlgorithmIdentifier.getInstance(privateKey.getAlgorithmIdentifier());
     }
 
     /**
@@ -386,14 +426,16 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
 
     private ProviderKeyPair toListedKeyPair(ListedKeyPairV2Dto listed) {
         PrivateKeyDataResponseV2Dto privateKey = listed.getPrivateKeyData();
-        ProviderKeyItem privateKeyItem = toKeyItem(NAMED_ON_ONBOARDING, privateKey.getKeyData(),
-                privateKey.getKeyMeta(), KEPT_ON_TOKEN);
         PublicKeyDataResponseV2Dto publicKey = listed.getPublicKeyData();
-        ProviderKeyItem publicKeyItem = publicKey == null
-                ? null
-                : toKeyItem(NAMED_ON_ONBOARDING, publicKey.getKeyData(), publicKey.getKeyMeta(),
-                        spkiMaterial(publicKey));
-        return new ProviderKeyPair(listed.getKeyPairMeta(), privateKeyItem, publicKeyItem);
+        ProviderKeyItem privateKeyItem = toKeyItem(NAMED_ON_ONBOARDING, privateKey.getKeyData(),
+                privateKey.getKeyMeta(), storedIdentifier(privateKey, publicKey));
+        if (publicKey == null) {
+            return new ProviderKeyPair(listed.getKeyPairMeta(), ProviderKeyItems.described(privateKeyItem), null);
+        }
+        ProviderKeyItem publicKeyItem = toKeyItem(NAMED_ON_ONBOARDING, publicKey.getKeyData(), publicKey.getKeyMeta(),
+                spkiMaterial(publicKey));
+        DescribedPair described = ProviderKeyItems.describedPair(publicKeyItem, privateKeyItem);
+        return new ProviderKeyPair(listed.getKeyPairMeta(), described.privateKey(), described.publicKey());
     }
 
     @Override
@@ -1031,8 +1073,7 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
     private ImportAnswer imported(KeyCreationResponseV2Dto body, String keyName) {
         List<ProviderKeyItem> items = switch (body) {
             case KeyPairDataResponseV2Dto keyPair -> toCreatedKeyPair(keyPair, keyName);
-            case SecretKeyDataResponseV2Dto secretKey ->
-                List.of(toKeyItem(keyName, secretKey.getKeyData(), secretKey.getKeyMeta(), KEPT_ON_TOKEN));
+            case SecretKeyDataResponseV2Dto secretKey -> List.of(toSecretKeyItem(keyName, secretKey));
         };
         return new ImportAnswer.Imported(body.getKeyRequestType(), items);
     }
@@ -1056,12 +1097,11 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         if (heldKey.type() == KeyRequestType.SECRET) {
             SecretKeyDataV2Dto secretKey = new SecretKeyDataV2Dto();
             secretKey.setAlgorithm(heldKey.algorithm());
-            secretKey.setLength(heldKey.length());
+            secretKey.setLength(heldKey.secretKeyLength());
             return secretKey;
         }
         PublicKeyDataV2Dto publicKey = new PublicKeyDataV2Dto();
         publicKey.setAlgorithm(heldKey.algorithm());
-        publicKey.setLength(heldKey.length());
         publicKey.setPublicKeySpki(heldKey.publicKeySpki());
         return publicKey;
     }

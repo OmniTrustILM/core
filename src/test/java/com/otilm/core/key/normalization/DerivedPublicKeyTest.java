@@ -1,6 +1,7 @@
 package com.otilm.core.key.normalization;
 
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.common.cryptography.ExplicitCurve;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import java.math.BigInteger;
 import java.security.KeyFactory;

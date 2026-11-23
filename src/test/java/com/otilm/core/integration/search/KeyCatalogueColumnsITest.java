@@ -18,10 +18,12 @@ import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.CryptographicKeyExternalService;
+import com.otilm.core.service.ResourceExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.WireMockPorts;
 import com.otilm.core.util.seeders.CryptographicKeySeeder;
 import com.otilm.core.util.seeders.CryptographicKeySeeder.KeyItemSpec;
+import java.io.Serializable;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -33,8 +35,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 import static com.otilm.core.integration.search.CatalogueFields.field;
 import static com.otilm.core.integration.search.CatalogueFields.propertyFields;
+import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyEqualsFilter;
 import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyFilter;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.InstanceOfAssertFactories.LIST;
 
 /**
  * The key columns the inventory renders but the catalogue did not carry.
@@ -53,6 +57,9 @@ class KeyCatalogueColumnsITest extends BaseSpringBootTest {
 
     @Autowired
     private CryptographicKeySeeder keySeeder;
+
+    @Autowired
+    private ResourceExternalService resourceService;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -141,6 +148,51 @@ class KeyCatalogueColumnsITest extends BaseSpringBootTest {
                 .containsExactlyInAnyOrder("oldest", "middle", "newest");
     }
 
+    @Test
+    void offersTheStoredParameterSets_whenListingSearchableFields() {
+        // given
+        seedItemNamedBy("p384-key", KeyAlgorithm.ECDSA, "P-384");
+        seedItemNamedBy("ml-dsa-key", KeyAlgorithm.MLDSA, "ML-DSA-65");
+        seedItemNamedBy("second-p384-key", KeyAlgorithm.ECDSA, "P-384");
+
+        // when
+        SearchFieldDataDto offered = field(cryptographicKeyService.getSearchableFieldInformation(),
+                FilterField.CKI_PARAMETER_SET.name()).orElseThrow();
+
+        // then
+        assertThat(offered.getValue()).asInstanceOf(LIST).containsExactly("ML-DSA-65", "P-384");
+    }
+
+    @Test
+    void offersTheStoredParameterSets_whenListingKeyRuleFilterFields() throws Exception {
+        // given
+        seedItemNamedBy("p384-key", KeyAlgorithm.ECDSA, "P-384");
+
+        // when
+        SearchFieldDataDto offered = field(
+                resourceService.listResourceRuleFilterFields(Resource.CRYPTOGRAPHIC_KEY, false),
+                FilterField.CKI_PARAMETER_SET.name()).orElseThrow();
+
+        // then
+        assertThat(offered.getValue()).asInstanceOf(LIST).contains("P-384");
+    }
+
+    @Test
+    void listsOnlyKeysOfTheAcceptedParameterSets_whenTheFilterSpansAlgorithms() {
+        // given
+        seedItemNamedBy("p384-key", KeyAlgorithm.ECDSA, "P-384");
+        seedItemNamedBy("ml-dsa-key", KeyAlgorithm.MLDSA, "ML-DSA-65");
+        seedItemNamedBy("p256-key", KeyAlgorithm.ECDSA, "P-256");
+        var acceptedParameterSets = (Serializable) List.of("P-384", "ML-DSA-65");
+
+        // when
+        List<String> listed = listNames(aPropertyEqualsFilter(FilterField.CKI_PARAMETER_SET, acceptedParameterSets),
+                null);
+
+        // then
+        assertThat(listed).containsExactlyInAnyOrder("p384-key", "ml-dsa-key");
+    }
+
     private static SearchFilterRequestDto createdAfter(OffsetDateTime bound) {
         return aPropertyFilter(FilterField.CKI_CREATED, FilterConditionOperator.GREATER,
                 bound.format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSXXX")));
@@ -165,6 +217,14 @@ class KeyCatalogueColumnsITest extends BaseSpringBootTest {
                 .stream()
                 .map(KeyItemDto::getName)
                 .toList();
+    }
+
+    private void seedItemNamedBy(String name, KeyAlgorithm algorithm, String parameterSet) {
+        CryptographicKey key = keySeeder.seedKey(name, null, null, KeyItemSpec.signingPrivateKey(algorithm));
+        CryptographicKeyItem item = key.getItems().iterator().next();
+        item.setName(name);
+        item.setParameterSet(parameterSet);
+        cryptographicKeyItemRepository.saveAndFlush(item);
     }
 
     private void seedItem(String name, boolean enabled, OffsetDateTime created) {

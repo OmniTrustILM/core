@@ -19,6 +19,10 @@ public final class TestPublicKeys {
         return generate("EC", 256);
     }
 
+    public static PublicKey dsaPublicKey() {
+        return generate("DSA", 2048);
+    }
+
     /** The key's SubjectPublicKeyInfo, Base64-encoded, as a connector reports it. */
     public static String spkiBase64(PublicKey publicKey) {
         return Base64.getEncoder().encodeToString(publicKey.getEncoded());

@@ -753,6 +753,7 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
         };
         payload.setType(KeyType.PUBLIC_KEY);
         payload.setAlgorithm(KeyAlgorithm.RSA);
+        payload.setLength(2048);
         DiscoveredItemDto item = new DiscoveredItemDto();
         item.setSequence(sequence);
         item.setUniqueRef("key-" + sequence);
@@ -764,6 +765,7 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
         DiscoveredKeyDto payload = new DiscoveredKeyDto();
         payload.setType(KeyType.PUBLIC_KEY);
         payload.setAlgorithm(KeyAlgorithm.RSA);
+        payload.setLength(2048);
         DiscoveredItemDto item = new DiscoveredItemDto();
         item.setSequence(sequence);
         item.setUniqueRef(uniqueRef);
