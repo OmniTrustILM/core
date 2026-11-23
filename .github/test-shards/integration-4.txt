@@ -83,6 +83,7 @@ com/otilm/core/integration/service/est/EstServerKeyGenerationKeyRecoveryITest.ja
 com/otilm/core/integration/service/est/RaBasicAuthenticatorITest.java
 com/otilm/core/integration/service/v2/UploadedCsrValidationITest.java
 com/otilm/core/integration/service/v2/impl/ClientOperationRequestAttributePropagationITest.java
+com/otilm/core/integration/signing/rawsigning/RawSigningEngineITest.java
 com/otilm/core/integration/signing/tsa/TsaServiceAuthzITest.java
 com/otilm/core/integration/signing/tsa/TsaServiceImplITest.java
 com/otilm/core/integration/util/AcmeUtilITest.java

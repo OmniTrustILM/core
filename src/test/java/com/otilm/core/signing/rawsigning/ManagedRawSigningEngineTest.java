@@ -10,7 +10,6 @@ import com.otilm.api.model.core.settings.SigningSettingsDto;
 import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.core.dao.repository.signing.SigningProfileVersionRepository;
 import com.otilm.core.model.signing.SigningProfileModel;
-import com.otilm.core.model.signing.SigningRecordPolicyModel;
 import com.otilm.core.model.signing.resolved.ResolvedManagedRawSigningProfile;
 import com.otilm.core.model.signing.resolved.ResolvedStaticKeyManagedSigning;
 import com.otilm.core.serialization.ObjectMapperFactory;
@@ -50,6 +49,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.access.AccessDeniedException;
 
+import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.notRecording;
 import static com.otilm.core.util.builders.ResolvedManagedRawSigningProfileBuilder.aResolvedRawSigningProfile;
 import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningProfile;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -157,7 +157,7 @@ class ManagedRawSigningEngineTest {
         SigningProfileModel<?, ?> notRecording = aSigningProfile()
                 .withUuid(PROFILE_UUID)
                 .withName("raw-profile")
-                .withRecordPolicy(new SigningRecordPolicyModel(false, false, false, false, false, null, false, null))
+                .withRecordPolicy(notRecording().build())
                 .build();
         when(signer.signAll(anyList(), eq(SignatureInputMode.DATA_DIGEST))).thenReturn(signMessages(IDENTIFIERS));
         when(recordStager.stage(eq(notRecording), anyList())).thenReturn(List.of());

@@ -610,7 +610,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
     }
 
     @Test
-    void create_intrinsicAlgorithmWithOmittedAttributes_persistsEmptySigningAttributes() throws Exception {
+    void persistsEmptySigningAttributes_whenIntrinsicAlgorithmProfileIsCreated() throws Exception {
         // given
         SigningProfileRequestDto request = buildIntrinsicAlgorithmRequestWithOmittedAttributes();
 
@@ -618,14 +618,15 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         SigningProfileDto created = signingProfileService.createSigningProfile(request);
 
         // then
-        StaticKeyManagedSigningDto scheme = assertInstanceOf(StaticKeyManagedSigningDto.class,
-                created.getSigningScheme());
-        assertTrue(scheme.getSigningOperationAttributes().isEmpty());
-        assertEquals(created, signingProfileService.getSigningProfile(SecuredUUID.fromString(created.getUuid()), null));
+        assertThat(created.getSigningScheme())
+                .isInstanceOfSatisfying(StaticKeyManagedSigningDto.class,
+                        scheme -> assertThat(scheme.getSigningOperationAttributes()).isEmpty());
+        assertThat(signingProfileService.getSigningProfile(SecuredUUID.fromString(created.getUuid()), null))
+                .isEqualTo(created);
     }
 
     @Test
-    void update_intrinsicAlgorithmWithOmittedAttributes_persistsEmptySigningAttributes() throws Exception {
+    void persistsEmptySigningAttributes_whenIntrinsicAlgorithmProfileIsUpdated() throws Exception {
         // given
         SigningProfileRequestDto request = buildIntrinsicAlgorithmRequestWithOmittedAttributes();
         SecuredUUID profileUuid = SecuredUUID.fromString(defaultManagedStaticKeySigningProfile.getUuid());
@@ -636,26 +637,11 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         SigningProfileDto updated = signingProfileService.updateSigningProfile(profileUuid, request);
 
         // then
-        StaticKeyManagedSigningDto scheme = assertInstanceOf(StaticKeyManagedSigningDto.class,
-                updated.getSigningScheme());
-        assertTrue(scheme.getSigningOperationAttributes().isEmpty());
-        assertEquals(expectedVersion, updated.getVersion());
-        assertEquals(updated, signingProfileService.getSigningProfile(profileUuid, null));
-    }
-
-    private SigningProfileRequestDto buildIntrinsicAlgorithmRequestWithOmittedAttributes() throws Exception {
-        KeyAlgorithm intrinsicAlgorithm = KeyAlgorithm.FALCON;
-        KeyPair intrinsicKeyPair = CertificateGeneratorHelper.generateKeyPair(intrinsicAlgorithm, null);
-        createTokenKey(intrinsicKeyPair, intrinsicAlgorithm, "intrinsic-signing-key");
-        TestCertificateAuthority.TrustedCa trustedCa = testCertificateAuthority.createTrustedCa("CN=Intrinsic Root");
-        // A raw profile refuses an algorithm that cannot sign a data digest, so this profile timestamps.
-        Certificate certificate = trustedCa.issueTimestampingCertificate(intrinsicKeyPair, "CN=Intrinsic TSA");
-        List<RequestAttribute> omittedAttributes = null;
-        return aSigningProfileRequest()
-                .withName("intrinsic-signing-profile")
-                .withStaticKeyManagedSigning(certificate.getUuid(), omittedAttributes)
-                .withTimestamping(UUID.fromString(timestampingFormattingConnector.getUuid()))
-                .build();
+        assertThat(updated.getSigningScheme())
+                .isInstanceOfSatisfying(StaticKeyManagedSigningDto.class,
+                        scheme -> assertThat(scheme.getSigningOperationAttributes()).isEmpty());
+        assertThat(updated.getVersion()).isEqualTo(expectedVersion);
+        assertThat(signingProfileService.getSigningProfile(profileUuid, null)).isEqualTo(updated);
     }
 
     @Nested
@@ -5019,5 +5005,20 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                 .createKey(UUID.fromString(tokenInstance.getUuid()),
                         SecuredParentUUID.fromString(defaultTokenProfile.getUuid()), KeyRequestType.KEY_PAIR,
                         aKeyPairRequest().withName(name).build());
+    }
+
+    private SigningProfileRequestDto buildIntrinsicAlgorithmRequestWithOmittedAttributes() throws Exception {
+        KeyAlgorithm intrinsicAlgorithm = KeyAlgorithm.FALCON;
+        KeyPair intrinsicKeyPair = CertificateGeneratorHelper.generateKeyPair(intrinsicAlgorithm, null);
+        createTokenKey(intrinsicKeyPair, intrinsicAlgorithm, "intrinsic-signing-key");
+        TestCertificateAuthority.TrustedCa trustedCa = testCertificateAuthority.createTrustedCa("CN=Intrinsic Root");
+        // A raw profile refuses an algorithm that cannot sign a data digest, so this profile timestamps.
+        Certificate certificate = trustedCa.issueTimestampingCertificate(intrinsicKeyPair, "CN=Intrinsic TSA");
+        List<RequestAttribute> omittedAttributes = null;
+        return aSigningProfileRequest()
+                .withName("intrinsic-signing-profile")
+                .withStaticKeyManagedSigning(certificate.getUuid(), omittedAttributes)
+                .withTimestamping(UUID.fromString(timestampingFormattingConnector.getUuid()))
+                .build();
     }
 }
