@@ -56,10 +56,9 @@ public class ManagedRawSigningEngine {
     }
 
     /**
-     * Signs every digest of {@code request} and stages their signing records as the profile's record policy says. Every
-     * refusal comes before the key is used, so a refused batch is neither signed nor recorded. A batch that has been
-     * signed can still fail afterwards, when the provider's signatures do not verify or a durable record cannot be
-     * staged; the key has then been used, so a caller must not take such a failure as proof that nothing was signed.
+     * Signs every digest of {@code request} and stages their records under the profile's record policy. Every refusal
+     * comes before the key is used, so a refused batch is neither signed nor recorded. A failure after signing, from a
+     * signature that does not verify or a durable record that cannot be staged, means the key has been used.
      *
      * @param protocol how the run was initiated, which is what its signing records will carry
      * @return the signatures in request order

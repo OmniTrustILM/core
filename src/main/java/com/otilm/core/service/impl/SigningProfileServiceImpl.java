@@ -1137,9 +1137,9 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     }
 
     /**
-     * Refuses a key that a profile of a {@link RawSigningProfileRules#conflictingWorkflows conflicting workflow} signs
-     * with, through any certificate. Runs outside the persistence transaction; only a static-key profile names a key
-     * ILM signs with.
+     * Refuses a key that a profile of a {@link RawSigningProfileRules#conflictingWorkflows conflicting workflow} signs,
+     * or once signed, with, through any certificate. Runs outside the persistence transaction; only a static-key
+     * profile names a key ILM signs with.
      */
     private void validateSigningKeyWorkflowBinding(SigningProfileRequestDto request, @Nullable UUID targetProfileUuid)
             throws NotFoundException {
@@ -1160,10 +1160,6 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
                 overwrittenVersion == null ? null : targetProfileUuid, overwrittenVersion);
     }
 
-    /**
-     * @param excludedProfileUuid with {@code excludedVersion}, the version a save overwrites in place and so the one
-     * that does not count; both null to count every version
-     */
     private void refuseSharedSigningKey(SigningWorkflowType workflowType, UUID certificateUuid, UUID keyUuid,
             @Nullable UUID excludedProfileUuid, @Nullable Integer excludedVersion) {
         List<String> conflictingProfileNames = signingProfileVersionRepository
@@ -1183,10 +1179,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
                 .orElse(null);
     }
 
-    /**
-     * An update keeps the current version, and writes the change as a new one, when signing records name it or the
-     * record policy changes; otherwise it overwrites the version in place.
-     */
+    /** Whether an update writes its change as a new version instead of overwriting {@code current} in place. */
     private boolean updateKeepsVersion(UUID profileUuid, SigningProfileVersion current,
             @Nullable SigningRecordPolicyRequestDto recordPolicy) {
         return signingRecordInternalService.doesSigningRecordExistInternal(profileUuid, current.getVersion())

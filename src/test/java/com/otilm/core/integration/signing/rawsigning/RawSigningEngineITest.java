@@ -269,7 +269,7 @@ class RawSigningEngineITest extends BaseSpringBootTest {
 
     @Test
     void throwsMisconfigured_whenTheKeyAlsoSignsForAnotherWorkflow() throws Exception {
-        // given — a timestamping profile on the raw profile's key, which no save admits any more
+        // given — a timestamping profile on the raw profile's key, which a save refuses
         SigningProfileDto profile = createRawProfile("raw-sharing-its-key", RSA_PKCS1_SHA256);
         SigningProfile timestampingProfile = seedTimestampingProfile("timestamping-on-the-raw-key",
                 loadSigningCertificate(profile));

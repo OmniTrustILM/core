@@ -3664,7 +3664,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
 
         @Test
         void refusesIlmNativeActivation_whenRawProfileKeyAlsoSignsForAnotherWorkflow() {
-            // given — a raw profile on the certificate of defaultTimestampingProfile, which no save admits any more
+            // given — a raw profile on the certificate of defaultTimestampingProfile, which a save refuses
             SigningProfile rawProfile = seedRawProfile("raw-on-the-tsa-certificate", defaultTimestampingCertificate);
             SecuredUUID uuid = SecuredUUID.fromUUID(rawProfile.getUuid());
 

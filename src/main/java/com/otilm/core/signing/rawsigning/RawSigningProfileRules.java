@@ -51,10 +51,10 @@ public final class RawSigningProfileRules {
     }
 
     /**
-     * Refuses a key that profiles of a {@link #conflictingWorkflows conflicting workflow} already sign with.
+     * Refuses a key that profiles of a {@link #conflictingWorkflows conflicting workflow} sign, or once signed, with.
      *
      * @param workflowType the workflow of the profile being saved
-     * @param conflictingProfileNames the profiles of a conflicting workflow whose latest version signs with the key
+     * @param conflictingProfileNames the profiles of a conflicting workflow with a stored version on the key
      */
     public static void refuseSharedSigningKey(SigningWorkflowType workflowType, UUID certificateUuid,
             List<String> conflictingProfileNames) {
