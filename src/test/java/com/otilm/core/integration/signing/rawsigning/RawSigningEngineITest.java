@@ -404,6 +404,24 @@ class RawSigningEngineITest extends BaseSpringBootTest {
         }
 
         @Test
+        void answersTheWholeChainSigningCertificateFirst_whenTheProfileServesIlmNative() throws Exception {
+            // given
+            var signingCertificateSubject = "CN=native-raw-chain";
+            SigningProfileDto profile = createIlmNativeRawProfile("native-raw-chain", RSA_PKCS1_SHA256);
+
+            // when
+            MockHttpServletResponse response = signRaw(profile.getUuid(), buildSignRawRequest(DigestAlgorithm.SHA_256));
+
+            // then
+            assertThat(response.getStatus()).isEqualTo(HttpStatus.OK.value());
+            List<String> answeredChain = read(response, "$.signerCertificateChain");
+            assertThat(answeredChain).hasSize(2);
+            assertThat(parseCertificate(answeredChain.getFirst()).getSubjectX500Principal().getName())
+                    .isEqualTo(signingCertificateSubject);
+            assertThat(Base64.getDecoder().decode(answeredChain.get(1))).isEqualTo(trustedCa.getX509().getEncoded());
+        }
+
+        @Test
         void signs_whenTheFingerprintNamesTheSigningCertificateInUpperCase() throws Exception {
             // given
             SigningProfileDto profile = createIlmNativeRawProfile("native-raw-pinned", RSA_PKCS1_SHA256);
@@ -615,7 +633,7 @@ class RawSigningEngineITest extends BaseSpringBootTest {
         void auditsTheSigningAgainstItsProfile_whenAuditingIsOn() throws Exception {
             // given
             SigningProfileDto profile = createIlmNativeRawProfile("native-raw-audited", RSA_PKCS1_SHA256);
-            updateAuditLogging(false);
+            auditEverything();
 
             // when
             MockHttpServletResponse response = signRaw(profile.getUuid(), buildSignRawRequest(DigestAlgorithm.SHA_256));
@@ -639,7 +657,7 @@ class RawSigningEngineITest extends BaseSpringBootTest {
             SigningProfileDto profile = createIlmNativeRawProfile("native-raw-verbose-audit", RSA_PKCS1_SHA256);
             SignRawRequestDto request = buildSignRawRequest(DigestAlgorithm.SHA_256);
             String firstDigest = Base64.getEncoder().encodeToString(request.getItems().getFirst().getData());
-            updateAuditLogging(true);
+            auditEverythingVerbosely();
 
             // when
             MockHttpServletResponse response = signRaw(profile.getUuid(), request);
@@ -691,6 +709,14 @@ class RawSigningEngineITest extends BaseSpringBootTest {
                     .map(AuditLogMessage::getLogRecord)
                     .filter(logRecord -> logRecord.operation() == Operation.SIGN)
                     .toList();
+        }
+
+        private void auditEverything() {
+            updateAuditLogging(false);
+        }
+
+        private void auditEverythingVerbosely() {
+            updateAuditLogging(true);
         }
 
         private void updateAuditLogging(boolean verbose) {

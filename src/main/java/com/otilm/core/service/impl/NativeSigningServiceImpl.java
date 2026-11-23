@@ -154,18 +154,19 @@ public class NativeSigningServiceImpl implements NativeSigningExternalService {
         try {
             return CertificateUtil.getThumbprint(certificate);
         } catch (GeneralSecurityException e) {
-            throw loggedCertificateEncodingFailure(profile, e);
+            throw loggedCertificateFailure(profile, "fingerprint the signing certificate", e);
         }
     }
 
-    /** A certificate the profile resolved with was parsed from its encoding, so it fails to encode only on a fault. */
-    private static SigningEngineException loggedCertificateEncodingFailure(ResolvedManagedRawSigningProfile profile,
-            GeneralSecurityException cause) {
-        LOG
-                .error("Native signing could not encode the certificate chain of signing profile '{}'", profile.name(),
-                        cause);
+    /**
+     * A certificate the profile resolved with was parsed from its encoding, so encoding or hashing it fails only on a
+     * platform fault.
+     */
+    private static SigningEngineException loggedCertificateFailure(ResolvedManagedRawSigningProfile profile,
+            String failedStep, GeneralSecurityException cause) {
+        LOG.error("Native signing could not {} of signing profile '{}'", failedStep, profile.name(), cause);
         return new SigningEngineException(SigningEngineFailure.STEP_FAILED,
-                "could not encode the certificate chain of Signing Profile '%s'".formatted(profile.name()), cause,
+                "could not %s of Signing Profile '%s'".formatted(failedStep, profile.name()), cause,
                 "Internal error during signing");
     }
 
@@ -228,7 +229,7 @@ public class NativeSigningServiceImpl implements NativeSigningExternalService {
         try {
             return certificate.getEncoded();
         } catch (GeneralSecurityException e) {
-            throw loggedCertificateEncodingFailure(profile, e);
+            throw loggedCertificateFailure(profile, "encode the certificate chain", e);
         }
     }
 }

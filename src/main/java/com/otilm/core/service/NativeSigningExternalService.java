@@ -25,7 +25,8 @@ public interface NativeSigningExternalService {
      * and records its digests only on success.
      *
      * @throws NotFoundException if no Signing Profile has the UUID
-     * @throws ValidationException if the request pins another certificate than the profile's signing certificate
+     * @throws ValidationException if the profile cannot serve native raw signing, or the request pins another
+     * certificate than the profile's signing certificate
      */
     SignRawResponseDto signRaw(SecuredUUID signingProfileUuid, SignRawRequestDto request)
             throws NotFoundException, SigningEngineException;
