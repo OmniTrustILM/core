@@ -308,7 +308,11 @@ class AcmeHttpChallengeValidatorTest {
     void failsWithConnectionProblem_whenResponseBodyOutlastsDeadline() throws Exception {
         // given
         var deadlineShorterThanBody = Duration.ofSeconds(1);
-        stubChallenge(aResponse().withStatus(200).withBody(KEY_AUTHORIZATION).withChunkedDribbleDelay(10, 3_000));
+        var bodyDurationLongerThanDeadlineMillis = 3_000;
+        stubChallenge(aResponse()
+                .withStatus(200)
+                .withBody(KEY_AUTHORIZATION)
+                .withChunkedDribbleDelay(10, bodyDurationLongerThanDeadlineMillis));
 
         // when
         ChallengeValidationResult result = createValidatorThrough(challengeHost.port(), deadlineShorterThanBody)
