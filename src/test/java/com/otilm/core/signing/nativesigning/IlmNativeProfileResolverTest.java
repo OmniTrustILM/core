@@ -143,7 +143,7 @@ class IlmNativeProfileResolverTest {
         doReturn(rawModel).when(signingProfileService).loadSigningProfileModel(NAME);
 
         // when
-        SigningProfileModel<?, ?> resolved = resolver.resolve(PROFILE, NativeOperation.SIGN_HASH);
+        SigningProfileModel<?, ?> resolved = resolver.resolve(PROFILE, NativeOperation.SIGN_RAW);
 
         // then
         assertThat(resolved).isSameAs(rawModel);

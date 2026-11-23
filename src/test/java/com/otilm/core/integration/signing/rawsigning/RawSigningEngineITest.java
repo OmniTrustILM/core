@@ -1,7 +1,10 @@
 package com.otilm.core.integration.signing.rawsigning;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.jayway.jsonpath.JsonPath;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
+import com.otilm.api.model.client.signing.nativesigning.SignRawItemDto;
+import com.otilm.api.model.client.signing.nativesigning.SignRawRequestDto;
 import com.otilm.api.model.client.signing.profile.SigningProfileDto;
 import com.otilm.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
 import com.otilm.api.model.client.signing.profile.record.SigningRecordPolicyRequestDto;
@@ -14,6 +17,20 @@ import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.SignatureInputMode;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.logging.enums.AuditLogOutput;
+import com.otilm.api.model.core.logging.enums.Module;
+import com.otilm.api.model.core.logging.enums.Operation;
+import com.otilm.api.model.core.logging.enums.OperationResult;
+import com.otilm.api.model.core.logging.records.LogRecord;
+import com.otilm.api.model.core.logging.records.ResourceObjectIdentity;
+import com.otilm.api.model.core.settings.PlatformSettingsDto;
+import com.otilm.api.model.core.settings.PlatformSettingsUpdateDto;
+import com.otilm.api.model.core.settings.SettingsSection;
+import com.otilm.api.model.core.settings.SigningSettingsDto;
+import com.otilm.api.model.core.settings.logging.AuditLoggingSettingsDto;
+import com.otilm.api.model.core.settings.logging.LoggingSettingsDto;
+import com.otilm.api.model.core.settings.logging.ResourceLoggingSettingsDto;
 import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.core.attribute.SignatureAlgorithmMapping;
 import com.otilm.core.dao.entity.Certificate;
@@ -31,14 +48,20 @@ import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.helpers.TestCertificateAuthority;
 import com.otilm.core.integration.service.V2TokenFixture;
 import com.otilm.core.integration.service.V2TokenFixture.V2Token;
+import com.otilm.core.messaging.model.AuditLogMessage;
+import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.signing.CertificatePurposeRequirements;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.resolved.ResolvedManagedRawSigningProfile;
 import com.otilm.core.security.authn.PlatformUserDetails;
 import com.otilm.core.security.authz.SecuredUUID;
+import com.otilm.core.security.authz.opa.dto.OpaRequestedResource;
+import com.otilm.core.security.authz.opa.dto.OpaResourceAccessResult;
 import com.otilm.core.serialization.ObjectMapperFactory;
+import com.otilm.core.service.SettingExternalService;
 import com.otilm.core.service.SigningProfileExternalService;
 import com.otilm.core.service.SigningProfileInternalService;
+import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
 import com.otilm.core.signing.engine.resolver.SigningProfileResolverFactory;
@@ -51,11 +74,14 @@ import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.seeders.CryptographicKeySeeder;
 import com.otilm.core.util.seeders.CryptographicKeySeeder.KeyItemSpec;
+import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.security.MessageDigest;
 import java.security.PublicKey;
 import java.security.Signature;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
 import java.security.spec.AlgorithmParameterSpec;
 import java.security.spec.ECGenParameterSpec;
 import java.security.spec.MGF1ParameterSpec;
@@ -63,6 +89,7 @@ import java.security.spec.PSSParameterSpec;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -74,11 +101,18 @@ import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Named;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -91,11 +125,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.entry;
 import static org.junit.jupiter.api.Named.named;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 /**
  * Signs batches of client digests through raw Signing Profiles on a v2 provider that signs each digest as it is, over a
- * real Spring context and Postgres.
+ * real Spring context and Postgres: through the run itself, and through the native {@code signRaw} endpoint.
  */
+@AutoConfigureMockMvc
 class RawSigningEngineITest extends BaseSpringBootTest {
 
     private static final List<String> IDENTIFIERS = List.of("doc-1", "doc-2", "doc-3");
@@ -129,6 +169,11 @@ class RawSigningEngineITest extends BaseSpringBootTest {
     private CertificateRepository certificateRepository;
     @Autowired
     private PlatformTransactionManager transactionManager;
+
+    @Autowired
+    private MockMvc mockMvc;
+    @Autowired
+    private SettingExternalService settingService;
 
     private V2Token v2Token;
     private TestCertificateAuthority.TrustedCa trustedCa;
@@ -178,7 +223,7 @@ class RawSigningEngineITest extends BaseSpringBootTest {
                 .containsExactly("CN=" + profile.getName(), "CN=Raw Signing Root CA");
         PublicKey signingPublicKey = result.certificateChain().getFirst().getPublicKey();
         for (RawSignedItem item : result.items()) {
-            assertThat(verifiesOverItsMessage(signingKey, signingPublicKey, item))
+            assertThat(verifiesOverItsMessage(signingKey, signingPublicKey, item.identifier(), item.signature()))
                     .as("signature of %s verifies over its message", item.identifier())
                     .isTrue();
         }
@@ -288,6 +333,410 @@ class RawSigningEngineITest extends BaseSpringBootTest {
         assertThat(loadRecords(profile)).isEmpty();
     }
 
+    // ── IlmNativeSignRaw ──────────────────────────────────────────────────────
+
+    @Nested
+    class IlmNativeSignRaw {
+
+        private PlatformSettingsDto originalPlatformSettings;
+
+        @BeforeEach
+        void rememberThePlatformSettings() {
+            originalPlatformSettings = SettingsCache.getSettings(SettingsSection.PLATFORM);
+        }
+
+        /** The settings cache outlives the test. A lowered cap left in it would refuse the next test's batch. */
+        @AfterEach
+        void restoreThePlatformSettings() {
+            new SettingsCache()
+                    .cacheSettings(SettingsSection.PLATFORM,
+                            originalPlatformSettings != null ? originalPlatformSettings : new PlatformSettingsDto());
+        }
+
+        @ParameterizedTest
+        @MethodSource("com.otilm.core.integration.signing.rawsigning.RawSigningEngineITest#signingKeys")
+        void answersSignaturesThatVerifyWithTheReturnedChain_whenTheProfileServesIlmNative(SigningKey signingKey)
+                throws Exception {
+            // given
+            SigningProfileDto profile = createIlmNativeRawProfile(
+                    "native-raw-" + signingKey.signatureAlgorithm().name().toLowerCase(Locale.ROOT), signingKey);
+
+            // when
+            MockHttpServletResponse response = signRaw(profile.getUuid(),
+                    buildSignRawRequest(signingKey.digestAlgorithm()));
+
+            // then
+            assertThat(response.getStatus()).isEqualTo(HttpStatus.OK.value());
+            String signatureAlgorithm = read(response, "$.signatureAlgorithm");
+            assertThat(signatureAlgorithm).isEqualTo(signingKey.signatureAlgorithm().getCode());
+            List<String> chain = read(response, "$.signerCertificateChain");
+            PublicKey signingPublicKey = parseCertificate(chain.getFirst()).getPublicKey();
+            List<Map<String, Object>> results = read(response, "$.results");
+            assertThat(results).extracting(result -> result.get("identifier")).containsExactlyElementsOf(IDENTIFIERS);
+            for (Map<String, Object> result : results) {
+                String identifier = (String) result.get("identifier");
+                byte[] signature = Base64.getDecoder().decode((String) result.get("signature"));
+                assertThat(verifiesOverItsMessage(signingKey, signingPublicKey, identifier, signature))
+                        .as("signature of %s verifies over its message", identifier)
+                        .isTrue();
+            }
+        }
+
+        @Test
+        void answersTheUuidsOfTheIlmNativeRecordsItWrote_whenTheProfileRecords() throws Exception {
+            // given
+            SigningProfileDto profile = createIlmNativeRawProfile("native-raw-records", RSA_PKCS1_SHA256);
+
+            // when
+            MockHttpServletResponse response = signRaw(profile.getUuid(), buildSignRawRequest(DigestAlgorithm.SHA_256));
+
+            // then
+            assertThat(response.getStatus()).isEqualTo(HttpStatus.OK.value());
+            List<String> answeredRecordUuids = read(response, "$.results[*].signingRecordUuid");
+            List<SigningRecord> records = loadRecords(profile);
+            assertThat(records)
+                    .extracting(signingRecord -> signingRecord.getUuid().toString())
+                    .containsExactlyInAnyOrderElementsOf(answeredRecordUuids);
+            assertThat(records)
+                    .hasSameSizeAs(IDENTIFIERS)
+                    .extracting(SigningRecord::getProtocol)
+                    .containsOnly(SigningProtocol.ILM_NATIVE);
+        }
+
+        @Test
+        void signs_whenTheFingerprintNamesTheSigningCertificateInUpperCase() throws Exception {
+            // given
+            SigningProfileDto profile = createIlmNativeRawProfile("native-raw-pinned", RSA_PKCS1_SHA256);
+            SignRawRequestDto request = buildSignRawRequest(DigestAlgorithm.SHA_256);
+            String upperCaseFingerprint = loadSigningCertificate(profile).getFingerprint().toUpperCase(Locale.ROOT);
+            request.setCertificateFingerprint(upperCaseFingerprint);
+
+            // when
+            MockHttpServletResponse response = signRaw(profile.getUuid(), request);
+
+            // then
+            assertThat(response.getStatus()).isEqualTo(HttpStatus.OK.value());
+            List<Object> results = read(response, "$.results");
+            assertThat(results).hasSameSizeAs(IDENTIFIERS);
+        }
+
+        @Test
+        void answers422BeforeSigning_whenTheFingerprintNamesAnotherCertificate() throws Exception {
+            // given
+            SigningProfileDto profile = createIlmNativeRawProfile("native-raw-pinned-elsewhere", RSA_PKCS1_SHA256);
+            SigningProfileDto otherProfile = createRawProfile("native-raw-other-certificate", RSA_PKCS1_SHA256);
+            SignRawRequestDto request = buildSignRawRequest(DigestAlgorithm.SHA_256);
+            String anotherCertificatesFingerprint = loadSigningCertificate(otherProfile).getFingerprint();
+            request.setCertificateFingerprint(anotherCertificatesFingerprint);
+
+            // when
+            MockHttpServletResponse response = signRaw(profile.getUuid(), request);
+
+            // then
+            assertThat(response.getStatus()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT.value());
+            List<String> messages = read(response, "$");
+            assertThat(messages)
+                    .containsExactly("The signing certificate of Signing Profile '%s' is not the one the request names"
+                            .formatted(profile.getName()));
+            v2Token.connectorMock().verifyNoOperationRequest("sign");
+            assertThat(loadRecords(profile)).isEmpty();
+        }
+
+        @Test
+        void answers422BeforeSigning_whenTheModeIsData() throws Exception {
+            // given
+            SigningProfileDto profile = createIlmNativeRawProfile("native-raw-data-mode", RSA_PKCS1_SHA256);
+            SignRawRequestDto request = buildSignRawRequest(DigestAlgorithm.SHA_256);
+            request.setSignatureInputMode(SignatureInputMode.DATA);
+
+            // when
+            MockHttpServletResponse response = signRaw(profile.getUuid(), request);
+
+            // then
+            assertThat(response.getStatus()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT.value());
+            List<String> messages = read(response, "$");
+            assertThat(messages).containsExactly("Raw signing takes digests; data signing is not supported");
+            v2Token.connectorMock().verifyNoOperationRequest("sign");
+            assertThat(loadRecords(profile)).isEmpty();
+        }
+
+        @Test
+        void answers422BeforeSigning_whenTheDigestAlgorithmIsNotTheProfiles() throws Exception {
+            // given
+            SigningProfileDto profile = createIlmNativeRawProfile("native-raw-other-digest", RSA_PKCS1_SHA256);
+            var notTheProfilesDigest = DigestAlgorithm.SHA_384;
+
+            // when
+            MockHttpServletResponse response = signRaw(profile.getUuid(), buildSignRawRequest(notTheProfilesDigest));
+
+            // then
+            assertThat(response.getStatus()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT.value());
+            List<String> messages = read(response, "$");
+            assertThat(messages).singleElement().asString().contains(notTheProfilesDigest.getCode());
+            v2Token.connectorMock().verifyNoOperationRequest("sign");
+        }
+
+        @Test
+        void answers422BeforeSigning_whenTheRequestCarriesMoreItemsThanTheCap() throws Exception {
+            // given
+            SigningProfileDto profile = createIlmNativeRawProfile("native-raw-capped", RSA_PKCS1_SHA256);
+            var cap = IDENTIFIERS.size() - 1;
+            settingService.updatePlatformSettings(signingCapUpdate(cap));
+
+            // when
+            MockHttpServletResponse response = signRaw(profile.getUuid(), buildSignRawRequest(DigestAlgorithm.SHA_256));
+
+            // then
+            assertThat(response.getStatus()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT.value());
+            List<String> messages = read(response, "$");
+            assertThat(messages).containsExactly("A request may carry at most %d items".formatted(cap));
+            v2Token.connectorMock().verifyNoOperationRequest("sign");
+        }
+
+        @Test
+        void answers422NamingTheField_whenTwoItemsShareAnIdentifier() throws Exception {
+            // given
+            SigningProfileDto profile = createIlmNativeRawProfile("native-raw-duplicate", RSA_PKCS1_SHA256);
+            SignRawRequestDto request = buildSignRawRequest(DigestAlgorithm.SHA_256);
+            request.getItems().get(1).setIdentifier(request.getItems().getFirst().getIdentifier());
+
+            // when
+            MockHttpServletResponse response = signRaw(profile.getUuid(), request);
+
+            // then
+            assertThat(response.getStatus()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT.value());
+            List<String> messages = read(response, "$");
+            assertThat(messages)
+                    .containsExactly(
+                            "items[1].identifier identifiers must be unique within the request; duplicates item at index 0");
+            v2Token.connectorMock().verifyNoOperationRequest("sign");
+        }
+
+        @Test
+        void answers422_whenTheProfileHasIlmNativeInactive() throws Exception {
+            // given
+            SigningProfileDto profile = createRawProfile("native-raw-inactive", RSA_PKCS1_SHA256);
+
+            // when
+            MockHttpServletResponse response = signRaw(profile.getUuid(), buildSignRawRequest(DigestAlgorithm.SHA_256));
+
+            // then
+            assertThat(response.getStatus()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT.value());
+            List<String> messages = read(response, "$");
+            assertThat(messages).singleElement().asString().contains("does not have the ILM_NATIVE protocol enabled");
+            v2Token.connectorMock().verifyNoOperationRequest("sign");
+        }
+
+        @Test
+        void answers422_whenTheProfileIsNotARawSigningProfile() throws Exception {
+            // given
+            SigningProfileDto rawProfile = createRawProfile("native-raw-beside-timestamping", RSA_PKCS1_SHA256);
+            SigningProfile timestampingProfile = seedTimestampingProfile("native-timestamping",
+                    loadSigningCertificate(rawProfile));
+            timestampingProfile.setEnabled(true);
+            timestampingProfile.setIlmNativeEnabled(true);
+            signingProfileRepository.save(timestampingProfile);
+
+            // when
+            MockHttpServletResponse response = signRaw(timestampingProfile.getUuid().toString(),
+                    buildSignRawRequest(DigestAlgorithm.SHA_256));
+
+            // then
+            assertThat(response.getStatus()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT.value());
+            List<String> messages = read(response, "$");
+            assertThat(messages)
+                    .singleElement()
+                    .asString()
+                    .contains("is not a %s profile".formatted(SigningWorkflowType.RAW_SIGNING.getCode()));
+            v2Token.connectorMock().verifyNoOperationRequest("sign");
+        }
+
+        @Test
+        void answers404_whenNoSigningProfileHasTheUuid() throws Exception {
+            // given
+            String unknownUuid = UUID.randomUUID().toString();
+
+            // when
+            MockHttpServletResponse response = signRaw(unknownUuid, buildSignRawRequest(DigestAlgorithm.SHA_256));
+
+            // then
+            assertThat(response.getStatus()).isEqualTo(HttpStatus.NOT_FOUND.value());
+        }
+
+        @Test
+        void answers403_whenTheCallerMayNotSignWithTheProfile() throws Exception {
+            // given
+            SigningProfileDto profile = createIlmNativeRawProfile("native-raw-forbidden", RSA_PKCS1_SHA256);
+            denyResourceAccess(Resource.SIGNING_PROFILE, ResourceAction.SIGN, UUID.fromString(profile.getUuid()));
+
+            // when
+            MockHttpServletResponse response = signRaw(profile.getUuid(), buildSignRawRequest(DigestAlgorithm.SHA_256));
+
+            // then
+            assertThat(response.getStatus()).isEqualTo(HttpStatus.FORBIDDEN.value());
+            v2Token.connectorMock().verifyNoOperationRequest("sign");
+        }
+
+        @Test
+        void answers403NamingTheKeyPermission_whenTheCallerMayNotSignWithTheProfilesKey() throws Exception {
+            // given
+            SigningProfileDto profile = createIlmNativeRawProfile("native-raw-key-forbidden", RSA_PKCS1_SHA256);
+            denyResourceAccess(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.SIGN);
+
+            // when
+            MockHttpServletResponse response = signRaw(profile.getUuid(), buildSignRawRequest(DigestAlgorithm.SHA_256));
+
+            // then
+            assertThat(response.getStatus()).isEqualTo(HttpStatus.FORBIDDEN.value());
+            String message = read(response, "$.message");
+            assertThat(message)
+                    .isEqualTo("Access Denied. Required 'Sign' permission for '%s'"
+                            .formatted(Resource.CRYPTOGRAPHIC_KEY.getLabel()));
+            v2Token.connectorMock().verifyNoOperationRequest("sign");
+            assertThat(loadRecords(profile)).isEmpty();
+        }
+
+        /** Signing with the profile does not stand in for the permission to sign with its key. */
+        @Test
+        void answers403_whenTheCallerMaySignWithTheProfileOnly() throws Exception {
+            // given
+            SigningProfileDto profile = createIlmNativeRawProfile("native-raw-profile-only", RSA_PKCS1_SHA256);
+            grantOnlyResourceAccess(Resource.SIGNING_PROFILE, ResourceAction.SIGN);
+
+            // when
+            MockHttpServletResponse response = signRaw(profile.getUuid(), buildSignRawRequest(DigestAlgorithm.SHA_256));
+
+            // then
+            assertThat(response.getStatus()).isEqualTo(HttpStatus.FORBIDDEN.value());
+            v2Token.connectorMock().verifyNoOperationRequest("sign");
+        }
+
+        @Test
+        void auditsTheSigningAgainstItsProfile_whenAuditingIsOn() throws Exception {
+            // given
+            SigningProfileDto profile = createIlmNativeRawProfile("native-raw-audited", RSA_PKCS1_SHA256);
+            updateAuditLogging(false);
+
+            // when
+            MockHttpServletResponse response = signRaw(profile.getUuid(), buildSignRawRequest(DigestAlgorithm.SHA_256));
+
+            // then
+            assertThat(response.getStatus()).isEqualTo(HttpStatus.OK.value());
+            assertThat(captureAuditedSignings()).anySatisfy(logRecord -> {
+                assertThat(logRecord.module()).isEqualTo(Module.SIGNING);
+                assertThat(logRecord.operationResult()).isEqualTo(OperationResult.SUCCESS);
+                assertThat(logRecord.resource().type()).isEqualTo(Resource.SIGNING_RECORD);
+                assertThat(logRecord.affiliatedResource().type()).isEqualTo(Resource.SIGNING_PROFILE);
+                assertThat(logRecord.affiliatedResource().objects())
+                        .extracting(ResourceObjectIdentity::uuid)
+                        .containsExactly(UUID.fromString(profile.getUuid()));
+            });
+        }
+
+        @Test
+        void keepsTheDigestsOutOfTheAuditRecord_whenAuditingIsVerbose() throws Exception {
+            // given
+            SigningProfileDto profile = createIlmNativeRawProfile("native-raw-verbose-audit", RSA_PKCS1_SHA256);
+            SignRawRequestDto request = buildSignRawRequest(DigestAlgorithm.SHA_256);
+            String firstDigest = Base64.getEncoder().encodeToString(request.getItems().getFirst().getData());
+            updateAuditLogging(true);
+
+            // when
+            MockHttpServletResponse response = signRaw(profile.getUuid(), request);
+
+            // then
+            assertThat(response.getStatus()).isEqualTo(HttpStatus.OK.value());
+            assertThat(captureAuditedSignings()).anySatisfy(logRecord -> {
+                assertThat(logRecord.additionalData()).containsKey("signingProfileUuid").doesNotContainKey("request");
+                assertThat(ObjectMapperFactory.auditLog().writeValueAsString(logRecord.additionalData()))
+                        .doesNotContain(firstDigest);
+            });
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private SigningProfileDto createIlmNativeRawProfile(String name, SigningKey signingKey) throws Exception {
+            SigningProfileDto profile = createRawProfile(name, signingKey);
+            signingProfileService.activateIlmNative(SecuredUUID.fromString(profile.getUuid()));
+            return profile;
+        }
+
+        private MockHttpServletResponse signRaw(String signingProfileUuid, SignRawRequestDto request) throws Exception {
+            return mockMvc
+                    .perform(post("/v1/signing/signingProfiles/{signingProfileUuid}/raw/sign", signingProfileUuid)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(ObjectMapperFactory.wire().writeValueAsString(request)))
+                    .andReturn()
+                    .getResponse();
+        }
+
+        private void grantOnlyResourceAccess(Resource resource, ResourceAction action) {
+            when(opaClient.checkResourceAccess(any(), any(), any(), any())).thenAnswer(invocation -> {
+                OpaRequestedResource requested = invocation.getArgument(1);
+                OpaResourceAccessResult result = new OpaResourceAccessResult();
+                result
+                        .setAuthorized(resource.getCode().equals(requested.getProperties().get("name"))
+                                && action.getCode().equals(requested.getProperties().get("action")));
+                result.setAllow(List.of());
+                return result;
+            });
+        }
+
+        private List<LogRecord> captureAuditedSignings() {
+            ArgumentCaptor<AuditLogMessage> messages = ArgumentCaptor.forClass(AuditLogMessage.class);
+            verify(auditLogsProducer, atLeastOnce()).produceMessage(messages.capture());
+            return messages
+                    .getAllValues()
+                    .stream()
+                    .map(AuditLogMessage::getLogRecord)
+                    .filter(logRecord -> logRecord.operation() == Operation.SIGN)
+                    .toList();
+        }
+
+        private void updateAuditLogging(boolean verbose) {
+            AuditLoggingSettingsDto auditLogs = new AuditLoggingSettingsDto();
+            auditLogs.setVerbose(verbose);
+            auditLogs.setOutput(AuditLogOutput.ALL);
+            auditLogs.setLogAllModules(true);
+            auditLogs.setLogAllResources(true);
+            LoggingSettingsDto settings = new LoggingSettingsDto();
+            settings.setAuditLogs(auditLogs);
+            settings.setEventLogs(new ResourceLoggingSettingsDto());
+            settingService.updateLoggingSettings(settings);
+        }
+
+        private static <T> T read(MockHttpServletResponse response, String jsonPath) throws Exception {
+            return JsonPath.read(response.getContentAsString(), jsonPath);
+        }
+
+        private static SignRawRequestDto buildSignRawRequest(DigestAlgorithm digestAlgorithm) throws Exception {
+            List<SignRawItemDto> items = new ArrayList<>();
+            for (RawSigningItem item : buildDigestRequest(digestAlgorithm).items()) {
+                items.add(new SignRawItemDto(item.identifier(), item.digest()));
+            }
+            var request = new SignRawRequestDto();
+            request.setSignatureInputMode(SignatureInputMode.DATA_DIGEST);
+            request.setDigestAlgorithm(digestAlgorithm);
+            request.setItems(items);
+            return request;
+        }
+
+        private static X509Certificate parseCertificate(String base64Der) throws Exception {
+            byte[] der = Base64.getDecoder().decode(base64Der);
+            return (X509Certificate) CertificateFactory
+                    .getInstance("X.509")
+                    .generateCertificate(new ByteArrayInputStream(der));
+        }
+
+        private static PlatformSettingsUpdateDto signingCapUpdate(int maxItemsPerRequest) {
+            SigningSettingsDto signing = new SigningSettingsDto();
+            signing.setMaxItemsPerRequest(maxItemsPerRequest);
+            PlatformSettingsUpdateDto update = new PlatformSettingsUpdateDto();
+            update.setSigning(signing);
+            return update;
+        }
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static Stream<Named<SigningKey>> signingKeys() {
@@ -366,15 +815,15 @@ class RawSigningEngineITest extends BaseSpringBootTest {
         return ("content of " + identifier).getBytes(StandardCharsets.UTF_8);
     }
 
-    private static boolean verifiesOverItsMessage(SigningKey signingKey, PublicKey publicKey, RawSignedItem item)
-            throws Exception {
+    private static boolean verifiesOverItsMessage(SigningKey signingKey, PublicKey publicKey, String identifier,
+            byte[] signature) throws Exception {
         Signature verifier = Signature.getInstance(signingKey.jdkVerifier());
         if (signingKey.jdkVerifierParameters() != null) {
             verifier.setParameter(signingKey.jdkVerifierParameters());
         }
         verifier.initVerify(publicKey);
-        verifier.update(buildMessage(item.identifier()));
-        return verifier.verify(item.signature());
+        verifier.update(buildMessage(identifier));
+        return verifier.verify(signature);
     }
 
     private SigningProfileModel<?, ?> loadModel(SigningProfileDto profile) throws Exception {
