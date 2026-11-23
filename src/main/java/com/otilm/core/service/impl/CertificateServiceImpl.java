@@ -170,6 +170,7 @@ import com.otilm.core.service.RaProfileCertificateRequestAttributeService;
 import com.otilm.core.service.RaProfileInternalService;
 import com.otilm.core.service.ResourceObjectAssociationService;
 import com.otilm.core.service.handler.KeystoreAvailability;
+import com.otilm.core.service.handler.SubtreeRevalidation;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine;
@@ -331,6 +332,7 @@ public class CertificateServiceImpl
     private ResourceObjectAssociationService objectAssociationService;
     private CertificateProtocolAssociationRepository certificateProtocolAssociationRepository;
     private ApplicationEventPublisher applicationEventPublisher;
+    private SubtreeRevalidation subtreeRevalidation;
     private ValidationProducer validationProducer;
     private AuthenticationCache authenticationCache;
     private CertificateUploadService certificateUploadService;
@@ -628,6 +630,11 @@ public class CertificateServiceImpl
     @Autowired
     public void setApplicationEventPublisher(ApplicationEventPublisher applicationEventPublisher) {
         this.applicationEventPublisher = applicationEventPublisher;
+    }
+
+    @Autowired
+    public void setSubtreeRevalidation(SubtreeRevalidation subtreeRevalidation) {
+        this.subtreeRevalidation = subtreeRevalidation;
     }
 
     @Autowired
@@ -1010,48 +1017,7 @@ public class CertificateServiceImpl
             return;
         }
         x509Certificate.setTrustedCa(trustedCa);
-        triggerSubtreeRevalidation(certificate);
-    }
-
-    private void triggerSubtreeRevalidation(Certificate ca) {
-        boolean platformEnabled = SettingsCache
-                .<PlatformSettingsDto>getSettings(SettingsSection.PLATFORM)
-                .getCertificates()
-                .getValidation()
-                .getEnabled();
-        List<UUID> toRevalidate = new ArrayList<>();
-        if (isEligibleForRevalidation(ca, platformEnabled)) {
-            toRevalidate.add(ca.getUuid());
-        }
-        toRevalidate
-                .addAll(certificateRepository
-                        .findAllDescendantCertificatesEligibleForValidation(ca.getUuid(), platformEnabled,
-                                certificateChainMaxDepth));
-        if (!toRevalidate.isEmpty()) {
-            log
-                    .debug("Publishing certificate validation event for CA subtree revalidation. caUuid={}, certificateCount={}",
-                            ca.getUuid(), toRevalidate.size());
-            applicationEventPublisher.publishEvent(new CertificateValidationEvent(toRevalidate));
-        }
-    }
-
-    /**
-     * Applies the same four eligibility rules to the CA node itself that
-     * {@link CertificateRepository#findAllDescendantCertificatesEligibleForValidation} applies to its descendants in
-     * SQL: not archived, certificate content present, validation status not REVOKED/EXPIRED, and RA-profile validation
-     * flag (falling back to the platform flag when unset). Keep both in sync.
-     */
-    private boolean isEligibleForRevalidation(Certificate certificate, boolean platformEnabled) {
-        if (certificate.isArchived() || certificate.getCertificateContent() == null) {
-            return false;
-        }
-        CertificateValidationStatus status = certificate.getValidationStatus();
-        if (status == CertificateValidationStatus.REVOKED || status == CertificateValidationStatus.EXPIRED) {
-            return false;
-        }
-        RaProfile raProfile = certificate.getRaProfile();
-        Boolean rpEnabled = raProfile != null ? raProfile.getValidationEnabled() : null;
-        return rpEnabled == null ? platformEnabled : rpEnabled;
+        subtreeRevalidation.publishFor(certificate);
     }
 
     @Async
