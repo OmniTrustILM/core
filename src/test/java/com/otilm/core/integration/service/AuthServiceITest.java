@@ -99,36 +99,51 @@ class AuthServiceITest extends BaseSpringBootTest {
     }
 
     @Test
-    void testAuthResources() {
-        List<AuthResourceDto> authResources = authService.getAuthResources();
+    void matchesSyncedResources_whenReadingAuthResources() {
+        // given
         List<ResourceSyncRequestDto> resources = contextRefreshListener.getResources();
 
-        Assertions.assertEquals(resources.size(), authResources.size());
-        Assertions
-                .assertEquals(
-                        resources.stream().map(resource -> resource.getName().getCode()).collect(Collectors.toSet()),
-                        authResources.stream().map(AuthResourceDto::getName).collect(Collectors.toSet()));
+        // when
+        List<AuthResourceDto> authResources = authService.getAuthResources();
+
+        // then
+        assertThat(authResources).hasSameSizeAs(resources);
+        assertThat(authResources.stream().map(AuthResourceDto::getName).collect(Collectors.toSet()))
+                .isEqualTo(
+                        resources.stream().map(resource -> resource.getName().getCode()).collect(Collectors.toSet()));
     }
 
     @Test
-    void aiModelActionsAreRegisteredForAuthServiceSync() {
-        List<String> registeredActions = contextRefreshListener
-                .getResources()
-                .stream()
-                .filter(resource -> Resource.AI_MODEL.getCode().equals(resource.getName().getCode()))
-                .findFirst()
-                .orElseThrow(() -> new AssertionError("AI_MODEL missing from auth-service sync payload"))
-                .getActions();
-        Assertions.assertEquals(Set.of("connect", "use"), Set.copyOf(registeredActions));
-        AuthResourceDto advertised = authService
-                .getAuthResources()
-                .stream()
-                .filter(resource -> Resource.AI_MODEL.getCode().equals(resource.getName()))
-                .findFirst()
-                .orElseThrow(() -> new AssertionError("AI_MODEL missing from auth-service response"));
-        Assertions
-                .assertEquals(Set.of("connect", "use"),
-                        advertised.getActions().stream().map(action -> action.getName()).collect(Collectors.toSet()));
+    void registersAiModelActions_whenSyncingResourcesToAuthService() {
+        // given
+        Set<String> expectedActions = Set.of("connect", "use");
+
+        // when
+        List<ResourceSyncRequestDto> resources = contextRefreshListener.getResources();
+
+        // then
+        assertThat(resources)
+                .filteredOn(resource -> Resource.AI_MODEL.getCode().equals(resource.getName().getCode()))
+                .singleElement()
+                .satisfies(resource -> assertThat(resource.getActions())
+                        .containsExactlyInAnyOrderElementsOf(expectedActions));
+    }
+
+    @Test
+    void returnsAiModelActions_whenReadingAuthResources() {
+        // given
+        Set<String> expectedActions = Set.of("connect", "use");
+
+        // when
+        List<AuthResourceDto> authResources = authService.getAuthResources();
+
+        // then
+        assertThat(authResources)
+                .filteredOn(resource -> Resource.AI_MODEL.getCode().equals(resource.getName()))
+                .singleElement()
+                .satisfies(resource -> assertThat(resource.getActions())
+                        .extracting(action -> action.getName())
+                        .containsExactlyInAnyOrderElementsOf(expectedActions));
     }
 
     /**

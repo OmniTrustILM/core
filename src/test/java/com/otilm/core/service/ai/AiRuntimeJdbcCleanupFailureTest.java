@@ -26,7 +26,11 @@ class AiRuntimeJdbcCleanupFailureTest {
         ThrowingCallable closeConnections = owner::closeConnections;
 
         // then
-        assertThatThrownBy(closeConnections).isInstanceOf(IllegalStateException.class);
+        try {
+            assertThatThrownBy(closeConnections).isInstanceOf(IllegalStateException.class);
+        } finally {
+            assertThatThrownBy(owner::close).isInstanceOf(IllegalStateException.class);
+        }
     }
 
     @Test
