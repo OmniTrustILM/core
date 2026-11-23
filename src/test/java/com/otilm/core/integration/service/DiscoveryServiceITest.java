@@ -2,6 +2,9 @@ package com.otilm.core.integration.service;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
+import com.github.tomakehurst.wiremock.extension.Parameters;
+import com.github.tomakehurst.wiremock.extension.ServeEventListener;
+import com.github.tomakehurst.wiremock.stubbing.ServeEvent;
 import com.otilm.api.exception.AlreadyExistException;
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorException;
@@ -92,12 +95,14 @@ import com.otilm.core.util.DiscoveryCheckpointFixture;
 import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.MetaDefinitions;
 import com.otilm.core.util.RefusedDefinitionInserts;
+import com.otilm.core.util.RefusedDiscoveryDeletes;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -220,6 +225,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
     @AfterEach
     void tearDown() {
         RefusedDefinitionInserts.remove(jdbcTemplate);
+        RefusedDiscoveryDeletes.remove(jdbcTemplate);
         mockServer.stop();
     }
 
@@ -501,6 +507,110 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         discoveryService.bulkRemoveDiscovery(List.of(discovery.getSecuredUuid()));
         Assertions
                 .assertThrows(NotFoundException.class, () -> discoveryService.getDiscovery(discovery.getSecuredUuid()));
+    }
+
+    @Test
+    void commitsTheLocalDelete_beforeTheConnectorDeletesItsCopy() throws Exception {
+        // given
+        givenConnectorCopy();
+        CompletableFuture<Integer> runRowsVisibleToTheConnectorCall = countRunRowsWhenTheConnectorDeletesItsCopy();
+
+        // when
+        discoveryService.deleteDiscovery(discovery.getSecuredUuid());
+
+        // then
+        assertThat(runRowsVisibleToTheConnectorCall).succeedsWithin(Duration.ofSeconds(5)).isEqualTo(0);
+    }
+
+    @Test
+    void keepsTheConnectorCopy_whenTheLocalDeleteFails() {
+        // given
+        givenConnectorCopy();
+        stubConnectorCopyDeletion(HttpStatus.NO_CONTENT);
+        RefusedDiscoveryDeletes.install(jdbcTemplate, discovery.getUuid());
+
+        // when
+        ThrowingCallable delete = () -> discoveryService.deleteDiscovery(discovery.getSecuredUuid());
+
+        // then
+        assertThatThrownBy(delete).hasStackTraceContaining(RefusedDiscoveryDeletes.REASON);
+        WireMock.verify(0, WireMock.deleteRequestedFor(WireMock.urlPathEqualTo(connectorCopyPath())));
+    }
+
+    @Test
+    void deletesTheRun_whenTheConnectorFailsToDeleteItsCopy() throws Exception {
+        // given
+        givenConnectorCopy();
+        stubConnectorCopyDeletion(HttpStatus.INTERNAL_SERVER_ERROR);
+
+        // when
+        discoveryService.deleteDiscovery(discovery.getSecuredUuid());
+
+        // then
+        WireMock.verify(1, WireMock.deleteRequestedFor(WireMock.urlPathEqualTo(connectorCopyPath())));
+        assertThat(discoveryRepository.findByUuid(discovery.getUuid())).isEmpty();
+    }
+
+    @Test
+    void deletesTheOtherRunsOfABulkDelete_whenOneFailsToDelete() throws Exception {
+        // given
+        Discovery refusedByTheDatabase = saveEndedV1Run("refused-by-the-database");
+        Discovery afterTheFailure = saveEndedV1Run("after-the-failure");
+        RefusedDiscoveryDeletes.install(jdbcTemplate, refusedByTheDatabase.getUuid());
+
+        // when
+        discoveryService
+                .bulkRemoveDiscovery(List
+                        .of(discovery.getSecuredUuid(), refusedByTheDatabase.getSecuredUuid(),
+                                afterTheFailure.getSecuredUuid()));
+
+        // then
+        assertThat(discoveryRepository.findByUuid(discovery.getUuid())).isEmpty();
+        assertThat(discoveryRepository.findByUuid(afterTheFailure.getUuid())).isEmpty();
+        assertThat(discoveryRepository.findByUuid(refusedByTheDatabase.getUuid())).isPresent();
+    }
+
+    @Test
+    void keepsTheInventoryCertificateAndItsContent_whenDeletingARunThatFoundIt() throws Exception {
+        // given
+        X509CertificateEntity inventoryCertificate = saveInventoryCertificate();
+        stageResult(discovery, inventoryCertificate.getCertificateContentId());
+
+        // when
+        discoveryService.deleteDiscovery(discovery.getSecuredUuid());
+
+        // then
+        assertThat(certificateRepository.findByUuid(inventoryCertificate.getUuid())).isPresent();
+        assertThat(certificateContentRepository.findById(inventoryCertificate.getCertificateContentId())).isPresent();
+    }
+
+    @Test
+    void deletesTheContentOnlyTheDeletedRunReferenced() throws Exception {
+        // given
+        CertificateContent foundOnlyByThisRun = saveContent("fp-found-only-by-this-run");
+        stageResult(discovery, foundOnlyByThisRun.getId());
+
+        // when
+        discoveryService.deleteDiscovery(discovery.getSecuredUuid());
+
+        // then
+        assertThat(certificateContentRepository.findById(foundOnlyByThisRun.getId())).isEmpty();
+    }
+
+    @Test
+    void keepsTheResultsAndContentOfOtherRuns_whenDeletingARun() throws Exception {
+        // given
+        Discovery otherRun = saveEndedV1Run("other-run");
+        CertificateContent foundByBothRuns = saveContent("fp-found-by-both-runs");
+        stageResult(discovery, foundByBothRuns.getId());
+        DiscoveryCertificate otherRunsResult = stageResult(otherRun, foundByBothRuns.getId());
+
+        // when
+        discoveryService.deleteDiscovery(discovery.getSecuredUuid());
+
+        // then
+        assertThat(discoveryCertificateRepository.findByUuid(otherRunsResult.getUuid())).isPresent();
+        assertThat(certificateContentRepository.findById(foundByBothRuns.getId())).isPresent();
     }
 
     @Test
@@ -2331,5 +2441,97 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
                 {"uuid": "%s", "name": "integration-provider", "status": "%s",
                  "totalCertificatesDiscovered": 0, "certificateData": [], "meta": []}
                 """.formatted(PROVIDER_DISCOVERY_UUID, status);
+    }
+
+    private void givenConnectorCopy() {
+        discovery.setStatus(DiscoveryStatus.COMPLETED);
+        discovery.setConnectorStatus(DiscoveryStatus.COMPLETED);
+        discovery.setDiscoveryConnectorReference(PROVIDER_DISCOVERY_UUID);
+        discovery = discoveryRepository.saveAndFlush(discovery);
+    }
+
+    private static String connectorCopyPath() {
+        return "/v1/discoveryProvider/discover/" + PROVIDER_DISCOVERY_UUID;
+    }
+
+    private void stubConnectorCopyDeletion(HttpStatus status) {
+        mockServer
+                .stubFor(WireMock
+                        .delete(WireMock.urlPathEqualTo(connectorCopyPath()))
+                        .willReturn(WireMock.status(status.value())));
+    }
+
+    /**
+     * Restarts the connector with a listener that counts the run's rows from a connection of its own while the
+     * connector is deleting its copy, which sees the local delete only once it has committed.
+     */
+    private CompletableFuture<Integer> countRunRowsWhenTheConnectorDeletesItsCopy() {
+        CompletableFuture<Integer> runRows = new CompletableFuture<>();
+        UUID runUuid = discovery.getUuid();
+        ServeEventListener listener = new ServeEventListener() {
+            @Override
+            public void beforeResponseSent(ServeEvent serveEvent, Parameters parameters) {
+                if (!serveEvent.getRequest().getUrl().equals(connectorCopyPath())) {
+                    return;
+                }
+                try {
+                    runRows
+                            .complete(jdbcTemplate
+                                    .queryForObject("SELECT count(*) FROM discovery WHERE uuid = ?", Integer.class,
+                                            runUuid));
+                } catch (Exception e) {
+                    runRows.completeExceptionally(e);
+                }
+            }
+
+            @Override
+            public String getName() {
+                return "count-run-rows-when-the-connector-deletes-its-copy";
+            }
+        };
+        mockServer.stop();
+        mockServer = new WireMockServer(LoopbackWireMock.options().extensions(listener));
+        mockServer.start();
+        WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
+        connector.setUrl(LoopbackWireMock.url(mockServer));
+        connector = connectorRepository.saveAndFlush(connector);
+        stubConnectorCopyDeletion(HttpStatus.NO_CONTENT);
+        return runRows;
+    }
+
+    private Discovery saveEndedV1Run(String name) {
+        Discovery run = new Discovery();
+        run.setName(name);
+        run.setConnectorUuid(connector.getUuid());
+        run.setConnectorName(connector.getName());
+        run.setStatus(DiscoveryStatus.COMPLETED);
+        run.setConnectorStatus(DiscoveryStatus.COMPLETED);
+        return discoveryRepository.saveAndFlush(run);
+    }
+
+    private CertificateContent saveContent(String fingerprint) {
+        CertificateContent content = new CertificateContent();
+        content.setFingerprint(fingerprint);
+        content.setContent(CERTIFICATE_BASE64);
+        return certificateContentRepository.saveAndFlush(content);
+    }
+
+    private X509CertificateEntity saveInventoryCertificate() {
+        CertificateContent content = saveContent("fp-inventory");
+        X509CertificateEntity inventoryCertificate = aCertificate()
+                .withFingerprint("fp-inventory")
+                .withCertificateContent(content)
+                .withCertificateContentId(content.getId())
+                .build();
+        return certificateRepository.saveAndFlush(inventoryCertificate);
+    }
+
+    private DiscoveryCertificate stageResult(Discovery run, Long certificateContentId) {
+        DiscoveryCertificate result = new DiscoveryCertificate();
+        result.setDiscoveryUuid(run.getUuid());
+        result.setCertificateContentId(certificateContentId);
+        result.setNewlyDiscovered(true);
+        result.setProcessed(true);
+        return discoveryCertificateRepository.saveAndFlush(result);
     }
 }

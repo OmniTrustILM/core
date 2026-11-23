@@ -40,6 +40,7 @@ import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.api.model.core.search.SearchFieldDataDto;
+import com.otilm.core.aop.OutsideTransaction;
 import com.otilm.core.attribute.engine.AttributeColumnProjector;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
@@ -55,7 +56,6 @@ import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.DiscoveryCertificate;
 import com.otilm.core.dao.entity.DiscoveryMessage;
 import com.otilm.core.dao.entity.Discovery_;
-import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.DiscoveryCertificateRepository;
@@ -71,7 +71,6 @@ import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.messaging.jms.producers.NotificationProducer;
 import com.otilm.core.messaging.model.NotificationRecipient;
 import com.otilm.core.model.auth.ResourceAction;
-import com.otilm.core.model.discovery.DiscoveryRunLifecycle;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -152,7 +151,6 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     private ConnectorInternalService connectorService;
     private DiscoveryCertificateRepository discoveryCertificateRepository;
     private DiscoveryDetailCounts detailCounts;
-    private CertificateContentRepository certificateContentRepository;
 
     private DiscoveryProviderAdapterFactory discoveryProviderAdapterFactory;
     private DiscoveryWriter discoveryWriter;
@@ -292,11 +290,6 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     @Autowired
     public void setDetailCounts(DiscoveryDetailCounts detailCounts) {
         this.detailCounts = detailCounts;
-    }
-
-    @Autowired
-    public void setCertificateContentRepository(CertificateContentRepository certificateContentRepository) {
-        this.certificateContentRepository = certificateContentRepository;
     }
 
     @Override
@@ -847,75 +840,74 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
 
     @Override
     @ExternalAuthorization(resource = Resource.DISCOVERY, action = ResourceAction.DELETE)
+    @OutsideTransaction
     public void deleteDiscovery(SecuredUUID uuid) throws NotFoundException {
-        Discovery discovery = discoveryRepository
-                .findByUuid(uuid)
-                .orElseThrow(() -> new NotFoundException(Discovery.class, uuid));
-        // A v2 run still at its connector is driven by agenda rows this delete would cascade away, so nothing would
-        // ever end it. PROCESSING is refused too: the connector is done but Core's import runs on those same rows.
-        // A v1 run has no agenda and its provider call is over, so it deletes directly.
-        if (discovery.getConnectorInterfaceUuid() != null && !DiscoveryRunLifecycle.isTerminal(discovery.getStatus())) {
-            // A PROCESSING run has already left the connector, so cancel refuses it too: waiting is the only way out.
-            String remedy = DiscoveryRunLifecycle.hasLeftTheConnector(discovery.getStatus())
-                    ? "wait for it to end"
-                    : "cancel it first";
-            throw new ValidationException("Discovery " + uuid.getValue() + " is " + discovery.getStatus().getLabel()
-                    + " and cannot be deleted; " + remedy);
-        }
-        Long certsDeleted = discoveryCertificateRepository.deleteByDiscovery(discovery);
-        logger.debug("Deleted {} discovery certificates", certsDeleted);
-
-        Integer certContentsDeleted = certificateContentRepository.deleteUnusedCertificateContents();
-        logger.debug("Deleted {} unused certificate contents", certContentsDeleted);
-
-        attributeEngine.deleteObjectAttributeContent(Resource.DISCOVERY, discovery.getUuid());
-        commentService.removeObjectComments(Resource.DISCOVERY, discovery.getUuid());
-        discoveryRepository.delete(discovery);
-        triggerInternalService.deleteTriggerAssociations(Resource.DISCOVERY, discovery.getUuid());
-
-        try {
-            String referenceUuid = discovery.getDiscoveryConnectorReference();
-            if (referenceUuid != null && !referenceUuid.isEmpty()) {
-                Connector connector = connectorRepository
-                        .findByUuid(discovery.getConnectorUuid())
-                        .orElseThrow(() -> new NotFoundException(Connector.class, discovery.getConnectorUuid()));
-                ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(connector.getUuid());
-                DiscoverySyncApiClient client = connectorApiFactory.getDiscoveryApiClient(connectorDto);
-                client.removeDiscovery(connectorDto, referenceUuid);
-            }
-        } catch (ConnectorException e) {
-            logger.warn("Failed to delete discovery in the connector. But core history is deleted");
-            logger.warn(e.getMessage());
-        } catch (Exception e) {
-            logger.warn(e.getMessage());
-        }
+        deleteRunAndConnectorCopy(uuid);
     }
 
     @Override
     @ExternalAuthorization(resource = Resource.DISCOVERY, action = ResourceAction.DELETE)
     @Async
+    @OutsideTransaction
     public void bulkRemoveDiscovery(List<SecuredUUID> discoveryUuids) throws NotFoundException {
         UUID loggedUserUuid = UUID.fromString(AuthHelper.getUserIdentification().getUuid());
         List<UUID> refused = new ArrayList<>();
+        List<UUID> failed = new ArrayList<>();
         for (SecuredUUID uuid : discoveryUuids) {
             try {
-                deleteDiscovery(uuid);
+                deleteRunAndConnectorCopy(uuid);
             } catch (ValidationException | NotFoundException e) {
                 // A v2 run still at its connector refuses deletion until it is cancelled, and a run someone else
                 // deleted between the selection and this async pass is already gone. Neither may decide the fate of
                 // the rest of the batch, which would otherwise stop here and leave the caller a single error.
                 refused.add(uuid.getValue());
                 logger.debug("Discovery {} was not deleted in the bulk request: {}", uuid.getValue(), e.getMessage());
+            } catch (RuntimeException e) {
+                // Each run deletes in a transaction of its own, so this one rolled back alone and the rest go on.
+                failed.add(uuid.getValue());
+                logger.warn("Discovery {} could not be deleted in the bulk request", uuid.getValue(), e);
             }
         }
         notificationProducer
                 .produceInternalNotificationMessage(Resource.DISCOVERY, null,
                         NotificationRecipient.buildUserNotificationRecipient(loggedUserUuid),
-                        refused.isEmpty()
-                                ? "Discovery histories have been deleted."
-                                : "Discovery histories have been deleted, except " + refused.size()
-                                        + " that are still running. Cancel those first.",
-                        null);
+                        bulkDeleteOutcome(refused.size(), failed.size()), null);
+    }
+
+    static String bulkDeleteOutcome(int stillRunning, int failed) {
+        String deleted = "Discovery histories have been deleted";
+        if (stillRunning == 0 && failed == 0) {
+            return deleted + ".";
+        }
+        if (failed == 0) {
+            return deleted + ", except " + stillRunning + " that are still running. Cancel those first.";
+        }
+        if (stillRunning == 0) {
+            return deleted + ", except " + failed + " that could not be deleted.";
+        }
+        return deleted + ", except " + stillRunning + " that are still running and " + failed
+                + " that could not be deleted. Cancel the running ones first.";
+    }
+
+    /**
+     * Commits the local delete before the connector is asked to delete its copy: a slow connector then holds no lock or
+     * connection, and a local delete that fails leaves the connector's copy alone. A connector that fails to delete its
+     * copy no longer changes the outcome, since Core's run is already gone.
+     */
+    private void deleteRunAndConnectorCopy(SecuredUUID uuid) throws NotFoundException {
+        discoveryRunWriter.deleteRun(uuid).ifPresent(this::deleteConnectorCopy);
+    }
+
+    private void deleteConnectorCopy(DiscoveryRunWriter.ConnectorCopy copy) {
+        try {
+            ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(copy.connectorUuid());
+            DiscoverySyncApiClient client = connectorApiFactory.getDiscoveryApiClient(connectorDto);
+            client.removeDiscovery(connectorDto, copy.reference());
+        } catch (Exception e) {
+            logger
+                    .warn("Connector {} failed to delete its copy {} of a discovery Core has deleted: {}",
+                            copy.connectorUuid(), copy.reference(), e.getMessage());
+        }
     }
 
     @Override
