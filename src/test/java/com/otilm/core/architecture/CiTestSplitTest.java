@@ -75,7 +75,7 @@ class CiTestSplitTest {
             List<String> assignments = Files
                     .readAllLines(manifest)
                     .stream()
-                    .map(String::strip)
+                    .map(String::trim)
                     .filter(line -> !line.isEmpty() && !line.startsWith("#"))
                     .toList();
             assignmentsByManifest.put(manifest, assignments);
