@@ -1,7 +1,14 @@
 package com.otilm.core.certificate.type;
 
+import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.CertificateRequestException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationError;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.ResponseAttribute;
+import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
+import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
 import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateFormat;
 import com.otilm.api.model.core.certificate.CertificateFormatEncoding;
@@ -12,15 +19,23 @@ import com.otilm.api.model.core.certificate.X509CertificateDetail;
 import com.otilm.api.model.core.certificate.X509CertificateRequestDetail;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.oid.OidCategory;
+import com.otilm.core.attribute.CertificateRequestAttributeProjector;
+import com.otilm.core.certificate.request.RenewContentSeeder;
 import com.otilm.core.container.KeystoreDetection;
+import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.model.request.CertificateRequest;
 import com.otilm.core.model.request.CrmfCertificateRequest;
 import com.otilm.core.model.request.Pkcs10CertificateRequest;
 import com.otilm.core.oid.OidHandler;
 import com.otilm.core.oid.OidRecord;
+import com.otilm.core.service.CryptographicOperationInternalService;
 import com.otilm.core.util.CertificateRequestUtils;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.CryptographyUtil;
+import com.otilm.core.util.PlatformX500NameStyle;
+import com.otilm.core.util.X509ObjectToString;
+import com.otilm.core.util.X509RequestContentRenderer;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
@@ -30,15 +45,20 @@ import java.security.NoSuchAlgorithmException;
 import java.security.PublicKey;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
+import java.security.spec.InvalidKeySpecException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
+import javax.security.auth.x500.X500Principal;
 import org.bouncycastle.asn1.ASN1Primitive;
+import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.Extension;
+import org.bouncycastle.asn1.x509.Extensions;
 import org.bouncycastle.cert.jcajce.JcaCertStore;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateHolder;
 import org.bouncycastle.cms.CMSProcessableByteArray;
@@ -52,6 +72,8 @@ import org.bouncycastle.util.io.pem.PemObject;
 import org.bouncycastle.util.io.pem.PemWriter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
 import static org.bouncycastle.openssl.PEMParser.TYPE_CERTIFICATE;
@@ -74,6 +96,15 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
     private static final Set<String> REQUEST_PEM_TYPES = Set.of("CERTIFICATE REQUEST", "NEW CERTIFICATE REQUEST");
     private static final Set<String> REQUEST_PEM_MARKERS = Set
             .of("-----BEGIN CERTIFICATE REQUEST-----", "-----BEGIN NEW CERTIFICATE REQUEST-----");
+
+    private CryptographicOperationInternalService cryptographicOperationService;
+
+    // signing a request goes through the key services, which reach back to the certificate services
+    @Autowired
+    public void setCryptographicOperationService(
+            @Lazy CryptographicOperationInternalService cryptographicOperationService) {
+        this.cryptographicOperationService = cryptographicOperationService;
+    }
 
     @Override
     public String typeCode() {
@@ -132,6 +163,99 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
             throw new CertificateTypeHandlerException(
                     "The X.509 certificate request has an unusable public key: " + e.getMessage());
         }
+    }
+
+    @Override
+    public ParsedRequest readRequest(String content, CertificateRequestFormat format)
+            throws CertificateRequestException {
+        CertificateRequest request;
+        try {
+            request = CertificateRequestUtils.createCertificateRequest(content, format);
+        } catch (IllegalArgumentException e) {
+            // the cause carries the wording of the Base64 decoder, which is not meant for the client
+            throw new CertificateRequestException("The content is not a certificate request in Base64");
+        }
+        return new ParsedRequest(typeCode(), request.getFormat(), request.getEncoded(),
+                request.getSubject() == null ? null : request.getSubject().toString(), publicKeyOrNull(request));
+    }
+
+    // a key that cannot be decoded is refused by the check that needs it, not by reading the request
+    private static PublicKey publicKeyOrNull(CertificateRequest request) {
+        try {
+            return request.getPublicKey();
+        } catch (NoSuchAlgorithmException | CertificateRequestException e) {
+            logger.debug("The public key of the certificate request cannot be decoded: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    @Override
+    public String generateRequest(List<DataAttributeV3> definitions, List<RequestAttribute> requestAttributes,
+            CertificateRequestFormat format, RequestSigning signing) throws NotFoundException, CertificateException {
+        if (format == CertificateRequestFormat.CRMF) {
+            throw new CertificateException("CRMF format is not supported for CSR generation");
+        }
+        X509RequestContent requestContent = CertificateRequestAttributeProjector
+                .project(definitions, requestAttributes);
+        Extensions extensions;
+        try {
+            extensions = X509RequestContentRenderer.toExtensions(requestContent);
+        } catch (IOException e) {
+            logger.error("Failed to build CSR extensions", e);
+            throw new CertificateException("Failed to build CSR extensions", e);
+        }
+        X500Principal principal;
+        try {
+            principal = X509RequestContentRenderer.toX500Principal(requestContent);
+        } catch (IOException e) {
+            logger.error("Failed to build CSR subject", e);
+            throw new CertificateException("Failed to build CSR subject", e);
+        }
+        return sign(principal, extensions, signing);
+    }
+
+    @Override
+    public String generateRekeyRequest(ParsedCertificate current, RequestSigning signing) throws NotFoundException {
+        // a rekey request is always PKCS#10; CRMF is not generated
+        X509Certificate certificate = x509Of(current);
+        if (certificate.getExtensionValue(Extension.subjectAltPublicKeyInfo.getId()) != null
+                && signing.altKeyUuid() == null) {
+            throw new ValidationException("Missing alternative key for re-keying of hybrid certificate");
+        }
+        return sign(certificate.getSubjectX500Principal(), RenewContentSeeder.rekeySanExtensions(certificate), signing);
+    }
+
+    @Override
+    public void requireSameKey(ParsedRequest request, ParsedCertificate current) {
+        try {
+            X509Certificate certificate = x509Of(current);
+            CertificateRequest certificateRequest = x509Of(request);
+            if (!Arrays
+                    .equals(certificate.getPublicKey().getEncoded(), certificateRequest.getPublicKey().getEncoded())) {
+                throw new ValidationException("Public key of certificate and CSR does not match");
+            }
+            checkMatchingAlternativePublicKey(certificateRequest, certificate);
+        } catch (Exception e) {
+            throw new ValidationException(ValidationError
+                    .create("Unable to validate the public key of CSR and certificate. Error: " + e.getMessage()));
+        }
+    }
+
+    @Override
+    public void checkRekeyRequest(ParsedRequest request, ParsedCertificate current) {
+        X509Certificate certificate = x509Of(current);
+        try {
+            CertificateRequest certificateRequest = x509Of(request);
+            if (Arrays
+                    .equals(certificate.getPublicKey().getEncoded(), certificateRequest.getPublicKey().getEncoded())) {
+                throw new ValidationException("Public key of certificate and CSR are same");
+            }
+            checkNotMatchingAlternativePublicKey(certificateRequest, certificate);
+        } catch (Exception e) {
+            throw new ValidationException(ValidationError
+                    .create("Unable to validate the public key of CSR and certificate. Error: " + e.getMessage()));
+        }
+        checkSameSubject(request, certificate);
     }
 
     @Override
@@ -231,6 +355,18 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
         }
     }
 
+    @Override
+    public Certificate stampIssued(Certificate certificate, ParsedCertificate issued) {
+        X509CertificateEntity entity = X509CertificateEntity.from(certificate);
+        CertificateUtil.stampIssuedFields(entity, x509Of(issued));
+        return entity;
+    }
+
+    @Override
+    public String contentToStore(ParsedCertificate certificate) {
+        return X509ObjectToString.toPem(x509Of(certificate));
+    }
+
     /** Shows the extended key usages by the display names of their OIDs, where a name is known. */
     @Override
     public void presentDetail(CertificateDetail detail) {
@@ -263,6 +399,85 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
             return new ParsedCertificate(typeCode(), certificate.getEncoded(), propertiesOf(certificate));
         } catch (NoSuchAlgorithmException e) {
             throw new CertificateException(e);
+        }
+    }
+
+    private String sign(X500Principal principal, Extensions extensions, RequestSigning signing)
+            throws NotFoundException {
+        try {
+            return cryptographicOperationService
+                    .generateCsr(signing.keyUuid(), signing.tokenProfileUuid(), principal, extensions,
+                            signing.signatureAttributes(), signing.altKeyUuid(), signing.altTokenProfileUuid(),
+                            signing.altSignatureAttributes());
+        } catch (InvalidKeySpecException | IOException | NoSuchAlgorithmException | AttributeException e) {
+            throw new ValidationException(
+                    ValidationError.create("Failed to generate the CSR. Error: " + e.getMessage()));
+        }
+    }
+
+    private static void checkMatchingAlternativePublicKey(CertificateRequest certificateRequest,
+            X509Certificate certificate)
+            throws NoSuchAlgorithmException, CertificateRequestException, IOException, InvalidKeySpecException {
+        byte[] altKeyEncoded = certificate.getExtensionValue(Extension.subjectAltPublicKeyInfo.getId());
+        PublicKey altKeyCsr = certificateRequest.getAltPublicKey();
+        if (altKeyEncoded == null && altKeyCsr != null) {
+            throw new ValidationException(
+                    "Certificate request contains alternative key, but the certificate does not.");
+        }
+        if (altKeyEncoded != null && altKeyCsr == null) {
+            throw new ValidationException(
+                    "Certificate request does not contain alternative key, but the certificate does.");
+        } else if (altKeyCsr != null) {
+            PublicKey altPublicKey = CertificateUtil.getAltPublicKey(altKeyEncoded);
+            if (!Arrays.equals(altPublicKey.getEncoded(), certificateRequest.getAltPublicKey().getEncoded())) {
+                throw new ValidationException("Alternative Public keys of certificate and CSR do not match");
+            }
+        }
+    }
+
+    private static void checkNotMatchingAlternativePublicKey(CertificateRequest certificateRequest,
+            X509Certificate certificate)
+            throws NoSuchAlgorithmException, CertificateRequestException, IOException, InvalidKeySpecException {
+        byte[] altKeyEncoded = certificate.getExtensionValue(Extension.subjectAltPublicKeyInfo.getId());
+        PublicKey altKeyCsr = certificateRequest.getAltPublicKey();
+        if (altKeyCsr == null && altKeyEncoded != null) {
+            throw new ValidationException("Certificate contains alternative key, but CSR does not.");
+        }
+        if (altKeyEncoded != null) {
+            PublicKey altPublicKey = CertificateUtil.getAltPublicKey(altKeyEncoded);
+            if (Arrays.equals(altPublicKey.getEncoded(), certificateRequest.getAltPublicKey().getEncoded())) {
+                throw new ValidationException("Alternative Public keys of certificate and CSR should not match");
+            }
+        }
+    }
+
+    private static void checkSameSubject(ParsedRequest request, X509Certificate certificate) {
+        try {
+            // convert subjects to normalized form to compare them
+            String normalizedRequestSubject = X500Name
+                    .getInstance(new PlatformX500NameStyle(true), x509Of(request).getSubject().getEncoded())
+                    .toString();
+            String normalizedCertificateSubject = X500Name
+                    .getInstance(new PlatformX500NameStyle(true), certificate.getSubjectX500Principal().getEncoded())
+                    .toString();
+            if (!normalizedCertificateSubject.equals(normalizedRequestSubject)) {
+                throw new ValidationException("Subject DN of certificate and CSR does not match");
+            }
+        } catch (Exception e) {
+            throw new ValidationException(ValidationError
+                    .create("Unable to validate the Subject DN of CSR and certificate. Error: " + e.getMessage()));
+        }
+    }
+
+    private static CertificateRequest x509Of(ParsedRequest request) throws CertificateRequestException {
+        return CertificateRequestUtils.createCertificateRequest(request.encoded(), request.format());
+    }
+
+    private static X509Certificate x509Of(ParsedCertificate certificate) {
+        try {
+            return CertificateUtil.getX509Certificate(certificate.encoded());
+        } catch (CertificateException e) {
+            throw new CertificateTypeHandlerException("The content is not an X.509 certificate");
         }
     }
 
