@@ -15,6 +15,7 @@ com/otilm/core/integration/migration/ScheduledJobUniqueNameMigrationITest.java
 com/otilm/core/integration/migration/TokenProfileKeyTypesMigrationITest.java
 com/otilm/core/integration/migration/TrustedCertificateMigrationITest.java
 com/otilm/core/integration/provisioning/ProxyProvisioningServiceITest.java
+com/otilm/core/integration/provisioning/TrustedCertificateProvisioningClientITest.java
 com/otilm/core/integration/security/authn/tsp/TspProfileSecretEvictionITest.java
 com/otilm/core/integration/security/oauth2/JwtDecoderITest.java
 com/otilm/core/integration/security/oauth2/OAuth2AuthenticationSuccessHandlerITest.java

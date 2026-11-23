@@ -201,11 +201,11 @@ class TrustedCertificateServiceITest extends BaseSpringBootTest {
         LocalDateTime notAfter = LocalDateTime.of(2025, Month.DECEMBER, 31, 23, 59);
 
         TrustedCertificateProvisioningDTO a1 = new TrustedCertificateProvisioningDTO(TEST_UUID, contentA1, "CN=CA",
-                "DNS:x", "1", "CN=x", "AB:CD", notBefore, notAfter);
+                "DNS:x", "1", "CN=x", "AB:CD", notBefore, notAfter, null, null);
         TrustedCertificateProvisioningDTO a2 = new TrustedCertificateProvisioningDTO(TEST_UUID, contentA2, "CN=CA",
-                "DNS:x", "1", "CN=x", "AB:CD", notBefore, notAfter);
+                "DNS:x", "1", "CN=x", "AB:CD", notBefore, notAfter, null, null);
         TrustedCertificateProvisioningDTO b = new TrustedCertificateProvisioningDTO(TEST_UUID, contentB, "CN=CA",
-                "DNS:x", "1", "CN=x", "AB:CD", notBefore, notAfter);
+                "DNS:x", "1", "CN=x", "AB:CD", notBefore, notAfter, null, null);
 
         assertEquals(a1, a2, "records with structurally identical bytes must compare equal");
         assertEquals(a1.hashCode(), a2.hashCode(), "structural equality requires equal hash codes");
@@ -217,9 +217,10 @@ class TrustedCertificateServiceITest extends BaseSpringBootTest {
     void testProvisioningDTO_equals_detectsNonArrayFieldDifferences() {
         byte[] content = "cert".getBytes();
         TrustedCertificateProvisioningDTO base = new TrustedCertificateProvisioningDTO(TEST_UUID, content, "CN=CA",
-                "DNS:x", "1", "CN=x", "AB:CD", null, null);
+                "DNS:x", "1", "CN=x", "AB:CD", null, null, null, null);
         TrustedCertificateProvisioningDTO differentUuid = new TrustedCertificateProvisioningDTO(
-                "00000000-0000-0000-0000-000000000000", content, "CN=CA", "DNS:x", "1", "CN=x", "AB:CD", null, null);
+                "00000000-0000-0000-0000-000000000000", content, "CN=CA", "DNS:x", "1", "CN=x", "AB:CD", null, null,
+                null, null);
 
         assertNotEquals(base, differentUuid);
     }
@@ -227,7 +228,7 @@ class TrustedCertificateServiceITest extends BaseSpringBootTest {
     @Test
     void testProvisioningDTO_equals_handlesNullAndForeignTypes() {
         TrustedCertificateProvisioningDTO dto = new TrustedCertificateProvisioningDTO(TEST_UUID, "cert".getBytes(), "i",
-                "s", "n", "su", "th", null, null);
+                "s", "n", "su", "th", null, null, null, null);
 
         assertNotEquals(null, dto);
         assertNotEquals("not-a-dto", dto);
@@ -237,7 +238,7 @@ class TrustedCertificateServiceITest extends BaseSpringBootTest {
     void testProvisioningDTO_toString_rendersByteArrayLengthInsteadOfRawBytes() {
         byte[] content = new byte[1216];
         TrustedCertificateProvisioningDTO dto = new TrustedCertificateProvisioningDTO(TEST_UUID, content, "CN=CA",
-                "DNS:x", "1", "CN=x", "AB:CD", null, null);
+                "DNS:x", "1", "CN=x", "AB:CD", null, null, null, null);
 
         String s = dto.toString();
         assertTrue(s.contains("byte[1216]"), "toString should render the byte[] length, was: " + s);

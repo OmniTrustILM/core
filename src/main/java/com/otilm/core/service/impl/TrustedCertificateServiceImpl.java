@@ -103,7 +103,7 @@ public class TrustedCertificateServiceImpl implements TrustedCertificateExternal
     public void deleteTrustedCertificate(SecuredUUID uuid) throws NotFoundException {
         logger.info("Deleting trusted certificate with UUID: {}", uuid);
         try {
-            trustedCertificateProvisioningApiClient.deleteTrustedCertificate(uuid.toString());
+            trustedCertificateProvisioningApiClient.deleteTrustedCertificate(uuid.toString(), false);
             logger.info("Trusted certificate deleted successfully: {}", uuid);
         } catch (HttpClientErrorException.NotFound e) {
             throw new NotFoundException("Trusted certificate", uuid.toString());

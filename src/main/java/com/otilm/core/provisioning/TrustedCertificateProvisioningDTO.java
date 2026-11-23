@@ -18,9 +18,12 @@ import org.apache.commons.lang3.builder.ToStringStyle;
  * @param thumbprint Certificate thumbprint (fingerprint)
  * @param notBefore Certificate validity start date
  * @param notAfter Certificate expiration date
+ * @param state Platform state of the certificate as provisioning reports it, absent from older provisioning
+ * @param stateMessage Why the certificate is in that state, as provisioning reports it
  */
 public record TrustedCertificateProvisioningDTO(String uuid, byte[] certificateContent, String issuer, String san,
-        String serialNumber, String subject, String thumbprint, LocalDateTime notBefore, LocalDateTime notAfter) {
+        String serialNumber, String subject, String thumbprint, LocalDateTime notBefore, LocalDateTime notAfter,
+        String state, String stateMessage) {
     // Overridden so byte[] is compared by content, not by reference (the default record
     // implementation falls back to Object.equals() / identity hashCode for arrays).
 
@@ -36,12 +39,14 @@ public record TrustedCertificateProvisioningDTO(String uuid, byte[] certificateC
                 && Objects.equals(issuer, that.issuer) && Objects.equals(san, that.san)
                 && Objects.equals(serialNumber, that.serialNumber) && Objects.equals(subject, that.subject)
                 && Objects.equals(thumbprint, that.thumbprint) && Objects.equals(notBefore, that.notBefore)
-                && Objects.equals(notAfter, that.notAfter);
+                && Objects.equals(notAfter, that.notAfter) && Objects.equals(state, that.state)
+                && Objects.equals(stateMessage, that.stateMessage);
     }
 
     @Override
     public int hashCode() {
-        int result = Objects.hash(uuid, issuer, san, serialNumber, subject, thumbprint, notBefore, notAfter);
+        int result = Objects
+                .hash(uuid, issuer, san, serialNumber, subject, thumbprint, notBefore, notAfter, state, stateMessage);
         result = 31 * result + Arrays.hashCode(certificateContent);
         return result;
     }
@@ -61,6 +66,8 @@ public record TrustedCertificateProvisioningDTO(String uuid, byte[] certificateC
                 .append("thumbprint", thumbprint)
                 .append("notBefore", notBefore)
                 .append("notAfter", notAfter)
+                .append("state", state)
+                .append("stateMessage", stateMessage)
                 .toString();
     }
 }
