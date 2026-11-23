@@ -184,6 +184,7 @@ public final class CryptographicKeyDtoMapper {
             dto.setKeyReferenceUuid(uuid.toString());
         }
         dto.setKeyAlgorithm(item.algorithm());
+        dto.setParameterSet(item.parameterSet());
         dto.setType(item.type());
         dto.setLength(item.length());
         dto.setFormat(responseFormat(item));
@@ -205,6 +206,7 @@ public final class CryptographicKeyDtoMapper {
             dto.setKeyReferenceUuid(uuid.toString());
         }
         dto.setKeyAlgorithm(item.algorithm());
+        dto.setParameterSet(item.parameterSet());
         dto.setType(item.type());
         dto.setLength(item.length());
         dto.setFormat(responseFormat(item));

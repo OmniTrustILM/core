@@ -7,7 +7,8 @@ import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
-import com.otilm.core.util.CertificateUtil;
+import com.otilm.core.key.description.KeyDescriber;
+import com.otilm.core.key.description.KeyParameters;
 import com.otilm.core.util.CryptographyUtil;
 import java.security.PublicKey;
 import java.time.LocalDateTime;
@@ -36,7 +37,7 @@ public class CertificateKeyWriter {
      *
      * @param name name for a newly created parent and public-key item
      * @param publicKey non-null public key to import
-     * @param keyLength public-key length in bits
+     * @param keyLength public-key length in bits, kept for a key of an algorithm outside Core's parameter table
      * @param fingerprint non-null fingerprint identifying the public key
      * @return UUID of the parent containing the public-key item
      * @throws IllegalStateException if a conflicting fingerprint no longer identifies an existing item
@@ -69,16 +70,12 @@ public class CertificateKeyWriter {
         item.setName(parent.getName());
         item.setType(KeyType.PUBLIC_KEY);
         item.setKey(parent);
-        KeyAlgorithm algorithm;
-        try {
-            algorithm = CertificateUtil.getKeyAlgorithmEnumFromProviderName(publicKey.getAlgorithm());
-        } catch (IllegalArgumentException e) {
-            algorithm = KeyAlgorithm.UNKNOWN;
-        }
-        item.setKeyAlgorithm(algorithm);
+        item
+                .describeAs(KeyDescriber
+                        .describe(KeyParameters.ofSpki(encodedKey).orElse(null), KeyType.PUBLIC_KEY,
+                                KeyAlgorithm.UNKNOWN, keyLength));
         item.setKeyData(Base64.getEncoder().encodeToString(encodedKey));
         item.setFormat(CryptographyUtil.getPublicKeyFormat(encodedKey));
-        item.setLength(keyLength);
         item.setFingerprint(fingerprint);
         item.setState(KeyState.ACTIVE);
         item.setEnabled(true);

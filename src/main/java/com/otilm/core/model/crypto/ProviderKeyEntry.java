@@ -2,6 +2,7 @@ package com.otilm.core.model.crypto;
 
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyEntryStatus;
+import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 
 /**
  * The connector's entry for one listing position or one requested handle.
@@ -13,7 +14,15 @@ import com.otilm.api.model.connector.cryptography.v2.key.KeyEntryStatus;
  * read it
  * @param length key length in bits of a key the entry carries without its key pair, or null when the connector cannot
  * read it or the algorithm does not require a length
+ * @param algorithmIdentifier AlgorithmIdentifier naming the parameters of a key the entry carries without its key pair,
+ * or null when the connector cannot read them
  */
 public record ProviderKeyEntry(KeyEntryStatus status, String diagnostic, String storageName, ProviderKeyPair keyPair,
-        KeyAlgorithm algorithm, Integer length) {
+        KeyAlgorithm algorithm, Integer length, AlgorithmIdentifier algorithmIdentifier) {
+
+    /** An entry whose key, if any, the connector states by algorithm and length alone. */
+    public ProviderKeyEntry(KeyEntryStatus status, String diagnostic, String storageName, ProviderKeyPair keyPair,
+            KeyAlgorithm algorithm, Integer length) {
+        this(status, diagnostic, storageName, keyPair, algorithm, length, null);
+    }
 }

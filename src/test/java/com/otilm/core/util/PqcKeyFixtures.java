@@ -7,10 +7,14 @@ import com.otilm.api.model.connector.cryptography.v2.key.PrivateKeyDataResponseV
 import com.otilm.api.model.connector.cryptography.v2.key.PrivateKeyDataV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.PublicKeyDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.PublicKeyDataV2Dto;
+import java.io.IOException;
 import java.security.GeneralSecurityException;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.util.List;
+import org.bouncycastle.asn1.ASN1Encoding;
+import org.bouncycastle.asn1.nist.NISTObjectIdentifiers;
+import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 
 /**
@@ -21,7 +25,23 @@ public final class PqcKeyFixtures {
     /** Parameter set of {@link #keyPair()}, which BouncyCastle also reports as the key's parameter-spec name. */
     public static final String ML_DSA_PARAMETER_SET = "ML-DSA-65";
 
+    /** Size FIPS 204 gives the public half of {@link #ML_DSA_PARAMETER_SET}, in bits. */
+    public static final int ML_DSA_PUBLIC_KEY_BITS = 15616;
+
+    /** Size FIPS 204 gives the private half of {@link #ML_DSA_PARAMETER_SET}, in bits. */
+    public static final int ML_DSA_PRIVATE_KEY_BITS = 32256;
+
     private PqcKeyFixtures() {
+    }
+
+    /**
+     * DER AlgorithmIdentifier of {@link #ML_DSA_PARAMETER_SET}, as a connector states it for a private half.
+     *
+     * @return the identifier's encoding
+     * @throws IOException if encoding fails
+     */
+    public static byte[] algorithmIdentifier() throws IOException {
+        return new AlgorithmIdentifier(NISTObjectIdentifiers.id_ml_dsa_65).getEncoded(ASN1Encoding.DER);
     }
 
     /**

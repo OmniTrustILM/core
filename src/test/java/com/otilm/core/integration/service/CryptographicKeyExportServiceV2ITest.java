@@ -201,7 +201,7 @@ class CryptographicKeyExportServiceV2ITest extends BaseSpringBootTest {
         byte[] envelope = ExportEnvelopeFixtures.pinnedEnvelope(pair.getPrivate(), PASSPHRASE);
         connectorMock
                 .stubExportKey(ExportEnvelopeFixtures
-                        .keyPairResponseJson(envelope, KeyAlgorithm.RSA, 2048, pair.getPublic(), keyReference));
+                        .keyPairResponseJson(envelope, KeyAlgorithm.RSA, pair.getPublic(), keyReference));
 
         // when
         exportService.exportKey(key.getUuid(), privateKey.getUuid(), exportRequest());
@@ -683,7 +683,7 @@ class CryptographicKeyExportServiceV2ITest extends BaseSpringBootTest {
     }
 
     private String exportAnswer(byte[] envelope) {
-        return ExportEnvelopeFixtures.keyPairResponseJson(envelope, KeyAlgorithm.RSA, 2048, pair.getPublic());
+        return ExportEnvelopeFixtures.keyPairResponseJson(envelope, KeyAlgorithm.RSA, pair.getPublic());
     }
 
     /** A well-formed answer for the right key whose descriptor carries the passphrase back as metadata. */
