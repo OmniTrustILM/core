@@ -1501,7 +1501,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
         }
 
         @Test
-        void readsAndStoresTheCertificateThroughTheHandlerOfTheNamedType() throws Exception {
+        void readsAndStoresTheCertificateThroughItsHandler_whenTheConnectorNamesItsType() throws Exception {
             // given
             var content = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
             X509CertificateTypeHandler namedTypeHandler = spy(x509Handler);

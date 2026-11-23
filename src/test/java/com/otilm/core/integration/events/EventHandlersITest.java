@@ -578,7 +578,7 @@ class EventHandlersITest extends BaseSpringBootTest {
     }
 
     @Test
-    void storesTheUploadedCertificateThroughTheHandlerThatRecognisesIt() throws Exception {
+    void storesTheCertificateThroughItsHandler_whenAHandlerRecognisesTheUploadedContent() throws Exception {
         // given
         X509Certificate uploaded = CertificateGeneratorHelper.generateCACertificate(null, "CN=through-the-handler");
         X509CertificateTypeHandler recognisingHandler = spy(x509Handler);
