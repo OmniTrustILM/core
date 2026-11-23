@@ -49,7 +49,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.access.AccessDeniedException;
 
-import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.notRecording;
+import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.recordingDisabled;
 import static com.otilm.core.util.builders.ResolvedManagedRawSigningProfileBuilder.aResolvedRawSigningProfile;
 import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningProfile;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -157,7 +157,7 @@ class ManagedRawSigningEngineTest {
         SigningProfileModel<?, ?> notRecording = aSigningProfile()
                 .withUuid(PROFILE_UUID)
                 .withName("raw-profile")
-                .withRecordPolicy(notRecording().build())
+                .withRecordPolicy(recordingDisabled().build())
                 .build();
         when(signer.signAll(anyList(), eq(SignatureInputMode.DATA_DIGEST))).thenReturn(signMessages(IDENTIFIERS));
         when(recordStager.stage(eq(notRecording), anyList())).thenReturn(List.of());
