@@ -1,12 +1,17 @@
 package com.otilm.core.architecture;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.lang.reflect.Modifier;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.TreeSet;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.xpath.XPath;
@@ -15,199 +20,158 @@ import javax.xml.xpath.XPathFactory;
 import org.junit.jupiter.api.Test;
 import org.w3c.dom.Document;
 import org.w3c.dom.NodeList;
+import org.yaml.snakeyaml.Yaml;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * Guards the four-way CI test split defined in pom.xml and used by the {@code .github/workflows/build_pr.yml} test
- * matrix.
- * <p>
- * The core invariant: the four profiles must partition the runnable test classes — every class surefire would run must
- * be claimed by <em>exactly one</em> profile. A class claimed by none silently never runs (coverage gap); a class
- * claimed by two runs twice (double coverage, wasted CI time). {@link #everyRunnableTestIsRunByExactlyOneCiProfile}
- * proves the partition by replaying surefire's include/exclude matching over the real test tree, so it catches drift in
- * any pattern.
- * <p>
- * The heavy {@code integration.service} package is split by leading class letter (A-C vs D-Z) via a shared
- * {@code %regex} boundary, with heavy classes transferred from the first shard to the second.
- * <p>
- * Additionally, every concrete test class in the service package must follow the naming convention surefire matches
- * (*Test, *Tests, *ITest); classes that don't are never picked up at all.
- */
+/** Verifies that Build PR shards cover the test sources without overlap. */
 class CiTestSplitTest {
 
-    private static final String NON_INTEGRATION_PROFILE = "test-non-integration";
+    private static final Path TEST_ROOT = Path.of("src/test/java");
+    private static final Path INTEGRATION_ROOT = TEST_ROOT.resolve("com/otilm/core/integration");
+    private static final Path SHARD_ROOT = Path.of(".github/test-shards");
+    private static final Path WORKFLOW = Path.of(".github/workflows/build_pr.yml");
+    private static final String NON_INTEGRATION = "non-integration";
+    private static final List<String> INTEGRATION_SHARDS = List
+            .of("integration-1", "integration-2", "integration-3", "integration-4");
 
-    /** The profile ids the CI matrix runs, one per worker. Must partition the runnable test classes. */
-    private static final List<String> CI_PROFILES = List
-            .of(NON_INTEGRATION_PROFILE, "test-integration-core", "test-integration-service-1",
-                    "test-integration-service-2");
-
-    private static final String SERVICE_SPLIT_BOUNDARY = "%regex[com/otilm/core/integration/service/[D-Z][^/]*ITest.*]";
-
-    /** {@code test-integration-core}'s exclude for the whole service package, which workers 3 and 4 own instead. */
-    private static final String CORE_SERVICE_EXCLUDE = "com/otilm/core/integration/service/**/*ITest.java";
-
-    private static final List<String> SERVICE_SHARD_TRANSFERS = List
-            .of("com/otilm/core/integration/service/AcmeProfileServiceITest.java",
-                    "com/otilm/core/integration/service/AcmeServiceITest.java",
-                    "com/otilm/core/integration/service/CertificateServiceITest.java",
-                    "com/otilm/core/integration/service/CryptographicKeyServiceITest.java");
-
-    private static final List<String> CORE_SHARD_TRANSFERS = List
-            .of("com/otilm/core/integration/cryptography/PQCITest.java",
-                    "com/otilm/core/integration/search/TimeQualityConfigurationSearchITest.java");
-
-    /**
-     * Surefire's built-in default {@code <includes>}, applied to any profile that declares no {@code <includes>} of its
-     * own (here: {@code test-non-integration}).
-     */
-    private static final List<String> SUREFIRE_DEFAULT_INCLUDES = List
-            .of("**/Test*.java", "**/*Test.java", "**/*Tests.java", "**/*TestCase.java");
+    private static final Pattern SUREFIRE_DEFAULT_INCLUDE_PATTERN = Pattern
+            .compile("(?:Test.*|.*Test|.*Tests|.*TestCase)\\.java");
+    private static final String INTEGRATION_EXCLUSION = "com/otilm/core/integration/.*ITest.*";
 
     @Test
-    void everyRunnableTestIsRunByExactlyOneCiProfile() throws Exception {
-        Map<String, List<String>> includes = profileIncludes();
-        Map<String, List<String>> excludes = profileExcludes();
+    @SuppressWarnings("unchecked")
+    void listsEachConfiguredShardExactlyOnce_whenReadingTheBuildPrTestMatrix() throws Exception {
+        // given
+        List<String> expected = Stream.concat(Stream.of(NON_INTEGRATION), INTEGRATION_SHARDS.stream()).toList();
 
-        List<String> neverRun = new ArrayList<>();
-        List<String> multiRun = new ArrayList<>();
-        try (Stream<Path> stream = Files.walk(TEST_ROOT)) {
-            List<Path> runnable = stream
-                    .filter(p -> p.toString().endsWith(".java"))
-                    .filter(TestClassTaxonomy::isRunnableTest)
-                    .toList();
-            for (Path p : runnable) {
-                String rel = relative(p);
-                List<String> claimedBy = claimingProfiles(rel, includes, excludes);
-                if (claimedBy.isEmpty()) {
-                    neverRun.add(rel);
-                } else if (claimedBy.size() > 1) {
-                    multiRun.add(rel + " -> " + claimedBy);
-                }
-            }
+        // when
+        List<String> actual;
+        try (InputStream input = Files.newInputStream(WORKFLOW)) {
+            Map<?, ?> workflow = new Yaml().load(input);
+            Map<?, ?> jobs = (Map<?, ?>) workflow.get("jobs");
+            Map<?, ?> test = (Map<?, ?>) jobs.get("test");
+            Map<?, ?> strategy = (Map<?, ?>) test.get("strategy");
+            Map<?, ?> matrix = (Map<?, ?>) strategy.get("matrix");
+            actual = (List<String>) matrix.get("group");
         }
 
-        assertThat(neverRun).describedAs("""
-                Runnable test classes claimed by no CI profile in pom.xml — surefire never runs them,
-                so their code is silently uncovered. Either the class name matches no profile <include>
-                (rename it to *Test/*Tests/*ITest, or under integration to *ITest), or the split patterns
-                have a gap. Fix the profiles in pom.xml so every runnable test is claimed exactly once.""").isEmpty();
-        assertThat(multiRun).describedAs("""
-                Runnable test classes claimed by more than one CI profile in pom.xml — they run twice,
-                wasting CI time and double-counting coverage. The profile <includes>/<excludes> overlap.
-                Fix the profiles in pom.xml so every runnable test is claimed exactly once.""").isEmpty();
+        // then
+        assertThat(actual)
+                .describedAs("The Build PR matrix must run the non-integration shard and each integration manifest")
+                .containsExactlyInAnyOrderElementsOf(expected);
     }
 
     @Test
-    void serviceSplitPatternsMustBeConsistent() throws Exception {
-        List<String> shard1Excludes = profilePatterns("test-integration-service-1", "exclude");
-        List<String> shard2Includes = profilePatterns("test-integration-service-2", "include");
-        List<String> expectedServicePatterns = new ArrayList<>();
-        expectedServicePatterns.add(SERVICE_SPLIT_BOUNDARY);
-        expectedServicePatterns.addAll(SERVICE_SHARD_TRANSFERS);
+    void assignsEachConcreteIntegrationTestExactlyOnce_whenUsingShardManifests() throws Exception {
+        // given
+        Set<String> integrationTests = concreteIntegrationTests();
 
-        List<String> expectedShard2Includes = new ArrayList<>(expectedServicePatterns);
-        expectedShard2Includes.addAll(CORE_SHARD_TRANSFERS);
+        // when
+        Map<Path, List<String>> assignmentsByManifest = new TreeMap<>();
+        Map<String, List<String>> owners = new TreeMap<>();
+        for (String shard : INTEGRATION_SHARDS) {
+            Path manifest = SHARD_ROOT.resolve(shard + ".txt");
+            List<String> assignments = Files
+                    .readAllLines(manifest)
+                    .stream()
+                    .map(String::trim)
+                    .filter(line -> !line.isEmpty() && !line.startsWith("#"))
+                    .toList();
+            assignmentsByManifest.put(manifest, assignments);
+            assignments.forEach(path -> owners.computeIfAbsent(path, ignored -> new ArrayList<>()).add(shard));
+        }
 
-        assertThat(shard2Includes)
-                .describedAs("test-integration-service-2 must include the boundary and all transfers")
-                .containsExactlyInAnyOrderElementsOf(expectedShard2Includes);
-        assertThat(shard1Excludes)
-                .describedAs("""
-                        test-integration-service-1 must exclude the service boundary and service transfers.
-                        If these patterns drift, affected integration.service classes run twice or in neither shard.""")
-                .containsExactlyInAnyOrderElementsOf(expectedServicePatterns);
-    }
-
-    @Test
-    void coreTransfersMustBeExcludedFromCoreAndIncludedByServiceShard2() throws Exception {
-        List<String> coreExcludes = profilePatterns("test-integration-core", "exclude");
-        List<String> shard2Includes = profilePatterns("test-integration-service-2", "include");
-        List<String> expectedCoreExcludes = new ArrayList<>();
-        expectedCoreExcludes.add(CORE_SERVICE_EXCLUDE);
-        expectedCoreExcludes.addAll(CORE_SHARD_TRANSFERS);
-
-        assertThat(coreExcludes).containsExactlyInAnyOrderElementsOf(expectedCoreExcludes);
-        assertThat(shard2Includes).containsAll(CORE_SHARD_TRANSFERS);
-    }
-
-    @Test
-    void transferredClassesMustExist() {
-        List<String> transfers = new ArrayList<>(SERVICE_SHARD_TRANSFERS);
-        transfers.addAll(CORE_SHARD_TRANSFERS);
-
-        List<String> missing = transfers
+        List<String> unassigned = integrationTests.stream().filter(path -> !owners.containsKey(path)).toList();
+        List<String> unexpected = owners.keySet().stream().filter(path -> !integrationTests.contains(path)).toList();
+        List<String> duplicates = owners
+                .entrySet()
                 .stream()
-                .filter(path -> !Files.isRegularFile(TEST_ROOT.resolve(path)))
+                .filter(entry -> entry.getValue().size() > 1)
+                .map(entry -> entry.getKey() + " -> " + entry.getValue())
                 .toList();
 
-        assertThat(missing).describedAs("""
-                Transferred test classes named in pom.xml that no longer exist under %s. Surefire ignores a
-                pattern that matches nothing, so the class silently reverts to the shard its name implies and
-                the worker balance these transfers bought degrades with no failing test. Update the pom
-                patterns and the transfer constants here to the class's new path.""", TEST_ROOT).isEmpty();
+        // then
+        assignmentsByManifest
+                .forEach((manifest, assignments) -> assertThat(assignments)
+                        .describedAs("Integration test assignments in %s", manifest)
+                        .isNotEmpty());
+        assertThat(unassigned)
+                .describedAs("Add each new or renamed integration test to one manifest under %s", SHARD_ROOT)
+                .isEmpty();
+        assertThat(unexpected)
+                .describedAs("Integration manifests must list exact paths to concrete top-level *ITest.java classes")
+                .isEmpty();
+        assertThat(duplicates).describedAs("Integration tests must have exactly one manifest entry").isEmpty();
     }
 
     @Test
-    void nestedTestClassesInsideIntegrationTestsRunOnExactlyOneWorker() throws Exception {
-        Map<String, List<String>> includes = profileIncludes();
-        Map<String, List<String>> excludes = profileExcludes();
+    void usesSurefireDefaultsOutsideIntegrationRoot_whenNonIntegrationProfileIsConfigured() throws Exception {
+        // given — the checked-in POM and test sources
 
+        // when
+        List<String> includes = nonIntegrationProfilePatterns("include");
+        List<String> excludes = nonIntegrationProfilePatterns("exclude");
+        List<String> omitted;
+        try (Stream<Path> stream = Files.walk(TEST_ROOT)) {
+            omitted = stream
+                    .filter(path -> !path.startsWith(INTEGRATION_ROOT))
+                    .filter(path -> path.toString().endsWith(".java"))
+                    .filter(TestClassTaxonomy::isRunnableTest)
+                    .filter(path -> !SUREFIRE_DEFAULT_INCLUDE_PATTERN.matcher(path.getFileName().toString()).matches())
+                    .map(CiTestSplitTest::relative)
+                    .sorted()
+                    .toList();
+        }
+
+        // then
+        assertThat(includes).describedAs("The non-integration shard relies on Surefire's default includes").isEmpty();
+        assertThat(excludes)
+                .describedAs("The non-integration shard excludes integration tests and their nested classes")
+                .containsExactly("%regex[" + INTEGRATION_EXCLUSION + "]");
+        assertThat(omitted)
+                .describedAs("Runnable non-integration tests must match Surefire's default includes")
+                .isEmpty();
+    }
+
+    @Test
+    void requiresJUnitNested_whenIntegrationInnerClassesMatchSurefireDefaults() throws Exception {
+        // given — the checked-in integration test sources
+
+        // when
         List<String> surefireNamed = new ArrayList<>();
         List<String> violations = new ArrayList<>();
         try (Stream<Path> stream = Files.walk(INTEGRATION_ROOT)) {
             List<Path> outers = stream
-                    .filter(p -> p.toString().endsWith(".java"))
+                    .filter(path -> path.toString().endsWith("ITest.java"))
                     .filter(TestClassTaxonomy::isRunnableTest)
                     .sorted()
                     .toList();
             for (Path outer : outers) {
-                String outerRel = relative(outer);
-                List<String> outerClaims = claimingProfiles(outerRel, includes, excludes);
+                String path = relative(outer);
                 for (TestClassTaxonomy.NestedClass nested : TestClassTaxonomy.nestedClasses(outer)) {
-                    String nestedRel = nestedClassPath(outerRel, nested.name());
-                    boolean matchesSurefireDefaults = matchesAny(SUREFIRE_DEFAULT_INCLUDES, nestedRel);
-                    if (!matchesSurefireDefaults && !nested.junitNested()) {
-                        continue; // an ordinary helper class no profile could ever claim as a test
+                    String nestedPath = path.substring(0, path.length() - ".java".length()) + "$" + nested.name()
+                            + ".java";
+                    if (!SUREFIRE_DEFAULT_INCLUDE_PATTERN
+                            .matcher(Path.of(nestedPath).getFileName().toString())
+                            .matches()) {
+                        continue;
                     }
-                    if (matchesSurefireDefaults) {
-                        surefireNamed.add(nestedRel);
-                    }
-                    List<String> claims = claimingProfiles(nestedRel, includes, excludes);
-                    if (claims.contains(NON_INTEGRATION_PROFILE)) {
-                        violations
-                                .add(nestedRel + " claimed by " + NON_INTEGRATION_PROFILE
-                                        + " while its enclosing class runs on " + outerClaims);
-                    } else if (nested.junitNested()) {
-                        if (!outerClaims.containsAll(claims)) {
-                            violations
-                                    .add(nestedRel + " claimed by " + claims + " but its enclosing class runs on "
-                                            + outerClaims);
-                        }
-                    } else if (claims.size() != 1) {
-                        violations
-                                .add(nestedRel + " is not a @Nested class, so it only runs if a profile claims it "
-                                        + "directly, but it is claimed by " + claims);
+                    surefireNamed.add(nestedPath);
+                    if (!nested.junitNested()) {
+                        violations.add(nestedPath);
                     }
                 }
             }
         }
 
+        // then
         assertThat(surefireNamed)
-                .describedAs(
-                        """
-                                No nested class under %s carries a name surefire's default <includes> would claim, so this guard
-                                proves nothing about the duplicate-execution regression it exists to catch. Either the nested-class
-                                parsing broke, or the tree changed shape — re-derive the guard against what it now contains.""",
-                        INTEGRATION_ROOT)
+                .describedAs("The integration tree must contain a nested class that matches Surefire's default naming")
                 .isNotEmpty();
-        assertThat(violations).describedAs("""
-                Nested classes inside integration tests that do not run on exactly one CI worker. Surefire scans
-                Outer$Nested.class as its own entry, so a nested class claimed by a worker that does not run its
-                enclosing class runs twice across the matrix, and a non-@Nested one claimed by nobody never runs.
-                Fix the profile patterns in pom.xml — the integration excludes must keep their trailing .* so they
-                cover the $-suffixed entries.""").isEmpty();
+        assertThat(violations)
+                .describedAs("Use @Nested or move the tests to a top-level *ITest listed in a manifest")
+                .isEmpty();
     }
 
     @Test
@@ -233,115 +197,6 @@ class CiTestSplitTest {
                 Surefire's include patterns key on those suffixes, so a differently-named class is never
                 run by any CI profile. Rename it to match the convention.""").isEmpty();
     }
-
-    /**
-     * The {@code <include>}/{@code <exclude>} pattern texts declared under the given Maven profile's surefire plugin in
-     * pom.xml. Parses pom.xml fresh on each call — these guards are not perf-sensitive.
-     *
-     * @param profileId the {@code <profile>} id, e.g. {@code test-integration-core}
-     * @param tag {@code include} or {@code exclude}
-     */
-    private static List<String> profilePatterns(String profileId, String tag) throws Exception {
-        DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
-        dbf.setNamespaceAware(false);
-        Document pom = dbf.newDocumentBuilder().parse(Path.of("pom.xml").toFile());
-        XPath xpath = XPathFactory.newDefaultInstance().newXPath();
-
-        String expression = "//profile[id='" + profileId + "']//plugin[artifactId='maven-surefire-plugin']//" + tag;
-        NodeList nodes = (NodeList) xpath.evaluate(expression, pom, XPathConstants.NODESET);
-        List<String> result = new ArrayList<>(nodes.getLength());
-        for (int i = 0; i < nodes.getLength(); i++) {
-            result.add(nodes.item(i).getTextContent().trim());
-        }
-        return result;
-    }
-
-    /** Whether a test class path (relative to {@link #TEST_ROOT}, {@code /}-separated) matches any pattern. */
-    private static boolean matchesAny(List<String> patterns, String relPath) {
-        return patterns.stream().anyMatch(pattern -> matches(pattern, relPath));
-    }
-
-    /**
-     * The declared {@code <includes>} per profile, falling back to surefire's defaults where a profile declares none.
-     */
-    private static Map<String, List<String>> profileIncludes() throws Exception {
-        Map<String, List<String>> includes = new HashMap<>();
-        for (String profile : CI_PROFILES) {
-            List<String> declared = profilePatterns(profile, "include");
-            includes.put(profile, declared.isEmpty() ? SUREFIRE_DEFAULT_INCLUDES : declared);
-        }
-        return includes;
-    }
-
-    private static Map<String, List<String>> profileExcludes() throws Exception {
-        Map<String, List<String>> excludes = new HashMap<>();
-        for (String profile : CI_PROFILES) {
-            excludes.put(profile, profilePatterns(profile, "exclude"));
-        }
-        return excludes;
-    }
-
-    /** The profiles whose surefire patterns claim the given class path — an include matches and no exclude does. */
-    private static List<String> claimingProfiles(String relPath, Map<String, List<String>> includes,
-            Map<String, List<String>> excludes) {
-        return CI_PROFILES
-                .stream()
-                .filter(profile -> matchesAny(includes.get(profile), relPath)
-                        && !matchesAny(excludes.get(profile), relPath))
-                .toList();
-    }
-
-    /** A test class path relative to {@link #TEST_ROOT}, {@code /}-separated on every platform. */
-    private static String relative(Path javaFile) {
-        return TEST_ROOT.relativize(javaFile).toString().replace('\\', '/');
-    }
-
-    /**
-     * The path surefire matches a nested class by: the enclosing class file with {@code $Nested} appended to its name.
-     */
-    private static String nestedClassPath(String outerRelPath, String nestedName) {
-        return outerRelPath.substring(0, outerRelPath.length() - ".java".length()) + "$" + nestedName + ".java";
-    }
-
-    /**
-     * Replays surefire's include/exclude matching for a single pattern against a test class path. Supports both
-     * surefire pattern forms: {@code %regex[...]} (a Java regex over the path) and Ant globs ({@code **}, {@code *},
-     * {@code ?}). Anchored: the pattern must match the whole path.
-     */
-    private static boolean matches(String pattern, String relPath) {
-        if (pattern.startsWith("%regex[") && pattern.endsWith("]")) {
-            return relPath.matches(pattern.substring("%regex[".length(), pattern.length() - 1));
-        }
-        return relPath.matches(antGlobToRegex(pattern));
-    }
-
-    private static String antGlobToRegex(String glob) {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < glob.length();) {
-            if (glob.startsWith("**/", i)) {
-                sb.append("(?:.*/)?"); // any number of directories, including none
-                i += 3;
-            } else if (glob.startsWith("**", i)) {
-                sb.append(".*");
-                i += 2;
-            } else {
-                char c = glob.charAt(i++);
-                if (c == '*') {
-                    sb.append("[^/]*"); // within a single path segment
-                } else if (c == '?') {
-                    sb.append("[^/]"); // a single character within a segment, never the separator
-                } else if ("\\.[]{}()+-^$|".indexOf(c) >= 0) {
-                    sb.append('\\').append(c);
-                } else {
-                    sb.append(c);
-                }
-            }
-        }
-        return sb.toString();
-    }
-
-    private static final Path TEST_ROOT = Path.of("src/test/java");
-    private static final Path INTEGRATION_ROOT = TEST_ROOT.resolve("com/otilm/core/integration");
 
     @Test
     void noContextTestOutsideIntegrationRoot() throws IOException {
@@ -388,32 +243,67 @@ class CiTestSplitTest {
                 .isEmpty();
     }
 
-    /**
-     * The integration CI profiles key their includes on the {@code *ITest.java} suffix, but
-     * {@link #integrationRootContainsOnlyContextTests} only enforces context-loading. A runnable test in the
-     * integration root not named {@code *ITest} would pass that guard yet be picked up by the
-     * {@code test-non-integration}. This guard keeps the integration profile includes and the taxonomy guard aligned.
-     */
     @Test
-    void integrationRootRunnableTestsMustBeNamedITest() throws IOException {
-        assertThat(Files.exists(INTEGRATION_ROOT))
-                .describedAs("Integration root %s must exist.", INTEGRATION_ROOT)
-                .isTrue();
-        List<String> violations;
-        try (Stream<Path> stream = Files.walk(INTEGRATION_ROOT)) {
-            violations = stream
-                    .filter(p -> p.toString().endsWith(".java"))
-                    .filter(TestClassTaxonomy::isRunnableTest)
-                    .filter(p -> !p.getFileName().toString().endsWith("ITest.java"))
-                    .map(p -> INTEGRATION_ROOT.relativize(p).toString())
-                    .sorted()
-                    .toList();
+    void requiresITestSuffix_whenIntegrationSourcesContainRunnableTests() throws Exception {
+        // given
+        boolean integrationRootExists = Files.exists(INTEGRATION_ROOT);
+
+        // when
+        List<String> violations = List.of();
+        if (integrationRootExists) {
+            try (Stream<Path> stream = Files.walk(INTEGRATION_ROOT)) {
+                violations = stream
+                        .filter(p -> p.toString().endsWith(".java"))
+                        .filter(TestClassTaxonomy::isRunnableTest)
+                        .filter(p -> !p.getFileName().toString().endsWith("ITest.java"))
+                        .map(p -> INTEGRATION_ROOT.relativize(p).toString())
+                        .sorted()
+                        .toList();
+            }
         }
+
+        // then
+        assertThat(integrationRootExists).describedAs("Integration root %s must exist.", INTEGRATION_ROOT).isTrue();
         assertThat(violations)
-                .describedAs("Runnable test classes in the integration root whose names don't end with ITest. "
-                        + "The integration CI profiles include only com/otilm/core/integration/**/*ITest.java, "
-                        + "so these run in the test-non-integration leg and their coverage lands in the wrong artifact. "
-                        + "Rename them to *ITest.")
+                .describedAs("Rename these integration tests to *ITest and list them in a manifest")
                 .isEmpty();
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /** Includes concrete classes whose tests are all inherited. */
+    private static Set<String> concreteIntegrationTests() throws IOException, ClassNotFoundException {
+        Set<String> tests = new TreeSet<>();
+        List<Path> sources;
+        try (Stream<Path> stream = Files.walk(INTEGRATION_ROOT)) {
+            sources = stream.filter(path -> path.getFileName().toString().endsWith("ITest.java")).toList();
+        }
+        for (Path source : sources) {
+            String path = relative(source);
+            String binaryName = path.substring(0, path.length() - ".java".length()).replace('/', '.');
+            Class<?> type = Class.forName(binaryName, false, CiTestSplitTest.class.getClassLoader());
+            if (!Modifier.isAbstract(type.getModifiers())) {
+                tests.add(path);
+            }
+        }
+        return tests;
+    }
+
+    private static List<String> nonIntegrationProfilePatterns(String tag) throws Exception {
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setNamespaceAware(false);
+        Document pom = factory.newDocumentBuilder().parse(Path.of("pom.xml").toFile());
+        XPath xpath = XPathFactory.newDefaultInstance().newXPath();
+        String expression = "//profile[id='test-non-integration']//plugin[artifactId='maven-surefire-plugin']//" + tag;
+        NodeList nodes = (NodeList) xpath.evaluate(expression, pom, XPathConstants.NODESET);
+        List<String> patterns = new ArrayList<>(nodes.getLength());
+        for (int index = 0; index < nodes.getLength(); index++) {
+            patterns.add(nodes.item(index).getTextContent().trim());
+        }
+        return patterns;
+    }
+
+    private static String relative(Path path) {
+        return TEST_ROOT.relativize(path).toString().replace('\\', '/');
     }
 }
