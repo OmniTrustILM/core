@@ -12,7 +12,8 @@ import java.util.Objects;
  * @param format the format the request was written in
  * @param encoded the request in its binary encoding
  * @param holder who the certificate is requested for
- * @param publicKey the public key to certify
+ * @param publicKey the public key to certify, or null when a request read in a named format carries a key that cannot
+ * be decoded
  */
 public record ParsedRequest(String typeCode, CertificateRequestFormat format, byte[] encoded, String holder,
         PublicKey publicKey) {
