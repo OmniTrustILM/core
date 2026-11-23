@@ -543,16 +543,11 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         profile.setName(request.getName());
         profile.setDescription(request.getDescription());
 
-        // Lenient version bump: bump if signing records exist for the current version, or if record policy fields
-        // changed.
         int latestVersion = profile.getLatestVersion();
         SigningProfileVersion currentVersion = signingProfileVersionRepository
                 .findBySigningProfileUuidAndVersion(profile.getUuid(), latestVersion)
                 .orElseThrow(() -> new NotFoundException("Signing Profile version " + latestVersion + " not found"));
-        boolean recordsExist = signingRecordInternalService
-                .doesSigningRecordExistInternal(profile.getUuid(), latestVersion);
-        boolean policyRecordDifferent = recordPolicyDiffersFromVersion(currentVersion, request.getRecordPolicy());
-        boolean bump = recordsExist || policyRecordDifferent;
+        boolean bump = updateKeepsVersion(profile.getUuid(), currentVersion, request.getRecordPolicy());
 
         SigningProfileVersion version;
         if (bump) {
@@ -902,7 +897,8 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
             // Only a static-key scheme names a key ILM signs with.
             return;
         }
-        refuseSharedSigningKey(SigningWorkflowType.RAW_SIGNING, certificate.getUuid(), certificate.getKeyUuid(), null);
+        refuseSharedSigningKey(SigningWorkflowType.RAW_SIGNING, certificate.getUuid(), certificate.getKeyUuid(), null,
+                null);
     }
 
     /** An update may move a profile to a workflow or scheme that cannot carry a protocol it had enabled. */
@@ -1157,30 +1153,44 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
             // The eligibility check refuses a certificate without a key.
             return;
         }
-        refuseSharedSigningKey(request.getWorkflow().getType(), certificateUuid, keyUuid, targetProfileUuid);
+        Integer overwrittenVersion = targetProfileUuid == null
+                ? null
+                : overwrittenVersionOf(targetProfileUuid, request.getRecordPolicy());
+        refuseSharedSigningKey(request.getWorkflow().getType(), certificateUuid, keyUuid,
+                overwrittenVersion == null ? null : targetProfileUuid, overwrittenVersion);
     }
 
     /**
-     * @param savedProfileUuid the profile a save is about to change, or null; its latest version is left out only when
-     * the save overwrites it in place, which it does when no signing record names that version
+     * @param excludedProfileUuid with {@code excludedVersion}, the version a save overwrites in place and so the one
+     * that does not count; both null to count every version
      */
     private void refuseSharedSigningKey(SigningWorkflowType workflowType, UUID certificateUuid, UUID keyUuid,
-            @Nullable UUID savedProfileUuid) {
-        Integer overwrittenVersion = savedProfileUuid == null ? null : overwrittenVersionOf(savedProfileUuid);
+            @Nullable UUID excludedProfileUuid, @Nullable Integer excludedVersion) {
         List<String> conflictingProfileNames = signingProfileVersionRepository
                 .findProfileNamesBySigningKeyAndWorkflowIn(keyUuid,
-                        RawSigningProfileRules.conflictingWorkflows(workflowType),
-                        overwrittenVersion == null ? null : savedProfileUuid, overwrittenVersion);
+                        RawSigningProfileRules.conflictingWorkflows(workflowType), excludedProfileUuid,
+                        excludedVersion);
         RawSigningProfileRules.refuseSharedSigningKey(workflowType, certificateUuid, conflictingProfileNames);
     }
 
-    /** A save keeps a version its signing records name, so only a version without records is overwritten. */
-    private @Nullable Integer overwrittenVersionOf(UUID profileUuid) {
+    /** The latest version of the profile, when an update with this record policy overwrites it in place. */
+    private @Nullable Integer overwrittenVersionOf(UUID profileUuid,
+            @Nullable SigningRecordPolicyRequestDto recordPolicy) {
         return signingProfileVersionRepository
                 .findLatestByProfileUuid(profileUuid)
+                .filter(latest -> !updateKeepsVersion(profileUuid, latest, recordPolicy))
                 .map(SigningProfileVersion::getVersion)
-                .filter(version -> !signingRecordInternalService.doesSigningRecordExistInternal(profileUuid, version))
                 .orElse(null);
+    }
+
+    /**
+     * An update keeps the current version, and writes the change as a new one, when signing records name it or the
+     * record policy changes; otherwise it overwrites the version in place.
+     */
+    private boolean updateKeepsVersion(UUID profileUuid, SigningProfileVersion current,
+            @Nullable SigningRecordPolicyRequestDto recordPolicy) {
+        return signingRecordInternalService.doesSigningRecordExistInternal(profileUuid, current.getVersion())
+                || recordPolicyDiffersFromVersion(current, recordPolicy);
     }
 
     /**

@@ -15,8 +15,8 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 class RawSigningProfileRulesTest {
 
@@ -80,10 +80,11 @@ class RawSigningProfileRulesTest {
             // given — an algorithm that signs a digest it is handed
 
             // when
-            ThrowingCallable require = () -> RawSigningProfileRules.requireDataDigestSigning(signsAGivenDigest);
+            Throwable failure = catchThrowable(
+                    () -> RawSigningProfileRules.requireDataDigestSigning(signsAGivenDigest));
 
             // then
-            assertThatCode(require).doesNotThrowAnyException();
+            assertThat(failure).isNull();
         }
     }
 
@@ -157,8 +158,8 @@ class RawSigningProfileRulesTest {
             assertThatThrownBy(refuse)
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining(certificateUuid.toString())
-                    .hasMessageContaining(
-                            "signs, or has signed, raw digests for Signing Profile(s): raw-signing-profile");
+                    .hasMessageContaining("signs, or has signed, raw digests for Signing Profile(s)")
+                    .hasMessageContaining(String.join(", ", rawProfiles));
         }
 
         @Test
@@ -168,11 +169,11 @@ class RawSigningProfileRulesTest {
             List<String> noConflictingProfiles = List.of();
 
             // when
-            ThrowingCallable refuse = () -> RawSigningProfileRules
-                    .refuseSharedSigningKey(SigningWorkflowType.RAW_SIGNING, certificateUuid, noConflictingProfiles);
+            Throwable failure = catchThrowable(() -> RawSigningProfileRules
+                    .refuseSharedSigningKey(SigningWorkflowType.RAW_SIGNING, certificateUuid, noConflictingProfiles));
 
             // then
-            assertThatCode(refuse).doesNotThrowAnyException();
+            assertThat(failure).isNull();
         }
     }
 }

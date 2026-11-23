@@ -184,6 +184,7 @@ import static com.otilm.core.util.builders.SignatureFamilyDeclarationDtoBuilder.
 import static com.otilm.core.util.builders.SigningProfileRequestDtoBuilder.aSigningProfileRequest;
 import static com.otilm.core.util.builders.SigningProfileRequestDtoBuilder.aSigningProfileRequestFromExistingProfile;
 import static com.otilm.core.util.builders.SigningRecordEntityBuilder.aSigningRecord;
+import static com.otilm.core.util.builders.SigningRecordPolicyRequestDtoBuilder.aSigningRecordPolicyRequest;
 import static com.otilm.core.util.builders.TimeQualityConfigurationRequestDtoBuilder.aTimeQualityConfigurationRequest;
 import static com.otilm.core.util.builders.TimestampingWorkflowRequestDtoBuilder.aTimestampingWorkflow;
 import static com.otilm.core.util.builders.TokenInstanceRequestDtoBuilder.aTokenInstanceRequest;
@@ -2699,6 +2700,29 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining("signs, or has signed, for Signing Profile(s) of another workflow")
                     .hasMessageContaining(signedContent.getName());
+        }
+
+        @Test
+        void refusesTheSwitchToRaw_whenTheUpdateKeepsTheContentVersion() throws Exception {
+            // given — no signing record, but a changed record policy makes the update keep the content version
+            SigningProfileDto unusedContent = createManagedContentProfile("content-changing-its-recording",
+                    defaultSigningCertificate.getUuid());
+            var recordingSignatures = aSigningRecordPolicyRequest().withRecordSignature(true).build();
+            SigningProfileRequestDto toRaw = aSigningProfileRequestFromExistingProfile(unusedContent)
+                    .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
+                    .withRawSigning()
+                    .withRecordPolicy(recordingSignatures)
+                    .build();
+
+            // when
+            ThrowableAssert.ThrowingCallable update = () -> signingProfileService
+                    .updateSigningProfile(SecuredUUID.fromString(unusedContent.getUuid()), toRaw);
+
+            // then
+            assertThatThrownBy(update)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("signs, or has signed, for Signing Profile(s) of another workflow")
+                    .hasMessageContaining(unusedContent.getName());
         }
 
         @Test
