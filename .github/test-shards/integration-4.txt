@@ -56,6 +56,7 @@ com/otilm/core/integration/service/ScheduledJobWriterITest.java
 com/otilm/core/integration/service/SecretServiceITest.java
 com/otilm/core/integration/service/SigningProfileRecordPolicyITest.java
 com/otilm/core/integration/service/TokenProfileServiceV2ITest.java
+com/otilm/core/integration/service/TrustedCertificatePlatformTrustITest.java
 com/otilm/core/integration/service/TrustedCertificateServiceITest.java
 com/otilm/core/integration/service/TrustedCertificateWriterITest.java
 com/otilm/core/integration/service/VaultInstanceServiceITest.java
