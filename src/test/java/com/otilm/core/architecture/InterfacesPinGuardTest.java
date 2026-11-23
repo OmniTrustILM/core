@@ -14,6 +14,8 @@ import java.util.TreeSet;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.yaml.snakeyaml.Yaml;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -119,6 +121,36 @@ class InterfacesPinGuardTest {
         assertThat(compilingJobs)
                 .describedAs("Only Compile and Generated may compile sources")
                 .containsExactlyInAnyOrder("compile", "generated");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "compile",
+            "process-classes",
+            "generate-test-sources",
+            "process-test-sources",
+            "generate-test-resources",
+            "process-test-resources",
+            "test-compile",
+            "process-test-classes",
+            "test",
+            "prepare-package",
+            "package",
+            "pre-integration-test",
+            "integration-test",
+            "post-integration-test",
+            "verify",
+            "install",
+            "deploy"})
+    void treatsAsInterfacesConsumer_whenAStepRunsACompilingPhase(String phase) {
+        // given
+        var phaseInvocation = "./mvnw -B " + phase;
+
+        // when
+        boolean consumer = usesInterfaces(phaseInvocation);
+
+        // then
+        assertThat(consumer).describedAs(phaseInvocation).isTrue();
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
