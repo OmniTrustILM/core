@@ -12,6 +12,8 @@ public class ProviderKeyItemBuilder {
 
     private String name = "provider-item";
     private KeyType type = KeyType.PRIVATE_KEY;
+    private KeyAlgorithm algorithm = KeyAlgorithm.RSA;
+    private Integer length = 2048;
     private String association;
     private RemoteKeyReference reference = new RemoteKeyReference.UuidReference(UUID.randomUUID());
     private KeyMaterial material;
@@ -27,6 +29,16 @@ public class ProviderKeyItemBuilder {
 
     public ProviderKeyItemBuilder withType(KeyType type) {
         this.type = type;
+        return this;
+    }
+
+    public ProviderKeyItemBuilder withAlgorithm(KeyAlgorithm algorithm) {
+        this.algorithm = algorithm;
+        return this;
+    }
+
+    public ProviderKeyItemBuilder withLength(Integer length) {
+        this.length = length;
         return this;
     }
 
@@ -46,6 +58,6 @@ public class ProviderKeyItemBuilder {
     }
 
     public ProviderKeyItem build() {
-        return new ProviderKeyItem(name, type, KeyAlgorithm.RSA, 2048, reference, material, List.of(), association);
+        return new ProviderKeyItem(name, type, algorithm, length, reference, material, List.of(), association);
     }
 }

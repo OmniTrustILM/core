@@ -1,5 +1,6 @@
 package com.otilm.core.key.normalization;
 
+import com.otilm.api.model.common.cryptography.ExplicitCurve;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.core.util.KeySizeUtil;
 import java.io.IOException;
@@ -68,7 +69,7 @@ record DerivedPublicKey(KeyAlgorithm algorithm, PublicKey publicKey) {
      */
     static Optional<DerivedPublicKey> of(PrivateKeyInfo privateKeyInfo) {
         KeyFileReader.withinDepth(privateKeyInfo.getPrivateKey().getOctets());
-        if (ExplicitCurve.largerThanAnyNamed(privateKeyInfo.getPrivateKeyAlgorithm())) {
+        if (ExplicitCurve.pastTheBound(privateKeyInfo.getPrivateKeyAlgorithm())) {
             return Optional.empty();
         }
         byte[] encoded = encoded(privateKeyInfo);

@@ -496,6 +496,7 @@ public class CryptographicKeyWriter {
         String fingerprint = CryptographyUtil.calculateKeyFingerprint(item.material());
         keyItem.setFingerprint(fingerprint);
 
+        keyItem.setParameterSet(item.parameterSet());
         keyItem.setLength(item.length());
         if (item.reference() instanceof RemoteKeyReference.UuidReference(UUID uuid)) {
             keyItem.setKeyReferenceUuid(uuid);

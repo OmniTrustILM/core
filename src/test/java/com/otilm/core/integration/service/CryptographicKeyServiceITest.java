@@ -887,7 +887,6 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
         generator.initialize(2048);
         PublicKeyDataV2Dto publicData = new PublicKeyDataV2Dto();
         publicData.setAlgorithm(KeyAlgorithm.RSA);
-        publicData.setLength(2048);
         publicData.setPublicKeySpki(generator.generateKeyPair().getPublic().getEncoded());
         PublicKeyDataResponseV2Dto publicKey = new PublicKeyDataResponseV2Dto();
         publicKey.setKeyData(publicData);

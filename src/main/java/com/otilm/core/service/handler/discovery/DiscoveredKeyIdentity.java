@@ -3,6 +3,7 @@ package com.otilm.core.service.handler.discovery;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredKeyDto;
+import com.otilm.core.key.description.DiscoveredKeyMaterial;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.CryptographyUtil;
 import java.nio.charset.StandardCharsets;
@@ -49,9 +50,7 @@ public final class DiscoveredKeyIdentity {
         }
         byte[] encoded;
         try {
-            // Whitespace is dropped rather than decoded leniently: wrapped lines are still Base64, anything else is
-            // not.
-            encoded = Base64.getDecoder().decode(material.replaceAll("\\s", ""));
+            encoded = DiscoveredKeyMaterial.decoded(material);
         } catch (IllegalArgumentException e) {
             throw new UnusableDiscoveredKeyException("The reported public key was not valid Base64.", e);
         }

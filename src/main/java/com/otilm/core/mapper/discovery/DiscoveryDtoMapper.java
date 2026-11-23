@@ -8,15 +8,18 @@ import com.otilm.api.model.client.discovery.DiscoveryWindowDto;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredItemPayloadDto;
+import com.otilm.api.model.connector.discovery.v2.DiscoveredKeyDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryDeliveryMode;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.connector.v2.ConnectorInterfaceDto;
 import com.otilm.api.model.core.discovery.DiscoveryItemDto;
 import com.otilm.api.model.core.discovery.DiscoveryMessageDto;
+import com.otilm.api.model.core.discovery.KeyDescriptionDto;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.DiscoveryMessage;
 import com.otilm.core.dao.entity.workflows.Trigger;
 import com.otilm.core.dao.repository.DiscoveryItemRow;
+import com.otilm.core.key.description.DiscoveredKeyDescriber;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.service.handler.discovery.StagedMetadata;
 import com.otilm.core.util.AttributeDefinitionUtils;
@@ -154,7 +157,9 @@ public class DiscoveryDtoMapper {
         dto.setSequence(row.getSequence());
         dto.setUniqueRef(row.getUniqueRef());
         dto.setDiscoveredAt(row.getDiscoveredAt() == null ? null : row.getDiscoveredAt().atOffset(ZoneOffset.UTC));
-        dto.setPayload(read(row.getUuid(), row.getPayload(), DiscoveredItemPayloadDto.class));
+        DiscoveredItemPayloadDto payload = read(row.getUuid(), row.getPayload(), DiscoveredItemPayloadDto.class);
+        dto.setPayload(payload);
+        dto.setKeyDescription(keyDescriptionOf(payload));
         dto.setNewlyDiscovered(row.isNewlyDiscovered());
         dto.setProcessed(row.isProcessed());
         dto.setProcessedError(row.getProcessedError());
@@ -163,6 +168,17 @@ public class DiscoveryDtoMapper {
                 : AttributeDefinitionUtils.deserialize(row.getMeta(), MetadataAttribute.class);
         dto.setMeta(StagedMetadata.unseal(stagedMeta, row.getProtectedMeta()));
         return dto;
+    }
+
+    private static KeyDescriptionDto keyDescriptionOf(DiscoveredItemPayloadDto payload) {
+        if (!(payload instanceof DiscoveredKeyDto key)) {
+            return null;
+        }
+        return DiscoveredKeyDescriber
+                .describe(key)
+                .map(described -> new KeyDescriptionDto(described.algorithm(), described.parameterSet(),
+                        described.length()))
+                .orElse(null);
     }
 
     /**
