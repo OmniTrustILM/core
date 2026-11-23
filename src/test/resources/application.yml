@@ -273,6 +273,8 @@ provisioning:
       delay: 500
       max-delay: 1000
       multiplier: 2
+  trusted-certificates:
+    enabled: true
 
 crypto-asset:
   pqc-sweep:

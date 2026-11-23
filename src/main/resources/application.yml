@@ -446,6 +446,10 @@ provisioning:
       delay: ${PROVISIONING_RETRY_DELAY:1000}
       max-delay: ${PROVISIONING_RETRY_MAX_DELAY:5000}
       multiplier: ${PROVISIONING_RETRY_MULTIPLIER:2}
+  trusted-certificates:
+    # true only where a provisioning service with the trusted-certificate API applies platform trust;
+    # the helm value global.provisioning.trustedCertificates.enabled sets it
+    enabled: ${PROVISIONING_TRUSTED_CERTIFICATES_ENABLED:false}
 
 validation:
   crl:
