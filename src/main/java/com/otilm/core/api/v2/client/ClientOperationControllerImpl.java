@@ -12,6 +12,7 @@ import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.certificate.ManuallyIssueCertificateRequestDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.SupportedCertificateTypeDto;
 import com.otilm.api.model.core.logging.enums.Module;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.v2.AvailableOperationsDto;
@@ -230,6 +231,17 @@ public class ClientOperationControllerImpl implements ClientOperationController 
         return clientOperationService
                 .registerCertificate(SecuredParentUUID.fromString(authorityUuid), SecuredUUID.fromString(raProfileUuid),
                         request);
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.RA_PROFILE, affiliatedResource = Resource.AUTHORITY,
+            operation = Operation.LIST)
+    public List<SupportedCertificateTypeDto> listSupportedCertificateTypes(
+            @LogResource(uuid = true, affiliated = true) String authorityUuid,
+            @LogResource(uuid = true) String raProfileUuid) throws ConnectorException, NotFoundException {
+        return clientOperationService
+                .listSupportedCertificateTypes(SecuredParentUUID.fromString(authorityUuid),
+                        SecuredUUID.fromString(raProfileUuid));
     }
 
     @Override

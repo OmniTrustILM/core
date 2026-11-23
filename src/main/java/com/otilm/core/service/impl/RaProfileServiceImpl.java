@@ -26,6 +26,7 @@ import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateDetail;
+import com.otilm.api.model.core.certificate.SupportedCertificateTypeDto;
 import com.otilm.api.model.core.raprofile.RaProfileCertificateRequestAttributesUpdateDto;
 import com.otilm.api.model.core.raprofile.RaProfileCertificateValidationSettingsUpdateDto;
 import com.otilm.api.model.core.raprofile.RaProfileDto;
@@ -33,6 +34,7 @@ import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.otilm.core.aop.OutsideTransaction;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
+import com.otilm.core.certificate.type.AuthorityCertificateTypes;
 import com.otilm.core.dao.entity.ApprovalProfileRelation;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
@@ -728,6 +730,20 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
     @Override
     @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.ANY,
             parentResource = Resource.AUTHORITY, parentAction = ResourceAction.ANY)
+    public List<SupportedCertificateTypeDto> listSupportedCertificateTypes(SecuredParentUUID authorityUuid,
+            SecuredUUID uuid) throws ConnectorException, NotFoundException {
+        RaProfile raProfile = getRaProfileEntity(uuid);
+        requireUnderAuthority(raProfile, authorityUuid, uuid);
+        return authorityCertificateTypes
+                .supportedTypes(raProfile.getUuid())
+                .stream()
+                .map(SupportedCertificateTypeDto::of)
+                .toList();
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.ANY,
+            parentResource = Resource.AUTHORITY, parentAction = ResourceAction.ANY)
     public List<BaseAttribute> listRenewCertificateAttributes(SecuredParentUUID authorityUuid, SecuredUUID uuid)
             throws ConnectorException, NotFoundException {
         RaProfile raProfile = getRaProfileEntity(uuid);
@@ -1187,7 +1203,13 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
     // SETTERs
 
     private CommentInternalService commentService;
+    private AuthorityCertificateTypes authorityCertificateTypes;
     private ComplianceProfileAssociationWriter complianceProfileAssociationWriter;
+
+    @Autowired
+    public void setAuthorityCertificateTypes(AuthorityCertificateTypes authorityCertificateTypes) {
+        this.authorityCertificateTypes = authorityCertificateTypes;
+    }
 
     @Autowired
     public void setCommentService(CommentInternalService commentService) {

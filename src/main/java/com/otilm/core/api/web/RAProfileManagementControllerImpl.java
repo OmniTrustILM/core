@@ -22,6 +22,7 @@ import com.otilm.api.model.common.UuidDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateDetail;
+import com.otilm.api.model.core.certificate.SupportedCertificateTypeDto;
 import com.otilm.api.model.core.logging.enums.Module;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.raprofile.RaProfileCertificateRequestAttributesUpdateDto;
@@ -367,6 +368,17 @@ public class RAProfileManagementControllerImpl implements RAProfileManagementCon
             throws ConnectorException, NotFoundException {
         return raProfileService
                 .listRevokeCertificateAttributes(SecuredParentUUID.fromString(authorityUuid),
+                        SecuredUUID.fromString(raProfileUuid));
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.RA_PROFILE, affiliatedResource = Resource.AUTHORITY,
+            operation = Operation.LIST)
+    public List<SupportedCertificateTypeDto> listSupportedCertificateTypes(
+            @LogResource(uuid = true, affiliated = true) String authorityUuid,
+            @LogResource(uuid = true) String raProfileUuid) throws ConnectorException, NotFoundException {
+        return raProfileService
+                .listSupportedCertificateTypes(SecuredParentUUID.fromString(authorityUuid),
                         SecuredUUID.fromString(raProfileUuid));
     }
 

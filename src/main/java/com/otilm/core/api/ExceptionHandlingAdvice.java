@@ -27,6 +27,7 @@ import com.otilm.api.model.common.ErrorMessageDto;
 import com.otilm.api.model.core.acme.ProblemDocument;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.attribute.engine.ReferenceAccessDeniedException;
+import com.otilm.core.certificate.type.CertificateTypesUnavailableException;
 import com.otilm.core.dao.CryptoAssetConstraintTranslator;
 import com.otilm.core.exception.DanglingReferenceException;
 import com.otilm.core.exception.PreconditionFailedException;
@@ -339,6 +340,13 @@ public class ExceptionHandlingAdvice {
      *
      * @return
      */
+    @ExceptionHandler(CertificateTypesUnavailableException.class)
+    @ResponseStatus(HttpStatus.BAD_GATEWAY)
+    public ErrorMessageDto handleCertificateTypesUnavailableException(CertificateTypesUnavailableException ex) {
+        LOG.info("HTTP 502: {}", ex.getMessage(), ex.getCause());
+        return ErrorMessageDto.getInstance(ex.getMessage());
+    }
+
     @ExceptionHandler(ConnectorCommunicationException.class)
     @ResponseStatus(HttpStatus.SERVICE_UNAVAILABLE)
     public ErrorMessageDto handleConnectorCommunicationException(ConnectorCommunicationException ex) {

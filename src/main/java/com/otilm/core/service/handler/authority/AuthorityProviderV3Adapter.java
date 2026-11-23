@@ -15,6 +15,8 @@ import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.connector.v3.authority.CaCertificatesRequestDtoV3;
+import com.otilm.api.model.connector.v3.authority.CertificateTypesRequestDtoV3;
+import com.otilm.api.model.connector.v3.authority.SupportedCertificateTypeDtoV3;
 import com.otilm.api.model.connector.v3.certificate.CertificateAttributeListRequestDtoV3;
 import com.otilm.api.model.connector.v3.certificate.CertificateDataResponseDto;
 import com.otilm.api.model.connector.v3.certificate.CertificateExtension;
@@ -31,6 +33,7 @@ import com.otilm.api.model.connector.v3.certificate.CertificateSignRequestDtoV3;
 import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.authority.CertificateRevocationReason;
+import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRegistrationDto;
 import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
@@ -51,6 +54,7 @@ import com.otilm.core.exception.ConnectorAcceptedButLocalFailureException;
 import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.handler.OperationAttributeResolver;
 import com.otilm.core.service.v2.ConnectorInternalService;
+import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -268,6 +272,23 @@ public class AuthorityProviderV3Adapter extends AbstractAuthorityProviderAdapter
                 .getCertificateApiClientV3(connectorDto)
                 .listIdentifyAttributes(connectorDto, request), "identify");
         return contained(response, request.getAuthorityAttributes(), request.getRaProfileAttributes());
+    }
+
+    @Override
+    public Set<CertificateType> listCertificateTypes(AuthorityInstanceReference authority, RaProfile raProfile)
+            throws ConnectorException {
+        ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
+        CertificateTypesRequestDtoV3 request = new CertificateTypesRequestDtoV3();
+        request.setAuthorityAttributes(authorityAttributesFor(authority));
+        request.setRaProfileAttributes(resolvedRaProfileAttributes(raProfile, authority));
+        List<SupportedCertificateTypeDtoV3> listed = offeredOr(
+                () -> connectorApiFactory
+                        .getAuthorityInstanceApiClientV3(connectorDto)
+                        .listCertificateTypes(connectorDto, request),
+                List.of(SupportedCertificateTypeDtoV3.of(CertificateType.X509)), "the supported certificate types");
+        Set<CertificateType> types = EnumSet.noneOf(CertificateType.class);
+        listed.forEach(entry -> types.add(entry.getCertificateType()));
+        return types;
     }
 
     @Override
@@ -549,8 +570,8 @@ public class AuthorityProviderV3Adapter extends AbstractAuthorityProviderAdapter
     }
 
     @FunctionalInterface
-    private interface SchemaCall {
-        List<BaseAttribute> get() throws ConnectorException;
+    private interface OptionalCall<T> {
+        T get() throws ConnectorException;
     }
 
     /**
@@ -567,44 +588,46 @@ public class AuthorityProviderV3Adapter extends AbstractAuthorityProviderAdapter
      * <b>Consequence for validation:</b> an empty resolution also means required-attribute enforcement is off for that
      * operation; the merge/validate callers compensate by rejecting supplied values against an empty schema.
      */
-    private List<BaseAttribute> schemaOrEmpty(SchemaCall call, String operation) throws ConnectorException {
+    private List<BaseAttribute> schemaOrEmpty(OptionalCall<List<BaseAttribute>> call, String operation)
+            throws ConnectorException {
+        return offeredOr(call, List.of(), "the " + operation + " attribute schema");
+    }
+
+    /**
+     * Runs a call to an optional connector operation and resolves "not offered" to the fallback. The not-offered
+     * signals are the ones {@link #schemaOrEmpty} documents; everything else propagates.
+     */
+    private <T> T offeredOr(OptionalCall<T> call, T fallback, String subject) throws ConnectorException {
         try {
-            List<BaseAttribute> response = call.get();
+            T response = call.get();
             if (response == null) {
-                log
-                        .debug("Connector returned empty body for the {} attribute schema; resolving empty schema",
-                                operation);
-                return List.of();
+                log.debug("Connector returned empty body for {}; resolving the fallback", subject);
+                return fallback;
             }
             return response;
         } catch (ConnectorEntityNotFoundException e) {
-            log
-                    .debug("Optional {} attribute-schema endpoint not served by connector (404); resolving empty schema",
-                            operation);
-            return List.of();
+            log.debug("Optional endpoint for {} not served by connector (404); resolving the fallback", subject);
+            return fallback;
         } catch (ConnectorProblemException e) {
             ErrorCode code = e.getProblemDetail().getErrorCode();
             if (code == ErrorCode.OPERATION_NOT_SUPPORTED) {
-                log
-                        .debug("Connector declines to offer the {} attribute schema (OPERATION_NOT_SUPPORTED); "
-                                + "resolving empty schema", operation);
-                return List.of();
+                log.debug("Connector declines to offer {} (OPERATION_NOT_SUPPORTED); resolving the fallback", subject);
+                return fallback;
             }
             if (e.getProblemDetail().getStatus() == HttpStatus.NOT_FOUND.value()
                     && (code == null || code == ErrorCode.RESOURCE_NOT_FOUND)) {
                 // Logs what the connector said rather than asserting the endpoint is absent: a connector that serves
                 // the endpoint but reports a missing resource the same way lands here too.
                 log
-                        .debug("Connector answered 404 {} (\"{}\") for the {} attribute schema; treating the schema as "
-                                + "not offered and resolving it empty", code == null ? "with no error code" : code,
-                                e.getMessage(), operation);
-                return List.of();
+                        .debug("Connector answered 404 {} (\"{}\") for {}; treating it as not offered and resolving "
+                                + "the fallback", code == null ? "with no error code" : code, e.getMessage(), subject);
+                return fallback;
             }
             throw e;
         } catch (ConnectorServerException e) {
             if (e.getHttpStatus() == HttpStatus.NOT_IMPLEMENTED) {
-                log.debug("Connector answered bare 501 for the {} attribute schema; resolving empty schema", operation);
-                return List.of();
+                log.debug("Connector answered bare 501 for {}; resolving the fallback", subject);
+                return fallback;
             }
             throw e;
         }

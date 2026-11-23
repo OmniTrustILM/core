@@ -1,6 +1,8 @@
 package com.otilm.core.certificate.type;
 
+import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.common.ErrorMessageDto;
 import com.otilm.api.model.core.certificate.CertificateOperation;
 import com.otilm.core.api.ExceptionHandlingAdvice;
 import java.util.List;
@@ -49,5 +51,21 @@ class CertificateTypeHandlerExceptionMappingTest {
 
         // then
         assertThat(status).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT);
+    }
+
+    @Test
+    void answersWithBadGatewayNamingTheRaProfile_whenTheAuthorityCannotSayWhichTypesItIssues() throws Exception {
+        // given
+        var raProfileName = "ssh-profile";
+        var unavailable = new CertificateTypesUnavailableException(raProfileName, new ConnectorException("down"));
+        var handlerMethod = ExceptionHandlingAdvice.class
+                .getMethod("handleCertificateTypesUnavailableException", CertificateTypesUnavailableException.class);
+
+        // when
+        ErrorMessageDto body = advice.handleCertificateTypesUnavailableException(unavailable);
+
+        // then
+        assertThat(body.getMessage()).contains(raProfileName);
+        assertThat(handlerMethod.getAnnotation(ResponseStatus.class).value()).isEqualTo(HttpStatus.BAD_GATEWAY);
     }
 }

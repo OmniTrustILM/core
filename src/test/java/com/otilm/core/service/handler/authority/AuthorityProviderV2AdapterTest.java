@@ -30,6 +30,7 @@ import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.X509CertificateRequestEntity;
 import com.otilm.core.service.v2.ConnectorInternalService;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -522,4 +523,16 @@ class AuthorityProviderV2AdapterTest {
 
         assertThrows(ConnectorException.class, () -> adapter.listIssueAttributes(authority, null));
     }
+
+    @Test
+    void returnsX509Only_whenListingTheCertificateTypes() {
+        // given — a v2 connector has no operation that lists its certificate types
+
+        // when
+        Set<CertificateType> types = adapter.listCertificateTypes(authority, raProfile);
+
+        // then
+        assertThat(types).containsExactly(CertificateType.X509);
+    }
+
 }

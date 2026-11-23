@@ -30,6 +30,8 @@ import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.api.model.connector.secrets.content.ApiKeySecretContent;
 import com.otilm.api.model.connector.v3.authority.CaCertificatesRequestDtoV3;
 import com.otilm.api.model.connector.v3.authority.CaCertificatesResponseDto;
+import com.otilm.api.model.connector.v3.authority.CertificateTypesRequestDtoV3;
+import com.otilm.api.model.connector.v3.authority.SupportedCertificateTypeDtoV3;
 import com.otilm.api.model.connector.v3.certificate.CertificateAttributeListRequestDtoV3;
 import com.otilm.api.model.connector.v3.certificate.CertificateDataResponseDto;
 import com.otilm.api.model.connector.v3.certificate.CertificateExtension;
@@ -85,7 +87,9 @@ import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Stream;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.GeneralName;
@@ -97,11 +101,14 @@ import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequestBuilder;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -122,6 +129,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Named.named;
+import static org.junit.jupiter.params.provider.Arguments.arguments;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
@@ -1463,7 +1472,115 @@ class AuthorityProviderV3AdapterTest {
         verify(certClientV3).cancelRevoke(eq(connectorInfo), any());
     }
 
+    // ── ListCertificateTypes ──────────────────────────────────────────────────
+
+    @Nested
+    class ListCertificateTypes {
+
+        @Test
+        void returnsTheTypesTheConnectorLists_whenItOffersTheOperation() throws Exception {
+            // given
+            var listed = List
+                    .of(SupportedCertificateTypeDtoV3.of(CertificateType.X509),
+                            SupportedCertificateTypeDtoV3.of(CertificateType.SSH));
+            when(authorityClientV3.listCertificateTypes(eq(connectorInfo), any())).thenReturn(listed);
+
+            // when
+            Set<CertificateType> types = adapter.listCertificateTypes(authority, raProfile);
+
+            // then
+            assertThat(types).containsExactlyInAnyOrder(CertificateType.X509, CertificateType.SSH);
+        }
+
+        @Test
+        void returnsNoTypes_whenTheConnectorListsNone() throws Exception {
+            // given
+            when(authorityClientV3.listCertificateTypes(eq(connectorInfo), any())).thenReturn(List.of());
+
+            // when
+            Set<CertificateType> types = adapter.listCertificateTypes(authority, raProfile);
+
+            // then
+            assertThat(types).isEmpty();
+        }
+
+        @Test
+        void asksForTheRaProfile_whenListingTheTypes() throws Exception {
+            // given
+            var raProfileAttribute = new RequestAttributeV3(UUID.randomUUID(), "template", AttributeContentType.STRING,
+                    List.<BaseAttributeContentV3<?>>of(new StringAttributeContentV3()));
+            when(attributeEngine.getRequestObjectDataAttributesContent(any())).thenReturn(List.of(raProfileAttribute));
+            when(operationAttributeResolver.resolveForConnectorRequestAsSystem(eq(authority.getConnectorUuid()), any()))
+                    .thenAnswer(invocation -> invocation.getArgument(1));
+            when(authorityClientV3.listCertificateTypes(eq(connectorInfo), any())).thenReturn(List.of());
+            var sent = ArgumentCaptor.forClass(CertificateTypesRequestDtoV3.class);
+
+            // when
+            adapter.listCertificateTypes(authority, raProfile);
+
+            // then
+            verify(authorityClientV3).listCertificateTypes(eq(connectorInfo), sent.capture());
+            assertThat(sent.getValue().getRaProfileAttributes()).isNotNull();
+            assertThat(sent.getValue().getAuthorityAttributes()).isNotNull();
+        }
+
+        @ParameterizedTest
+        @MethodSource("com.otilm.core.service.handler.authority.AuthorityProviderV3AdapterTest#notOfferedAnswers")
+        void returnsX509Only_whenTheConnectorDoesNotOfferTheOperation(ConnectorException notOffered) throws Exception {
+            // given
+            when(authorityClientV3.listCertificateTypes(eq(connectorInfo), any())).thenThrow(notOffered);
+
+            // when
+            Set<CertificateType> types = adapter.listCertificateTypes(authority, raProfile);
+
+            // then
+            assertThat(types).containsExactly(CertificateType.X509);
+        }
+
+        @Test
+        void returnsX509Only_whenTheConnectorAnswersWithoutABody() throws Exception {
+            // given
+            when(authorityClientV3.listCertificateTypes(eq(connectorInfo), any())).thenReturn(null);
+
+            // when
+            Set<CertificateType> types = adapter.listCertificateTypes(authority, raProfile);
+
+            // then
+            assertThat(types).containsExactly(CertificateType.X509);
+        }
+
+        @Test
+        void propagatesTheFailure_whenTheConnectorFailsForAnotherReason() throws Exception {
+            // given
+            var serverError = new ConnectorServerException("boom", HttpStatus.INTERNAL_SERVER_ERROR);
+            when(authorityClientV3.listCertificateTypes(eq(connectorInfo), any())).thenThrow(serverError);
+
+            // when
+            ThrowingCallable listTypes = () -> adapter.listCertificateTypes(authority, raProfile);
+
+            // then
+            assertThatThrownBy(listTypes).isSameAs(serverError);
+        }
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    static Stream<Arguments> notOfferedAnswers() {
+        var notFoundWithoutCode = new ProblemDetailExtended();
+        notFoundWithoutCode.setStatus(HttpStatus.NOT_FOUND.value());
+        return Stream
+                .of(arguments(named("bare 404", new ConnectorEntityNotFoundException("no such route"))),
+                        arguments(named("bare 501",
+                                new ConnectorServerException("Not Implemented", HttpStatus.NOT_IMPLEMENTED))),
+                        arguments(named("operation not supported",
+                                new ConnectorProblemException(ProblemDetailExtended
+                                        .fromErrorCode(ErrorCode.OPERATION_NOT_SUPPORTED, "no types", null, null)))),
+                        arguments(named("resource not found problem",
+                                new ConnectorProblemException(ProblemDetailExtended
+                                        .fromErrorCode(ErrorCode.RESOURCE_NOT_FOUND, "no route", null, null)))),
+                        arguments(named("404 problem without a code",
+                                new ConnectorProblemException(notFoundWithoutCode))));
+    }
 
     private void resolveAttributesToSecret(String secret) throws ConnectorException {
         ResourceObjectContent secretContent = new ResourceObjectContent();

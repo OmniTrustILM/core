@@ -32,6 +32,7 @@ import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateType;
+import com.otilm.api.model.core.certificate.SupportedCertificateTypeDto;
 import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.api.model.core.compliance.v2.ComplianceCheckResultDto;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
@@ -482,6 +483,22 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                 .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
         assertRaProfileUnderAuthority(raProfile, authorityUuid);
         return extendedAttributeService.listIssueCertificateAttributes(raProfile);
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.ANY,
+            parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
+    public List<SupportedCertificateTypeDto> listSupportedCertificateTypes(SecuredParentUUID authorityUuid,
+            SecuredUUID raProfileUuid) throws ConnectorException, NotFoundException {
+        RaProfile raProfile = raProfileRepository
+                .findByUuidAndEnabledIsTrue(raProfileUuid.getValue())
+                .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
+        assertRaProfileUnderAuthority(raProfile, authorityUuid);
+        return authorityCertificateTypes
+                .supportedTypes(raProfile.getUuid())
+                .stream()
+                .map(SupportedCertificateTypeDto::of)
+                .toList();
     }
 
     @Override

@@ -54,6 +54,7 @@ import com.otilm.api.model.core.certificate.CertificateRelationType;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.certificate.SupportedCertificateTypeDto;
 import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.cryptography.key.KeyState;
@@ -185,6 +186,7 @@ import java.util.Date;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
@@ -455,6 +457,36 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     @AfterEach
     void tearDown() {
         mockServer.stop();
+    }
+
+    @Test
+    void listsTheTypesTheAuthorityReports_whenAskedForTheRaProfile() throws Exception {
+        // given
+        Set<CertificateType> reported = EnumSet.of(CertificateType.X509, CertificateType.SSH);
+        doReturn(reported).when(authorityCertificateTypes).supportedTypes(raProfile.getUuid());
+
+        // when
+        List<SupportedCertificateTypeDto> types = clientOperationService
+                .listSupportedCertificateTypes(authorityInstanceReference.getSecuredParentUuid(),
+                        raProfile.getSecuredUuid());
+
+        // then
+        assertThat(types)
+                .containsExactlyInAnyOrder(SupportedCertificateTypeDto.of(CertificateType.X509),
+                        SupportedCertificateTypeDto.of(CertificateType.SSH));
+    }
+
+    @Test
+    void listsX509Only_whenTheAuthorityHasNoOperationThatReportsItsTypes() throws Exception {
+        // given — the RA profile belongs to a v2 authority, which cannot report its certificate types
+
+        // when
+        List<SupportedCertificateTypeDto> types = clientOperationService
+                .listSupportedCertificateTypes(authorityInstanceReference.getSecuredParentUuid(),
+                        raProfile.getSecuredUuid());
+
+        // then
+        assertThat(types).containsExactly(SupportedCertificateTypeDto.of(CertificateType.X509));
     }
 
     @Test
@@ -1777,9 +1809,9 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
-    void refusesToRenew_whenTheAuthorityDoesNotIssueTheTypeOfTheCertificate() {
+    void refusesToRenew_whenTheAuthorityDoesNotIssueTheTypeOfTheCertificate() throws Exception {
         // given
-        doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedTypes();
+        doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedTypes(any());
         long certificatesBefore = certificateRepository.count();
         ClientCertificateRenewRequestDto request = new ClientCertificateRenewRequestDto();
 
@@ -1797,9 +1829,9 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
-    void refusesToRekey_whenTheAuthorityDoesNotIssueTheTypeOfTheCertificate() {
+    void refusesToRekey_whenTheAuthorityDoesNotIssueTheTypeOfTheCertificate() throws Exception {
         // given
-        doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedTypes();
+        doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedTypes(any());
         long certificatesBefore = certificateRepository.count();
         ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
 
@@ -5552,9 +5584,9 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         }
 
         @Test
-        void refusesTheCompletion_whenTheAuthorityDoesNotIssueTheTypeOfTheCertificate() {
+        void refusesTheCompletion_whenTheAuthorityDoesNotIssueTheTypeOfTheCertificate() throws Exception {
             // given
-            doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedTypes();
+            doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedTypes(any());
             ClientCertificateIssueRequestDto completion = createCompletionRequest();
 
             // when
