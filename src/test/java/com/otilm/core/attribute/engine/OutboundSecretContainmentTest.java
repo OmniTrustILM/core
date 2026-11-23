@@ -1,11 +1,22 @@
 package com.otilm.core.attribute.engine;
 
+import com.otilm.api.clients.ApiClientConnectorInfo;
+import com.otilm.api.exception.ConnectorClientException;
+import com.otilm.api.exception.ConnectorCommunicationException;
+import com.otilm.api.exception.ConnectorEntityNotFoundException;
+import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.ConnectorProblemException;
+import com.otilm.api.exception.ConnectorServerException;
+import com.otilm.api.exception.ValidationError;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.RequestAttributeV2;
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.client.attribute.ResponseAttributeV2;
+import com.otilm.api.model.client.attribute.ResponseAttributeV3;
 import com.otilm.api.model.client.connector.v2.attribute.AttributeCallbackResponseDto;
 import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.common.attribute.common.AttributeVersion;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.content.data.CodeBlockAttributeContentData;
 import com.otilm.api.model.common.attribute.common.content.data.CredentialAttributeContentData;
@@ -25,16 +36,23 @@ import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.ResourceObjectContent;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceSecretContentData;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceSimpleContentData;
+import com.otilm.api.model.common.error.ErrorCode;
+import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.api.model.connector.secrets.content.ApiKeySecretContent;
 import com.otilm.api.model.core.auth.AttributeResource;
+import com.otilm.api.model.core.connector.ConnectorDto;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContent;
 import java.io.Serializable;
+import java.net.ConnectException;
+import java.net.URI;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -187,6 +205,24 @@ class OutboundSecretContainmentTest {
 
         // then
         assertThat(expandedSecrets).containsExactly(tokenPin);
+    }
+
+    @Test
+    void recordsOnlyTheNumber_whenRecordingTheNumbersOfRowsStoredEncrypted() {
+        // given
+        var tokenPin = 48151623;
+        var pinRow = storedRow("token-pin", SEALED);
+        var flagRow = storedRow("token-flag", SEALED);
+        var resolved = List
+                .of(resolvedFrom(pinRow, decryptedContent(tokenPin)),
+                        resolvedFrom(flagRow, decryptedContent(Boolean.TRUE)));
+        Set<String> sentSecrets = new HashSet<>();
+
+        // when
+        containment.recordProtectedNumbersFromRequest(List.of(pinRow, flagRow), resolved, sentSecrets);
+
+        // then
+        assertThat(sentSecrets).containsExactly(String.valueOf(tokenPin));
     }
 
     @Test
@@ -453,7 +489,202 @@ class OutboundSecretContainmentTest {
                 () -> containment.assertNoExpandedSecretOutbound(payload, new HashSet<>()));
     }
 
+    @Test
+    void recordsTheSecret_whenItIsNestedAsDeepAsReferencesAreResolved() {
+        // given
+        String nestedSecret = "secret-at-the-depth-cap";
+        BaseAttributeContentV3<?> content = new ResourceObjectContent("oauth-client",
+                new ResourceSecretContentData("u", "oauth-client", new ApiKeySecretContent(nestedSecret)));
+        for (int level = 0; level < ReferenceTraversal.MAX_DEPTH; level++) {
+            content = new ResourceObjectContent("holder", objectHolding(content));
+        }
+        RequestAttribute resolved = new RequestAttributeV3(UUID.randomUUID(), "authority",
+                AttributeContentType.RESOURCE, List.<BaseAttributeContentV3<?>>of(content));
+        Set<String> expandedSecrets = new HashSet<>();
+
+        // when
+        containment.recordExpandedSecretsFromRequest(List.of(resolved), expandedSecrets);
+
+        // then
+        assertThat(expandedSecrets).containsExactly(nestedSecret);
+    }
+
+    @Test
+    void returnsTheRefusalAsItIs_whenTheRequestCarriedNoSecret() {
+        // given
+        ConnectorProblemException refusal = refusal("authority \"otpki-staging\" does not belong to this connector");
+
+        // when
+        ConnectorException passedOn = containment.withoutWords(refusal, Set.of(), "run");
+
+        // then
+        assertThat(passedOn).isSameAs(refusal);
+    }
+
+    @Test
+    void keepsTheVerdictButNotTheWords_whenTheRequestCarriedASecret() {
+        // given
+        String base64EchoOfTheSecret = "Authorization: Basic Y2xpZW50OnMzY3IzdC10b2tlbg==";
+        ConnectorProblemException refusal = refusal(base64EchoOfTheSecret);
+        refusal.getProblemDetail().setRetryAfterSeconds(45);
+
+        // when
+        ConnectorException passedOn = containment.withoutWords(refusal, Set.of("s3cr3t-token"), "callback");
+
+        // then
+        assertThat(passedOn).isInstanceOfSatisfying(ConnectorProblemException.class, problem -> {
+            assertThat(problem)
+                    .hasMessageContaining("The connector refused the callback (VALIDATION_FAILED).")
+                    .hasMessageNotContaining(base64EchoOfTheSecret);
+            assertThat(problem.getProblemDetail().getErrorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED);
+            assertThat(problem.getProblemDetail().getStatus()).isEqualTo(refusal.getProblemDetail().getStatus());
+            assertThat(problem.getProblemDetail().getRetryAfterSeconds()).isEqualTo(45);
+        });
+    }
+
+    @Test
+    void keepsTheTypeStatusAndConnectorButNotTheWords_whenAPlainClientErrorRefusedARequestCarryingASecret() {
+        // given
+        ConnectorClientException refusal = new ConnectorClientException("token s3cr3t-token is not valid",
+                HttpStatus.UNPROCESSABLE_CONTENT);
+        ApiClientConnectorInfo connector = aConnector();
+        refusal.setConnector(connector);
+
+        // when
+        ConnectorException passedOn = containment.withoutWords(refusal, Set.of("s3cr3t-token"), "run");
+
+        // then
+        assertThat(passedOn).isInstanceOfSatisfying(ConnectorClientException.class, client -> {
+            assertThat(client)
+                    .hasMessageContaining("The connector refused the run.")
+                    .hasMessageNotContaining("s3cr3t-token");
+            assertThat(client.getHttpStatus()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT);
+            assertThat(client.getConnector()).isSameAs(connector);
+        });
+    }
+
+    @Test
+    void keepsTheTypeAndStatusButNotTheWords_whenAPlainServerErrorRefusedARequestCarryingASecret() {
+        // given
+        ConnectorServerException refusal = new ConnectorServerException("upstream said s3cr3t-token",
+                HttpStatus.SERVICE_UNAVAILABLE);
+
+        // when
+        ConnectorException passedOn = containment.withoutWords(refusal, Set.of("s3cr3t-token"), "run");
+
+        // then
+        assertThat(passedOn).isInstanceOfSatisfying(ConnectorServerException.class, server -> {
+            assertThat(server)
+                    .hasMessageContaining("The connector refused the run.")
+                    .hasMessageNotContaining("s3cr3t-token");
+            assertThat(server.getHttpStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        });
+    }
+
+    @Test
+    void keepsTheTypeButNotTheWords_whenAPlainNotFoundRefusedARequestCarryingASecret() {
+        // given
+        ConnectorEntityNotFoundException refusal = new ConnectorEntityNotFoundException("no run for s3cr3t-token");
+
+        // when
+        ConnectorException passedOn = containment.withoutWords(refusal, Set.of("s3cr3t-token"), "run");
+
+        // then
+        assertThat(passedOn)
+                .isInstanceOf(ConnectorEntityNotFoundException.class)
+                .hasMessageContaining("The connector refused the run.")
+                .hasMessageNotContaining("s3cr3t-token");
+    }
+
+    @Test
+    void dropsTheWords_whenAValidationRefusalAnswersARequestCarryingASecret() {
+        // given
+        ValidationException refusal = new ValidationException("token s3cr3t-token is not valid");
+
+        // when
+        ValidationException passedOn = containment.withoutWords(refusal, Set.of("s3cr3t-token"), "callback");
+
+        // then
+        assertThat(passedOn.getErrors())
+                .extracting(ValidationError::getErrorDescription)
+                .containsExactly("The connector refused the callback.");
+    }
+
+    @Test
+    void keepsTheTypeAndConnectorButNotTheWords_whenACommunicationFailureAnswersARequestCarryingASecret() {
+        // given
+        ApiClientConnectorInfo connector = aConnector();
+        ConnectorCommunicationException headerEcho = new ConnectorCommunicationException(
+                "Received response with unexpected content type 'text/html; token=s3cr3t-token'.", connector);
+
+        // when
+        ConnectorException passedOn = containment.withoutWords(headerEcho, Set.of("s3cr3t-token"), "run");
+
+        // then
+        assertThat(passedOn)
+                .isInstanceOf(ConnectorCommunicationException.class)
+                .hasMessageContaining("Core could not read the connector's answer to the run.")
+                .hasMessageNotContaining("s3cr3t-token");
+        assertThat(passedOn.getConnector()).isSameAs(connector);
+    }
+
+    @Test
+    void keepsTheTransportCause_whenAConnectionFailureAnswersARequestCarryingASecret() {
+        // given
+        ConnectException refused = new ConnectException("Connection refused");
+        ConnectorCommunicationException unreachable = new ConnectorCommunicationException("Error in communication",
+                refused, aConnector());
+
+        // when
+        ConnectorException passedOn = containment.withoutWords(unreachable, Set.of("s3cr3t-token"), "run");
+
+        // then
+        assertThat(passedOn)
+                .isInstanceOf(ConnectorCommunicationException.class)
+                .hasMessageContaining("Core could not reach the connector for the run.")
+                .hasCause(refused);
+    }
+
+    @Test
+    void dropsTheCause_whenItMayQuoteTheConnectorsAnswer() {
+        // given
+        IllegalArgumentException unreadable = new IllegalArgumentException("Unexpected token 's3cr3t-token'");
+        ConnectorCommunicationException failure = new ConnectorCommunicationException("Failed to deserialize",
+                unreadable, aConnector());
+
+        // when
+        ConnectorException passedOn = containment.withoutWords(failure, Set.of("s3cr3t-token"), "run");
+
+        // then
+        assertThat(passedOn)
+                .hasMessageContaining("Core could not read the connector's answer to the run.")
+                .hasNoCause();
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static ApiClientConnectorInfo aConnector() {
+        ConnectorDto connector = new ConnectorDto();
+        connector.setUuid(UUID.randomUUID().toString());
+        connector.setName("otpki");
+        return connector;
+    }
+
+    private static ConnectorProblemException refusal(String detail) {
+        return new ConnectorProblemException(ProblemDetailExtended
+                .fromErrorCode(ErrorCode.VALIDATION_FAILED, detail,
+                        URI.create("https://connector.example.com/v2/attributes/callback"), null));
+    }
+
+    /** An object of a referenced kind whose one attribute holds the given content. */
+    private static ResourceSimpleContentData objectHolding(BaseAttributeContentV3<?> content) {
+        List<BaseAttributeContentV3<?>> attributeContent = new ArrayList<>();
+        attributeContent.add(content);
+        return new ResourceSimpleContentData(AttributeResource.CREDENTIAL, UUID.randomUUID().toString(), "holder",
+                List
+                        .of(new ResponseAttributeV3(attributeContent, UUID.randomUUID(), "nested", "Nested",
+                                AttributeType.DATA, AttributeContentType.RESOURCE, AttributeVersion.V3)));
+    }
 
     private static ObjectAttributeContent storedRow(String name, String encryptedContent) {
         return new ObjectAttributeContent(UUID.randomUUID(), name, name, AttributeType.DATA,

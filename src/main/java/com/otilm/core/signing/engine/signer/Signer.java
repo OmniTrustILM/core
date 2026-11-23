@@ -2,6 +2,7 @@ package com.otilm.core.signing.engine.signer;
 
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.SignatureInputMode;
+import com.otilm.core.signing.engine.error.ItemSigningException;
 import com.otilm.core.signing.engine.error.SigningEngineException;
 
 import java.util.List;
@@ -53,6 +54,7 @@ public interface Signer {
      * @param inputMode what each item is; null means {@link SignatureInputMode#DATA}
      * @return raw signatures, where element {@code i} is the signature of {@code items.get(i)}
      * @throws SigningEngineException if the input cannot be signed in this mode or signing fails
+     * @throws ItemSigningException if the provider fails one item, at that item's index in {@code items}
      * @throws IllegalArgumentException if the list or any item is null or empty
      */
     List<byte[]> signAll(List<byte[]> items, SignatureInputMode inputMode) throws SigningEngineException;

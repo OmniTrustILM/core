@@ -2,6 +2,7 @@ package com.otilm.core.service.handler.discovery;
 
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
+import com.otilm.core.attribute.engine.MissingReferenceException;
 import com.otilm.core.dao.entity.Discovery;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -22,7 +23,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class DiscoveryProviderV2AdapterTest {
 
     private final DiscoveryProviderV2Adapter adapter = new DiscoveryProviderV2Adapter(null, null, null, null, null,
-            null, null, null, null, null, null);
+            null, null, null, null, null, null, null);
 
     @Test
     void anUnexpectedFailuresOwnWordsNeverReachTheRun() {
@@ -35,6 +36,22 @@ class DiscoveryProviderV2AdapterTest {
                 .doesNotContain("hunter2")
                 .doesNotContain("vault.internal")
                 .isEqualTo("Discovery could not be started at its connector");
+    }
+
+    @Test
+    void namesTheRefusedReference_whenCoreCouldNotResolveTheRunsReferencesAtStart() {
+        // given
+        DiscoveryReferenceException refused = DiscoveryReferenceException
+                .refused(new MissingReferenceException(
+                        "Attribute 'OAuth client' refers to Secret 'oauth', which does " + "not exist."));
+
+        // when
+        String reason = DiscoveryProviderV2Adapter.startFailureReason(refused);
+
+        // then
+        assertThat(reason)
+                .startsWith("Discovery could not be started: Core could not resolve the run's references")
+                .contains("Secret 'oauth'");
     }
 
     @ParameterizedTest

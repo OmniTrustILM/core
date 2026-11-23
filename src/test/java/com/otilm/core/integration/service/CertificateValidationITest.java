@@ -44,17 +44,23 @@ import com.otilm.core.dao.repository.CrlRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.events.handlers.CertificateUploadedEventHandler;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
+import com.otilm.core.helpers.TestCertificateAuthority;
 import com.otilm.core.messaging.model.CertificateUploadEventMessageData;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CrlService;
 import com.otilm.core.service.SettingExternalService;
 import com.otilm.core.service.impl.CertificateServiceImpl;
+import com.otilm.core.service.writer.CertificateChainWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateTestUtil;
 import com.otilm.core.util.CertificateUtil;
+import com.otilm.core.util.ConcurrentCalls;
 import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.MetaDefinitions;
 import com.otilm.core.util.PlatformX500NameStyle;
+import com.otilm.core.util.WireMockResponseGate;
+import com.zaxxer.hikari.HikariDataSource;
+import com.zaxxer.hikari.HikariPoolMXBean;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
 import java.io.ByteArrayInputStream;
@@ -81,6 +87,7 @@ import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -91,9 +98,13 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import javax.security.auth.x500.X500Principal;
+import javax.sql.DataSource;
 import org.apache.commons.lang3.StringUtils;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
@@ -144,6 +155,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -197,6 +209,15 @@ public class CertificateValidationITest extends BaseSpringBootTest {
     @Autowired
     private CertificateUploadedEventHandler certificateUploadedEventHandler;
 
+    @Autowired
+    private DataSource dataSource;
+
+    @Autowired
+    private TestCertificateAuthority testCertificateAuthority;
+
+    @Autowired
+    private CertificateChainWriter certificateChainWriter;
+
     private X509CertificateEntity certificate;
 
     private Certificate caCertificate;
@@ -207,9 +228,11 @@ public class CertificateValidationITest extends BaseSpringBootTest {
 
     private WireMockServer mockServer;
 
+    private final WireMockResponseGate crlResponseGate = new WireMockResponseGate();
+
     @BeforeEach
     public void setUp() throws GeneralSecurityException, IOException, com.otilm.api.exception.CertificateException {
-        mockServer = new WireMockServer(LoopbackWireMock.options());
+        mockServer = new WireMockServer(LoopbackWireMock.options().extensions(crlResponseGate));
         mockServer.start();
 
         WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
@@ -662,6 +685,36 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         assertThat(readCrlStatus(result)).isEqualTo(CertificateValidationStatus.VALID);
         assertThat(findStoredCrl(cert)).isPresent();
         assertThat(findStoredCrlEntry(cert, cert.getSerialNumber())).isEmpty();
+    }
+
+    @Test
+    void holdsNoConnection_whenTheCrlDownloadIsUnderWay() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String urlPath = "/held-" + stamp + ".crl";
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlHeld-" + stamp,
+                List.of(LoopbackWireMock.url(mockServer) + urlPath), null, BigInteger.ONE);
+        X509CertificateEntity entity = X509CertificateEntity.from(createTrustedCertEntity(cert));
+        stubCrlPoint(urlPath, createEmptyCRL(cert, issuerKeyPair.getPrivate()).getEncoded());
+        HikariPoolMXBean pool = dataSource.unwrap(HikariDataSource.class).getHikariPoolMXBean();
+        int activeBeforeTheValidation = pool.getActiveConnections();
+        CountDownLatch crlAnswer = crlResponseGate.hold();
+
+        // when
+        Future<CertificateValidationResultDto> validation = ConcurrentCalls
+                .callInBackground(() -> certificateService.getCertificateValidationResult(entity.getSecuredUuid()));
+        int activeWhileDownloading;
+        try {
+            crlResponseGate.awaitHeld();
+            activeWhileDownloading = pool.getActiveConnections();
+        } finally {
+            crlAnswer.countDown();
+        }
+
+        // then
+        assertThat(readCrlStatus(validation.get(30, TimeUnit.SECONDS))).isEqualTo(CertificateValidationStatus.VALID);
+        assertThat(activeWhileDownloading).isLessThanOrEqualTo(activeBeforeTheValidation);
     }
 
     @Test
@@ -2501,7 +2554,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         return certificateRepository.findByFingerprint(fingerprint).orElseThrow();
     }
 
-    private X509Certificate generateIntermediateCACertificate(KeyPair issuerKeyPair, X509Certificate issuerCert,
+    private static X509Certificate generateIntermediateCACertificate(KeyPair issuerKeyPair, X509Certificate issuerCert,
             KeyPair subjectKeyPair, String subjectDn) throws Exception {
         X500Name issuer = new X500Name(issuerCert.getSubjectX500Principal().getName());
         X500Name subject = new X500Name(subjectDn);
@@ -3180,6 +3233,94 @@ public class CertificateValidationITest extends BaseSpringBootTest {
             public String getName() {
                 return "ocsp-responder";
             }
+        }
+    }
+
+    // ── ValidationChain ───────────────────────────────────────────────────────
+
+    @Nested
+    class ValidationChain {
+
+        @Test
+        void storesValid_whenAnotherRequestLinksTheIssuerAfterTheCertificateWasLoaded() throws Exception {
+            // given
+            Certificate leaf = issueLeafWithoutIssuerLink();
+            Certificate loadedBeforeTheLink = loadAsValidationListenerDoes(leaf);
+            OffsetDateTime previousValidation = loadedBeforeTheLink.getStatusValidationTimestamp();
+            // CMP's caPubs lookup links the issuer as a side effect of reading the chain
+            certificateService.getCertificateChain(leaf.getSecuredUuid(), true);
+            Certificate linkedInTheDatabase = certificateRepository.findByUuid(leaf.getUuid()).orElseThrow();
+            assertThat(loadedBeforeTheLink.getIssuerCertificateUuid()).isNull();
+            assertThat(linkedInTheDatabase.getIssuerCertificateUuid()).isNotNull();
+
+            // when
+            certificateService.validate(loadedBeforeTheLink);
+
+            // then
+            Certificate stored = certificateRepository.findByUuid(leaf.getUuid()).orElseThrow();
+            assertThat(stored.getValidationStatus()).isEqualTo(CertificateValidationStatus.VALID);
+            assertThat(stored.getStatusValidationTimestamp()).isAfter(previousValidation);
+        }
+
+        @Test
+        @Timeout(value = 30, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
+        void storesInvalid_whenCrossCertifiedCasLinkIntoACycle() throws Exception {
+            // given
+            KeyPair keyPairA = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+            KeyPair keyPairB = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+            X509Certificate certifiedByB = crossCertify(keyPairB, "CN=Issuer Cycle B", keyPairA, "CN=Issuer Cycle A");
+            X509Certificate certifiedByA = crossCertify(keyPairA, "CN=Issuer Cycle A", keyPairB, "CN=Issuer Cycle B");
+            Certificate certificateA = uploadCertificate(Base64.getEncoder().encodeToString(certifiedByB.getEncoded()));
+            Certificate certificateB = uploadCertificate(Base64.getEncoder().encodeToString(certifiedByA.getEncoded()));
+            // linking B to A also links A, which has no issuer yet, to B
+            certificateService.validate(loadAsValidationListenerDoes(certificateB));
+            Certificate cycleMember = loadAsValidationListenerDoes(certificateA);
+            Certificate linkedB = certificateRepository.findByUuid(certificateB.getUuid()).orElseThrow();
+            OffsetDateTime previousValidation = cycleMember.getStatusValidationTimestamp();
+            OffsetDateTime previousValidationOfB = linkedB.getStatusValidationTimestamp();
+            assertThat(cycleMember.getIssuerCertificateUuid()).isEqualTo(certificateB.getUuid());
+            assertThat(linkedB.getIssuerCertificateUuid()).isEqualTo(certificateA.getUuid());
+
+            // when
+            certificateService.validate(cycleMember);
+
+            // then
+            Certificate stored = certificateRepository.findByUuid(certificateA.getUuid()).orElseThrow();
+            Map<CertificateValidationCheck, CertificateValidationCheckDto> checks = MetaDefinitions
+                    .deserializeValidation(stored.getCertificateValidationResult());
+            assertThat(stored.getValidationStatus()).isEqualTo(CertificateValidationStatus.INVALID);
+            assertThat(stored.getStatusValidationTimestamp()).isAfter(previousValidation);
+            assertThat(checks.get(CertificateValidationCheck.CERTIFICATE_CHAIN).getMessage())
+                    .startsWith("Incomplete certificate chain");
+            assertThat(checks.get(CertificateValidationCheck.SIGNATURE_VERIFICATION).getStatus())
+                    .isEqualTo(CertificateValidationStatus.VALID);
+            Certificate storedB = certificateRepository.findByUuid(certificateB.getUuid()).orElseThrow();
+            Map<CertificateValidationCheck, CertificateValidationCheckDto> checksOfB = MetaDefinitions
+                    .deserializeValidation(storedB.getCertificateValidationResult());
+            assertThat(storedB.getStatusValidationTimestamp()).isAfter(previousValidationOfB);
+            assertThat(checksOfB.get(CertificateValidationCheck.SIGNATURE_VERIFICATION).getStatus())
+                    .isEqualTo(CertificateValidationStatus.VALID);
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private static X509Certificate crossCertify(KeyPair issuerKeyPair, String issuerDn, KeyPair subjectKeyPair,
+                String subjectDn) throws Exception {
+            X509Certificate issuerNameSource = CertificateGeneratorHelper
+                    .generateCACertificate(issuerKeyPair, issuerDn);
+            return generateIntermediateCACertificate(issuerKeyPair, issuerNameSource, subjectKeyPair, subjectDn);
+        }
+
+        private Certificate loadAsValidationListenerDoes(Certificate certificate) {
+            return certificateRepository.findAllWithAssociationsByUuidIn(List.of(certificate.getUuid())).getFirst();
+        }
+
+        private Certificate issueLeafWithoutIssuerLink() throws Exception {
+            TestCertificateAuthority.TrustedCa ca = testCertificateAuthority.createTrustedCa("CN=Issuer Link Race CA");
+            KeyPair leafKeyPair = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+            Certificate leaf = ca.issueSigningCertificate(leafKeyPair, "CN=issuer-link-race-leaf");
+            certificateChainWriter.clearIssuerReference(leaf.getUuid());
+            return leaf;
         }
     }
 

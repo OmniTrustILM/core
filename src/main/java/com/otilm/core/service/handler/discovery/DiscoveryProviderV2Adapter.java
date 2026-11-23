@@ -6,6 +6,7 @@ import com.otilm.api.exception.PlatformException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.client.discovery.DiscoveryDetailDto;
+import com.otilm.api.model.client.discovery.DiscoveryWindowMode;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryDeliveryMode;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryInitiateResponseDto;
@@ -76,6 +77,7 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
     private final DiscoveryWorkProperties workProperties;
     private final DiscoveryRunWriter runWriter;
     private final DiscoveryDeliveryModeOffer deliveryModeOffer;
+    private final DiscoveryWindowResolver windowResolver;
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -86,7 +88,7 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
             DiscoveryWorkWriter workWriter, DiscoveryRunTerminator terminator,
             ConnectorCapabilityService capabilityService, TransactionHandler transactionHandler,
             DiscoveryWorkProperties workProperties, DiscoveryRunWriter runWriter,
-            DiscoveryDeliveryModeOffer deliveryModeOffer) {
+            DiscoveryDeliveryModeOffer deliveryModeOffer, DiscoveryWindowResolver windowResolver) {
         this.discoveryRepository = discoveryRepository;
         this.detailCounts = detailCounts;
         this.connectorInterfaceRepository = connectorInterfaceRepository;
@@ -98,6 +100,7 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
         this.workProperties = workProperties;
         this.runWriter = runWriter;
         this.deliveryModeOffer = deliveryModeOffer;
+        this.windowResolver = windowResolver;
     }
 
     @Override
@@ -105,10 +108,11 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
         Discovery run = runToStart(discoveryUuid);
         try {
             // Outside any transaction, by DiscoveryV2Client's own NOT_SUPPORTED boundary.
+            resolveWindow(run, scheduledJobInfo);
             validateResources(run);
             return recordOrDrop(run, client.initiate(run), scheduledJobInfo);
         } catch (Exception e) {
-            return failStart(discoveryUuid, e);
+            return failStart(discoveryUuid, run.getDiscoverSince(), e);
         }
     }
 
@@ -117,6 +121,7 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
         Discovery run = runToStart(discoveryUuid);
         DiscoveryInitiateResponseDto response;
         try {
+            resolveWindow(run, null);
             validateResources(run);
             response = client.initiate(run);
         } catch (Exception e) {
@@ -126,12 +131,12 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
                 runWriter.discardUnstartedRun(discoveryUuid);
                 throw (ConnectorProblemException) e;
             }
-            return failStart(discoveryUuid, e);
+            return failStart(discoveryUuid, run.getDiscoverSince(), e);
         }
         try {
             return recordOrDrop(run, response, null);
         } catch (Exception e) {
-            return failStart(discoveryUuid, e);
+            return failStart(discoveryUuid, run.getDiscoverSince(), e);
         }
     }
 
@@ -146,7 +151,8 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
         return run;
     }
 
-    private DiscoveryDetailDto failStart(UUID discoveryUuid, Exception e) {
+    /** Ends a run that could not be started, keeping the instant it resolved so the detail shows what was asked. */
+    private DiscoveryDetailDto failStart(UUID discoveryUuid, OffsetDateTime discoverSince, Exception e) {
         if (e instanceof InterruptedException) {
             Thread.currentThread().interrupt();
         }
@@ -155,6 +161,7 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
             // Whoever asked for the run is still on the thread and reports this failure to the scheduler itself;
             // announcing it here as well would finalize the same job history twice.
             failing.setScheduledJobHistoryUuid(null);
+            failing.setDiscoverSince(discoverSince);
             return new DiscoveryRunTerminator.Ending(DiscoveryStatus.FAILED, startFailureReason(e));
         });
         return detailOf(discoveryUuid);
@@ -169,7 +176,7 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
             ScheduledJobInfo scheduledJobInfo) {
         UUID discoveryUuid = run.getUuid();
         try {
-            if (!recordInitiated(discoveryUuid, response, scheduledJobInfo)) {
+            if (!recordInitiated(run, response, scheduledJobInfo)) {
                 logger
                         .info("Discovery {} ended while it was being started; dropping it at the connector",
                                 discoveryUuid);
@@ -203,6 +210,27 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
     }
 
     /**
+     * Fixes the instant a windowed run looks back to, once, just before the connector is asked. A flag withdrawn since
+     * the run was created refuses the run here: sending a window to an interface that no longer offers it would be
+     * answered with a full discovery the operator did not ask for.
+     */
+    private void resolveWindow(Discovery run, ScheduledJobInfo scheduledJobInfo) {
+        if (run.getWindowMode() == null || run.getWindowMode() == DiscoveryWindowMode.FULL) {
+            return;
+        }
+        ConnectorInterfaceEntity iface = run.getConnectorInterfaceUuid() == null
+                ? null
+                : connectorInterfaceRepository.findById(run.getConnectorInterfaceUuid()).orElse(null);
+        if (!capabilityService.supports(iface, FeatureFlag.DISCOVERY_INCREMENTAL)) {
+            throw new RunRefusedException("the connector no longer advertises discoveryIncremental");
+        }
+        run
+                .setDiscoverSince(windowResolver
+                        .resolve(run.getWindowMode(), run.getWindowLookback(), scheduledJobInfo)
+                        .orElse(null));
+    }
+
+    /**
      * Records what the connector answered, under the run's lock.
      *
      * @return whether the run was still live to record against; {@code false} when it ended while the connector was
@@ -210,8 +238,9 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
      * @throws IllegalStateException if the handle exceeds the cap, or the connector chose a delivery mode Core did not
      * offer — thrown before anything is persisted, so the run fails rather than being driven in a way it cannot be
      */
-    private boolean recordInitiated(UUID discoveryUuid, DiscoveryInitiateResponseDto response,
+    private boolean recordInitiated(Discovery run, DiscoveryInitiateResponseDto response,
             ScheduledJobInfo scheduledJobInfo) {
+        UUID discoveryUuid = run.getUuid();
         return Boolean.TRUE.equals(transactionHandler.runInNewTransaction(() -> {
             Discovery locked = discoveryRepository
                     .findWithLockByUuid(discoveryUuid)
@@ -232,6 +261,7 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
             locked.setStatus(DiscoveryStatus.IN_PROGRESS);
             locked.setConnectorStatus(DiscoveryStatus.IN_PROGRESS);
             locked.setStartTime(OffsetDateTime.now(ZoneOffset.UTC));
+            locked.setDiscoverSince(run.getDiscoverSince());
             if (scheduledJobInfo != null) {
                 locked.setScheduledJobHistoryUuid(scheduledJobInfo.jobHistoryUuid());
             }
@@ -359,6 +389,9 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
     // Package-private so the test can assert the rule directly: through start(), every failure a stub can provoke
     // arrives as a ConnectorException.
     static String startFailureReason(Exception e) {
+        if (DiscoveryConnectorErrors.isReferenceRefusal(e)) {
+            return "Discovery could not be started: " + DiscoveryConnectorErrors.describe(e);
+        }
         // Not safeMessage for a ConnectorException: it is a PlatformException, so its connector-written prose would
         // pass the gate.
         String reason = e instanceof ConnectorException || e instanceof ValidationException

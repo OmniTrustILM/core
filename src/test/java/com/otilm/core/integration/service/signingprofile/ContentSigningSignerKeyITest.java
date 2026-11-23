@@ -4,7 +4,6 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.signing.profile.SigningProfileRequestDto;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
-import com.otilm.api.model.common.signature.SignatureFamily;
 import com.otilm.api.model.common.signature.SignatureLevel;
 import com.otilm.api.model.core.certificate.CertificateKeyUsage;
 import com.otilm.api.model.core.certificate.CertificateState;
@@ -14,6 +13,7 @@ import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.service.signingprofile.SigningProfileTestBase;
 import com.otilm.core.util.CertificateTestUtil;
+import com.otilm.core.util.SignatureFamilyFixtures;
 import com.otilm.core.util.seeders.CryptographicKeySeeder.KeyItemSpec;
 import java.util.UUID;
 import java.util.stream.Stream;
@@ -136,8 +136,8 @@ class ContentSigningSignerKeyITest extends SigningProfileTestBase {
                 .withStaticKeyManagedSigning(certificateUuid)
                 .withContentSigning(aContentSigningWorkflow()
                         .withSignatureFormattingConnector(formattingConnector.getUuid())
-                        .withFamily(SignatureFamily.PADES)
-                        .withMaxLevel(SignatureLevel.SIGNED)
+                        .withFamily(SignatureFamilyFixtures.PADES)
+                        .withLevel(SignatureLevel.SIGNED)
                         .build())
                 .build();
     }

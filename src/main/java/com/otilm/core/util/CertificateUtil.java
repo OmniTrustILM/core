@@ -267,8 +267,8 @@ public class CertificateUtil {
                                 : name.getName());
                 ((ArrayList<String>) sans.get(sanTypeName)).add(value);
             } catch (Exception e) {
-                logger.warn("Unable to get the SAN {} of the certificate request", sanTypeName);
-                logger.warn(e.getMessage());
+                logger.debug("Unable to get the SAN {} of the certificate request", sanTypeName);
+                logger.debug(e.getMessage());
             }
         }
 

@@ -2,9 +2,9 @@ package com.otilm.core.util.builders;
 
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
-
 import com.otilm.core.dao.entity.X509CertificateRequestEntity;
 import java.security.NoSuchAlgorithmException;
+import java.util.UUID;
 
 /**
  * Builds an in-memory {@link CertificateRequestEntity}; tests override only the fields whose values drive the assertion
@@ -18,6 +18,8 @@ public class CertificateRequestEntityBuilder {
     private String subjectDn;
     private String publicKeyAlgorithm;
     private String signatureAlgorithm;
+    private UUID keyUuid;
+    private UUID altKeyUuid;
 
     public static CertificateRequestEntityBuilder aCertificateRequest() {
         return new CertificateRequestEntityBuilder();
@@ -43,6 +45,16 @@ public class CertificateRequestEntityBuilder {
         return this;
     }
 
+    public CertificateRequestEntityBuilder withKeyUuid(UUID keyUuid) {
+        this.keyUuid = keyUuid;
+        return this;
+    }
+
+    public CertificateRequestEntityBuilder withAltKeyUuid(UUID altKeyUuid) {
+        this.altKeyUuid = altKeyUuid;
+        return this;
+    }
+
     public X509CertificateRequestEntity build() {
         X509CertificateRequestEntity entity = new X509CertificateRequestEntity();
         entity.setCertificateRequestFormat(format);
@@ -54,6 +66,12 @@ public class CertificateRequestEntityBuilder {
         }
         if (signatureAlgorithm != null) {
             entity.setSignatureAlgorithm(signatureAlgorithm);
+        }
+        if (keyUuid != null) {
+            entity.setKeyUuid(keyUuid);
+        }
+        if (altKeyUuid != null) {
+            entity.setAltKeyUuid(altKeyUuid);
         }
         if (content != null) {
             // setContent fingerprints the content and so declares NoSuchAlgorithmException; wrap it unchecked

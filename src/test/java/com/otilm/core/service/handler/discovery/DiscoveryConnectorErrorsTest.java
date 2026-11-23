@@ -8,6 +8,7 @@ import com.otilm.api.exception.ConnectorServerException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.common.error.ProblemDetailExtended;
+import com.otilm.core.attribute.engine.MissingReferenceException;
 import java.net.URI;
 import java.time.Duration;
 import java.util.Optional;
@@ -211,6 +212,23 @@ class DiscoveryConnectorErrorsTest {
         assertThat(retryAfter).isEmpty();
     }
 
+    @Test
+    void describesTheRefusedReference_whenCoreCouldNotResolveTheRunsReferences() {
+        // given
+        DiscoveryReferenceException refused = DiscoveryReferenceException
+                .refused(new MissingReferenceException(
+                        "Attribute 'OAuth client' refers to Secret 'oauth', which does " + "not exist."));
+
+        // when
+        String described = DiscoveryConnectorErrors.describe(refused);
+
+        // then
+        assertThat(described)
+                .contains("Core could not resolve the run's references")
+                .contains("Secret 'oauth'")
+                .doesNotContain("the connector did not answer");
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static Stream<Named<Exception>> refusals() {
@@ -240,4 +258,5 @@ class DiscoveryConnectorErrorsTest {
     private static ConnectorProblemException problem(ErrorCode code) {
         return new ConnectorProblemException(ProblemDetailExtended.fromErrorCode(code, "detail", INSTANCE, null));
     }
+
 }

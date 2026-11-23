@@ -55,6 +55,13 @@ public interface TokenProfileRepository extends SecurityFilterRepository<TokenPr
             """)
     List<TokenProfile> findWithLockByConnectorUuid(@Param("connectorUuid") UUID connectorUuid);
 
+    /**
+     * Shared lock: waits for a writer holding the profile and holds off one that wants it until the transaction ends.
+     */
+    @Lock(LockModeType.PESSIMISTIC_READ)
+    @Query("SELECT profile FROM TokenProfile profile WHERE profile.uuid = :uuid")
+    Optional<TokenProfile> findWithSharedLockByUuid(@Param("uuid") UUID uuid);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT profile FROM TokenProfile profile WHERE profile.uuid = :uuid")
     Optional<TokenProfile> findWithLockByUuid(@Param("uuid") UUID uuid);

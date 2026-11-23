@@ -1032,6 +1032,20 @@ class AuthServiceITest extends BaseSpringBootTest {
                         ]
                     },
                     {
+                        "uuid": "469b89bf-710d-4f0d-89c6-2fc91ebb557e",
+                        "name": "estProfiles",
+                        "displayName": "EST Profiles",
+                        "listObjectsEndpoint": "/v1/estProfiles",
+                        "objectAccess": true,
+                        "actions": [
+                            {
+                                "uuid": "075a9431-546a-463b-a8b2-3676846f4e7d",
+                                "name": "list",
+                                "displayName": "List"
+                            }
+                        ]
+                    },
+                    {
                         "uuid": "31010bed-3f9f-423e-abee-b4fadad2550d",
                         "name": "groups",
                         "displayName": "Groups",

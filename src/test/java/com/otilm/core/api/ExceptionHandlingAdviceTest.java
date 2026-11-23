@@ -9,7 +9,12 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.api.exception.CbomRepositoryException;
 import com.otilm.api.exception.CertificateRequestException;
+import com.otilm.api.model.common.AuthenticationServiceExceptionDto;
 import com.otilm.api.model.common.ErrorMessageDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.core.attribute.engine.ReferenceAccessDeniedException;
+import com.otilm.core.exception.PreconditionFailedException;
+import com.otilm.core.util.AuthHelper;
 import java.sql.SQLException;
 import java.util.List;
 import org.hibernate.exception.ConstraintViolationException;
@@ -22,10 +27,16 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.mock.http.MockHttpInputMessage;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.BeanPropertyBindingResult;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -35,6 +46,28 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ExceptionHandlingAdviceTest {
 
     private final ExceptionHandlingAdvice advice = new ExceptionHandlingAdvice();
+
+    @Test
+    void namesTheObjectInTheRefusal_whenAReferenceWasRefused() {
+        // given
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(new MockHttpServletRequest()));
+        AuthHelper.setDeniedPermissionResourceAction(Resource.SECRET.getCode(), "getSecretContent");
+        String refusedReference = "Secret 'oauth-client' in attribute 'OAuth client' of Authority 'otpki'";
+        ReferenceAccessDeniedException refused = new ReferenceAccessDeniedException(refusedReference,
+                new AccessDeniedException("denied"));
+
+        // when
+        ResponseEntity<AuthenticationServiceExceptionDto> response;
+        try {
+            response = advice.handleAccessDeniedException(refused);
+        } finally {
+            RequestContextHolder.resetRequestAttributes();
+        }
+
+        // then
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(response.getBody().getMessage()).endsWith("permission for 'Secret' to use " + refusedReference);
+    }
 
     @Test
     void handleCbomRepositoryException_ShouldUseProblemDetailDetailWhenPresent() {
@@ -223,6 +256,32 @@ class ExceptionHandlingAdviceTest {
                         .filter(event -> event.getLevel() == Level.ERROR)
                         .anyMatch(event -> event.getFormattedMessage().contains("uq_crypto_asset_identity_key")),
                 "scrubbing the row must not cost the constraint name, which is the actionable datum");
+    }
+
+    @Test
+    void answersWithItsMessage_whenAPreconditionFailed() {
+        // given
+        var failureMessage = "Provider 'x' was changed since it was read.";
+        var failure = new PreconditionFailedException(failureMessage);
+
+        // when
+        ErrorMessageDto body = advice.handlePreconditionFailedException(failure);
+
+        // then
+        assertThat(body.getMessage()).isEqualTo(failureMessage);
+    }
+
+    @Test
+    void respondsWithPreconditionFailedStatus_whenAPreconditionFailed() throws Exception {
+        // given
+        var handlerMethod = ExceptionHandlingAdvice.class
+                .getMethod("handlePreconditionFailedException", PreconditionFailedException.class);
+
+        // when
+        ResponseStatus status = handlerMethod.getAnnotation(ResponseStatus.class);
+
+        // then
+        assertThat(status.value()).isEqualTo(HttpStatus.PRECONDITION_FAILED);
     }
 
     /**

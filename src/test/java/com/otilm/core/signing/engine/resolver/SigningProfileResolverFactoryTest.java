@@ -3,7 +3,6 @@ package com.otilm.core.signing.engine.resolver;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.core.model.signing.CertificatePurposeRequirements;
-import com.otilm.core.model.signing.SignatureParameterPolicy;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.SigningRecordPolicyModelBuilder;
 import com.otilm.core.model.signing.resolved.ResolvedManagedTimestampingProfile;
@@ -14,6 +13,7 @@ import com.otilm.core.model.signing.workflow.ManagedTimestampingWorkflow;
 import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
@@ -39,7 +39,7 @@ class SigningProfileResolverFactoryTest {
 
     private static SigningProfileModel<?, ?> aManagedContentSigningProfileModel() {
         ManagedContentSigningWorkflow workflow = new ManagedContentSigningWorkflow(UUID.randomUUID(), List.of(), null,
-                null, null, CertificatePurposeRequirements.NONE, SignatureParameterPolicy.DENY_ALL);
+                null, null, CertificatePurposeRequirements.NONE, Set.of());
         return new SigningProfileModel<>(UUID.randomUUID(), "test-profile", null, 1, true, List.of(SigningProtocol.TSP),
                 UUID.randomUUID(), workflow, new StaticKeyManagedSigning(UUID.randomUUID(), List.of()),
                 SigningRecordPolicyModelBuilder.notRecording().build());

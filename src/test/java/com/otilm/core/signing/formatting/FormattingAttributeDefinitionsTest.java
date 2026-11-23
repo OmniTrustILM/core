@@ -7,10 +7,12 @@ import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.interfaces.client.v2.AttributesSyncApiClient;
 import com.otilm.api.model.client.connector.v2.attribute.AttributeDefinitionsDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.common.signature.SignatureLevel;
 import com.otilm.api.model.core.connector.AuthType;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.config.cache.CacheEvictor;
@@ -19,6 +21,7 @@ import com.otilm.core.model.connector.ImmutableConnectorInfo;
 import com.otilm.core.model.signing.workflow.ManagedContentSigningWorkflow;
 import com.otilm.core.model.signing.workflow.ManagedTimestampingWorkflow;
 import com.otilm.core.signing.contentsigning.formatting.ContentSigningFormattingAttributes;
+import com.otilm.core.signing.contentsigning.formatting.ContentSigningFormattingDefinitions;
 import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
 import com.otilm.core.util.cache.CacheManagerFixtures;
@@ -34,6 +37,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.cache.CacheManager;
@@ -44,6 +48,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Named.named;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -53,6 +58,8 @@ import static org.mockito.Mockito.when;
 class FormattingAttributeDefinitionsTest {
 
     private static final Duration TTL = Duration.ofMinutes(5);
+    private static final ContentSigningFormattingDefinitions NO_DEFINITIONS = new ContentSigningFormattingDefinitions(
+            List.of(), List.of());
 
     @Mock
     private ConnectorApiFactory connectorApiFactory;
@@ -104,7 +111,7 @@ class FormattingAttributeDefinitionsTest {
         void asksTheContentSigningFormatterAgain_whenTheConnectorIsReloadedAfterAnEdit() throws Exception {
             // given — a signature that captured the connector before an edit loads after the edit cleared the cache
             var workflow = contentSigningWorkflowAt(SignatureLevel.SIGNED);
-            when(contentSigningFormattingAttributes.aggregate(any(), any())).thenReturn(List.of());
+            when(contentSigningFormattingAttributes.aggregate(any(), any())).thenReturn(NO_DEFINITIONS);
             definitions.forContentSigning(connectorAt("http://before-edit.test"), workflow);
 
             // when
@@ -149,16 +156,44 @@ class FormattingAttributeDefinitionsTest {
         }
 
         @Test
-        void readsTheOperationsUpToTheMaximumLevel_whenTheProfileSignsContent() throws Exception {
+        void readsTheOperationsTheLevelReaches_whenTheProfileSignsContent() throws Exception {
             // given
-            var maxLevel = SignatureLevel.TIMESTAMPED;
-            when(contentSigningFormattingAttributes.aggregate(any(), any())).thenReturn(List.of());
+            var level = SignatureLevel.TIMESTAMPED;
+            when(contentSigningFormattingAttributes.aggregate(any(), any())).thenReturn(NO_DEFINITIONS);
 
             // when
-            definitions.forContentSigning(formatter, contentSigningWorkflowAt(maxLevel));
+            definitions.forContentSigning(formatter, contentSigningWorkflowAt(level));
 
             // then
-            verify(contentSigningFormattingAttributes).aggregate(formatter, maxLevel);
+            verify(contentSigningFormattingAttributes).aggregate(formatter, level);
+        }
+    }
+
+    // ── Store ─────────────────────────────────────────────────────────────────
+
+    @Nested
+    class Store {
+
+        @Test
+        void storesTheRequestAttributesWithTheProfileAttributes_whenTheProfileSignsContent() throws Exception {
+            // given
+            BaseAttribute profileAttribute = aDataAttribute().withName("data_formattingPolicy").build();
+            DataAttributeV3 requestAttribute = aDataAttribute().withName("data_formattingLocation").build();
+            when(contentSigningFormattingAttributes.aggregate(any(), any()))
+                    .thenReturn(new ContentSigningFormattingDefinitions(List.of(profileAttribute),
+                            List.of(requestAttribute)));
+
+            // when
+            definitions.forContentSigning(formatter, contentSigningWorkflowAt(SignatureLevel.SIGNED));
+
+            // then
+            ArgumentCaptor<List<BaseAttribute>> stored = ArgumentCaptor.captor();
+            verify(attributeEngine)
+                    .updateDataAttributeDefinitions(eq(connectorUuid), eq(AttributeOperation.WORKFLOW_FORMATTING),
+                            stored.capture());
+            assertThat(stored.getValue())
+                    .extracting(BaseAttribute::getName)
+                    .containsExactly(profileAttribute.getName(), requestAttribute.getName());
         }
     }
 
@@ -268,7 +303,7 @@ class FormattingAttributeDefinitionsTest {
                 AuthType.NONE, List.of(), null);
     }
 
-    private ManagedContentSigningWorkflow contentSigningWorkflowAt(SignatureLevel maxLevel) {
-        return new ManagedContentSigningWorkflow(connectorUuid, List.of(), null, maxLevel, null, null, null);
+    private ManagedContentSigningWorkflow contentSigningWorkflowAt(SignatureLevel level) {
+        return new ManagedContentSigningWorkflow(connectorUuid, List.of(), null, level, null, null, null);
     }
 }

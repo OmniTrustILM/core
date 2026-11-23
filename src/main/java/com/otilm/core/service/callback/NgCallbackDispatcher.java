@@ -96,31 +96,8 @@ public class NgCallbackDispatcher {
         UUID connectorUuid = UUID.fromString(connector.getUuid());
         AttributeCallbackRequestDto envelope = buildEnvelope(context, callback);
 
-        AttributeCallbackResponseDto response;
-        try {
-            response = connectorApiFactory.getAttributesApiClientV2(connector).callback(connector, envelope);
-        } catch (ConnectorProblemException e) {
-            if (!isDefinitionNotFound(e)) {
-                throw e;
-            }
-            // Single-shot refresh-and-retry: the connector did not recognise the definition, so re-fetch it from
-            // the connector registry and rebuild the envelope from the refreshed definition before dispatching
-            // once more. The recoverable case is a stale local uuid/name (the refresh corrects what we send);
-            // resending the identical envelope would be pointless, so we do not. resolveForced (not resolve) is
-            // mandatory here: the local row is still present, so resolve() would short-circuit on it and re-send
-            // the rejected envelope unchanged — resolveForced always re-fetches the registry definition.
-            BaseAttribute refreshed = definitionResolver
-                    .resolveForced(connector,
-                            context.definition().getUuid() == null
-                                    ? null
-                                    : UUID.fromString(context.definition().getUuid()),
-                            context.definition().getName(), context.definition().getType());
-            AttributeCallbackRequestDto refreshedEnvelope = buildEnvelope(
-                    new NgDispatchContext(refreshed, context.connectorInterface(), context.interfaceVersion(),
-                            context.contextAttributes(), context.currentAttributes()),
-                    callback);
-            response = connectorApiFactory.getAttributesApiClientV2(connector).callback(connector, refreshedEnvelope);
-        }
+        AttributeCallbackResponseDto response = callWithOneRefresh(connector, context, callback, envelope,
+                expandedSecrets);
 
         // The MQ/proxy transport can hand back a null body on an empty 2xx (the REST client's requireBody guards
         // against this, the MQ one does not). Surface it as a clean error rather than NPE at the caller's
@@ -144,6 +121,51 @@ public class NgCallbackDispatcher {
         }
         handleResponseArms(connectorUuid, response);
         return response;
+    }
+
+    /**
+     * Dispatches the callback, and once more with the definition re-fetched when the connector does not recognise it.
+     */
+    private AttributeCallbackResponseDto callWithOneRefresh(ApiClientConnectorInfo connector, NgDispatchContext context,
+            RequestAttributeCallback callback, AttributeCallbackRequestDto envelope, Set<String> expandedSecrets)
+            throws ConnectorException {
+        try {
+            return send(connector, envelope, expandedSecrets);
+        } catch (ConnectorProblemException e) {
+            if (!isDefinitionNotFound(e)) {
+                throw e;
+            }
+            // The recoverable case is a stale local uuid/name (the refresh corrects what we send); resending the
+            // identical envelope would be pointless, so we do not. resolveForced (not resolve) is mandatory here: the
+            // local row is still present, so resolve() would short-circuit on it and re-send the rejected envelope
+            // unchanged — resolveForced always re-fetches the registry definition.
+            BaseAttribute refreshed = definitionResolver
+                    .resolveForced(connector,
+                            context.definition().getUuid() == null
+                                    ? null
+                                    : UUID.fromString(context.definition().getUuid()),
+                            context.definition().getName(), context.definition().getType());
+            AttributeCallbackRequestDto refreshedEnvelope = buildEnvelope(
+                    new NgDispatchContext(refreshed, context.connectorInterface(), context.interfaceVersion(),
+                            context.contextAttributes(), context.currentAttributes()),
+                    callback);
+            return send(connector, refreshedEnvelope, expandedSecrets);
+        }
+    }
+
+    /**
+     * Sends the envelope. A refusal reaches the form's user, who may not read the secrets Core expanded into the
+     * request, so it loses the connector's words; Core's own refusals around it keep theirs.
+     */
+    private AttributeCallbackResponseDto send(ApiClientConnectorInfo connector, AttributeCallbackRequestDto envelope,
+            Set<String> expandedSecrets) throws ConnectorException {
+        try {
+            return connectorApiFactory.getAttributesApiClientV2(connector).callback(connector, envelope);
+        } catch (ConnectorException e) {
+            throw outboundContainment.withoutWords(e, expandedSecrets, "callback");
+        } catch (ValidationException e) {
+            throw outboundContainment.withoutWords(e, expandedSecrets, "callback");
+        }
     }
 
     private AttributeCallbackRequestDto buildEnvelope(NgDispatchContext context, RequestAttributeCallback callback) {

@@ -6,7 +6,6 @@ import com.otilm.api.interfaces.core.tsp.error.TspFailureInfo;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.signing.CertificatePurposeRequirements;
-import com.otilm.core.model.signing.SignatureParameterPolicy;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.resolved.ResolvedManagedTimestampingProfile;
 import com.otilm.core.model.signing.workflow.DelegatedTimestampingWorkflow;
@@ -23,6 +22,7 @@ import com.otilm.core.signing.tsa.messages.TspResponse;
 import com.otilm.core.signing.tsa.validator.TspRequestValidationException;
 import com.otilm.core.signing.tsa.validator.TspRequestValidator;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Nested;
@@ -85,7 +85,7 @@ class TsaServiceImplUnitTest {
                 .withEnabledProtocols(List.of())
                 .withTspProfileUuid(null)
                 .withWorkflow(new ManagedContentSigningWorkflow(UUID.randomUUID(), List.of(), null, null, null,
-                        CertificatePurposeRequirements.NONE, SignatureParameterPolicy.DENY_ALL))
+                        CertificatePurposeRequirements.NONE, Set.of()))
                 .build();
     }
 
@@ -491,7 +491,7 @@ class TsaServiceImplUnitTest {
                     .withName("content-signing-profile")
                     .withTspProfileUuid(TSP_PROFILE_UUID)
                     .withWorkflow(new ManagedContentSigningWorkflow(UUID.randomUUID(), List.of(), null, null, null,
-                            CertificatePurposeRequirements.NONE, SignatureParameterPolicy.DENY_ALL))
+                            CertificatePurposeRequirements.NONE, Set.of()))
                     .build();
             doReturn(signingProfile).when(signingProfileService).getSigningProfileModel("content-signing-profile");
             when(tspProfileService.getTspProfile(TSP_PROFILE_UUID)).thenReturn(aTspProfile().build());

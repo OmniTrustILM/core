@@ -50,6 +50,7 @@ import com.otilm.core.service.ComplianceInternalService;
 import com.otilm.core.service.CryptographicKeyExportExternalService;
 import com.otilm.core.service.CryptographicKeyExternalService;
 import com.otilm.core.service.CryptographicOperationExternalService;
+import com.otilm.core.service.RaProfileExternalService;
 import com.otilm.core.service.ResourceExternalService;
 import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.service.v2.ClientOperationInternalService;
@@ -121,6 +122,9 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
 
     @Autowired
     private AcmeProfileExternalService acmeProfileService;
+
+    @Autowired
+    private RaProfileExternalService raProfileService;
 
     @Autowired
     private CertificateInternalService certificateInternalService;
@@ -278,6 +282,36 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
         // then
         assertThat(reported.contains(ResourceAction.DELETE)).isEqualTo(raProfileUpdateGranted);
         assertReportedExactlyWhenAccepted(User.FULLY_PRIVILEGED, reported, endpoints);
+    }
+
+    @ParameterizedTest
+    @EnumSource(User.class)
+    void reportsEnableAndUpdateExactly_whenTheRaProfileHasNoAuthority(User user) {
+        // given
+        RaProfile detached = new RaProfile();
+        detached.setName("detached-ra-profile");
+        detached.setEnabled(true);
+        UUID detachedUuid = raProfileRepository.save(detached).getUuid();
+        actAs(user, Resource.RA_PROFILE, detachedUuid);
+        List<SecuredUUID> uuids = List.of(SecuredUUID.fromUUID(detachedUuid));
+        Map<ResourceAction, List<Endpoint>> endpoints = new LinkedHashMap<>();
+        endpoints
+                .put(ResourceAction.UPDATE, List
+                        .of(endpoint(() -> resourceService
+                                .updateAttributeContentForObject(SecuredResource.fromResource(Resource.RA_PROFILE),
+                                        SecuredUUID.fromUUID(detachedUuid), UUID.randomUUID(), List.of()),
+                                check(Resource.RA_PROFILE, ResourceAction.UPDATE))));
+        endpoints
+                .put(ResourceAction.ENABLE,
+                        List
+                                .of(endpoint(() -> raProfileService.bulkDisableRaProfile(uuids)),
+                                        endpoint(() -> raProfileService.bulkEnableRaProfile(uuids))));
+
+        // when
+        List<ResourceAction> reported = reportedActions(Resource.RA_PROFILE, detachedUuid);
+
+        // then
+        assertReportedExactlyWhenAccepted(user, reported, endpoints);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
@@ -491,7 +525,7 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
             Map<ResourceAction, List<Endpoint>> endpoints) {
         List<String> mismatches = new ArrayList<>();
         endpoints.forEach((action, calls) -> {
-            boolean accepted = calls.stream().allMatch(this::accepts);
+            boolean accepted = !calls.stream().map(this::accepts).toList().contains(false);
             if (accepted != reported.contains(action)) {
                 mismatches
                         .add("%s %s, endpoints %s"
@@ -524,15 +558,17 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
     }
 
     private void actAs(User user, Resource resource, UUID objectUuid) {
+        Predicate<OpaRequestedResource> surroundings = request -> !resource.getCode().equals(name(request))
+                && SURROUNDINGS.contains(name(request));
         Predicate<OpaRequestedResource> grants = switch (user) {
             case FULLY_PRIVILEGED -> request -> true;
             case READ_ONLY -> request -> READ_ACTIONS.contains(action(request));
-            case OBJECT_GRANT -> request -> SURROUNDINGS.contains(name(request))
+            case OBJECT_GRANT -> request -> surroundings.test(request)
                     || (resource.getCode().equals(name(request)) && request.getObjectUUIDs() != null
                             && List.of(objectUuid.toString()).equals(request.getObjectUUIDs()));
-            case OWNER -> request -> SURROUNDINGS.contains(name(request));
+            case OWNER -> surroundings;
             case GROUP_MEMBER ->
-                request -> SURROUNDINGS.contains(name(request)) || (Resource.GROUP.getCode().equals(name(request))
+                request -> surroundings.test(request) || (Resource.GROUP.getCode().equals(name(request))
                         && ResourceAction.MEMBERS.getCode().equals(action(request)));
         };
         grant(grants);

@@ -32,7 +32,7 @@ public class SignerFactory {
     }
 
     /**
-     * The signature algorithm {@link #create} would sign with, answered without exercising the key. It resolves a
+     * The signature algorithm {@link #create} would sign with, answered without signing anything. It resolves a
      * throwaway {@link Signer} that the signing call resolves again, and the two agree by the determinism
      * {@link SignerCreator#create} requires.
      */

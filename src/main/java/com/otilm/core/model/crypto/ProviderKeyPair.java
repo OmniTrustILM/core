@@ -4,13 +4,13 @@ import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import java.util.List;
 
 /**
- * A key pair listed on a token, as a candidate for onboarding.
+ * The data of a key pair a connector listed or resolved. The enclosing {@link ProviderKeyEntry} says whether the pair
+ * may be onboarded.
  *
  * @param keyPairMeta the provider's handle for the pair
- * @param label the token's label for the pair, or null
  * @param publicKey the public key item, or null when the token holds none
  */
-public record ProviderKeyPair(List<MetadataAttribute> keyPairMeta, String label, ProviderKeyItem privateKey,
+public record ProviderKeyPair(List<MetadataAttribute> keyPairMeta, ProviderKeyItem privateKey,
         ProviderKeyItem publicKey) {
 
     public ProviderKeyPair {

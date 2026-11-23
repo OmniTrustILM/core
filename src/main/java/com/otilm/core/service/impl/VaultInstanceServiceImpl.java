@@ -27,6 +27,7 @@ import com.otilm.api.model.core.vault.VaultInstanceUpdateRequestDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
 import com.otilm.core.attribute.engine.ConnectorRequestAttributesBuilder;
+import com.otilm.core.attribute.engine.OutboundSecretContainment;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.comparator.SearchFieldDataComparator;
@@ -68,6 +69,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class VaultInstanceServiceImpl implements VaultInstanceExternalService, VaultInstanceInternalService {
 
     private VaultProfileRepository vaultProfileRepository;
+    private static final String VAULT_PROFILE_ATTRIBUTES = "request for vault profile attributes";
+
     private final VaultInstanceRepository vaultInstanceRepository;
 
     private ConnectorApiFactory connectorApiFactory;
@@ -79,6 +82,7 @@ public class VaultInstanceServiceImpl implements VaultInstanceExternalService, V
     private ConnectorRequestAttributesBuilder connectorRequestAttributesBuilder;
 
     private CommentInternalService commentService;
+    private OutboundSecretContainment outboundContainment;
 
     @Autowired
     public void setCommentService(CommentInternalService commentService) {
@@ -114,6 +118,11 @@ public class VaultInstanceServiceImpl implements VaultInstanceExternalService, V
     @Autowired
     public void setConnectorInternalService(ConnectorInternalService connectorInternalService) {
         this.connectorInternalService = connectorInternalService;
+    }
+
+    @Autowired
+    public void setOutboundContainment(OutboundSecretContainment outboundContainment) {
+        this.outboundContainment = outboundContainment;
     }
 
     @Autowired
@@ -353,9 +362,7 @@ public class VaultInstanceServiceImpl implements VaultInstanceExternalService, V
                                         .build()));
 
         // get and load vault profile attributes
-        List<BaseAttribute> vaultProfileAttributes = connectorApiFactory
-                .getVaultApiClient(connector)
-                .listVaultProfileAttributes(connector, requestVaultAttributes);
+        List<BaseAttribute> vaultProfileAttributes = listVaultProfileAttributes(connector, requestVaultAttributes);
         attributeEngine.updateAttributeDefinitionsWithCallback(connectorUuid, vaultProfileAttributes);
         List<RequestAttribute> requestVaultProfileAttributes = connectorRequestAttributesBuilder
                 .prepareRequestAttributesForConnectorRequest(connectorUuid, vaultProfileAttributes,
@@ -400,4 +407,20 @@ public class VaultInstanceServiceImpl implements VaultInstanceExternalService, V
         // A vault instance has no parent, so no exclusive parent permission evaluation is needed
     }
 
+    /**
+     * The vault's profile attributes. The request carries the vault's own credentials, so a refusal loses the vault's
+     * words, however the transport reports it.
+     */
+    private List<BaseAttribute> listVaultProfileAttributes(ApiClientConnectorInfo connector,
+            List<RequestAttribute> vaultAttributes) throws ConnectorException {
+        try {
+            return connectorApiFactory
+                    .getVaultApiClient(connector)
+                    .listVaultProfileAttributes(connector, vaultAttributes);
+        } catch (ConnectorException e) {
+            throw outboundContainment.withoutWords(e, VAULT_PROFILE_ATTRIBUTES);
+        } catch (ValidationException e) {
+            throw outboundContainment.validationRefusalWithoutWords(VAULT_PROFILE_ATTRIBUTES);
+        }
+    }
 }

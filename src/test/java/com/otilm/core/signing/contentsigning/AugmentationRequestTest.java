@@ -1,6 +1,5 @@
 package com.otilm.core.signing.contentsigning;
 
-import com.otilm.api.model.common.signature.SignatureLevel;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -10,46 +9,49 @@ class AugmentationRequestTest {
     private static final byte[] FOREIGN_DOCUMENT = "a document signed elsewhere".getBytes();
 
     @Test
-    void toStringReportsTheDocumentSizeInsteadOfItsContent() {
+    void reportsTheDocumentSizeInsteadOfItsContent_whenRendered() {
         // given: the document was signed by a customer, so a log line must not carry it
-        AugmentationRequest request = new AugmentationRequest(SignatureLevel.TIMESTAMPED, FOREIGN_DOCUMENT, null);
+        AugmentationRequest request = new AugmentationRequest(FOREIGN_DOCUMENT, null);
 
         // when
         String rendered = request.toString();
 
         // then
-        assertThat(rendered)
-                .contains(FOREIGN_DOCUMENT.length + " bytes")
-                .contains("TIMESTAMPED")
-                .doesNotContain("a document signed elsewhere");
+        assertThat(rendered).contains(FOREIGN_DOCUMENT.length + " bytes").doesNotContain("a document signed elsewhere");
     }
 
     @Test
-    void twoRequestsHoldingEqualDocumentBytesAreEqual() {
+    void equalsAnotherRequest_whenTheDocumentBytesAreEqual() {
         // given: distinct arrays, because a record's generated equals would compare them by identity
-        AugmentationRequest one = new AugmentationRequest(SignatureLevel.TIMESTAMPED, FOREIGN_DOCUMENT, null);
-        AugmentationRequest other = new AugmentationRequest(SignatureLevel.TIMESTAMPED, FOREIGN_DOCUMENT.clone(), null);
+        AugmentationRequest one = new AugmentationRequest(FOREIGN_DOCUMENT, null);
+        AugmentationRequest other = new AugmentationRequest(FOREIGN_DOCUMENT.clone(), null);
 
-        // when / then
-        assertThat(one).isEqualTo(other).hasSameHashCodeAs(other);
+        // when
+        boolean equal = one.equals(other);
+
+        // then
+        assertThat(equal).isTrue();
+        assertThat(one).hasSameHashCodeAs(other);
     }
 
     @Test
-    void requestsDifferingInTargetLevelOrDocumentAreNotEqual() {
+    void differsFromAnotherRequest_whenTheDocumentsDiffer() {
         // given
-        AugmentationRequest request = new AugmentationRequest(SignatureLevel.TIMESTAMPED, FOREIGN_DOCUMENT, null);
+        AugmentationRequest request = new AugmentationRequest(FOREIGN_DOCUMENT, null);
+        AugmentationRequest another = new AugmentationRequest("another".getBytes(), null);
 
-        // when / then
-        assertThat(request)
-                .isNotEqualTo(new AugmentationRequest(SignatureLevel.LONG_TERM, FOREIGN_DOCUMENT, null))
-                .isNotEqualTo(new AugmentationRequest(SignatureLevel.TIMESTAMPED, "another".getBytes(), null));
+        // when
+        boolean equal = request.equals(another);
+
+        // then
+        assertThat(equal).isFalse();
     }
 
     @Test
-    void copiesTheDocumentInAndOutSoNeitherSideCanAlterWhatIsAugmented() {
+    void keepsTheDocumentItWasGiven_whenEitherSideMutatesItsBuffer() {
         // given: a buffer the caller still holds
         byte[] caller = FOREIGN_DOCUMENT.clone();
-        AugmentationRequest request = new AugmentationRequest(SignatureLevel.TIMESTAMPED, caller, null);
+        AugmentationRequest request = new AugmentationRequest(caller, null);
 
         // when: both sides mutate what they can reach
         caller[0] = 'X';

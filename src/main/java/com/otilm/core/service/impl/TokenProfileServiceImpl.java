@@ -354,6 +354,8 @@ public class TokenProfileServiceImpl implements TokenProfileExternalService, Tok
                 tokenProfileWriter.setEnabled(uuid.getValue(), enabled);
             } catch (NotFoundException e) {
                 logger.warn("Unable to find Token Profile with uuid {}. It may have already been deleted", uuid);
+            } catch (ValidationException e) {
+                logger.warn(e.getMessage());
             }
         }
     }

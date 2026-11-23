@@ -948,6 +948,25 @@ class SecretDeleteReferenceGuardHttpITest extends BaseSpringBootTest {
         }
 
         @Test
+        void answers422NamingTheVaultLogin_whenThePinSecretsVaultLoginIsDisabled() throws Exception {
+            // given
+            var loginName = "vault-login";
+            var vaultLogin = persistGenericSecret(loginName);
+            vaultLogin.setEnabled(false);
+            secretRepository.save(vaultLogin);
+            storeVaultLoginReference(vaultLogin);
+
+            // when
+            MvcResult attributes = perform(get(tokenProfileAttributes()));
+
+            // then
+            assertThat(attributes.getResponse().getStatus()).isEqualTo(422);
+            assertThat(attributes.getResponse().getContentAsString())
+                    .contains("Secret " + loginName + " is not enabled")
+                    .doesNotContain("The connector refused");
+        }
+
+        @Test
         void answers422NamingTheVaultLogin_whenThePinSecretsVaultLoginIsGone() throws Exception {
             // given
             var loginName = "vault-login";
@@ -966,7 +985,7 @@ class SecretDeleteReferenceGuardHttpITest extends BaseSpringBootTest {
         }
 
         @Test
-        void answers404_whenOnlyTheVaultLostTheSecret() throws Exception {
+        void answers404WithoutTheVaultsWords_whenOnlyTheVaultLostTheSecret() throws Exception {
             // given
             var vaultDetail = "Secret not found";
             vaultAnswersNotFound(vaultDetail);
@@ -976,7 +995,9 @@ class SecretDeleteReferenceGuardHttpITest extends BaseSpringBootTest {
 
             // then
             assertThat(attributes.getResponse().getStatus()).isEqualTo(404);
-            assertThat(attributes.getResponse().getContentAsString()).contains(vaultDetail);
+            assertThat(attributes.getResponse().getContentAsString())
+                    .contains("RESOURCE_NOT_FOUND")
+                    .doesNotContain(vaultDetail);
         }
 
         @Test

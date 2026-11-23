@@ -4,16 +4,17 @@ import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.interfaces.client.v1.signing.contentsigning.ContentSigningFormattingSyncApiClient;
-import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
-import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
-import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
+import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
+import com.otilm.api.model.common.attribute.v3.InfoAttributeV3;
 import com.otilm.api.model.common.signature.SignatureLevel;
+import com.otilm.api.model.connector.signatures.contentsigning.common.ContentSigningFormattingAttributesDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.ContentSigningFormattingOperation;
 import com.otilm.core.client.ConnectorApiFactory;
 import java.util.List;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -21,8 +22,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import static com.otilm.core.util.builders.DataAttributeV3Builder.aDataAttribute;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
@@ -76,8 +77,9 @@ class ContentSigningFormattingAttributesTest {
         }
 
         @Test
-        void aNullMaxLevelReachesOnlyTheComputeAndEmbedPair() {
-            // given: defensive default when the ceiling is unknown -- fail closed to the smallest set
+        void reachesOnlyTheComputeAndEmbedPair_whenTheLevelIsNull() {
+            // given — no level, so the smallest set is the safe default
+
             // when
             List<ContentSigningFormattingOperation> reached = ContentSigningFormattingAttributes
                     .reachableOperations(null);
@@ -93,28 +95,50 @@ class ContentSigningFormattingAttributesTest {
     class Aggregate {
 
         @Test
-        void aggregatesTheReachableSchemasIntoOneFlatSet() throws ConnectorException {
+        void aggregatesTheReachableSchemasIntoOneFlatSet_whenLevelIsSigned() throws Exception {
             // given
             when(connectorApiFactory.getContentSigningFormattingApiClient(connector)).thenReturn(apiClient);
             when(apiClient.listFormattingAttributes(connector, ContentSigningFormattingOperation.COMPUTE_DTBS))
-                    .thenReturn(List.of(attribute("reason")));
+                    .thenReturn(profileListing(attribute("reason")));
             when(apiClient.listFormattingAttributes(connector, ContentSigningFormattingOperation.EMBED_SIGNATURE_VALUE))
-                    .thenReturn(List.of(attribute("padding")));
+                    .thenReturn(profileListing(attribute("padding")));
 
             // when
-            List<BaseAttribute> aggregated = attributes.aggregate(connector, SignatureLevel.SIGNED);
+            ContentSigningFormattingDefinitions aggregated = attributes.aggregate(connector, SignatureLevel.SIGNED);
 
             // then
-            assertThat(aggregated).extracting(BaseAttribute::getName).containsExactlyInAnyOrder("reason", "padding");
+            assertThat(aggregated.profileAttributes())
+                    .extracting(BaseAttribute::getName)
+                    .containsExactlyInAnyOrder("reason", "padding");
             verify(apiClient, never())
                     .listFormattingAttributes(connector, ContentSigningFormattingOperation.EMBED_SIGNATURE_TIMESTAMP);
         }
 
         @Test
-        void fetchesTheTimestampTwinsTooWhenMaxLevelIsTimestamped() throws ConnectorException {
+        void returnsRequestAttributesApart_whenComputeDtbsListsThem() throws Exception {
+            // given
+            var requestAttribute = attribute("reason");
+            var profileAttribute = attribute("padding");
+            when(connectorApiFactory.getContentSigningFormattingApiClient(connector)).thenReturn(apiClient);
+            when(apiClient.listFormattingAttributes(connector, ContentSigningFormattingOperation.COMPUTE_DTBS))
+                    .thenReturn(new ContentSigningFormattingAttributesDto(List.of(profileAttribute),
+                            List.of(requestAttribute)));
+            when(apiClient.listFormattingAttributes(connector, ContentSigningFormattingOperation.EMBED_SIGNATURE_VALUE))
+                    .thenReturn(profileListing());
+
+            // when
+            ContentSigningFormattingDefinitions aggregated = attributes.aggregate(connector, SignatureLevel.SIGNED);
+
+            // then
+            assertThat(aggregated.requestAttributes()).containsExactly(requestAttribute);
+            assertThat(aggregated.profileAttributes()).containsExactly(profileAttribute);
+        }
+
+        @Test
+        void fetchesTheTimestampTwinsToo_whenLevelIsTimestamped() throws Exception {
             // given
             when(connectorApiFactory.getContentSigningFormattingApiClient(connector)).thenReturn(apiClient);
-            when(apiClient.listFormattingAttributes(any(), any())).thenReturn(List.of());
+            when(apiClient.listFormattingAttributes(any(), any())).thenReturn(profileListing());
 
             // when
             attributes.aggregate(connector, SignatureLevel.TIMESTAMPED);
@@ -128,106 +152,271 @@ class ContentSigningFormattingAttributesTest {
         }
 
         @Test
-        void keepsOneCopyOfANameTwoOperationsDeclareIdentically() throws ConnectorException {
+        void keepsOneCopyOfAName_whenTwoOperationsDeclareItIdentically() throws Exception {
             // given: the very same declaration object is handed back for every operation
             when(connectorApiFactory.getContentSigningFormattingApiClient(connector)).thenReturn(apiClient);
-            when(apiClient.listFormattingAttributes(any(), any())).thenReturn(List.of(attribute("reason")));
+            when(apiClient.listFormattingAttributes(any(), any())).thenReturn(profileListing(attribute("reason")));
 
             // when
-            List<BaseAttribute> aggregated = attributes.aggregate(connector, SignatureLevel.SIGNED);
+            ContentSigningFormattingDefinitions aggregated = attributes.aggregate(connector, SignatureLevel.SIGNED);
 
             // then
-            assertThat(aggregated).hasSize(1);
+            assertThat(aggregated.profileAttributes()).hasSize(1);
         }
 
         @Test
-        void treatsTwoIndependentlyBuiltButFieldIdenticalDeclarationsAsConsistent() throws ConnectorException {
+        void treatsTwoDeclarationsAsConsistent_whenTheyAreBuiltApartButFieldIdentical() throws Exception {
             // given: two operations each return their OWN freshly built instance -- as a real connector would after
             // deserializing two separate HTTP responses -- but the fields describe the identical attribute
             when(connectorApiFactory.getContentSigningFormattingApiClient(connector)).thenReturn(apiClient);
             when(apiClient.listFormattingAttributes(connector, ContentSigningFormattingOperation.COMPUTE_DTBS))
-                    .thenReturn(List.of(attribute("reason")));
+                    .thenReturn(profileListing(attribute("reason")));
             when(apiClient.listFormattingAttributes(connector, ContentSigningFormattingOperation.EMBED_SIGNATURE_VALUE))
-                    .thenReturn(List.of(attribute("reason")));
+                    .thenReturn(profileListing(attribute("reason")));
 
             // when
-            List<BaseAttribute> aggregated = attributes.aggregate(connector, SignatureLevel.SIGNED);
+            ContentSigningFormattingDefinitions aggregated = attributes.aggregate(connector, SignatureLevel.SIGNED);
 
             // then: no rejection, and only one copy survives the merge
-            assertThat(aggregated).extracting(BaseAttribute::getName).containsExactly("reason");
+            assertThat(aggregated.profileAttributes()).extracting(BaseAttribute::getName).containsExactly("reason");
         }
 
         @Test
-        void rejectsTheConnectorWhenTwoOperationsDeclareTheSameNameDifferently() throws ConnectorException {
+        void rejectsTheConnector_whenTwoOperationsDeclareTheSameNameWithDifferentContentTypes() throws Exception {
             // given: same name, different content type -- a shared name must mean one shared value
             when(connectorApiFactory.getContentSigningFormattingApiClient(connector)).thenReturn(apiClient);
             when(apiClient.listFormattingAttributes(connector, ContentSigningFormattingOperation.COMPUTE_DTBS))
-                    .thenReturn(List.of(attribute("reason")));
-            DataAttributeV2 divergent = attribute("reason");
+                    .thenReturn(profileListing(attribute("reason")));
+            DataAttributeV3 divergent = attribute("reason");
             divergent.setContentType(AttributeContentType.INTEGER);
             when(apiClient.listFormattingAttributes(connector, ContentSigningFormattingOperation.EMBED_SIGNATURE_VALUE))
-                    .thenReturn(List.of(divergent));
+                    .thenReturn(profileListing(divergent));
 
-            // when / then
-            assertThatThrownBy(() -> attributes.aggregate(connector, SignatureLevel.SIGNED))
-                    .isInstanceOf(ValidationException.class)
-                    .hasMessageContaining("reason");
+            // when
+            ThrowingCallable aggregate = () -> attributes.aggregate(connector, SignatureLevel.SIGNED);
+
+            // then
+            assertThatThrownBy(aggregate).isInstanceOf(ValidationException.class).hasMessageContaining("reason");
         }
 
         @Test
-        void rejectsTheConnectorWhenTwoOperationsDeclareTheSamePropertiesDifferently() throws ConnectorException {
+        void rejectsTheConnector_whenTwoOperationsDeclareTheSameNameWithDifferentProperties() throws Exception {
             // given: same name and content type, but one operation marks it required and the other does not
             when(connectorApiFactory.getContentSigningFormattingApiClient(connector)).thenReturn(apiClient);
             when(apiClient.listFormattingAttributes(connector, ContentSigningFormattingOperation.COMPUTE_DTBS))
-                    .thenReturn(List.of(attribute("reason")));
-            DataAttributeV2 divergent = attribute("reason");
+                    .thenReturn(profileListing(attribute("reason")));
+            DataAttributeV3 divergent = attribute("reason");
             divergent.getProperties().setRequired(true);
             when(apiClient.listFormattingAttributes(connector, ContentSigningFormattingOperation.EMBED_SIGNATURE_VALUE))
-                    .thenReturn(List.of(divergent));
+                    .thenReturn(profileListing(divergent));
 
-            // when / then
-            assertThatThrownBy(() -> attributes.aggregate(connector, SignatureLevel.SIGNED))
-                    .isInstanceOf(ValidationException.class)
-                    .hasMessageContaining("reason");
+            // when
+            ThrowingCallable aggregate = () -> attributes.aggregate(connector, SignatureLevel.SIGNED);
+
+            // then
+            assertThatThrownBy(aggregate).isInstanceOf(ValidationException.class).hasMessageContaining("reason");
         }
 
         @Test
-        void treatsANullAttributeListFromAnOperationAsNoAttributes() throws ConnectorException {
+        void namesBothOperations_whenTwoOperationsDeclareTheSameNameDifferently() throws Exception {
+            // given
+            when(connectorApiFactory.getContentSigningFormattingApiClient(connector)).thenReturn(apiClient);
+            when(apiClient.listFormattingAttributes(connector, ContentSigningFormattingOperation.COMPUTE_DTBS))
+                    .thenReturn(profileListing(attribute("reason")));
+            DataAttributeV3 divergent = attribute("reason");
+            divergent.setContentType(AttributeContentType.INTEGER);
+            when(apiClient.listFormattingAttributes(connector, ContentSigningFormattingOperation.EMBED_SIGNATURE_VALUE))
+                    .thenReturn(profileListing(divergent));
+
+            // when
+            ThrowingCallable aggregate = () -> attributes.aggregate(connector, SignatureLevel.SIGNED);
+
+            // then
+            assertThatThrownBy(aggregate)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("'%s'".formatted(ContentSigningFormattingOperation.COMPUTE_DTBS.getCode()))
+                    .hasMessageContaining(
+                            "'%s'".formatted(ContentSigningFormattingOperation.EMBED_SIGNATURE_VALUE.getCode()));
+        }
+
+        @Test
+        void treatsAnOperationAsListingNothing_whenItsAttributeListsAreNull() throws Exception {
             // given: one operation declares nothing at all, signalled by a null list rather than an empty one
             when(connectorApiFactory.getContentSigningFormattingApiClient(connector)).thenReturn(apiClient);
             when(apiClient.listFormattingAttributes(connector, ContentSigningFormattingOperation.COMPUTE_DTBS))
-                    .thenReturn(null);
+                    .thenReturn(new ContentSigningFormattingAttributesDto(null, null));
             when(apiClient.listFormattingAttributes(connector, ContentSigningFormattingOperation.EMBED_SIGNATURE_VALUE))
-                    .thenReturn(List.of(attribute("padding")));
+                    .thenReturn(profileListing(attribute("padding")));
 
             // when
-            List<BaseAttribute> aggregated = attributes.aggregate(connector, SignatureLevel.SIGNED);
+            ContentSigningFormattingDefinitions aggregated = attributes.aggregate(connector, SignatureLevel.SIGNED);
 
             // then
-            assertThat(aggregated).extracting(BaseAttribute::getName).containsExactly("padding");
+            assertThat(aggregated.profileAttributes()).extracting(BaseAttribute::getName).containsExactly("padding");
         }
 
         @Test
-        void anEmptyConnectorReplyAggregatesToNoAttributes() throws ConnectorException {
+        void returnsNoAttributes_whenEveryListingIsEmpty() throws Exception {
             // given
             when(connectorApiFactory.getContentSigningFormattingApiClient(connector)).thenReturn(apiClient);
-            when(apiClient.listFormattingAttributes(any(), any())).thenReturn(List.of());
+            when(apiClient.listFormattingAttributes(any(), any())).thenReturn(profileListing());
 
-            // when / then
-            assertThatCode(() -> assertThat(attributes.aggregate(connector, SignatureLevel.SIGNED)).isEmpty())
-                    .doesNotThrowAnyException();
+            // when
+            ContentSigningFormattingDefinitions aggregated = attributes.aggregate(connector, SignatureLevel.SIGNED);
+
+            // then
+            assertThat(aggregated.all()).isEmpty();
         }
     }
 
-    private static DataAttributeV2 attribute(String name) {
-        DataAttributeV2 attribute = new DataAttributeV2();
-        attribute.setUuid(UUID.nameUUIDFromBytes(name.getBytes()).toString());
-        attribute.setName(name);
-        attribute.setType(AttributeType.DATA);
-        attribute.setContentType(AttributeContentType.STRING);
-        DataAttributeProperties properties = new DataAttributeProperties();
-        properties.setLabel(name);
-        attribute.setProperties(properties);
-        return attribute;
+    @Nested
+    class RequestAttributeRules {
+
+        @Test
+        void rejectsTheListing_whenAnOperationOtherThanComputeDtbsListsRequestAttributes() throws Exception {
+            // given
+            var listedOnEmbed = requestListing(attribute("reason"));
+            stubListings(profileListing(), listedOnEmbed);
+
+            // when
+            ThrowingCallable aggregate = () -> attributes.aggregate(connector, SignatureLevel.SIGNED);
+
+            // then
+            assertThatThrownBy(aggregate)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining(ContentSigningFormattingOperation.EMBED_SIGNATURE_VALUE.getCode())
+                    .hasMessageContaining("only computeDtbs lists request attributes");
+        }
+
+        @Test
+        void rejectsTheListing_whenARequestAttributeIsNotADataAttribute() throws Exception {
+            // given
+            var infoAttribute = new InfoAttributeV3();
+            infoAttribute.setName("notice");
+            stubListings(requestListing(infoAttribute), profileListing());
+
+            // when
+            ThrowingCallable aggregate = () -> attributes.aggregate(connector, SignatureLevel.SIGNED);
+
+            // then
+            assertThatThrownBy(aggregate)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining(infoAttribute.getName())
+                    .hasMessageContaining("a request attribute must be a data attribute");
+        }
+
+        @Test
+        void rejectsTheListing_whenANameIsBothAProfileAndARequestAttribute() throws Exception {
+            // given
+            var sharedName = "reason";
+            stubListings(requestListing(attribute(sharedName)), profileListing(attribute(sharedName)));
+
+            // when
+            ThrowingCallable aggregate = () -> attributes.aggregate(connector, SignatureLevel.SIGNED);
+
+            // then
+            assertThatThrownBy(aggregate)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("'%s'".formatted(sharedName))
+                    .hasMessageContaining("a name belongs to one list only");
+        }
+
+        @Test
+        void rejectsTheListing_whenAGroupSharesARequestAttributesName() throws Exception {
+            // given
+            var sharedName = "reason";
+            var grouped = attribute("location");
+            grouped.getProperties().setGroup(sharedName);
+            stubListings(requestListing(attribute(sharedName), grouped), profileListing());
+
+            // when
+            ThrowingCallable aggregate = () -> attributes.aggregate(connector, SignatureLevel.SIGNED);
+
+            // then
+            assertThatThrownBy(aggregate)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("'%s'".formatted(sharedName))
+                    .hasMessageContaining("a group and a request attribute need distinct names");
+        }
+
+        @Test
+        void rejectsTheListing_whenAGroupSharesAGroupedRequestAttributesName() throws Exception {
+            // given
+            var sharedName = "reason";
+            var groupedUnderAnother = attribute(sharedName);
+            groupedUnderAnother.getProperties().setGroup("visibleSignature");
+            var groupedUnderTheSharedName = attribute("location");
+            groupedUnderTheSharedName.getProperties().setGroup(sharedName);
+            stubListings(requestListing(groupedUnderAnother, groupedUnderTheSharedName), profileListing());
+
+            // when
+            ThrowingCallable aggregate = () -> attributes.aggregate(connector, SignatureLevel.SIGNED);
+
+            // then
+            assertThatThrownBy(aggregate)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("'%s'".formatted(sharedName))
+                    .hasMessageContaining("a group and a request attribute need distinct names");
+        }
+
+        @Test
+        void rejectsTheListing_whenARequestAttributesGroupIsBlank() throws Exception {
+            // given
+            var underABlankGroup = attribute("location");
+            underABlankGroup.getProperties().setGroup(" ");
+            stubListings(requestListing(underABlankGroup), profileListing());
+
+            // when
+            ThrowingCallable aggregate = () -> attributes.aggregate(connector, SignatureLevel.SIGNED);
+
+            // then
+            assertThatThrownBy(aggregate)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("'%s'".formatted(underABlankGroup.getName()))
+                    .hasMessageContaining("blank");
+        }
+
+        @Test
+        void rejectsTheListing_whenItDeclaresARequestAttributeTwiceDifferently() throws Exception {
+            // given
+            var location = attribute("location");
+            var divergentLocation = attribute("location");
+            divergentLocation.setContentType(AttributeContentType.INTEGER);
+            stubListings(requestListing(location, divergentLocation), profileListing());
+
+            // when
+            ThrowingCallable aggregate = () -> attributes.aggregate(connector, SignatureLevel.SIGNED);
+
+            // then
+            assertThatThrownBy(aggregate)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("'%s' twice".formatted(location.getName()))
+                    .hasMessageNotContaining("earlier operation");
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private void stubListings(ContentSigningFormattingAttributesDto computeDtbs,
+                ContentSigningFormattingAttributesDto embedSignatureValue) throws ConnectorException {
+            when(connectorApiFactory.getContentSigningFormattingApiClient(connector)).thenReturn(apiClient);
+            when(apiClient.listFormattingAttributes(connector, ContentSigningFormattingOperation.COMPUTE_DTBS))
+                    .thenReturn(computeDtbs);
+            when(apiClient.listFormattingAttributes(connector, ContentSigningFormattingOperation.EMBED_SIGNATURE_VALUE))
+                    .thenReturn(embedSignatureValue);
+        }
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static ContentSigningFormattingAttributesDto requestListing(BaseAttribute... requestAttributes) {
+        return new ContentSigningFormattingAttributesDto(List.of(), List.of(requestAttributes));
+    }
+
+    private static ContentSigningFormattingAttributesDto profileListing(BaseAttribute... profileAttributes) {
+        return new ContentSigningFormattingAttributesDto(List.of(profileAttributes), List.of());
+    }
+
+    private static DataAttributeV3 attribute(String name) {
+        return aDataAttribute().withUuid(UUID.nameUUIDFromBytes(name.getBytes())).withName(name).build();
     }
 }

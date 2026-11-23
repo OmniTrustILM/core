@@ -60,6 +60,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
@@ -407,6 +408,26 @@ public class ResourceServiceImpl implements ResourceExternalService, ResourceInt
                     "Attribute '%s' refers to %s '%s', which does not exist. Select another one."
                             .formatted(attribute.getProperties().getLabel(), resource.getLabel(), nameOrUuid));
         }
+    }
+
+    @Override
+    public ResourceObjectContentData loadReferencedObjectContent(AttributeResource resource, UUID uuid)
+            throws NotFoundException, AttributeException, ConnectorException {
+        return getResourceObjectContentData(resource, uuid, storedNameOf(resource, uuid));
+    }
+
+    /**
+     * The object's own name, which a reference stored without one cannot supply and the connector's schema requires.
+     */
+    private String storedNameOf(AttributeResource resource, UUID uuid) throws NotFoundException {
+        ResourceExtensionService extensionService = resourceExtensionServices.get(resource.getCode());
+        return extensionService == null ? null : extensionService.getResourceObjectInternal(uuid).getName();
+    }
+
+    @Override
+    public Optional<UUID> findOwningConnector(AttributeResource resource, UUID uuid) {
+        ResourceExtensionService extensionService = resourceExtensionServices.get(resource.getCode());
+        return extensionService == null ? Optional.empty() : extensionService.findOwningConnector(uuid);
     }
 
     private ResourceObjectContentData getResourceObjectContentData(AttributeResource resource, UUID uuid, String name)

@@ -58,6 +58,7 @@ import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Supplier;
 import org.apache.commons.lang3.function.TriFunction;
@@ -370,6 +371,11 @@ public class EntityInstanceServiceImpl implements EntityInstanceExternalService,
     @Override
     public NameAndUuidDto getResourceObjectInternal(UUID objectUuid) throws NotFoundException {
         return entityInstanceReferenceRepository.findResourceObject(objectUuid, EntityInstanceReference_.name);
+    }
+
+    @Override
+    public Optional<UUID> findOwningConnector(UUID objectUuid) {
+        return entityInstanceReferenceRepository.findByUuid(objectUuid).map(EntityInstanceReference::getConnectorUuid);
     }
 
     @Override

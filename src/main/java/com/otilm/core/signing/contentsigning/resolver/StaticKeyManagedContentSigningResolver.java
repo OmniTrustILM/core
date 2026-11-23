@@ -2,7 +2,6 @@ package com.otilm.core.signing.contentsigning.resolver;
 
 import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.otilm.api.exception.NotFoundException;
-import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.signature.SignatureLevel;
 import com.otilm.api.model.connector.signatures.contentsigning.declaration.SignatureFamilyDeclarationDto;
 import com.otilm.core.model.signing.SigningProfileModel;
@@ -12,13 +11,13 @@ import com.otilm.core.model.signing.workflow.ManagedContentSigningWorkflow;
 import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.signing.contentsigning.TimestampSourceResolver;
 import com.otilm.core.signing.contentsigning.declaration.ContentSigningDeclarations;
+import com.otilm.core.signing.contentsigning.formatting.ContentSigningFormattingDefinitions;
 import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
 import com.otilm.core.signing.engine.resolver.ManagedSchemeResolver;
 import com.otilm.core.signing.engine.resolver.SigningProfileResolver;
 import com.otilm.core.signing.formatting.FormattingAttributeDefinitions;
 import com.otilm.core.signing.formatting.FormattingAttributesCheck;
-import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
 
@@ -50,25 +49,30 @@ public class StaticKeyManagedContentSigningResolver implements SigningProfileRes
         return profile.workflow() instanceof ManagedContentSigningWorkflow;
     }
 
+    /**
+     * Checks the saved profile values against the cached formatter listing. The engine checks request attributes
+     * against the same listing.
+     */
     @Override
     public ResolvedManagedContentSigningProfile resolve(SigningProfileModel<?, ?> model) throws SigningEngineException {
         ManagedContentSigningWorkflow workflow = (ManagedContentSigningWorkflow) model.workflow();
         ResolvedManagedScheme resolvedScheme = schemeResolver.resolve(model.name(), model.signingScheme());
         ApiClientConnectorInfo connector = resolveFormattingConnector(workflow.signatureFormattingConnectorUuid());
         SignatureFamilyDeclarationDto familyDeclaration = requireDeclaredFamily(workflow);
-        List<BaseAttribute> formattingDefinitions = formattingAttributeDefinitions
+        ContentSigningFormattingDefinitions formattingDefinitions = formattingAttributeDefinitions
                 .forContentSigning(connector, workflow);
         FormattingAttributesCheck
-                .requireValid(model.name(), formattingDefinitions, workflow.signatureFormattingConnectorAttributes());
-        String timestampSourceProfileName = workflow.maxLevel() == SignatureLevel.SIGNED
+                .requireValid(model.name(), formattingDefinitions.all(),
+                        workflow.signatureFormattingConnectorAttributes());
+        String timestampSourceProfileName = workflow.level() == SignatureLevel.SIGNED
                 ? null
                 : timestampSourceResolver.profileNameFor(workflow.timestampSourceProfileUuid());
 
         return new ResolvedManagedContentSigningProfile(model.uuid(), model.name(), model.description(),
                 model.version(), model.enabled(), model.enabledProtocols(),
-                workflow.signatureFormattingConnectorAttributes(), familyDeclaration, workflow.maxLevel(),
-                timestampSourceProfileName, workflow.certificatePurpose(), workflow.parameterPolicy(), connector,
-                resolvedScheme);
+                workflow.signatureFormattingConnectorAttributes(), formattingDefinitions,
+                workflow.allowedRequestAttributes(), familyDeclaration, workflow.level(), timestampSourceProfileName,
+                workflow.certificatePurpose(), connector, resolvedScheme);
     }
 
     private ApiClientConnectorInfo resolveFormattingConnector(UUID connectorUuid) throws SigningEngineException {

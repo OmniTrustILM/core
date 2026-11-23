@@ -21,6 +21,7 @@ import com.otilm.core.dao.entity.VaultInstance;
 import com.otilm.core.dao.entity.VaultProfile;
 import com.otilm.core.dao.entity.acme.AcmeProfile;
 import com.otilm.core.dao.entity.cmp.CmpProfile;
+import com.otilm.core.dao.entity.est.EstProfile;
 import com.otilm.core.dao.entity.scep.ScepProfile;
 import com.otilm.core.dao.entity.signing.SigningProfile;
 import com.otilm.core.dao.entity.signing.TimeQualityConfiguration;
@@ -214,6 +215,10 @@ public final class ObjectActionRequirements {
         onObject(Resource.CMP_PROFILE, CmpProfile.class, ResourceAction.DETAIL, ResourceAction.UPDATE,
                 ResourceAction.DELETE, ResourceAction.ENABLE);
         also(Resource.CMP_PROFILE, ResourceAction.DELETE, new OnResource(Resource.RA_PROFILE, ResourceAction.LIST));
+        // Deleting an EST profile lists the RA profiles using it only to name them in a refusal and works without
+        // that permission, so unlike for a CMP profile it requires none.
+        onObject(Resource.EST_PROFILE, EstProfile.class, ResourceAction.DETAIL, ResourceAction.UPDATE,
+                ResourceAction.DELETE, ResourceAction.ENABLE);
         // Updating an authority or entity loads its connector and the credentials its attributes name.
         onObject(Resource.AUTHORITY, AuthorityInstanceReference.class, ResourceAction.DETAIL, ResourceAction.UPDATE,
                 ResourceAction.DELETE);
@@ -221,10 +226,14 @@ public final class ObjectActionRequirements {
                 OnLinked.required(Resource.CONNECTOR, CONNECTOR_UUID, ResourceAction.DETAIL),
                 new OnResource(Resource.CREDENTIAL, ResourceAction.DETAIL));
         // An RA profile detached from its authority, and a token profile without a token, are still read and deleted
-        // through endpoints that check the parent only when there is one.
+        // through endpoints that check the parent only when there is one. Such an RA profile is also enabled and
+        // disabled through the bulk endpoints, which never check the authority, and its custom attributes are updated
+        // through an endpoint checking it only when set. Editing one attaches it to the authority in the request,
+        // which the answer cannot know, as when moving a profile that has an authority.
         underParent(Resource.RA_PROFILE, RaProfile.class, Resource.AUTHORITY, "authorityInstanceReferenceUuid",
                 ResourceAction.DETAIL, ResourceAction.UPDATE, ResourceAction.DELETE, ResourceAction.ENABLE);
-        parentWhenSet(Resource.RA_PROFILE, ResourceAction.DETAIL, ResourceAction.DELETE);
+        parentWhenSet(Resource.RA_PROFILE, ResourceAction.DETAIL, ResourceAction.UPDATE, ResourceAction.DELETE,
+                ResourceAction.ENABLE);
         // The RA profile detail endpoint taking only its UUID does not check the authority.
         viewedThroughObjectDetail(Resource.RA_PROFILE);
         alsoOnObject(Resource.RA_PROFILE, ResourceAction.CHECK_COMPLIANCE, ResourceAction.MEMBERS);
@@ -281,7 +290,7 @@ public final class ObjectActionRequirements {
         // Signing profile detail includes its signing records, and deleting one first lists the TSP profiles using it
         // as their default, checking TSP profile list against the signing profile's UUID.
         onObject(Resource.SIGNING_PROFILE, SigningProfile.class, ResourceAction.DETAIL, ResourceAction.UPDATE,
-                ResourceAction.DELETE, ResourceAction.ENABLE);
+                ResourceAction.DELETE, ResourceAction.ENABLE, ResourceAction.SIGN);
         also(Resource.SIGNING_PROFILE, ResourceAction.DETAIL, new OnResource(ResourceAction.DETAIL),
                 new OnResource(Resource.SIGNING_RECORD, ResourceAction.LIST));
         also(Resource.SIGNING_PROFILE, ResourceAction.DELETE, new OnResource(ResourceAction.DETAIL),

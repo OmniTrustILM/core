@@ -79,7 +79,9 @@ public class DiscoveryTickBudget {
                     .endIfAdmitted(discoveryUuid, fence, DiscoveryStatus.FAILED,
                             "The connector no longer tracks this run");
         }
-        return spend(discoveryUuid, workType, attempt, fence,
-                whatStopped + ": " + DiscoveryConnectorErrors.describe(e));
+        String reason = DiscoveryConnectorErrors.isReferenceRefusal(e)
+                ? DiscoveryConnectorErrors.describe(e)
+                : whatStopped + ": " + DiscoveryConnectorErrors.describe(e);
+        return spend(discoveryUuid, workType, attempt, fence, reason);
     }
 }

@@ -14,17 +14,23 @@ import com.otilm.api.model.client.certificate.DiscoveryResponseDto;
 import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
+import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.client.discovery.DiscoveryCertificateResponseDto;
 import com.otilm.api.model.client.discovery.DiscoveryDetailDto;
 import com.otilm.api.model.client.discovery.DiscoveryDto;
 import com.otilm.api.model.client.discovery.DiscoveryListDto;
+import com.otilm.api.model.client.discovery.DiscoveryWindowDto;
+import com.otilm.api.model.client.discovery.DiscoveryWindowMode;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.PaginationResponseDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.DataAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.v3.content.ResourceObjectContent;
+import com.otilm.api.model.common.attribute.v3.content.data.ResourceObjectContentData;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredItemPayloadDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoverySupportedResourceDto;
+import com.otilm.api.model.core.auth.AttributeResource;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.connector.FunctionGroupCode;
 import com.otilm.api.model.core.discovery.DiscoveryItemDto;
@@ -37,6 +43,8 @@ import com.otilm.api.model.core.search.SearchFieldDataDto;
 import com.otilm.core.attribute.engine.AttributeColumnProjector;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
+import com.otilm.core.attribute.engine.AttributeReferenceExpander;
+import com.otilm.core.attribute.engine.ConnectorRequestAttributesBuilder;
 import com.otilm.core.attribute.engine.ListingSortResolver;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.client.ConnectorApiFactory;
@@ -75,6 +83,7 @@ import com.otilm.core.service.DiscoveryExternalService;
 import com.otilm.core.service.DiscoveryInternalService;
 import com.otilm.core.service.ResourceInternalService;
 import com.otilm.core.service.TriggerInternalService;
+import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.handler.discovery.DiscoveryDetailCounts;
 import com.otilm.core.service.handler.discovery.DiscoveryProviderAdapter;
 import com.otilm.core.service.handler.discovery.DiscoveryProviderAdapterFactory;
@@ -131,6 +140,8 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     private AttributeEngine attributeEngine;
     private CredentialInternalService credentialService;
     private ResourceInternalService resourceService;
+    private AttributeReferenceExpander attributeReferenceExpander;
+    private ConnectorRequestAttributesBuilder connectorRequestAttributesBuilder;
     private AttributeColumnProjector attributeColumnProjector;
 
     private ListingSortResolver listingSortResolver;
@@ -155,6 +166,12 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     private DiscoveryMessageRepository discoveryMessageRepository;
     private ConnectorInterfaceRepository connectorInterfaceRepository;
     private DiscoveryItemRepository discoveryItemRepository;
+    private ConnectorCapabilityService capabilityService;
+
+    @Autowired
+    public void setCapabilityService(ConnectorCapabilityService capabilityService) {
+        this.capabilityService = capabilityService;
+    }
 
     @Autowired
     public void setDiscoveryItemRepository(DiscoveryItemRepository discoveryItemRepository) {
@@ -229,6 +246,17 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     @Autowired
     public void setResourceService(ResourceInternalService resourceService) {
         this.resourceService = resourceService;
+    }
+
+    @Autowired
+    public void setAttributeReferenceExpander(AttributeReferenceExpander attributeReferenceExpander) {
+        this.attributeReferenceExpander = attributeReferenceExpander;
+    }
+
+    @Autowired
+    public void setConnectorRequestAttributesBuilder(
+            ConnectorRequestAttributesBuilder connectorRequestAttributesBuilder) {
+        this.connectorRequestAttributesBuilder = connectorRequestAttributesBuilder;
     }
 
     @Autowired
@@ -329,7 +357,11 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     public List<BaseAttribute> getDiscoveryAttributes(SecuredUUID connectorUuid)
             throws NotFoundException, ConnectorException {
         ApiClientConnectorInfo connector = requireDiscoveryV2(connectorUuid);
-        return connectorApiFactory.getDiscoveryApiClientV2(connector).listRunAttributes(connector);
+        List<BaseAttribute> attributes = connectorApiFactory
+                .getDiscoveryApiClientV2(connector)
+                .listRunAttributes(connector);
+        storeListedDefinitions(connectorUuid.getValue(), null, attributes);
+        return attributes;
     }
 
     @Override
@@ -348,7 +380,24 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
             throw new ValidationException(
                     "Connector " + connectorUuid.getValue() + " does not discover " + resource.getLabel());
         }
-        return connectorApiFactory.getDiscoveryApiClientV2(connector).listResourceAttributes(connector, resource);
+        List<BaseAttribute> attributes = connectorApiFactory
+                .getDiscoveryApiClientV2(connector)
+                .listResourceAttributes(connector, resource);
+        storeListedDefinitions(connectorUuid.getValue(), resource.getCode(), attributes);
+        return attributes;
+    }
+
+    /**
+     * Stores the definitions a discovery form is about to show; the callback endpoint answers only for stored ones.
+     * Stored under the operation run creation uses, so both agree, in a transaction of its own after the connector
+     * answered.
+     */
+    private void storeListedDefinitions(UUID connectorUuid, String operation, List<BaseAttribute> attributes) {
+        try {
+            attributeEngine.updateDataAttributeDefinitions(connectorUuid, operation, attributes);
+        } catch (AttributeException e) {
+            throw new ValidationException("The connector declares an attribute Core cannot accept: " + e.getMessage());
+        }
     }
 
     /** The connector, once its v2 discovery interface is known to exist — the only generation with a schema. */
@@ -435,6 +484,9 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
                                 .getDataAttributesByContent(connector.getUuid(), requestAttributesOrNone(attributes)));
             }
         }
+        requireReferencesOfTheDeclaredKind(referenced);
+        connectorRequestAttributesBuilder.refuseObjectsOfAnotherConnector(connector.getUuid(), referenced);
+        requireTheCallerMaySeeWhatLendsToTheConnector(referenced, connector);
         // The credential loader authorizes CREDENTIAL:DETAIL at method entry, so a run naming no credential is kept
         // away from it rather than charged for a walk-past. The resource loader gates per object, inside, and needs no
         // such guard. As in ConnectorRequestAttributesBuilder.
@@ -442,6 +494,57 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
             credentialService.loadFullCredentialData(referenced);
         }
         resourceService.loadResourceObjectContentData(referenced);
+    }
+
+    /**
+     * Refuses a resource attribute whose value is not a reference to an object of the kind the attribute takes. A run
+     * resolves every value of the attribute as the declared kind, so any other value would be stored as something it is
+     * not.
+     */
+    private static void requireReferencesOfTheDeclaredKind(List<DataAttribute> referenced) {
+        for (DataAttribute attribute : referenced) {
+            List<?> content = attribute.getContent();
+            if (attribute.getContentType() != AttributeContentType.RESOURCE || content == null) {
+                continue;
+            }
+            String label = attribute.getProperties().getLabel();
+            AttributeResource declared = attribute.getProperties().getResource();
+            for (Object item : content) {
+                if (!(item instanceof ResourceObjectContent reference) || reference.getData() == null) {
+                    throw new ValidationException("Attribute '%s' takes a reference to %s, and its value is not one."
+                            .formatted(label, declared.getLabel()));
+                }
+                if (reference.getData().getResource() != declared) {
+                    throw new ValidationException("Attribute '%s' takes a reference to %s, not to %s."
+                            .formatted(label, declared.getLabel(), reference.getData().getResource().getLabel()));
+                }
+            }
+        }
+    }
+
+    /**
+     * Checks the caller's right to see each referenced object that lends the run's connector its references, as the
+     * form's callbacks do: the run sends what such an object refers to resolved, so filing it is using it.
+     */
+    private void requireTheCallerMaySeeWhatLendsToTheConnector(List<DataAttribute> referenced, Connector connector)
+            throws NotFoundException, AttributeException, ConnectorException {
+        for (DataAttribute attribute : referenced) {
+            List<?> content = attribute.getContent();
+            if (attribute.getContentType() != AttributeContentType.RESOURCE || content == null) {
+                continue;
+            }
+            for (Object item : content) {
+                ResourceObjectContent reference = (ResourceObjectContent) item;
+                ResourceObjectContentData target = reference.getData();
+                boolean lendsToTheConnector = resourceService
+                        .findOwningConnector(target.getResource(), UUID.fromString(target.getUuid()))
+                        .filter(connector.getUuid()::equals)
+                        .isPresent();
+                if (lendsToTheConnector) {
+                    attributeReferenceExpander.requireCallerMayLoad(attribute.getProperties().getLabel(), reference);
+                }
+            }
+        }
     }
 
     private static boolean referencesACredential(List<DataAttribute> referenced) {
@@ -529,6 +632,21 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
                         + untargeted.stream().map(Resource::getLabel).toList()
                         + ", which this discovery does not target");
             }
+        }
+    }
+
+    private void validateWindow(DiscoveryDto request, ConnectorInterfaceEntity discoveryInterface, boolean scheduled) {
+        DiscoveryWindowDto window = request.getWindow();
+        if (window == null || window.getMode() == null || window.getMode() == DiscoveryWindowMode.FULL) {
+            return;
+        }
+        if (discoveryInterface == null
+                || !capabilityService.supports(discoveryInterface, FeatureFlag.DISCOVERY_INCREMENTAL)) {
+            throw new ValidationException(
+                    "a discovery window needs a connector whose discovery interface advertises discoveryIncremental");
+        }
+        if (window.getMode() == DiscoveryWindowMode.SINCE_LAST_SUCCESSFUL_RUN && !scheduled) {
+            throw new ValidationException("sinceLastSuccessfulRun is available only for a scheduled discovery");
         }
     }
 
@@ -812,7 +930,8 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     // hold a transaction open -- a slow or hostile connector would pin a pooled connection for its whole timeout.
     // Everything this method then persists commits as one unit, in DiscoveryRunWriter's own transaction.
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public DiscoveryDetailDto createDiscovery(final DiscoveryDto request, final boolean saveEntity)
+    public DiscoveryDetailDto createDiscovery(final DiscoveryDto request, final boolean saveEntity,
+            final boolean scheduled)
             throws AlreadyExistException, ConnectorException, AttributeException, NotFoundException {
         if (discoveryRepository.findByName(request.getName()).isPresent()) {
             throw new AlreadyExistException(Discovery.class, request.getName());
@@ -834,6 +953,7 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
             authorizationEnforcer
                     .enforce(Resource.CONNECTOR, ResourceAction.ANY, SecuredUUID.fromUUID(connector.getUuid()));
         }
+        validateWindow(request, discoveryInterface, scheduled);
         validateRequestedResources(request, connector, discoveryInterface);
         validateRunAttributes(request, connector, discoveryInterface);
         Map<Resource, List<BaseAttribute>> resourceDefinitions = fetchResourceDefinitions(request, connector);
@@ -860,6 +980,10 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
         discovery.setConnectorStatus(DiscoveryStatus.IN_PROGRESS);
         discovery.setConnectorUuid(connector.getUuid());
         discovery.setKind(request.getKind());
+        if (request.getWindow() != null) {
+            discovery.setWindowMode(request.getWindow().getMode());
+            discovery.setWindowLookback(request.getWindow().getLookback());
+        }
 
         if (saveEntity) {
             return discoveryRunWriter.createRun(discovery, request, connector.getUuid(), resourceDefinitions);

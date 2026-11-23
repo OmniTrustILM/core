@@ -4,6 +4,7 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeReferenceExpander;
 import com.otilm.core.attribute.engine.CallerAuthorizedReferenceLoaderRegistry;
 import com.otilm.core.attribute.engine.ConnectorRequestAttributesBuilder;
+import com.otilm.core.service.ResourceInternalService;
 import com.otilm.core.service.handler.OperationAttributeResolver;
 import com.otilm.core.service.impl.CredentialServiceImpl;
 import com.otilm.core.service.impl.ResourceServiceImpl;
@@ -64,6 +65,19 @@ public class AttributeReferenceExpanderFenceArchTest {
             .callMethod(ResourceServiceImpl.class, "loadResourceObjectContentData", List.class)
             .because("the resource list-loader carries no @ExternalAuthorization at all; callback mode must "
                     + "never reach it");
+
+    @ArchTest
+    static final ArchRule callback_path_must_not_reach_unguarded_reference_loader = noClasses()
+            .that()
+            .resideInAPackage("com.otilm.core.attribute.engine..")
+            .and()
+            .areNotAssignableTo(ConnectorRequestAttributesBuilder.class)
+            .should()
+            .dependOnClassesThat()
+            .areAssignableTo(ResourceInternalService.class)
+            .because("ResourceInternalService.loadReferencedObjectContent checks no permission on the object, and a "
+                    + "method reference passed as a ReferenceLoader reaches it as surely as a call; only "
+                    + "system-mode resolution in ConnectorRequestAttributesBuilder may hold that service");
 
     @ArchTest
     static final ArchRule callback_path_must_not_reach_unguarded_operation_builder = noClasses()
