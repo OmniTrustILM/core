@@ -70,7 +70,7 @@ class AcmeHttpChallengeValidatorTest {
         stubChallenge(aResponse().withStatus(200).withBody(KEY_AUTHORIZATION + "\r\n"));
 
         // when
-        ChallengeValidationResult result = validatorThrough(challengeHost.port(), DEADLINE)
+        ChallengeValidationResult result = createValidatorThrough(challengeHost.port(), DEADLINE)
                 .validate(IDENTIFIER, TOKEN, KEY_AUTHORIZATION);
 
         // then
@@ -87,7 +87,7 @@ class AcmeHttpChallengeValidatorTest {
                         .willReturn(aResponse().withStatus(200).withBody(KEY_AUTHORIZATION)));
 
         // when
-        ChallengeValidationResult result = validatorThrough(challengeHost.port(), DEADLINE)
+        ChallengeValidationResult result = createValidatorThrough(challengeHost.port(), DEADLINE)
                 .validate(IDENTIFIER, TOKEN, KEY_AUTHORIZATION);
 
         // then
@@ -108,7 +108,7 @@ class AcmeHttpChallengeValidatorTest {
                         .willReturn(aResponse().withStatus(200).withBody(KEY_AUTHORIZATION)));
 
         // when
-        ChallengeValidationResult result = validatorThrough(challengeHost.port(), DEADLINE)
+        ChallengeValidationResult result = createValidatorThrough(challengeHost.port(), DEADLINE)
                 .validate(IDENTIFIER, TOKEN, KEY_AUTHORIZATION);
 
         // then
@@ -125,7 +125,7 @@ class AcmeHttpChallengeValidatorTest {
                         .willReturn(aResponse().withStatus(200).withBody(KEY_AUTHORIZATION)));
 
         // when
-        ChallengeValidationResult result = validatorThrough(challengeHost.port(), DEADLINE)
+        ChallengeValidationResult result = createValidatorThrough(challengeHost.port(), DEADLINE)
                 .validate(IDENTIFIER, TOKEN, KEY_AUTHORIZATION);
 
         // then
@@ -139,7 +139,7 @@ class AcmeHttpChallengeValidatorTest {
         stubChallenge(aResponse().withStatus(200).withBody(otherKeyAuthorization));
 
         // when
-        ChallengeValidationResult result = validatorThrough(challengeHost.port(), DEADLINE)
+        ChallengeValidationResult result = createValidatorThrough(challengeHost.port(), DEADLINE)
                 .validate(IDENTIFIER, TOKEN, KEY_AUTHORIZATION);
 
         // then
@@ -152,7 +152,7 @@ class AcmeHttpChallengeValidatorTest {
         // given
         var otherPortTarget = "http://" + IDENTIFIER + ":8080" + CHALLENGE_PATH;
         stubChallenge(aResponse().withStatus(302).withHeader("Location", otherPortTarget));
-        AcmeHttpChallengeValidator validator = validatorThrough(challengeHost.port(), DEADLINE);
+        AcmeHttpChallengeValidator validator = createValidatorThrough(challengeHost.port(), DEADLINE);
 
         // when
         ThrowingCallable validate = () -> validator.validate(IDENTIFIER, TOKEN, KEY_AUTHORIZATION);
@@ -168,10 +168,10 @@ class AcmeHttpChallengeValidatorTest {
     void failsWithConnectionProblem_whenHostAcceptsButNeverAnswers() throws Exception {
         // given
         var deadlineShorterThanReadTimeout = Duration.ofMillis(800);
-        try (ServerSocket silentHost = loopbackServerSocket()) {
+        try (ServerSocket silentHost = createLoopbackServerSocket()) {
             var heldConnection = new FutureTask<Void>(() -> readRequestWithoutAnswering(silentHost), null);
             Thread.ofVirtual().start(heldConnection);
-            AcmeHttpChallengeValidator validator = validatorThrough(silentHost.getLocalPort(),
+            AcmeHttpChallengeValidator validator = createValidatorThrough(silentHost.getLocalPort(),
                     deadlineShorterThanReadTimeout);
 
             // when
@@ -195,9 +195,9 @@ class AcmeHttpChallengeValidatorTest {
     void failsWithConnectionProblem_whenHostIsSilentPastReadTimeout() throws Exception {
         // given
         var readTimeoutShorterThanDeadline = 300;
-        try (ServerSocket silentHost = loopbackServerSocket()) {
+        try (ServerSocket silentHost = createLoopbackServerSocket()) {
             Thread.ofVirtual().start(() -> readRequestWithoutAnswering(silentHost));
-            AcmeHttpChallengeValidator validator = validatorThrough(silentHost.getLocalPort(),
+            AcmeHttpChallengeValidator validator = createValidatorThrough(silentHost.getLocalPort(),
                     readTimeoutShorterThanDeadline, DEADLINE);
 
             // when
@@ -218,10 +218,10 @@ class AcmeHttpChallengeValidatorTest {
     void failsWithConnectionProblem_whenChunkFramingOutlastsDeadline() throws Exception {
         // given
         var deadlineShorterThanFraming = Duration.ofSeconds(1);
-        try (ServerSocket framingHost = loopbackServerSocket()) {
+        try (ServerSocket framingHost = createLoopbackServerSocket()) {
             var framingConnection = new FutureTask<Void>(() -> serveEndlessChunkSizeLine(framingHost), null);
             Thread.ofVirtual().start(framingConnection);
-            AcmeHttpChallengeValidator validator = validatorThrough(framingHost.getLocalPort(),
+            AcmeHttpChallengeValidator validator = createValidatorThrough(framingHost.getLocalPort(),
                     deadlineShorterThanFraming);
 
             // when
@@ -250,7 +250,7 @@ class AcmeHttpChallengeValidatorTest {
         stubChallenge(redirectToItself);
 
         // when
-        ChallengeValidationResult result = validatorThrough(challengeHost.port(), DEADLINE)
+        ChallengeValidationResult result = createValidatorThrough(challengeHost.port(), DEADLINE)
                 .validate(IDENTIFIER, TOKEN, KEY_AUTHORIZATION);
 
         // then
@@ -273,7 +273,7 @@ class AcmeHttpChallengeValidatorTest {
                 .withFixedDelay(eachHopWellWithinReadTimeout));
 
         // when
-        ChallengeValidationResult result = validatorThrough(challengeHost.port(), deadlineShorterThanChain)
+        ChallengeValidationResult result = createValidatorThrough(challengeHost.port(), deadlineShorterThanChain)
                 .validate(IDENTIFIER, TOKEN, KEY_AUTHORIZATION);
 
         // then
@@ -289,9 +289,9 @@ class AcmeHttpChallengeValidatorTest {
     void failsWithConnectionProblem_whenRedirectHeadersStallPastReadTimeout() throws Exception {
         // given
         var readTimeoutShorterThanStall = 300;
-        try (ServerSocket stallingHost = loopbackServerSocket()) {
+        try (ServerSocket stallingHost = createLoopbackServerSocket()) {
             Thread.ofVirtual().start(() -> serveRedirectWhoseHeadersStallThenKeyAuthorization(stallingHost));
-            AcmeHttpChallengeValidator validator = validatorThrough(stallingHost.getLocalPort(),
+            AcmeHttpChallengeValidator validator = createValidatorThrough(stallingHost.getLocalPort(),
                     readTimeoutShorterThanStall, DEADLINE);
 
             // when
@@ -311,7 +311,7 @@ class AcmeHttpChallengeValidatorTest {
         stubChallenge(aResponse().withStatus(200).withBody(KEY_AUTHORIZATION).withChunkedDribbleDelay(10, 3_000));
 
         // when
-        ChallengeValidationResult result = validatorThrough(challengeHost.port(), deadlineShorterThanBody)
+        ChallengeValidationResult result = createValidatorThrough(challengeHost.port(), deadlineShorterThanBody)
                 .validate(IDENTIFIER, TOKEN, KEY_AUTHORIZATION);
 
         // then
@@ -324,13 +324,13 @@ class AcmeHttpChallengeValidatorTest {
     void stopsReadingWithIncorrectResponse_whenResponseExceedsSizeLimit() throws Exception {
         // given
         long declaredBodyFarAboveLimit = 16L * 1024 * 1024;
-        try (ServerSocket verboseHost = loopbackServerSocket()) {
+        try (ServerSocket verboseHost = createLoopbackServerSocket()) {
             var served = new FutureTask<>(
                     () -> serveKeyAuthorizationPaddedWithLineBreaks(verboseHost, declaredBodyFarAboveLimit));
             Thread.ofVirtual().start(served);
 
             // when
-            ChallengeValidationResult result = validatorThrough(verboseHost.getLocalPort(), DEADLINE)
+            ChallengeValidationResult result = createValidatorThrough(verboseHost.getLocalPort(), DEADLINE)
                     .validate(IDENTIFIER, TOKEN, KEY_AUTHORIZATION);
 
             // then
@@ -344,11 +344,11 @@ class AcmeHttpChallengeValidatorTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static AcmeHttpChallengeValidator validatorThrough(int proxyPort, Duration deadline) {
-        return validatorThrough(proxyPort, READ_TIMEOUT_MILLIS, deadline);
+    private static AcmeHttpChallengeValidator createValidatorThrough(int proxyPort, Duration deadline) {
+        return createValidatorThrough(proxyPort, READ_TIMEOUT_MILLIS, deadline);
     }
 
-    private static AcmeHttpChallengeValidator validatorThrough(int proxyPort, int readTimeoutMillis,
+    private static AcmeHttpChallengeValidator createValidatorThrough(int proxyPort, int readTimeoutMillis,
             Duration deadline) {
         var proxy = new Proxy(Proxy.Type.HTTP, new InetSocketAddress(LoopbackWireMock.HOST, proxyPort));
         return new AcmeHttpChallengeValidator(url -> url.openConnection(proxy), CONNECT_TIMEOUT_MILLIS,
@@ -359,7 +359,7 @@ class AcmeHttpChallengeValidatorTest {
         challengeHost.stubFor(get(urlPathEqualTo(CHALLENGE_PATH)).willReturn(response));
     }
 
-    private static ServerSocket loopbackServerSocket() throws IOException {
+    private static ServerSocket createLoopbackServerSocket() throws IOException {
         return new ServerSocket(0, 1, InetAddress.getByName(LoopbackWireMock.HOST));
     }
 
