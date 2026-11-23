@@ -265,7 +265,7 @@ class AcmeHttpChallengeValidatorTest {
     @Timeout(value = 30, threadMode = SEPARATE_THREAD)
     void failsWithConnectionProblem_whenRedirectChainOutlastsDeadline() throws Exception {
         // given
-        var deadlineShorterThanChain = Duration.ofSeconds(1);
+        var deadlineShorterThanChain = Duration.ofSeconds(2);
         var eachHopWellWithinReadTimeout = 300;
         stubChallenge(aResponse()
                 .withStatus(302)
@@ -279,6 +279,28 @@ class AcmeHttpChallengeValidatorTest {
         // then
         assertThat(result.valid()).isFalse();
         assertThat(result.problem()).isEqualTo(Problem.CONNECTION);
+        assertThat(challengeHost.findAll(getRequestedFor(urlPathEqualTo(CHALLENGE_PATH))))
+                .as("hops made before the deadline, each answered in time")
+                .hasSizeGreaterThanOrEqualTo(2);
+    }
+
+    @Test
+    @Timeout(value = 30, threadMode = SEPARATE_THREAD)
+    void failsWithConnectionProblem_whenRedirectHeadersStallPastReadTimeout() throws Exception {
+        // given
+        var readTimeoutShorterThanStall = 300;
+        try (ServerSocket stallingHost = loopbackServerSocket()) {
+            Thread.ofVirtual().start(() -> serveRedirectWhoseHeadersStallThenKeyAuthorization(stallingHost));
+            AcmeHttpChallengeValidator validator = validatorThrough(stallingHost.getLocalPort(),
+                    readTimeoutShorterThanStall, DEADLINE);
+
+            // when
+            ChallengeValidationResult result = validator.validate(IDENTIFIER, TOKEN, KEY_AUTHORIZATION);
+
+            // then
+            assertThat(result.valid()).isFalse();
+            assertThat(result.problem()).isEqualTo(Problem.CONNECTION);
+        }
     }
 
     @Test
@@ -405,6 +427,30 @@ class AcmeHttpChallengeValidatorTest {
             // the client hung up
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
+        }
+    }
+
+    /**
+     * Answers with a redirect whose status line and {@code Location} arrive but whose remaining headers never do, and
+     * serves the key authorization to a client that follows that redirect anyway.
+     */
+    private static void serveRedirectWhoseHeadersStallThenKeyAuthorization(ServerSocket server) {
+        try (Socket stalled = server.accept()) {
+            readRequestHead(stalled.getInputStream());
+            OutputStream out = stalled.getOutputStream();
+            out
+                    .write(("HTTP/1.1 302 Found\r\nLocation: http://" + IDENTIFIER
+                            + "/.well-known/acme-challenge/moved\r\n").getBytes(StandardCharsets.US_ASCII));
+            out.flush();
+            try (Socket followed = server.accept()) {
+                readRequestHead(followed.getInputStream());
+                followed
+                        .getOutputStream()
+                        .write(("HTTP/1.1 200 OK\r\nContent-Length: " + KEY_AUTHORIZATION.length() + "\r\n\r\n"
+                                + KEY_AUTHORIZATION).getBytes(StandardCharsets.US_ASCII));
+            }
+        } catch (IOException connectionEnded) {
+            // the client did not follow the redirect and the test closed the host
         }
     }
 

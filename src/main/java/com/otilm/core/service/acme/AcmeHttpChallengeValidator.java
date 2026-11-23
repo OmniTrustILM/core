@@ -135,15 +135,15 @@ public final class AcmeHttpChallengeValidator {
             throw e;
         } catch (Exception e) {
             if (!Thread.currentThread().isInterrupted()) {
-                logger.error("Failed to fetch the HTTP-01 challenge response from {}: {}", finalUrl, e.getMessage());
+                logger.error("Failed to fetch the HTTP-01 challenge response: {}", e.getClass().getSimpleName());
             }
             return "";
         }
     }
 
     /**
-     * The body of a redirect that is followed is not read: only the body the chain ends with is compared, and a
-     * redirect page may be larger than the size limit.
+     * The body of a redirect that is followed is neither compared nor held to the size limit: only the body the chain
+     * ends with is, and a redirect page may be larger than the limit.
      */
     private ChallengeResponse request(URL url, boolean mayRedirect) throws IOException, ChallengeFetchException {
         HttpURLConnection connection = (HttpURLConnection) connectionOpener.open(url);
