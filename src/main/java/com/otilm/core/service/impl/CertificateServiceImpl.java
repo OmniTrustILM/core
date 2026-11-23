@@ -22,6 +22,7 @@ import com.otilm.api.model.client.certificate.SearchRequestDto;
 import com.otilm.api.model.client.certificate.UploadCertificateRequestDto;
 import com.otilm.api.model.client.dashboard.StatisticsDto;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
+import com.otilm.api.model.common.BulkActionMessageDto;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.UuidDto;
 import com.otilm.api.model.common.attribute.common.AttributeType;
@@ -2966,7 +2967,7 @@ public class CertificateServiceImpl
 
     @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.ARCHIVE)
-    public void bulkArchiveCertificates(List<SecuredUUID> securedUuids) {
+    public List<BulkActionMessageDto> bulkArchiveCertificates(List<SecuredUUID> securedUuids) {
         List<UUID> uuids = securedUuids.stream().map(SecuredUUID::getValue).distinct().toList();
         certificateRepository.archiveCertificates(true, uuids);
         for (UUID uuid : uuids) {
@@ -2974,6 +2975,7 @@ public class CertificateServiceImpl
                     .addEventHistory(uuid, CertificateEvent.ARCHIVE, CertificateEventStatus.SUCCESS,
                             "Certificate has been archived.", "");
         }
+        return List.of();
     }
 
     @Override

@@ -21,6 +21,7 @@ import com.otilm.api.model.client.certificate.CertificateUpdateObjectsDto;
 import com.otilm.api.model.client.certificate.MultipleCertificateObjectUpdateDto;
 import com.otilm.api.model.client.certificate.RemoveCertificateDto;
 import com.otilm.api.model.client.certificate.UploadCertificateRequestDto;
+import com.otilm.api.model.common.BulkActionMessageDto;
 import com.otilm.api.model.common.UuidDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.core.auth.Resource;
@@ -305,8 +306,8 @@ public class CertificateControllerImpl implements CertificateController {
 
     @Override
     @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.ARCHIVE)
-    public void bulkArchiveCertificate(List<UUID> uuids) {
-        certificateService.bulkArchiveCertificates(SecuredUUID.fromUuidList(uuids));
+    public List<BulkActionMessageDto> bulkArchiveCertificate(List<UUID> uuids) {
+        return certificateService.bulkArchiveCertificates(SecuredUUID.fromUuidList(uuids));
     }
 
     @Override

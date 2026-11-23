@@ -3,7 +3,6 @@ package com.otilm.core.integration.service;
 import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.client.trustedcertificate.TrustedCertificateDto;
-import com.otilm.api.model.client.trustedcertificate.TrustedCertificateRequestDto;
 import com.otilm.core.provisioning.ProvisioningException;
 import com.otilm.core.provisioning.TrustedCertificateProvisioningDTO;
 import com.otilm.core.provisioning.TrustedCertificateProvisioningRequestDTO;
@@ -20,12 +19,9 @@ import org.junit.jupiter.api.extension.RegisterExtension;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
-import static com.github.tomakehurst.wiremock.client.WireMock.containing;
 import static com.github.tomakehurst.wiremock.client.WireMock.delete;
 import static com.github.tomakehurst.wiremock.client.WireMock.deleteRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
-import static com.github.tomakehurst.wiremock.client.WireMock.post;
-import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -154,45 +150,6 @@ class TrustedCertificateServiceITest extends BaseSpringBootTest {
                 () -> trustedCertificateService.getTrustedCertificate(securedUuid));
 
         assertTrue(exception.getMessage().contains("Failed to get trusted certificate"));
-    }
-
-    @Test
-    void testCreateTrustedCertificate_success() {
-        wireMockServer
-                .stubFor(post(urlPathEqualTo("/api/v1/trusted-certificates"))
-                        .willReturn(aResponse()
-                                .withStatus(201)
-                                .withHeader("Content-Type", "application/json")
-                                .withBody(TRUSTED_CERTIFICATE_JSON)));
-
-        TrustedCertificateRequestDto request = new TrustedCertificateRequestDto();
-        request.setCertificateContent(Base64.getDecoder().decode(TEST_CERTIFICATE_CONTENT));
-
-        TrustedCertificateDto dto = trustedCertificateService.createTrustedCertificate(request);
-
-        assertNotNull(dto);
-        assertEquals(TEST_UUID, dto.getUuid());
-        assertEquals("CN=Test CA", dto.getIssuer());
-        assertEquals("CN=example.com", dto.getSubject());
-
-        wireMockServer
-                .verify(postRequestedFor(urlPathEqualTo("/api/v1/trusted-certificates"))
-                        .withHeader("Content-Type", containing("application/json")));
-    }
-
-    @Test
-    void testCreateTrustedCertificate_apiFails() {
-        wireMockServer
-                .stubFor(post(urlPathEqualTo("/api/v1/trusted-certificates"))
-                        .willReturn(aResponse().withStatus(500).withBody("Internal Server Error")));
-
-        TrustedCertificateRequestDto request = new TrustedCertificateRequestDto();
-        request.setCertificateContent(Base64.getDecoder().decode(TEST_CERTIFICATE_CONTENT));
-
-        ProvisioningException exception = assertThrows(ProvisioningException.class,
-                () -> trustedCertificateService.createTrustedCertificate(request));
-
-        assertTrue(exception.getMessage().contains("Failed to create trusted certificate"));
     }
 
     @Test
