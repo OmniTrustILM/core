@@ -34,10 +34,12 @@ class InterfacesPinGuardTest {
     private static final Pattern MAVEN_INVOCATION = Pattern
             .compile("(^|&&\\s*|\\|\\|\\s*|;\\s*|\\|\\s*|\\(\\s*)\\.?/?mvnw?\\s");
 
-    /** Maven lifecycle phases that compile the tree, and so resolve {@code com.otilm:interfaces}. */
+    /** Every default-lifecycle phase from {@code compile} onward compiles the tree, so resolves Interfaces. */
     private static final Set<String> BUILDING_PHASES = Set
-            .of("compile", "test-compile", "test", "package", "verify", "install", "deploy", "process-classes",
-                    "process-test-classes", "integration-test", "prepare-package");
+            .of("compile", "process-classes", "generate-test-sources", "process-test-sources",
+                    "generate-test-resources", "process-test-resources", "test-compile", "process-test-classes", "test",
+                    "prepare-package", "package", "pre-integration-test", "integration-test", "post-integration-test",
+                    "verify", "install", "deploy");
 
     /** Direct Maven goals that consume the Interfaces dependency without compiling. */
     private static final Set<String> DIRECT_GOALS = Set
