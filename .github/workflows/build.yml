@@ -31,6 +31,17 @@ jobs:
           path: ~/.m2
           key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
           restore-keys: ${{ runner.os }}-m2
+      # Saved only from this trusted main build; the Sonar PR workflow restores it read-only.
+      - name: Compute cache month
+        id: cache-month
+        run: echo "yearmonth=$(date +%Y-%m)" >> "$GITHUB_OUTPUT"
+      - name: Cache SonarCloud packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.sonar/cache
+          key: ${{ runner.os }}-sonar-${{ steps.cache-month.outputs.yearmonth }}
+          restore-keys: |
+            ${{ runner.os }}-sonar-
       - name: Set up Python 3.12
         if: hashFiles('ai-runtime/proof/f01/resources/v1/tests/requirements.txt') != ''
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
