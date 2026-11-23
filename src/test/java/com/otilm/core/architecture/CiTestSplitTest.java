@@ -35,8 +35,8 @@ class CiTestSplitTest {
     private static final List<String> INTEGRATION_SHARDS = List
             .of("integration-1", "integration-2", "integration-3", "integration-4");
 
-    /** Surefire's default includes by source filename. */
-    private static final Pattern SUREFIRE_DEFAULT_NAME = Pattern.compile("(?:Test.*|.*Test|.*Tests|.*TestCase)\\.java");
+    private static final Pattern SUREFIRE_DEFAULT_INCLUDE_PATTERN = Pattern
+            .compile("(?:Test.*|.*Test|.*Tests|.*TestCase)\\.java");
     private static final String INTEGRATION_EXCLUSION = "com/otilm/core/integration/.*ITest.*";
 
     @Test
@@ -118,7 +118,7 @@ class CiTestSplitTest {
                     .filter(path -> !path.startsWith(INTEGRATION_ROOT))
                     .filter(path -> path.toString().endsWith(".java"))
                     .filter(TestClassTaxonomy::isRunnableTest)
-                    .filter(path -> !SUREFIRE_DEFAULT_NAME.matcher(path.getFileName().toString()).matches())
+                    .filter(path -> !SUREFIRE_DEFAULT_INCLUDE_PATTERN.matcher(path.getFileName().toString()).matches())
                     .map(CiTestSplitTest::relative)
                     .sorted()
                     .toList();
@@ -152,7 +152,9 @@ class CiTestSplitTest {
                 for (TestClassTaxonomy.NestedClass nested : TestClassTaxonomy.nestedClasses(outer)) {
                     String nestedPath = path.substring(0, path.length() - ".java".length()) + "$" + nested.name()
                             + ".java";
-                    if (!SUREFIRE_DEFAULT_NAME.matcher(Path.of(nestedPath).getFileName().toString()).matches()) {
+                    if (!SUREFIRE_DEFAULT_INCLUDE_PATTERN
+                            .matcher(Path.of(nestedPath).getFileName().toString())
+                            .matches()) {
                         continue;
                     }
                     surefireNamed.add(nestedPath);
