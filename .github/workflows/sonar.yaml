@@ -5,9 +5,7 @@ on:
     types: [completed]
 
 jobs:
-  # Gated on Package rather than the run conclusion: pin-gate fails by design on
-  # a coupled PR, which would skip Sonar for exactly the PRs that need it most.
-  # Every artifact this workflow downloads comes from Package.
+  # Gate on Package so coupled PRs get Sonar even when the pin gate fails.
   gate:
     name: Sonar precondition
     if: github.event.workflow_run.conclusion != 'cancelled'
@@ -273,9 +271,13 @@ jobs:
             exit 1
           fi
           MVNARG=$(cat "$RUNNER_TEMP/mvnarg/mvnarg.txt")
-          read -r -a MVNARGS <<< "$MVNARG"
+          # An empty argument selects the POM version for older Build PR runs.
+          if [[ -n "$MVNARG" && ! "$MVNARG" =~ ^-Dinterfaces\.version=[0-9][0-9A-Za-z.-]*$ ]]; then
+            echo "::error::Invalid Interfaces version argument from Build PR."
+            exit 1
+          fi
           CLASSPATH_FILE="$RUNNER_TEMP/sonar-test-dependencies.txt"
-          mvn -B -ntp org.apache.maven.plugins:maven-dependency-plugin:3.9.0:build-classpath "${MVNARGS[@]}" \
+          mvn -B -ntp org.apache.maven.plugins:maven-dependency-plugin:3.9.0:build-classpath ${MVNARG:+"$MVNARG"} \
             -DincludeScope=test \
             -Dmdep.pathSeparator=, \
             -Dmdep.regenerateFile=true \
@@ -302,9 +304,8 @@ jobs:
         run: |
           set -euo pipefail
           MVNARG=$(cat "$RUNNER_TEMP/mvnarg/mvnarg.txt")
-          read -r -a MVNARGS <<< "$MVNARG"
           SONAR_TEST_LIBRARIES=$(cat "$RUNNER_TEMP/sonar-test-libraries.txt")
-          mvn org.sonarsource.scanner.maven:sonar-maven-plugin:sonar "${MVNARGS[@]}" \
+          mvn org.sonarsource.scanner.maven:sonar-maven-plugin:sonar ${MVNARG:+"$MVNARG"} \
             "-Dsonar.java.test.libraries=$SONAR_TEST_LIBRARIES" \
             -Dsonar.scm.revision="$SONAR_REVISION" \
             -Dsonar.pullrequest.key="$SONAR_PR_KEY" \
