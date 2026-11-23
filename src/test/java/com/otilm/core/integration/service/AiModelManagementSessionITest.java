@@ -32,7 +32,6 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
 import org.springframework.transaction.interceptor.TransactionInterceptor;
@@ -65,10 +64,6 @@ class AiModelManagementSessionITest extends BaseAiSpringBootTest {
     void schemaWithoutAnyRunOrActivationRecords() throws Exception {
         AiModelDispatchFixture.drop(source);
         AiRuntimeFixture.install(source);
-        AiModelDispatchFixture.install(source);
-        execute("DROP FUNCTION IF EXISTS ai_model_management_session_immutable_guard()");
-        execute(new String(new ClassPathResource("db/migration/V202611061200__ai_model_management_session.sql")
-                .getContentAsByteArray(), StandardCharsets.UTF_8));
         execute("DELETE FROM ai_runtime_control");
         model = AiModelDispatchFixture.approvedModel(source);
         spec = new Spec(UUID.randomUUID(), UUID.randomUUID(), model, ManagementAction.CONNECTION_CHECK,
@@ -187,7 +182,7 @@ class AiModelManagementSessionITest extends BaseAiSpringBootTest {
             default -> "UPDATE ai_model_management_session SET reserved_calls=0,reserved_tokens=0";
         };
         if (change.equals("truncate")) {
-            execute("DROP TABLE ai_model_management_intent");
+            execute("DROP TABLE ai_model_management_intent CASCADE");
         }
         String before = sessionFingerprint();
         Throwable failure = catchThrowable(() -> execute(sql));

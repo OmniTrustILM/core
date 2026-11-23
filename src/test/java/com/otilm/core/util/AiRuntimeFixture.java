@@ -26,8 +26,7 @@ import org.springframework.core.io.ClassPathResource;
 import static org.assertj.core.api.Assertions.assertThat;
 
 public final class AiRuntimeFixture {
-    private static final String MIGRATION = "db/migration/V202610261200__ai_runtime_kernel.sql";
-    private static final String CONTROL_MIGRATION = "db/migration/V202611041200__ai_runtime_control.sql";
+    private static final String MIGRATION = "db/migration/V202611231200__ai_runtime.sql";
     public static final String IMAGE = "sha256:" + "a".repeat(64);
     public static final String TEMPLATE = "sha256:" + "b".repeat(64);
 
@@ -58,11 +57,11 @@ public final class AiRuntimeFixture {
                         ai_runtime_control
                     """);
             statement.execute("DROP FUNCTION IF EXISTS ai_model_run_input_immutable_guard()");
-            for (String migration : new String[]{MIGRATION, CONTROL_MIGRATION}) {
-                String sql = new String(new ClassPathResource(migration).getContentAsByteArray(),
-                        StandardCharsets.UTF_8);
-                statement.execute(sql);
-            }
+            statement.execute("DROP FUNCTION IF EXISTS ai_model_connection_revision_guard()");
+            statement.execute("DROP FUNCTION IF EXISTS ai_model_management_session_immutable_guard()");
+            statement
+                    .execute(new String(new ClassPathResource(MIGRATION).getContentAsByteArray(),
+                            StandardCharsets.UTF_8));
         }
     }
 

@@ -12,7 +12,6 @@ import com.otilm.core.service.writer.ai.AiModelRunInputWriter;
 import com.otilm.core.util.AiModelDispatchFixture;
 import com.otilm.core.util.AiRuntimeFixture;
 import com.otilm.core.util.ai.BaseAiSpringBootTest;
-import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.time.Duration;
@@ -28,7 +27,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
 import org.springframework.transaction.interceptor.TransactionInterceptor;
@@ -39,7 +37,6 @@ import static org.awaitility.Awaitility.await;
 
 /** Real owned PostgreSQL storage proof; no modelUSE or native caller authority is supplied by this fixture. */
 class AiModelRunInputITest extends BaseAiSpringBootTest {
-    private static final String MIGRATION = "db/migration/V202611051300__ai_model_run_input.sql";
     @Autowired
     private DataSource source;
     @Autowired
@@ -61,8 +58,6 @@ class AiModelRunInputITest extends BaseAiSpringBootTest {
     void installRealSchemaAndOwnedRun() throws Exception {
         AiModelDispatchFixture.drop(source);
         AiRuntimeFixture.install(source);
-        AiModelDispatchFixture.install(source);
-        execute(new String(new ClassPathResource(MIGRATION).getContentAsByteArray(), StandardCharsets.UTF_8));
         model = AiModelDispatchFixture.approvedModel(source);
         var now = AiRuntimeFixture.now(source);
         var control = AiRuntimeFixture.enableTestControl(kernel, now);

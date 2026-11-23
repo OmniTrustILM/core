@@ -50,7 +50,6 @@ class AiModelDispatchModelBindingITest extends BaseAiSpringBootTest {
     void seedActualCanonicalDefinition() throws Exception {
         AiModelDispatchFixture.drop(source);
         AiRuntimeFixture.install(source);
-        AiModelDispatchFixture.install(source);
         model = AiModelDispatchFixture.approvedModel(source);
         assertThat(canonicalIdentifier()).isEqualTo("lab");
     }
@@ -417,16 +416,17 @@ class AiModelDispatchModelBindingITest extends BaseAiSpringBootTest {
     }
 
     private void updateManagementPolicy(UUID session, ConnectionVersion selected) throws Exception {
-        try (var connection = source.getConnection();
-                var statement = connection
-                        .prepareStatement(
-                                "UPDATE ai_model_management_session SET configuration_revision=?,destination_revision=?,authentication_revision=? WHERE session_uuid=?")) {
-            statement.setLong(1, selected.configuration());
-            statement.setLong(2, selected.destination());
-            statement.setLong(3, selected.authentication());
-            statement.setObject(4, session);
-            assertThat(statement.executeUpdate()).isEqualTo(1);
-        }
+        AiModelDispatchFixture.rewriteSessions(source, true, connection -> {
+            try (var statement = connection
+                    .prepareStatement(
+                            "UPDATE ai_model_management_session SET configuration_revision=?,destination_revision=?,authentication_revision=? WHERE session_uuid=?")) {
+                statement.setLong(1, selected.configuration());
+                statement.setLong(2, selected.destination());
+                statement.setLong(3, selected.authentication());
+                statement.setObject(4, session);
+                assertThat(statement.executeUpdate()).isEqualTo(1);
+            }
+        });
     }
 
     private static int backendPid(Connection connection) throws Exception {

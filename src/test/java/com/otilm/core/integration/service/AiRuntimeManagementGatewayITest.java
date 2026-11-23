@@ -13,7 +13,6 @@ import com.otilm.core.service.writer.ai.AiRuntimeManagementGatewayWriter;
 import com.otilm.core.util.AiModelDispatchFixture;
 import com.otilm.core.util.AiRuntimeFixture;
 import com.otilm.core.util.ai.BaseAiSpringBootTest;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
@@ -23,7 +22,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.core.io.ClassPathResource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -38,14 +36,9 @@ class AiRuntimeManagementGatewayITest extends BaseAiSpringBootTest {
 
     @BeforeEach
     void noRunOrGlobalActivationNeeded() throws Exception {
-        execute("DROP TABLE IF EXISTS ai_management_gateway_registration,ai_management_gateway_deployment");
         AiModelDispatchFixture.drop(source);
         AiRuntimeFixture.install(source);
-        AiModelDispatchFixture.install(source);
         execute("DELETE FROM ai_runtime_control");
-        execute(new String(
-                new ClassPathResource("db/migration/V202611061300__ai_management_gateway.sql").getContentAsByteArray(),
-                StandardCharsets.UTF_8));
         pins = new Pins("sha256:" + "a".repeat(64), new LaunchSpec("cluster-one", "ai-proof", "namespace-one",
                 "gateway-account", "account-one", "sha256:" + "b".repeat(64), "sandbox"));
         peer = new RuntimePeer(RuntimePeerRole.GATEWAY_MANAGEMENT, new RuntimeProxyCertificateClaims("cluster-one",

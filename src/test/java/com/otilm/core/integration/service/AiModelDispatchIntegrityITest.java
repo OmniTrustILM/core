@@ -49,7 +49,6 @@ class AiModelDispatchIntegrityITest extends BaseAiSpringBootTest {
     void fixtureFacts() throws Exception {
         AiModelDispatchFixture.drop(source);
         AiRuntimeFixture.install(source);
-        AiModelDispatchFixture.install(source);
         model = AiModelDispatchFixture.approvedModel(source);
     }
 

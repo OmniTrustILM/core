@@ -43,7 +43,6 @@ class AiModelRunDispatchAuthorityITest extends BaseAiSpringBootTest {
     void retainedDatabaseFacts() throws Exception {
         AiModelDispatchFixture.drop(source);
         AiRuntimeFixture.install(source);
-        AiModelDispatchFixture.install(source);
         model = AiModelDispatchFixture.approvedModel(source);
         Instant now = AiRuntimeFixture.now(source);
         var control = AiRuntimeFixture.enableTestControl(kernel, now);

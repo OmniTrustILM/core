@@ -10,14 +10,12 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.UUID;
 import javax.sql.DataSource;
-import org.springframework.core.io.ClassPathResource;
 
 /** Private nonce-database fixture facts only. No actual modelUSE, native gateway or approved credential grant. */
 public final class AiModelDispatchFixture {
     private static final List<String> TABLES = List
             .of("ai_model_run_intent", "ai_model_management_intent", "ai_model_run_budget",
                     "ai_model_management_session", "ai_model_connection");
-    private static final String MIGRATION = "db/migration/V202611051201__ai_model_dispatch.sql";
 
     private AiModelDispatchFixture() {
     }
@@ -35,14 +33,6 @@ public final class AiModelDispatchFixture {
             statement.execute("DROP FUNCTION IF EXISTS ai_model_run_gateway_immutable_guard()");
             statement.execute("DROP TABLE IF EXISTS " + String.join(", ", TABLES));
             statement.execute("DROP FUNCTION IF EXISTS ai_model_connection_revision_guard()");
-        }
-    }
-
-    public static void install(DataSource source) throws Exception {
-        try (var connection = source.getConnection(); var statement = connection.createStatement()) {
-            statement
-                    .execute(new String(new ClassPathResource(MIGRATION).getContentAsByteArray(),
-                            StandardCharsets.UTF_8));
         }
     }
 
@@ -309,14 +299,40 @@ public final class AiModelDispatchFixture {
             throws Exception {
         String table = management ? "ai_model_management_session" : "ai_model_run_budget";
         String column = management ? "session_uuid" : "run_uuid";
-        try (var connection = source.getConnection();
-                var statement = connection
-                        .prepareStatement("UPDATE " + table + " SET max_calls=?,max_tokens=? WHERE " + column + "=?")) {
-            statement.setLong(1, calls);
-            statement.setLong(2, tokens);
-            statement.setObject(3, id);
-            requireOne(statement.executeUpdate());
+        rewriteSessions(source, management, connection -> {
+            try (var statement = connection
+                    .prepareStatement("UPDATE " + table + " SET max_calls=?,max_tokens=? WHERE " + column + "=?")) {
+                statement.setLong(1, calls);
+                statement.setLong(2, tokens);
+                statement.setObject(3, id);
+                requireOne(statement.executeUpdate());
+            }
+        });
+    }
+
+    /** Runs a deliberate rewrite of a stored management session, which the immutability trigger otherwise refuses. */
+    public static void rewriteSessions(DataSource source, boolean guarded, SqlWork work) throws Exception {
+        try (var connection = source.getConnection(); var statement = connection.createStatement()) {
+            if (guarded) {
+                statement
+                        .execute(
+                                "ALTER TABLE ai_model_management_session DISABLE TRIGGER ai_model_management_session_immutable");
+            }
+            try {
+                work.run(connection);
+            } finally {
+                if (guarded) {
+                    statement
+                            .execute(
+                                    "ALTER TABLE ai_model_management_session ENABLE TRIGGER ai_model_management_session_immutable");
+                }
+            }
         }
+    }
+
+    @FunctionalInterface
+    public interface SqlWork {
+        void run(java.sql.Connection connection) throws Exception;
     }
 
     public static long reservedTokens(DataSource source, UUID id, boolean management) throws Exception {

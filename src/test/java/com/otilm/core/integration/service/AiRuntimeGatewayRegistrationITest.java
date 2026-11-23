@@ -13,7 +13,6 @@ import com.otilm.core.service.ai.AiRuntimeOperationBudget;
 import com.otilm.core.service.writer.ai.AiRuntimeGatewayRegistrationWriter;
 import com.otilm.core.util.AiRuntimeFixture;
 import com.otilm.core.util.ai.BaseAiSpringBootTest;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
@@ -23,7 +22,6 @@ import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.core.io.ClassPathResource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -46,13 +44,6 @@ class AiRuntimeGatewayRegistrationITest extends BaseAiSpringBootTest {
     @BeforeEach
     void storedApprovedDeploymentAndActualDatabaseClock() throws Exception {
         AiRuntimeFixture.install(source);
-        try (var connection = source.getConnection(); var statement = connection.createStatement()) {
-            statement
-                    .execute(new String(
-                            new ClassPathResource("db/migration/V202611051400__ai_runtime_gateway_registration.sql")
-                                    .getContentAsByteArray(),
-                            StandardCharsets.UTF_8));
-        }
         now = AiRuntimeFixture.now(source);
         control = AiRuntimeFixture.enableTestControl(kernel, now);
         assertThat(kernel.disableControl(control).status())

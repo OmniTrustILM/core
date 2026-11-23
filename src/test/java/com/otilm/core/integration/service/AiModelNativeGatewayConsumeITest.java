@@ -34,7 +34,6 @@ import com.otilm.core.util.AiModelDispatchFixture;
 import com.otilm.core.util.AiRuntimeFixture;
 import com.otilm.core.util.ai.BaseAiSpringBootTest;
 import jakarta.persistence.EntityManager;
-import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.time.Duration;
 import java.time.Instant;
@@ -52,7 +51,6 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionManager;
 import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
@@ -103,10 +101,6 @@ class AiModelNativeGatewayConsumeITest extends BaseAiSpringBootTest {
     void realStoredRunInputIntentAndCurrentGatewayFacts() throws Exception {
         AiModelDispatchFixture.drop(source);
         AiRuntimeFixture.install(source);
-        AiModelDispatchFixture.install(source);
-        install("db/migration/V202611051300__ai_model_run_input.sql");
-        install("db/migration/V202611051400__ai_runtime_gateway_registration.sql");
-        install("db/migration/V202611051500__ai_model_run_outcome.sql");
         Instant now = AiRuntimeFixture.now(source);
         var attempt = AiRuntimeFixture.attempt(now);
         var pins = ControlPins.forAttempt(attempt);
@@ -395,14 +389,6 @@ class AiModelNativeGatewayConsumeITest extends BaseAiSpringBootTest {
     private void retainedReservation() throws Exception {
         assertThat(AiModelDispatchFixture.reservedCalls(source, run.spec().runId())).isEqualTo(1);
         assertThat(AiModelDispatchFixture.reservedTokens(source, run.spec().runId(), false)).isEqualTo(32);
-    }
-
-    private void install(String resource) throws Exception {
-        try (var connection = source.getConnection(); var statement = connection.createStatement()) {
-            statement
-                    .execute(new String(new ClassPathResource(resource).getContentAsByteArray(),
-                            StandardCharsets.UTF_8));
-        }
     }
 
     private RunSnapshot current() {

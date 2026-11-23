@@ -40,10 +40,6 @@ class AiRuntimeNativeStartupITest extends BaseAiSpringBootTest {
     @BeforeEach
     void enabledFixtureControl() throws Exception {
         AiRuntimeFixture.install(source);
-        execute(new String(
-                new org.springframework.core.io.ClassPathResource(
-                        "db/migration/V202611061300__ai_management_gateway.sql").getContentAsByteArray(),
-                java.nio.charset.StandardCharsets.UTF_8));
         AiRuntimeFixture.enableTestControl(kernel, AiRuntimeFixture.now(source));
         initial = kernel.control().orElseThrow();
         assertThat(initial.enabled()).isTrue();

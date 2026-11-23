@@ -21,7 +21,6 @@ import com.otilm.core.util.AiModelDispatchFixture;
 import com.otilm.core.util.AiRuntimeFixture;
 import com.otilm.core.util.ai.BaseAiSpringBootTest;
 import jakarta.persistence.EntityManager;
-import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.time.Duration;
@@ -43,7 +42,6 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
 import org.springframework.transaction.interceptor.TransactionInterceptor;
@@ -80,7 +78,6 @@ class AiModelDispatchBudgetITest extends BaseAiSpringBootTest {
     void installFacts() throws Exception {
         AiModelDispatchFixture.drop(source);
         AiRuntimeFixture.install(source);
-        AiModelDispatchFixture.install(source);
         model = AiModelDispatchFixture.approvedModel(source);
         Instant now = AiRuntimeFixture.now(source);
         var control = AiRuntimeFixture.enableTestControl(kernel, now);
@@ -104,14 +101,6 @@ class AiModelDispatchBudgetITest extends BaseAiSpringBootTest {
     @ParameterizedTest
     @ValueSource(strings = {"connection", "input", "run-key", "run-id", "management-key", "management-id"})
     void remainingBudgetBoundsActualDispatchPrerequisiteReads(String operation) throws Exception {
-        if (operation.equals("input")) {
-            try (var connection = source.getConnection(); var statement = connection.createStatement()) {
-                statement.execute("DROP TABLE IF EXISTS ai_model_run_input");
-                statement
-                        .execute(new String(new ClassPathResource("db/migration/V202611051300__ai_model_run_input.sql")
-                                .getContentAsByteArray(), StandardCharsets.UTF_8));
-            }
-        }
         String table = switch (operation) {
             case "connection" -> "ai_model_connection";
             case "input" -> "ai_model_run_input";

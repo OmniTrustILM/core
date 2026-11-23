@@ -37,7 +37,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.security.access.AccessDeniedException;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -75,16 +74,9 @@ class AiModelManagementNativeITest extends BaseAiSpringBootTest {
 
     @BeforeEach
     void setup() throws Exception {
-        execute("DROP TABLE IF EXISTS ai_model_management_outcome,ai_model_management_gateway_assignment");
-        execute("DROP FUNCTION IF EXISTS ai_model_management_gateway_immutable_guard()");
-        execute("DROP TABLE IF EXISTS ai_management_gateway_registration,ai_management_gateway_deployment");
         AiModelDispatchFixture.drop(source);
         AiRuntimeFixture.install(source);
-        AiModelDispatchFixture.install(source);
         execute("DELETE FROM ai_runtime_control");
-        migrate("V202611061200__ai_model_management_session.sql");
-        migrate("V202611061300__ai_management_gateway.sql");
-        migrate("V202611061400__ai_model_management_outcome.sql");
         actor = UUID.randomUUID();
         session = UUID.randomUUID();
         intent = UUID.randomUUID();
@@ -793,11 +785,6 @@ class AiModelManagementNativeITest extends BaseAiSpringBootTest {
     private ManagementRedemption redemption(UUID id, UUID correlation) {
         return new ManagementRedemption(id, actor, session, preparation.action(), model, preparation.payload().sha256(),
                 expiry, correlation);
-    }
-
-    private void migrate(String name) throws Exception {
-        execute(new String(new ClassPathResource("db/migration/" + name).getContentAsByteArray(),
-                StandardCharsets.UTF_8));
     }
 
     private void execute(String sql) throws Exception {

@@ -50,7 +50,6 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
@@ -93,9 +92,6 @@ class AiModelRunOutcomeITest extends BaseAiSpringBootTest {
     void storedCurrentPeerAndPreparedIntent() throws Exception {
         AiModelDispatchFixture.drop(source);
         AiRuntimeFixture.install(source);
-        AiModelDispatchFixture.install(source);
-        install("db/migration/V202611051400__ai_runtime_gateway_registration.sql");
-        install("db/migration/V202611051500__ai_model_run_outcome.sql");
         Instant now = AiRuntimeFixture.now(source);
         var attempt = AiRuntimeFixture.attempt(now);
         var pins = ControlPins.forAttempt(attempt);
@@ -163,14 +159,6 @@ class AiModelRunOutcomeITest extends BaseAiSpringBootTest {
             var selectedBudget = budget();
             assertThatThrownBy(() -> writer.requireAssigned(intent, peer, selectedBudget))
                     .isInstanceOf(AccessDeniedException.class);
-        }
-    }
-
-    private void install(String resource) throws Exception {
-        try (var connection = source.getConnection(); var statement = connection.createStatement()) {
-            statement
-                    .execute(new String(new ClassPathResource(resource).getContentAsByteArray(),
-                            StandardCharsets.UTF_8));
         }
     }
 

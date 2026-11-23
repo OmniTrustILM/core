@@ -41,7 +41,6 @@ import com.otilm.core.util.AiRuntimeFixture;
 import com.otilm.core.util.ai.BaseAiSpringBootTest;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
@@ -54,7 +53,6 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 
@@ -98,19 +96,6 @@ class AiGatewaySafetyRefreshITest extends BaseAiSpringBootTest {
     void installPrivateDatabaseFixtures() throws Exception {
         AiModelDispatchFixture.drop(source);
         AiRuntimeFixture.install(source);
-        AiModelDispatchFixture.install(source);
-        for (String migration : new String[]{
-                "V202611051400__ai_runtime_gateway_registration.sql",
-                "V202611051500__ai_model_run_outcome.sql",
-                "V202611061200__ai_model_management_session.sql",
-                "V202611061300__ai_management_gateway.sql",
-                "V202611061400__ai_model_management_outcome.sql"}) {
-            try (var connection = source.getConnection(); var statement = connection.createStatement()) {
-                statement
-                        .execute(new String(new ClassPathResource("db/migration/" + migration).getContentAsByteArray(),
-                                StandardCharsets.UTF_8));
-            }
-        }
         var at = AiRuntimeFixture.now(source);
         kernel
                 .changeControl(kernel.control().orElseThrow().version(),

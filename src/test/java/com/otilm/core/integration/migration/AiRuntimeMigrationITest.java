@@ -20,22 +20,22 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class AiRuntimeMigrationITest extends BaseSpringBootTest {
-    private static final String RESOURCE = "db/migration/V202610261200__ai_runtime_kernel.sql";
+    private static final String RESOURCE = "db/migration/V202611231200__ai_runtime.sql";
     private static final String SCHEMA = "ai_runtime_migration_check";
     private static final String INSERT_RUN = """
             INSERT INTO ai_runtime_run (uuid, conversation_ref, actor_uuid, scope_marker, state,
                 revision, fence, attempts_used, attempt_limit, current_attempt_uuid, run_deadline,
-                lease_seconds, pod_limit, created_at, updated_at)
+                lease_seconds, pod_limit, created_at, updated_at, control_generation)
             VALUES (?, ?, ?, 'synthetic', 'QUEUED', 1, 1, 1, 2, ?,
-                clock_timestamp() + interval '120 seconds', 5, 2, clock_timestamp(), clock_timestamp())
+                clock_timestamp() + interval '120 seconds', 5, 2, clock_timestamp(), clock_timestamp(), 0)
             """;
     private static final String INSERT_ATTEMPT = """
             INSERT INTO ai_runtime_attempt (uuid, run_uuid, attempt_no, state, fence, image_digest,
                 profile_revision, security_revision, trust_revision, protocol, launch_deadline,
-                max_deadline, created_at, updated_at)
+                max_deadline, created_at, updated_at, control_generation)
             VALUES (?, ?, 1, 'LAUNCHING', 1, 'sha256:' || repeat('a', 64), 1, 1, 1, 'v1',
                 clock_timestamp() + interval '30 seconds', clock_timestamp() + interval '60 seconds',
-                clock_timestamp(), clock_timestamp())
+                clock_timestamp(), clock_timestamp(), 0)
             """;
 
     @Autowired
@@ -45,7 +45,7 @@ class AiRuntimeMigrationITest extends BaseSpringBootTest {
     void flywayAppliesTheActualMigrationWithoutProductRows() throws Exception {
         ClassPathResource resource = migration();
         Path directory = Files.createTempDirectory("ai-runtime-migration-");
-        Path script = directory.resolve("V202610261200__ai_runtime_kernel.sql");
+        Path script = directory.resolve("V202611231200__ai_runtime.sql");
         try (Connection connection = dataSource.getConnection()) {
             try {
                 createSchema(connection);
@@ -174,13 +174,16 @@ class AiRuntimeMigrationITest extends BaseSpringBootTest {
                     FROM pg_catalog.pg_constraint constraint_row
                     JOIN pg_catalog.pg_namespace namespace ON namespace.oid = constraint_row.connamespace
                     WHERE namespace.nspname = ? AND constraint_row.contype = 'f'
+                        AND constraint_row.conrelid::regclass::text IN (
+                            'ai_runtime_run', 'ai_runtime_attempt', 'ai_runtime_launch', 'ai_runtime_workload')
                     """)) {
                 statement.setString(1, SCHEMA);
                 try (ResultSet constraints = statement.executeQuery()) {
                     while (constraints.next()) {
                         String name = constraints.getString(1);
                         boolean cyclic = name.equals("fk_ai_runtime_current_attempt")
-                                || name.equals("fk_ai_runtime_winner");
+                                || name.equals("fk_ai_runtime_winner")
+                                || name.equals("fk_ai_runtime_attempt_control_generation");
                         assertThat(constraints.getBoolean(2)).as(name + " is deferrable").isEqualTo(cyclic);
                         assertThat(constraints.getBoolean(3)).as(name + " starts deferred").isEqualTo(cyclic);
                         if (cyclic) {
@@ -191,7 +194,7 @@ class AiRuntimeMigrationITest extends BaseSpringBootTest {
                     }
                 }
             }
-            assertThat(deferred).isEqualTo(2);
+            assertThat(deferred).isEqualTo(3);
             assertThat(immediate).isEqualTo(3);
         });
     }
