@@ -1,5 +1,6 @@
 package com.otilm.core.security.authz;
 
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.ObjectActionRequirements.OnAncestor;
@@ -22,16 +23,19 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ObjectActionRequirementsTest {
 
-    /** OID detail is addressed by the OID value, so no object of it is reported by UUID. */
-    private static final Set<Resource> WITHOUT_OBJECTS_BY_UUID = Set.of(Resource.OID);
+    /** OIDs use value addressing; JDBC-only AI models expose no generic list/detail endpoints. */
+    private static final Set<Resource> WITHOUT_GENERIC_UUID_ACTIONS = Set.of(Resource.OID, Resource.AI_MODEL);
 
     private static final Map<Resource, ResourceObjects> TABLE = ObjectActionRequirements.all();
 
@@ -41,7 +45,7 @@ class ObjectActionRequirementsTest {
         Set<Resource> individuallyAuthorized = Arrays
                 .stream(Resource.values())
                 .filter(resource -> resource.hasObjectAccess() || resource.hasOwner())
-                .filter(resource -> !WITHOUT_OBJECTS_BY_UUID.contains(resource))
+                .filter(resource -> !WITHOUT_GENERIC_UUID_ACTIONS.contains(resource))
                 .collect(Collectors.toSet());
 
         // when
@@ -49,6 +53,21 @@ class ObjectActionRequirementsTest {
 
         // then
         assertThat(tabled).containsExactlyInAnyOrderElementsOf(individuallyAuthorized);
+    }
+
+    @Test
+    void rejectsGenericUuidDiscovery_whenResourceIsAiModel() {
+        // given
+        ObjectActionResolver resolver = new ObjectActionResolver(null, null);
+        List<UUID> objectUuids = List.of(UUID.randomUUID());
+
+        // when
+        ThrowingCallable resolveAiModelObjects = () -> resolver.resolve(Resource.AI_MODEL, objectUuids);
+
+        // then
+        assertThatThrownBy(resolveAiModelObjects)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Resource aiModels has no objects identified by UUID");
     }
 
     @Test

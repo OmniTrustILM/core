@@ -1,0 +1,93 @@
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "name": "f01-a2-scratch-b",
+    "namespace": "ilm-sandbox-a2",
+    "labels": {
+      "ilm.ai/proof": "a2-v1"
+    }
+  },
+  "spec": {
+    "os": {
+      "name": "linux"
+    },
+    "runtimeClassName": "runsc-f01-a2-v1",
+    "serviceAccountName": "runner",
+    "automountServiceAccountToken": false,
+    "enableServiceLinks": false,
+    "restartPolicy": "Never",
+    "activeDeadlineSeconds": 27,
+    "terminationGracePeriodSeconds": 1,
+    "dnsPolicy": "None",
+    "dnsConfig": {
+      "nameservers": [
+        "127.0.0.1"
+      ]
+    },
+    "securityContext": {
+      "runAsNonRoot": true,
+      "runAsUser": 65532,
+      "runAsGroup": 65532,
+      "fsGroup": 65532,
+      "seccompProfile": {
+        "type": "RuntimeDefault"
+      }
+    },
+    "containers": [
+      {
+        "name": "fixed-proof",
+        "image": "docker.io/library/busybox@sha256:d82c2ab94640ded77cf76514ce6a84870761105058a4a9e51b05a8a79be97a6c",
+        "imagePullPolicy": "Never",
+        "command": [
+          "/bin/busybox",
+          "ash",
+          "-c"
+        ],
+        "args": [
+          "set -eu\n[ ! -e /scratch/f01-a2-marker ]\nprintf \"PREVIOUS_MARKER_ABSENT\\n\"\n/bin/busybox dd if=/dev/zero of=/scratch/f01-scratch-control bs=1048576 count=1\n[ -f /tmp/f01-scratch-control ]\n/bin/busybox stat -c 'CONTROL_BYTES %s' /tmp/f01-scratch-control\n/bin/busybox rm /scratch/f01-scratch-control\nset +e\n/bin/busybox dd if=/dev/zero of=/tmp/f01-scratch-fill bs=1048576 count=20\nrc=$?\nset -e\nprintf 'SCRATCH_DD_RC %s\\n' \"$rc\"\n/bin/busybox stat -c 'FILL_BYTES %s' /scratch/f01-scratch-fill\n/bin/busybox stat -c 'ALIAS_BYTES %s' /tmp/f01-scratch-fill\n/bin/busybox sleep 3\n/bin/busybox rm /scratch/f01-scratch-fill\nprintf 'SCRATCH_RELEASED\\n'"
+        ],
+        "securityContext": {
+          "allowPrivilegeEscalation": false,
+          "readOnlyRootFilesystem": true,
+          "capabilities": {
+            "drop": [
+              "ALL"
+            ]
+          }
+        },
+        "resources": {
+          "requests": {
+            "cpu": "100m",
+            "memory": "64Mi",
+            "ephemeral-storage": "16Mi"
+          },
+          "limits": {
+            "cpu": "500m",
+            "memory": "256Mi",
+            "ephemeral-storage": "32Mi"
+          }
+        },
+        "volumeMounts": [
+          {
+            "name": "scratch",
+            "mountPath": "/scratch"
+          },
+          {
+            "name": "scratch",
+            "mountPath": "/tmp"
+          }
+        ]
+      }
+    ],
+    "volumes": [
+      {
+        "name": "scratch",
+        "emptyDir": {
+          "medium": "Memory",
+          "sizeLimit": "16Mi"
+        }
+      }
+    ]
+  }
+}

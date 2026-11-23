@@ -1,0 +1,7 @@
+[
+  {
+    "op": "replace",
+    "path": "/spec/runtimeClassName",
+    "value": "f01-rejected-runc"
+  }
+]

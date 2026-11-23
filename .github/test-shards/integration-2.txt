@@ -1,4 +1,5 @@
 com/otilm/core/integration/ApplicationITest.java
+com/otilm/core/integration/ai/ConversationTimelineITest.java
 com/otilm/core/integration/api/tsp/TspControllerITest.java
 com/otilm/core/integration/api/tsp/TspSigningProfileControllerITest.java
 com/otilm/core/integration/auth/oauth2/OAuth2LoginControllerITest.java
@@ -34,6 +35,7 @@ com/otilm/core/integration/messaging/jms/listeners/poll/PendingIssueReaperITest.
 com/otilm/core/integration/messaging/proxy/ProxyClientITest.java
 com/otilm/core/integration/messaging/proxy/ProxyMessageCorrelatorITest.java
 com/otilm/core/integration/messaging/proxy/ProxyRequestExpiryITest.java
+com/otilm/core/integration/migration/AiRuntimeMigrationITest.java
 com/otilm/core/integration/migration/CbomSyncSkipRetentionMigrationITest.java
 com/otilm/core/integration/migration/CertificateProtocolAssociationUniqueMigrationITest.java
 com/otilm/core/integration/migration/CertificateRequestPerCertificateMigrationITest.java
@@ -61,6 +63,19 @@ com/otilm/core/integration/repository/PessimisticLockITest.java
 com/otilm/core/integration/repository/SecurityFilterRepositoryITest.java
 com/otilm/core/integration/service/AcmeAccountServiceITest.java
 com/otilm/core/integration/service/AcmeProfileServiceITest.java
+com/otilm/core/integration/service/AiModelDispatchBudgetITest.java
+com/otilm/core/integration/service/AiModelDispatchIntentITest.java
+com/otilm/core/integration/service/AiModelDispatchRaceITest.java
+com/otilm/core/integration/service/AiModelManagementSessionITest.java
+com/otilm/core/integration/service/AiModelRunDispatchAuthorityITest.java
+com/otilm/core/integration/service/AiModelRunOutcomeITest.java
+com/otilm/core/integration/service/AiRuntimeCleanupITest.java
+com/otilm/core/integration/service/AiRuntimeControlRaceITest.java
+com/otilm/core/integration/service/AiRuntimeKernelBoundaryITest.java
+com/otilm/core/integration/service/AiRuntimeKernelFenceITest.java
+com/otilm/core/integration/service/AiRuntimeKernelObservationITest.java
+com/otilm/core/integration/service/AiRuntimeManagementGatewayITest.java
+com/otilm/core/integration/service/AiRuntimeObservationBudgetITest.java
 com/otilm/core/integration/service/AttributesV2CallbackDispatchITest.java
 com/otilm/core/integration/service/AuthServiceITest.java
 com/otilm/core/integration/service/BrandingSettingsITest.java

@@ -1,0 +1,7 @@
+[
+  {
+    "op": "add",
+    "path": "/metadata/annotations/k8s.v1.cni.cncf.io~1networks",
+    "value": "synthetic"
+  }
+]

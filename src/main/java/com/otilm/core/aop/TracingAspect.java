@@ -13,6 +13,7 @@ import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.reflect.MethodSignature;
+import org.springframework.aop.support.AopUtils;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.stereotype.Component;
 
@@ -32,6 +33,9 @@ public class TracingAspect {
     public Object traceMethod(ProceedingJoinPoint joinPoint) throws Throwable {
         MethodSignature signature = (MethodSignature) joinPoint.getSignature();
         Method method = signature.getMethod();
+        Object target = joinPoint.getTarget();
+        Class<?> targetClass = target == null ? method.getDeclaringClass() : AopUtils.getTargetClass(target);
+        boolean metadataOnly = targetClass.isAnnotationPresent(TraceMetadataOnly.class);
 
         // Get class name and method name
         String className = method.getDeclaringClass().getSimpleName();
@@ -49,35 +53,40 @@ public class TracingAspect {
         try (Scope ignored = span.makeCurrent()) {
             Object result = joinPoint.proceed();
 
-            String[] parameterNames = signature.getParameterNames();
-            Object[] parameterValues = joinPoint.getArgs();
-            Parameter[] parameters = method.getParameters();
-
-            // Add method parameters as span attributes. parameterNames is null when names are unavailable, and
-            // the three arrays can differ in length; only iterate the range all of them cover.
-            if (parameterNames != null) {
-                int count = Math.min(parameterNames.length, Math.min(parameterValues.length, parameters.length));
-                for (int i = 0; i < count; i++) {
-                    String paramName = parameterNames[i];
-                    // A @Sensitive parameter (e.g. a raw secret) must never be recorded verbatim into a span.
-                    if (parameters[i].isAnnotationPresent(Sensitive.class)) {
-                        span.setAttribute("function.param." + paramName, "***");
-                        continue;
-                    }
-                    Object paramValue = parameterValues[i];
-                    span
-                            .setAttribute("function.param." + paramName,
-                                    paramValue != null ? paramValue.toString() : "null");
-                }
+            if (!metadataOnly) {
+                captureArguments(joinPoint, signature, method, span);
             }
 
             return result;
         } catch (Exception e) {
             span.setStatus(StatusCode.ERROR, "Exception occurred");
-            span.recordException(e);
+            if (!metadataOnly) {
+                span.recordException(e);
+            }
             throw e;
         } finally {
             span.end();
+        }
+    }
+
+    private static void captureArguments(ProceedingJoinPoint joinPoint, MethodSignature signature, Method method,
+            Span span) {
+        String[] parameterNames = signature.getParameterNames();
+        Object[] parameterValues = joinPoint.getArgs();
+        Parameter[] parameters = method.getParameters();
+
+        // Parameter names may be unavailable, and the three arrays can differ in length.
+        if (parameterNames != null) {
+            int count = Math.min(parameterNames.length, Math.min(parameterValues.length, parameters.length));
+            for (int i = 0; i < count; i++) {
+                String paramName = parameterNames[i];
+                if (parameters[i].isAnnotationPresent(Sensitive.class)) {
+                    span.setAttribute("function.param." + paramName, "***");
+                    continue;
+                }
+                Object paramValue = parameterValues[i];
+                span.setAttribute("function.param." + paramName, paramValue != null ? paramValue.toString() : "null");
+            }
         }
     }
 }

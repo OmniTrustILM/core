@@ -99,11 +99,51 @@ class AuthServiceITest extends BaseSpringBootTest {
     }
 
     @Test
-    void testAuthResources() {
-        List<AuthResourceDto> authResources = authService.getAuthResources();
+    void matchesSyncedResources_whenReadingAuthResources() {
+        // given
         List<ResourceSyncRequestDto> resources = contextRefreshListener.getResources();
 
-        Assertions.assertEquals(resources.size(), authResources.size());
+        // when
+        List<AuthResourceDto> authResources = authService.getAuthResources();
+
+        // then
+        assertThat(authResources).hasSameSizeAs(resources);
+        assertThat(authResources.stream().map(AuthResourceDto::getName).collect(Collectors.toSet()))
+                .isEqualTo(
+                        resources.stream().map(resource -> resource.getName().getCode()).collect(Collectors.toSet()));
+    }
+
+    @Test
+    void registersAiModelActions_whenSyncingResourcesToAuthService() {
+        // given
+        Set<String> expectedActions = Set.of("connect", "use");
+
+        // when
+        List<ResourceSyncRequestDto> resources = contextRefreshListener.getResources();
+
+        // then
+        assertThat(resources)
+                .filteredOn(resource -> Resource.AI_MODEL.getCode().equals(resource.getName().getCode()))
+                .singleElement()
+                .satisfies(resource -> assertThat(resource.getActions())
+                        .containsExactlyInAnyOrderElementsOf(expectedActions));
+    }
+
+    @Test
+    void returnsAiModelActions_whenReadingAuthResources() {
+        // given
+        Set<String> expectedActions = Set.of("connect", "use");
+
+        // when
+        List<AuthResourceDto> authResources = authService.getAuthResources();
+
+        // then
+        assertThat(authResources)
+                .filteredOn(resource -> Resource.AI_MODEL.getCode().equals(resource.getName()))
+                .singleElement()
+                .satisfies(resource -> assertThat(resource.getActions())
+                        .extracting(action -> action.getName())
+                        .containsExactlyInAnyOrderElementsOf(expectedActions));
     }
 
     /**
@@ -815,6 +855,24 @@ class AuthServiceITest extends BaseSpringBootTest {
     private String getAuthResourcesMockResponse() {
         return """
                 [
+                    {
+                        "uuid": "90000000-0000-4000-8000-000000000001",
+                        "name": "aiModels",
+                        "displayName": "AI Model",
+                        "objectAccess": true,
+                        "actions": [
+                            {
+                                "uuid": "90000000-0000-4000-8000-000000000002",
+                                "name": "connect",
+                                "displayName": "Connect"
+                            },
+                            {
+                                "uuid": "90000000-0000-4000-8000-000000000003",
+                                "name": "use",
+                                "displayName": "Use"
+                            }
+                        ]
+                    },
                     {
                         "uuid": "d6ab6d7d-3335-4304-8cb2-f73300c2d56c",
                         "name": "acmeAccounts",

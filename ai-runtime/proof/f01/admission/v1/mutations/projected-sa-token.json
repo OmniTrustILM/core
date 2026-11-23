@@ -1,0 +1,19 @@
+[
+  {
+    "op": "add",
+    "path": "/spec/volumes/-",
+    "value": {
+      "name": "extra",
+      "projected": {
+        "sources": [
+          {
+            "serviceAccountToken": {
+              "path": "token",
+              "expirationSeconds": 600
+            }
+          }
+        ]
+      }
+    }
+  }
+]

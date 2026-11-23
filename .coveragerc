@@ -1,0 +1,11 @@
+[run]
+branch = True
+relative_files = True
+source =
+    ai-runtime/proof/f01/resources/v1/python
+    ai-runtime/proof/f01/resources/kernel-v1/python
+data_file = target/coverage/.coverage-python
+
+[report]
+fail_under = 80
+precision = 2

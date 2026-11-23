@@ -4,6 +4,7 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.config.OpaSecuredAnnotationMetadataExtractor;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.security.ai.AiReadInvocationContext;
 import com.otilm.core.security.authn.PlatformAuthenticationToken;
 import com.otilm.core.security.authz.opa.OpaClient;
 import com.otilm.core.security.authz.opa.dto.OpaObjectAccessResult;
@@ -23,6 +24,7 @@ import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.reflect.MethodSignature;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.EnableAspectJAutoProxy;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
@@ -73,6 +75,11 @@ public class ObjectFilterAspect {
         SecurityFilter secFilter = getSecurityFilter(arguments);
 
         if (secFilter == null) {
+            if (AiReadInvocationContext.isActive() && (!(joinPoint.getSignature() instanceof MethodSignature signature)
+                    || !ExternalMethodAuthorizationManager
+                            .isStoredHealthRead(signature.getMethod(), joinPoint.getTarget()))) {
+                throw new AccessDeniedException("Certificate read filter unavailable");
+            }
             logger.trace("No ObjectFilter was found, invoking %sjoin point without filter.".formatted(joinPointKind));
             return joinPoint.proceed();
         }
@@ -121,6 +128,11 @@ public class ObjectFilterAspect {
      * @param secFilter security filter to populate
      */
     public void populateSecurityFilter(Map<String, String> properties, SecurityFilter secFilter) {
+        var invocation = AiReadInvocationContext.current();
+        if (invocation.isPresent()) {
+            populateInvocationFilter(properties, secFilter, invocation.get());
+            return;
+        }
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (!(auth instanceof PlatformAuthenticationToken authToken)) {
             throw new RuntimeException("Unsupported authentication type.");
@@ -152,6 +164,24 @@ public class ObjectFilterAspect {
         } catch (Exception e) {
             logger.trace("Cannot load user group members permissions: " + e.getMessage());
         }
+    }
+
+    private void populateInvocationFilter(Map<String, String> properties, SecurityFilter filter,
+            AiReadInvocationContext context) {
+        filter.clearInvocationFilters();
+        var principal = context.requirePinnedActor(SecurityContextHolder.getContext().getAuthentication());
+        if (!Resource.CERTIFICATE.getCode().equals(properties.get(NAME))
+                || !ResourceAction.LIST.getCode().equals(properties.get(ACTION))
+                || !Resource.RA_PROFILE.getCode().equals(properties.get(PARENT_NAME))
+                || !ResourceAction.MEMBERS.getCode().equals(properties.get(PARENT_ACTION))) {
+            throw new AccessDeniedException("Certificate read filter metadata unavailable");
+        }
+        var authentication = new PlatformAuthenticationToken(principal);
+        var parent = getResourceFilter(authentication, new HashMap<>(properties), true);
+        var resource = getResourceFilter(authentication, new HashMap<>(properties), false);
+        filter.setParentResourceFilter(parent);
+        filter.setResourceFilter(resource);
+        filter.completeInvocation(context);
     }
 
     private SecurityResourceFilter getResourceFilter(PlatformAuthenticationToken auth, Map<String, String> properties,

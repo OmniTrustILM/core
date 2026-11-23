@@ -26,8 +26,10 @@ import com.otilm.api.model.core.certificate.CertificateValidationResultDto;
 import com.otilm.api.model.core.certificate.FingerprintDto;
 import com.otilm.api.model.core.location.LocationDto;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
+import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
+import com.otilm.core.service.handler.StoredCertificateHealth;
 import java.io.IOException;
 import java.security.cert.CertificateException;
 import java.util.List;
@@ -35,6 +37,9 @@ import java.util.List;
 public interface CertificateExternalService {
 
     CertificateResponseDto listCertificates(SecurityFilter filter, CertificateSearchRequestDto request);
+
+    StoredCertificateHealth getStoredCertificateHealth(SecuredParentUUID expectedRaProfileUuid,
+            SecuredUUID certificateUuid) throws NotFoundException;
 
     CertificateDetail getCertificate(SecuredUUID uuid) throws NotFoundException, CertificateException, IOException;
 

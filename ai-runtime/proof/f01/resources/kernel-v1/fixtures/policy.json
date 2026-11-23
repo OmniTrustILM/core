@@ -1,0 +1,173 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "admissionregistration.k8s.io/v1",
+      "kind": "ValidatingAdmissionPolicy",
+      "metadata": {
+        "name": "f01-kernel-cg-r1"
+      },
+      "spec": {
+        "failurePolicy": "Fail",
+        "matchConstraints": {
+          "resourceRules": [
+            {
+              "apiGroups": [
+                ""
+              ],
+              "apiVersions": [
+                "v1"
+              ],
+              "operations": [
+                "CREATE",
+                "UPDATE"
+              ],
+              "resources": [
+                "pods",
+                "pods/ephemeralcontainers",
+                "pods/resize"
+              ],
+              "scope": "Namespaced"
+            }
+          ]
+        },
+        "variables": [
+          {
+            "name": "s",
+            "expression": "object.spec"
+          },
+          {
+            "name": "c",
+            "expression": "object.spec.containers[0]"
+          },
+          {
+            "name": "p",
+            "expression": "object.spec.securityContext"
+          },
+          {
+            "name": "sc",
+            "expression": "object.spec.containers[0].securityContext"
+          }
+        ],
+        "validations": [
+          {
+            "expression": "!has(request.subResource) || request.subResource == ''",
+            "message": "F01_SUBRESOURCE",
+            "reason": "Forbidden"
+          },
+          {
+            "expression": "object.metadata.namespace == \"ilm-resource-sec-r1\" && (!has(object.metadata.generateName) || object.metadata.generateName == \"\") && has(object.metadata.labels) && size(object.metadata.labels) == 1 && object.metadata.labels[\"ilm.ai/proof\"] == \"a2-v1\" && object.metadata.name in [\"f01-a2-floor-control\", \"f01-a2-scratch-a\", \"f01-a2-scratch-b\", \"f01-a2-process-control\", \"f01-a2-process-limit\", \"f01-a2-memory-control\", \"f01-a2-memory-limit\", \"f01-a2-cpu-control\", \"f01-a2-cpu-deadline\"]",
+            "message": "F01_METADATA",
+            "reason": "Forbidden"
+          },
+          {
+            "expression": "!has(object.metadata.ownerReferences) && (!has(object.metadata.finalizers) || size(object.metadata.finalizers) == 0)",
+            "message": "F01_METADATA_CONTROL",
+            "reason": "Forbidden"
+          },
+          {
+            "expression": "request.operation == 'CREATE' ? (!has(object.metadata.annotations) || size(object.metadata.annotations) == 0) : ((!has(object.metadata.annotations) || object.metadata.annotations.all(k, k in ['cni.projectcalico.org/containerID', 'cni.projectcalico.org/podIP', 'cni.projectcalico.org/podIPs'])) && has(object.metadata.annotations) == has(oldObject.metadata.annotations) && (!has(object.metadata.annotations) || object.metadata.annotations == oldObject.metadata.annotations))",
+            "message": "F01_ANNOTATIONS",
+            "reason": "Forbidden"
+          },
+          {
+            "expression": "!has(variables.s.affinity) && !has(variables.s.ephemeralContainers) && !has(variables.s.hostAliases) && !has(variables.s.hostUsers) && !has(variables.s.hostname) && !has(variables.s.hostnameOverride) && !has(variables.s.imagePullSecrets) && !has(variables.s.initContainers) && !has(variables.s.nodeSelector) && !has(variables.s.overhead) && !has(variables.s.priorityClassName) && !has(variables.s.readinessGates) && !has(variables.s.resourceClaims) && !has(variables.s.resources) && !has(variables.s.schedulingGates) && !has(variables.s.schedulingGroup) && !has(variables.s.setHostnameAsFQDN) && !has(variables.s.shareProcessNamespace) && !has(variables.s.subdomain) && !has(variables.s.topologySpreadConstraints)",
+            "message": "F01_POD_FIELDS",
+            "reason": "Forbidden"
+          },
+          {
+            "expression": "has(variables.s.runtimeClassName) && variables.s.runtimeClassName == \"runsc-f01-kernel-cg-r1\" && has(variables.s.serviceAccountName) && variables.s.serviceAccountName == \"runner\" && has(variables.s.automountServiceAccountToken) && variables.s.automountServiceAccountToken == false && has(variables.s.enableServiceLinks) && variables.s.enableServiceLinks == false && has(variables.s.restartPolicy) && variables.s.restartPolicy == \"Never\" && has(variables.s.activeDeadlineSeconds) && variables.s.activeDeadlineSeconds == 27 && has(variables.s.terminationGracePeriodSeconds) && variables.s.terminationGracePeriodSeconds == 1 && has(variables.s.dnsPolicy) && variables.s.dnsPolicy == \"None\" && has(variables.s.serviceAccount) && variables.s.serviceAccount == 'runner' && has(variables.s.schedulerName) && variables.s.schedulerName == 'default-scheduler' && has(variables.s.preemptionPolicy) && variables.s.preemptionPolicy == 'PreemptLowerPriority' && has(variables.s.priority) && variables.s.priority == 0 && (!has(variables.s.hostNetwork) || !variables.s.hostNetwork) && (!has(variables.s.hostPID) || !variables.s.hostPID) && (!has(variables.s.hostIPC) || !variables.s.hostIPC) && (!has(variables.s.nodeName) || variables.s.nodeName == '' || (request.operation == 'UPDATE' && has(oldObject.spec.nodeName) && variables.s.nodeName == oldObject.spec.nodeName))",
+            "message": "F01_POD_FIXED",
+            "reason": "Forbidden"
+          },
+          {
+            "expression": "has(variables.s.os) && variables.s.os.name == 'linux' && has(variables.s.dnsConfig) && has(variables.s.dnsConfig.nameservers) && variables.s.dnsConfig.nameservers == ['127.0.0.1'] && !has(variables.s.dnsConfig.searches) && !has(variables.s.dnsConfig.options)",
+            "message": "F01_OS_DNS",
+            "reason": "Forbidden"
+          },
+          {
+            "expression": "has(variables.s.tolerations) && size(variables.s.tolerations) == 2 && variables.s.tolerations.all(t, has(t.key) && has(t.operator) && has(t.effect) && has(t.tolerationSeconds) && t.key in ['node.kubernetes.io/not-ready', 'node.kubernetes.io/unreachable'] && t.operator == 'Exists' && (!has(t.value) || t.value == '') && t.effect == 'NoExecute' && t.tolerationSeconds == 300) && variables.s.tolerations[0].key != variables.s.tolerations[1].key",
+            "message": "F01_TOLERATIONS",
+            "reason": "Forbidden"
+          },
+          {
+            "expression": "has(variables.s.securityContext) && (!has(variables.p.appArmorProfile) && !has(variables.p.fsGroupChangePolicy) && !has(variables.p.seLinuxChangePolicy) && !has(variables.p.seLinuxOptions) && !has(variables.p.supplementalGroups) && !has(variables.p.supplementalGroupsPolicy) && !has(variables.p.sysctls) && !has(variables.p.windowsOptions))",
+            "message": "F01_POD_SECURITY_FIELDS",
+            "reason": "Forbidden"
+          },
+          {
+            "expression": "has(variables.s.securityContext) && has(variables.p.runAsNonRoot) && variables.p.runAsNonRoot && has(variables.p.runAsUser) && variables.p.runAsUser == 65532 && has(variables.p.runAsGroup) && variables.p.runAsGroup == 65532 && has(variables.p.fsGroup) && variables.p.fsGroup == 65532 && has(variables.p.seccompProfile) && variables.p.seccompProfile.type == 'RuntimeDefault' && !has(variables.p.seccompProfile.localhostProfile)",
+            "message": "F01_POD_SECURITY",
+            "reason": "Forbidden"
+          },
+          {
+            "expression": "size(variables.s.containers) == 1",
+            "message": "F01_CONTAINER_COUNT",
+            "reason": "Forbidden"
+          },
+          {
+            "expression": "!has(variables.c.env) && !has(variables.c.envFrom) && !has(variables.c.lifecycle) && !has(variables.c.livenessProbe) && !has(variables.c.ports) && !has(variables.c.readinessProbe) && !has(variables.c.resizePolicy) && !has(variables.c.restartPolicy) && !has(variables.c.restartPolicyRules) && !has(variables.c.startupProbe) && !has(variables.c.volumeDevices) && !has(variables.c.workingDir)",
+            "message": "F01_CONTAINER_FIELDS",
+            "reason": "Forbidden"
+          },
+          {
+            "expression": "has(variables.c.name) && variables.c.name == \"fixed-proof\" && has(variables.c.image) && variables.c.image == \"docker.io/library/busybox@sha256:d82c2ab94640ded77cf76514ce6a84870761105058a4a9e51b05a8a79be97a6c\" && has(variables.c.imagePullPolicy) && variables.c.imagePullPolicy == \"Never\" && has(variables.c.command) && has(variables.c.args) && has(object.metadata.labels) && \"ilm.ai/proof\" in object.metadata.labels && ((object.metadata.name == \"f01-a2-memory-control\" && object.metadata.labels[\"ilm.ai/proof\"] == \"a2-v1\" && variables.c.command == [\"/bin/busybox\", \"ash\", \"-c\"] && variables.c.args == [\"# Held fixed accounting body; runtime support remains a prerequisite.\\nset -eu\\nset -f\\numask 077\\nmode=external; init_tag=a2mi; worker_tag=a2mw\\ninit_stat() {\\n IFS= read -r raw < /proc/self/stat || exit 40\\n spid=$${raw%% *}; tail=$${raw##*) }\\n [ \\\"$$tail\\\" != \\\"$$raw\\\" ] || { printf 'INIT_STAT_FAILURE PARSE\\n' >&2 || :; exit 41; }\\n [ \\\"$$spid\\\" = \\\"$$$$\\\" ] || { printf 'INIT_STAT_FAILURE PID\\n' >&2 || :; exit 41; }\\n set -- $$tail\\n [ \\\"$$#\\\" -ge 20 ] || exit 42\\n istart=$${20}; iu=$${12}; is=$${13}\\n for tick in \\\"$$iu\\\" \\\"$$is\\\"; do case \\\"$$tick\\\" in ''|*[!0-9]*) exit 43;; esac; done\\n case \\\"$$istart\\\" in ''|0|*[!0-9]*) exit 43;; esac\\n}\\ninit_stat\\noriginal_start=$$istart\\nIFS= read -r default_init < /proc/self/comm || exit 44\\ncase \\\"$$default_init\\\" in ''|*[!A-Za-z0-9_.-]*) exit 45;; esac\\n[ \\\"$${#default_init}\\\" -le 15 ] || exit 46\\nprintf '%s' \\\"$$init_tag\\\" > /proc/self/comm || exit 47\\nIFS= read -r named_init < /proc/self/comm || exit 48\\n[ \\\"$$named_init\\\" = \\\"$$init_tag\\\" ] || exit 49\\ninit_stat\\n[ \\\"$$istart\\\" = \\\"$$original_start\\\" ] || exit 50\\nprintf 'NAME init %s %s %s %s\\\\n' \\\"$$default_init\\\" \\\"$$init_tag\\\" \\\"$$$$\\\" \\\"$$istart\\\" || exit 51\\n/bin/busybox mkfifo /scratch/f01-accounting-gate /scratch/f01-accounting-ack || exit 52\\nexec 3<> /scratch/f01-accounting-gate || exit 53\\nexec 4<> /scratch/f01-accounting-ack || exit 54\\ncount=0\\non_usr1() {\\n count=$$((count+1))\\n [ \\\"$$count\\\" -le 3 ] || exit 55\\n printf 'NEXT\\\\n' >&3 || exit 56\\n printf 'ACK:%s\\\\n' \\\"$$count\\\" >&4 || exit 57\\n}\\ntrap on_usr1 USR1\\n/bin/busybox awk -v init=\\\"$$$$\\\" -v initStart=\\\"$$istart\\\" -v tag=\\\"$$worker_tag\\\" '\\nfunction die(n) { exit n }\\nfunction identity( raw,tail,n,a,p,start,r) {\\n r=(getline raw < \\\"/proc/self/stat\\\"); close(\\\"/proc/self/stat\\\")\\n if(r!=1) die(60)\\n p=raw; sub(/ .*/,\\\"\\\",p)\\n tail=raw; sub(/^.*\\\\) /,\\\"\\\",tail)\\n n=split(tail,a,\\\" \\\")\\n if(tail==raw || p !~ /^[1-9][0-9]*$$/ || n<20) die(61)\\n start=a[20]; user=a[12]; system_ticks=a[13]\\n if(start !~ /^[1-9][0-9]*$$/ || user !~ /^[0-9]+$$/ || system_ticks !~ /^[0-9]+$$/) die(62)\\n if(length(p)>15 || length(start)>15 || length(user)>15 || length(system_ticks)>15) die(63)\\n if(savedPid!=\\\"\\\" && (p!=savedPid || start!=savedStart)) die(64)\\n savedPid=p; savedStart=start\\n}\\nfunction stat(phase) {\\n identity()\\n printf \\\"STAT %s %s %s %s %s\\\\n\\\",phase,savedPid,savedStart,user,system_ticks; fflush()\\n}\\nfunction gate() {\\n if((getline token)!=1 || token!=\\\"NEXT\\\") die(65)\\n}\\nBEGIN {\\n identity()\\n r=(getline defaultName < \\\"/proc/self/comm\\\"); close(\\\"/proc/self/comm\\\")\\n if(r!=1 || defaultName !~ /^[A-Za-z0-9_.-]+$$/ || length(defaultName)>15) die(66)\\n printf \\\"%s\\\",tag > \\\"/proc/self/comm\\\"\\n if(close(\\\"/proc/self/comm\\\")!=0) die(67)\\n r=(getline named < \\\"/proc/self/comm\\\"); close(\\\"/proc/self/comm\\\")\\n if(r!=1 || named!=tag) die(68)\\n identity()\\n printf \\\"NAME worker %s %s %s %s\\\\n\\\",defaultName,tag,savedPid,savedStart; fflush()\\n for(fd=3;fd<=4;fd++) {\\n  path=\\\"/proc/self/fdinfo/\\\" fd\\n  r=(getline closed < path); close(path)\\n  if(r!=-1) die(69)\\n }\\n seen=0\\n while((r=(getline info < \\\"/proc/self/fdinfo/0\\\"))==1) {\\n  if(info ~ /^flags:[ \\\\t]+/) {\\n   split(info,f); if(f[2] !~ /^[0-7]+$$/ || f[2] !~ /0$$/) die(70)\\n   seen++\\n  }\\n }\\n close(\\\"/proc/self/fdinfo/0\\\")\\n if(r!=0 || seen!=1) die(71)\\n printf \\\"FD_OK readonly0 closed3 closed4\\\\n\\\"; fflush()\\n stat(\\\"READY\\\")\\n printf \\\"READY init=%s start=%s worker=%s workerStart=%s\\\\n\\\",init,initStart,savedPid,savedStart; fflush()\\n gate(); stat(\\\"NO_EFFECT_BEFORE\\\"); stat(\\\"NO_EFFECT_AFTER\\\")\\n printf \\\"NO_EFFECT\\\\n\\\"; fflush()\\n gate(); stat(\\\"EFFECT_BEFORE\\\"); for (i=1; i<=2048; i++) { s=sprintf(\\\"%08x\\\",i); for(j=0;j<9;j++) s=s s; a[i]=s; if(length(a[i])!=4096) die(42) }; stat(\\\"EFFECT_AFTER\\\")\\n printf \\\"EFFECT_HELD\\\\n\\\"; fflush()\\n gate(); identity()\\n printf \\\"WORKER_EXIT 0 %s %s\\\\n\\\",savedPid,savedStart; fflush()\\n exit 0\\n}' < /scratch/f01-accounting-gate 3>&- 4>&- &\\nworker=$$!\\nordinal=1\\nwhile [ \\\"$$ordinal\\\" -le 3 ]; do\\n printf 'INTENT %s %s\\\\n' \\\"$$ordinal\\\" \\\"$$worker\\\" || exit 72\\n\\n attempt=1\\n while :; do\\n  token=\\n  set +e\\n  IFS= read -r token <&4\\n  status=$$?\\n  set -e\\n  case \\\"$$token\\\" in\\n   '') token_kind=EMPTY;;\\n   ACK:1) token_kind=ACK_1;;\\n   ACK:2) token_kind=ACK_2;;\\n   ACK:3) token_kind=ACK_3;;\\n   *) token_kind=OTHER;;\\n  esac\\n  # Bounded raw status/count/category precedes every outcome validation.\\n  printf 'RAW_READ %s %s %s %s\\\\n' \\\"$$ordinal\\\" \\\"$$status\\\" \\\"$$count\\\" \\\"$$token_kind\\\" || exit 77\\n  if [ \\\"$$status\\\" -eq 0 ]; then\\n   [ \\\"$$token\\\" = \\\"ACK:$$ordinal\\\" ] && [ \\\"$$count\\\" -eq \\\"$$ordinal\\\" ] || exit 76\\n   break\\n  fi\\n  # Retain one nonzero/empty read, then require exact ACK0; never resend a signal.\\n  [ \\\"$$mode\\\" = external ] && [ \\\"$$status\\\" -ge 1 ] && [ \\\"$$status\\\" -le 255 ] && [ -z \\\"$$token\\\" ] &&\\n   [ \\\"$$attempt\\\" -eq 1 ] && [ \\\"$$count\\\" -eq \\\"$$ordinal\\\" ] || exit 78\\n  attempt=2\\n done\\n printf 'ACK %s %s\\\\n' \\\"$$ordinal\\\" \\\"$$worker\\\" || exit 80\\n ordinal=$$((ordinal+1))\\ndone\\nset +e\\nwait \\\"$$worker\\\"\\nstatus=$$?\\nset -e\\n[ \\\"$$status\\\" -eq 0 ] && [ \\\"$$count\\\" -eq 3 ] || exit 81\\nprintf 'WAIT_FINAL 0 %s\\\\n' \\\"$$worker\\\" || exit 82\\ninit_stat\\n[ \\\"$$istart\\\" = \\\"$$original_start\\\" ] || exit 83\\nIFS= read -r named_init < /proc/self/comm || exit 84\\n[ \\\"$$named_init\\\" = \\\"$$init_tag\\\" ] || exit 85\\nprintf 'INIT_FINAL %s %s %s\\\\n' \\\"$$$$\\\" \\\"$$istart\\\" \\\"$$init_tag\\\" || exit 86\\nprintf 'RELEASED init=%s start=%s user=%s sys=%s\\\\n' \\\"$$$$\\\" \\\"$$istart\\\" \\\"$$iu\\\" \\\"$$is\\\" || exit 87\\ntoken=\\nset +e\\nIFS= read -r -t 3 token <&3\\nstatus=$$?\\nset -e\\n[ \\\"$$status\\\" -eq 1 ] && [ -z \\\"$$token\\\" ] || exit 88\\nprintf 'HOLD_TIMEOUT rc=1 token=\\\\n' || exit 89\\ninit_stat\\n[ \\\"$$istart\\\" = \\\"$$original_start\\\" ] || exit 90\\nprintf 'HOLD_END init=%s start=%s user=%s sys=%s\\\\n' \\\"$$$$\\\" \\\"$$istart\\\" \\\"$$iu\\\" \\\"$$is\\\" || exit 91\\n\"]) || (object.metadata.name == \"f01-a2-process-limit\" && object.metadata.labels[\"ilm.ai/proof\"] == \"a2-v1\" && variables.c.command == [\"/bin/busybox\", \"ash\", \"-c\"] && variables.c.args == [\"# Fixed one-shot gate; original Pod-start deadline is never reset.\\nset -eu\\nset -f\\numask 077\\ncg_stat() {\\n IFS= read -r cg_raw < /proc/self/stat || exit 100\\n cg_pid=$${cg_raw%% *}; cg_tail=$${cg_raw##*) }\\n [ \\\"$$cg_tail\\\" != \\\"$$cg_raw\\\" ] && [ \\\"$$cg_pid\\\" = \\\"$$$$\\\" ] || exit 101\\n set -- $$cg_tail\\n [ \\\"$$#\\\" -ge 20 ] || exit 102\\n cg_start=$${20}\\n case \\\"$$cg_start\\\" in ''|0|*[!0-9]*) exit 103;; esac\\n}\\ncg_stat\\ncg_original=$$cg_start\\ncg_count=0\\n/bin/busybox mkfifo /scratch/f01-cg-start || exit 104\\nexec 3<> /scratch/f01-cg-start || exit 105\\ncg_release() {\\n cg_count=$$((cg_count+1))\\n [ \\\"$$cg_count\\\" -eq 1 ] || exit 106\\n printf 'GO\\\\n' >&3 || exit 107\\n}\\ntrap cg_release USR1\\nprintf 'CG_READY pid=%s start=%s\\\\n' \\\"$$$$\\\" \\\"$$cg_original\\\" || exit 108\\ncg_token=\\nset +e\\nIFS= read -r -t 16 cg_token <&3\\ncg_rc=$$?\\nset -e\\ncase \\\"$$cg_token\\\" in ''|GO) :;; *) exit 109;; esac\\nprintf 'CG_RAW attempt=1 rc=%s count=%s token=%s\\\\n' \\\"$$cg_rc\\\" \\\"$$cg_count\\\" \\\"$$cg_token\\\" || exit 110\\nif [ \\\"$$cg_rc\\\" -ne 0 ]; then\\n [ -z \\\"$$cg_token\\\" ] && [ \\\"$$cg_count\\\" -eq 1 ] || exit 111\\n set +e\\n IFS= read -r -t 2 cg_token <&3\\n cg_rc=$$?\\n set -e\\n printf 'CG_RAW attempt=2 rc=%s count=%s token=%s\\\\n' \\\"$$cg_rc\\\" \\\"$$cg_count\\\" \\\"$$cg_token\\\" || exit 112\\nfi\\n[ \\\"$$cg_rc\\\" -eq 0 ] && [ \\\"$$cg_token\\\" = GO ] && [ \\\"$$cg_count\\\" -eq 1 ] || exit 113\\ncg_stat\\n[ \\\"$$cg_start\\\" = \\\"$$cg_original\\\" ] || exit 114\\nprintf 'CG_ACK pid=%s start=%s count=1\\\\n' \\\"$$$$\\\" \\\"$$cg_original\\\" || exit 115\\ntrap - USR1\\nexec 3>&-\\n/bin/busybox rm /scratch/f01-cg-start || exit 116\\nprintf 'CG_LOAD_BEGIN\\\\n' || exit 117\\n# BEGIN_FIXED_HIGH_BODY\\nset -eu\\n/bin/busybox mkfifo /scratch/f01-process-gate\\nexec 3<>/scratch/f01-process-gate\\n: > /scratch/f01-process-input\\ni=0\\nwhile [ \\\"$$i\\\" -lt 298 ]; do\\n  i=$$((i+1))\\n  printf '%s\\\\n' \\\"$$i\\\" >> /scratch/f01-process-input\\ndone\\nexec /bin/busybox xargs -r -t -n 1 -P 298 /bin/busybox ash -c 'lines=0; while [ \\\"$$lines\\\" -lt 128 ] && IFS= read -r status_line; do lines=$$((lines+1)); case \\\"$$status_line\\\" in Pid:*|Uid:*|Threads:*) printf \\\"WORKER_STATUS %s\\\\n\\\" \\\"$$status_line\\\";; esac; done < /proc/self/status; printf \\\"CHILD_READY %s\\\\n\\\" \\\"$$1\\\"; IFS= read -r -t 12 token <&3 || :' f01-child < /scratch/f01-process-input\"]) || (object.metadata.name == \"f01-a2-memory-limit\" && object.metadata.labels[\"ilm.ai/proof\"] == \"a2-v1\" && variables.c.command == [\"/bin/busybox\", \"ash\", \"-c\"] && variables.c.args == [\"# Fixed one-shot gate; original Pod-start deadline is never reset.\\nset -eu\\nset -f\\numask 077\\ncg_stat() {\\n IFS= read -r cg_raw < /proc/self/stat || exit 100\\n cg_pid=$${cg_raw%% *}; cg_tail=$${cg_raw##*) }\\n [ \\\"$$cg_tail\\\" != \\\"$$cg_raw\\\" ] && [ \\\"$$cg_pid\\\" = \\\"$$$$\\\" ] || exit 101\\n set -- $$cg_tail\\n [ \\\"$$#\\\" -ge 20 ] || exit 102\\n cg_start=$${20}\\n case \\\"$$cg_start\\\" in ''|0|*[!0-9]*) exit 103;; esac\\n}\\ncg_stat\\ncg_original=$$cg_start\\ncg_count=0\\n/bin/busybox mkfifo /scratch/f01-cg-start || exit 104\\nexec 3<> /scratch/f01-cg-start || exit 105\\ncg_release() {\\n cg_count=$$((cg_count+1))\\n [ \\\"$$cg_count\\\" -eq 1 ] || exit 106\\n printf 'GO\\\\n' >&3 || exit 107\\n}\\ntrap cg_release USR1\\nprintf 'CG_READY pid=%s start=%s\\\\n' \\\"$$$$\\\" \\\"$$cg_original\\\" || exit 108\\ncg_token=\\nset +e\\nIFS= read -r -t 16 cg_token <&3\\ncg_rc=$$?\\nset -e\\ncase \\\"$$cg_token\\\" in ''|GO) :;; *) exit 109;; esac\\nprintf 'CG_RAW attempt=1 rc=%s count=%s token=%s\\\\n' \\\"$$cg_rc\\\" \\\"$$cg_count\\\" \\\"$$cg_token\\\" || exit 110\\nif [ \\\"$$cg_rc\\\" -ne 0 ]; then\\n [ -z \\\"$$cg_token\\\" ] && [ \\\"$$cg_count\\\" -eq 1 ] || exit 111\\n set +e\\n IFS= read -r -t 2 cg_token <&3\\n cg_rc=$$?\\n set -e\\n printf 'CG_RAW attempt=2 rc=%s count=%s token=%s\\\\n' \\\"$$cg_rc\\\" \\\"$$cg_count\\\" \\\"$$cg_token\\\" || exit 112\\nfi\\n[ \\\"$$cg_rc\\\" -eq 0 ] && [ \\\"$$cg_token\\\" = GO ] && [ \\\"$$cg_count\\\" -eq 1 ] || exit 113\\ncg_stat\\n[ \\\"$$cg_start\\\" = \\\"$$cg_original\\\" ] || exit 114\\nprintf 'CG_ACK pid=%s start=%s count=1\\\\n' \\\"$$$$\\\" \\\"$$cg_original\\\" || exit 115\\ntrap - USR1\\nexec 3>&-\\n/bin/busybox rm /scratch/f01-cg-start || exit 116\\nprintf 'CG_LOAD_BEGIN\\\\n' || exit 117\\n# BEGIN_FIXED_HIGH_BODY\\nexec /bin/busybox awk 'BEGIN {\\n  for (i=1; i<=81920; i++) {\\n    s=sprintf(\\\"%08x\\\",i)\\n    for (j=0; j<9; j++) s=s s\\n    a[i]=s\\n    if (length(a[i])!=4096) exit 42\\n    if (i%4096==0) { printf \\\"ALLOCATED_PAYLOAD_BYTES %d\\\\n\\\",i*4096; fflush() }\\n  }\\n  printf \\\"ALLOCATION_COMPLETED %d\\\\n\\\",81920*4096; fflush()\\n  system(\\\"/bin/busybox sleep 3\\\")\\n}'\"]) || (object.metadata.name == \"f01-a2-cpu-deadline\" && object.metadata.labels[\"ilm.ai/proof\"] == \"a2-v1\" && variables.c.command == [\"/bin/busybox\", \"ash\", \"-c\"] && variables.c.args == [\"# Fixed one-shot gate; original Pod-start deadline is never reset.\\nset -eu\\nset -f\\numask 077\\ncg_stat() {\\n IFS= read -r cg_raw < /proc/self/stat || exit 100\\n cg_pid=$${cg_raw%% *}; cg_tail=$${cg_raw##*) }\\n [ \\\"$$cg_tail\\\" != \\\"$$cg_raw\\\" ] && [ \\\"$$cg_pid\\\" = \\\"$$$$\\\" ] || exit 101\\n set -- $$cg_tail\\n [ \\\"$$#\\\" -ge 20 ] || exit 102\\n cg_start=$${20}\\n case \\\"$$cg_start\\\" in ''|0|*[!0-9]*) exit 103;; esac\\n}\\ncg_stat\\ncg_original=$$cg_start\\ncg_count=0\\n/bin/busybox mkfifo /scratch/f01-cg-start || exit 104\\nexec 3<> /scratch/f01-cg-start || exit 105\\ncg_release() {\\n cg_count=$$((cg_count+1))\\n [ \\\"$$cg_count\\\" -eq 1 ] || exit 106\\n printf 'GO\\\\n' >&3 || exit 107\\n}\\ntrap cg_release USR1\\nprintf 'CG_READY pid=%s start=%s\\\\n' \\\"$$$$\\\" \\\"$$cg_original\\\" || exit 108\\ncg_token=\\nset +e\\nIFS= read -r -t 16 cg_token <&3\\ncg_rc=$$?\\nset -e\\ncase \\\"$$cg_token\\\" in ''|GO) :;; *) exit 109;; esac\\nprintf 'CG_RAW attempt=1 rc=%s count=%s token=%s\\\\n' \\\"$$cg_rc\\\" \\\"$$cg_count\\\" \\\"$$cg_token\\\" || exit 110\\nif [ \\\"$$cg_rc\\\" -ne 0 ]; then\\n [ -z \\\"$$cg_token\\\" ] && [ \\\"$$cg_count\\\" -eq 1 ] || exit 111\\n set +e\\n IFS= read -r -t 2 cg_token <&3\\n cg_rc=$$?\\n set -e\\n printf 'CG_RAW attempt=2 rc=%s count=%s token=%s\\\\n' \\\"$$cg_rc\\\" \\\"$$cg_count\\\" \\\"$$cg_token\\\" || exit 112\\nfi\\n[ \\\"$$cg_rc\\\" -eq 0 ] && [ \\\"$$cg_token\\\" = GO ] && [ \\\"$$cg_count\\\" -eq 1 ] || exit 113\\ncg_stat\\n[ \\\"$$cg_start\\\" = \\\"$$cg_original\\\" ] || exit 114\\nprintf 'CG_ACK pid=%s start=%s count=1\\\\n' \\\"$$$$\\\" \\\"$$cg_original\\\" || exit 115\\ntrap - USR1\\nexec 3>&-\\n/bin/busybox rm /scratch/f01-cg-start || exit 116\\nprintf 'CG_LOAD_BEGIN\\\\n' || exit 117\\n# BEGIN_FIXED_HIGH_BODY\\nset +e\\nprintf 'CPU_BEGIN\\\\n'\\n/bin/busybox timeout -s KILL 10 /bin/busybox awk 'BEGIN { x=0; for (i=0; i<100000000; i++) x=(x+i)%104729; print x }'\\nrc=$$?\\nprintf 'CPU_END %s\\\\n' \\\"$$rc\\\"\\nexec /bin/busybox sleep 60\"]) || (object.metadata.name == \"f01-a2-scratch-a\" && object.metadata.labels[\"ilm.ai/proof\"] == \"a2-v1\" && variables.c.command == [\"/bin/busybox\", \"ash\", \"-c\"] && variables.c.args == [\"# Fixed one-shot gate; original Pod-start deadline is never reset.\\nset -eu\\nset -f\\numask 077\\ncg_stat() {\\n IFS= read -r cg_raw < /proc/self/stat || exit 100\\n cg_pid=$${cg_raw%% *}; cg_tail=$${cg_raw##*) }\\n [ \\\"$$cg_tail\\\" != \\\"$$cg_raw\\\" ] && [ \\\"$$cg_pid\\\" = \\\"$$$$\\\" ] || exit 101\\n set -- $$cg_tail\\n [ \\\"$$#\\\" -ge 20 ] || exit 102\\n cg_start=$${20}\\n case \\\"$$cg_start\\\" in ''|0|*[!0-9]*) exit 103;; esac\\n}\\ncg_stat\\ncg_original=$$cg_start\\ncg_count=0\\n/bin/busybox mkfifo /scratch/f01-cg-start || exit 104\\nexec 3<> /scratch/f01-cg-start || exit 105\\ncg_release() {\\n cg_count=$$((cg_count+1))\\n [ \\\"$$cg_count\\\" -eq 1 ] || exit 106\\n printf 'GO\\\\n' >&3 || exit 107\\n}\\ntrap cg_release USR1\\nprintf 'CG_READY pid=%s start=%s\\\\n' \\\"$$$$\\\" \\\"$$cg_original\\\" || exit 108\\ncg_token=\\nset +e\\nIFS= read -r -t 16 cg_token <&3\\ncg_rc=$$?\\nset -e\\ncase \\\"$$cg_token\\\" in ''|GO) :;; *) exit 109;; esac\\nprintf 'CG_RAW attempt=1 rc=%s count=%s token=%s\\\\n' \\\"$$cg_rc\\\" \\\"$$cg_count\\\" \\\"$$cg_token\\\" || exit 110\\nif [ \\\"$$cg_rc\\\" -ne 0 ]; then\\n [ -z \\\"$$cg_token\\\" ] && [ \\\"$$cg_count\\\" -eq 1 ] || exit 111\\n set +e\\n IFS= read -r -t 2 cg_token <&3\\n cg_rc=$$?\\n set -e\\n printf 'CG_RAW attempt=2 rc=%s count=%s token=%s\\\\n' \\\"$$cg_rc\\\" \\\"$$cg_count\\\" \\\"$$cg_token\\\" || exit 112\\nfi\\n[ \\\"$$cg_rc\\\" -eq 0 ] && [ \\\"$$cg_token\\\" = GO ] && [ \\\"$$cg_count\\\" -eq 1 ] || exit 113\\ncg_stat\\n[ \\\"$$cg_start\\\" = \\\"$$cg_original\\\" ] || exit 114\\nprintf 'CG_ACK pid=%s start=%s count=1\\\\n' \\\"$$$$\\\" \\\"$$cg_original\\\" || exit 115\\ntrap - USR1\\nexec 3>&-\\n/bin/busybox rm /scratch/f01-cg-start || exit 116\\nprintf 'CG_LOAD_BEGIN\\\\n' || exit 117\\n# BEGIN_FIXED_HIGH_BODY\\nset -eu\\n: > /scratch/f01-a2-marker\\n/bin/busybox dd if=/dev/zero of=/scratch/f01-scratch-control bs=1048576 count=1\\n[ -f /tmp/f01-scratch-control ]\\n/bin/busybox stat -c 'CONTROL_BYTES %s' /tmp/f01-scratch-control\\n/bin/busybox rm /scratch/f01-scratch-control\\nset +e\\n/bin/busybox dd if=/dev/zero of=/scratch/f01-scratch-fill bs=1048576 count=20\\nrc=$$?\\nset -e\\nprintf 'SCRATCH_DD_RC %s\\\\n' \\\"$$rc\\\"\\n/bin/busybox stat -c 'FILL_BYTES %s' /scratch/f01-scratch-fill\\n/bin/busybox stat -c 'ALIAS_BYTES %s' /tmp/f01-scratch-fill\\n/bin/busybox sleep 3\\n/bin/busybox rm /scratch/f01-scratch-fill\\nprintf 'SCRATCH_RELEASED\\\\n'\"]) || (object.metadata.name == \"f01-a2-scratch-b\" && object.metadata.labels[\"ilm.ai/proof\"] == \"a2-v1\" && variables.c.command == [\"/bin/busybox\", \"ash\", \"-c\"] && variables.c.args == [\"# Fixed one-shot gate; original Pod-start deadline is never reset.\\nset -eu\\nset -f\\numask 077\\ncg_stat() {\\n IFS= read -r cg_raw < /proc/self/stat || exit 100\\n cg_pid=$${cg_raw%% *}; cg_tail=$${cg_raw##*) }\\n [ \\\"$$cg_tail\\\" != \\\"$$cg_raw\\\" ] && [ \\\"$$cg_pid\\\" = \\\"$$$$\\\" ] || exit 101\\n set -- $$cg_tail\\n [ \\\"$$#\\\" -ge 20 ] || exit 102\\n cg_start=$${20}\\n case \\\"$$cg_start\\\" in ''|0|*[!0-9]*) exit 103;; esac\\n}\\ncg_stat\\ncg_original=$$cg_start\\ncg_count=0\\n/bin/busybox mkfifo /scratch/f01-cg-start || exit 104\\nexec 3<> /scratch/f01-cg-start || exit 105\\ncg_release() {\\n cg_count=$$((cg_count+1))\\n [ \\\"$$cg_count\\\" -eq 1 ] || exit 106\\n printf 'GO\\\\n' >&3 || exit 107\\n}\\ntrap cg_release USR1\\nprintf 'CG_READY pid=%s start=%s\\\\n' \\\"$$$$\\\" \\\"$$cg_original\\\" || exit 108\\ncg_token=\\nset +e\\nIFS= read -r -t 16 cg_token <&3\\ncg_rc=$$?\\nset -e\\ncase \\\"$$cg_token\\\" in ''|GO) :;; *) exit 109;; esac\\nprintf 'CG_RAW attempt=1 rc=%s count=%s token=%s\\\\n' \\\"$$cg_rc\\\" \\\"$$cg_count\\\" \\\"$$cg_token\\\" || exit 110\\nif [ \\\"$$cg_rc\\\" -ne 0 ]; then\\n [ -z \\\"$$cg_token\\\" ] && [ \\\"$$cg_count\\\" -eq 1 ] || exit 111\\n set +e\\n IFS= read -r -t 2 cg_token <&3\\n cg_rc=$$?\\n set -e\\n printf 'CG_RAW attempt=2 rc=%s count=%s token=%s\\\\n' \\\"$$cg_rc\\\" \\\"$$cg_count\\\" \\\"$$cg_token\\\" || exit 112\\nfi\\n[ \\\"$$cg_rc\\\" -eq 0 ] && [ \\\"$$cg_token\\\" = GO ] && [ \\\"$$cg_count\\\" -eq 1 ] || exit 113\\ncg_stat\\n[ \\\"$$cg_start\\\" = \\\"$$cg_original\\\" ] || exit 114\\nprintf 'CG_ACK pid=%s start=%s count=1\\\\n' \\\"$$$$\\\" \\\"$$cg_original\\\" || exit 115\\ntrap - USR1\\nexec 3>&-\\n/bin/busybox rm /scratch/f01-cg-start || exit 116\\nprintf 'CG_LOAD_BEGIN\\\\n' || exit 117\\n# BEGIN_FIXED_HIGH_BODY\\nset -eu\\n[ ! -e /scratch/f01-a2-marker ]\\nprintf \\\"PREVIOUS_MARKER_ABSENT\\\\n\\\"\\n/bin/busybox dd if=/dev/zero of=/scratch/f01-scratch-control bs=1048576 count=1\\n[ -f /tmp/f01-scratch-control ]\\n/bin/busybox stat -c 'CONTROL_BYTES %s' /tmp/f01-scratch-control\\n/bin/busybox rm /scratch/f01-scratch-control\\nset +e\\n/bin/busybox dd if=/dev/zero of=/tmp/f01-scratch-fill bs=1048576 count=20\\nrc=$$?\\nset -e\\nprintf 'SCRATCH_DD_RC %s\\\\n' \\\"$$rc\\\"\\n/bin/busybox stat -c 'FILL_BYTES %s' /scratch/f01-scratch-fill\\n/bin/busybox stat -c 'ALIAS_BYTES %s' /tmp/f01-scratch-fill\\n/bin/busybox sleep 3\\n/bin/busybox rm /scratch/f01-scratch-fill\\nprintf 'SCRATCH_RELEASED\\\\n'\"])) && has(variables.c.terminationMessagePath) && variables.c.terminationMessagePath == '/dev/termination-log' && has(variables.c.terminationMessagePolicy) && variables.c.terminationMessagePolicy == 'File' && (!has(variables.c.stdin) || !variables.c.stdin) && (!has(variables.c.stdinOnce) || !variables.c.stdinOnce) && (!has(variables.c.tty) || !variables.c.tty)",
+            "message": "F01_EXECUTABLE",
+            "reason": "Forbidden"
+          },
+          {
+            "expression": "has(variables.c.securityContext) && (!has(variables.sc.appArmorProfile) && !has(variables.sc.procMount) && !has(variables.sc.runAsGroup) && !has(variables.sc.runAsNonRoot) && !has(variables.sc.runAsUser) && !has(variables.sc.seLinuxOptions) && !has(variables.sc.seccompProfile) && !has(variables.sc.windowsOptions))",
+            "message": "F01_CONTAINER_SECURITY_FIELDS",
+            "reason": "Forbidden"
+          },
+          {
+            "expression": "has(variables.c.securityContext) && has(variables.sc.allowPrivilegeEscalation) && !variables.sc.allowPrivilegeEscalation && has(variables.sc.readOnlyRootFilesystem) && variables.sc.readOnlyRootFilesystem && (!has(variables.sc.privileged) || !variables.sc.privileged) && has(variables.sc.capabilities) && has(variables.sc.capabilities.drop) && variables.sc.capabilities.drop == ['ALL'] && (!has(variables.sc.capabilities.add) || size(variables.sc.capabilities.add) == 0)",
+            "message": "F01_CONTAINER_SECURITY",
+            "reason": "Forbidden"
+          },
+          {
+            "expression": "has(variables.c.resources) && !has(variables.c.resources.claims) && has(variables.c.resources.requests) && has(variables.c.resources.limits) && size(variables.c.resources.requests) == 3 && size(variables.c.resources.limits) == 3 && ['cpu','memory','ephemeral-storage'].all(k, k in variables.c.resources.requests && k in variables.c.resources.limits)",
+            "message": "F01_RESOURCE_KEYS",
+            "reason": "Forbidden"
+          },
+          {
+            "expression": "has(variables.c.resources) && has(variables.c.resources.requests) && has(variables.c.resources.limits) && ['cpu','memory','ephemeral-storage'].all(k, k in variables.c.resources.requests && k in variables.c.resources.limits) && (quantity(variables.c.resources.requests['cpu']).compareTo(quantity('100m')) == 0 && quantity(variables.c.resources.requests['memory']).compareTo(quantity('64Mi')) == 0 && quantity(variables.c.resources.requests['ephemeral-storage']).compareTo(quantity('16Mi')) == 0 && quantity(variables.c.resources.limits['cpu']).compareTo(quantity('500m')) == 0 && quantity(variables.c.resources.limits['memory']).compareTo(quantity('256Mi')) == 0 && quantity(variables.c.resources.limits['ephemeral-storage']).compareTo(quantity('32Mi')) == 0)",
+            "message": "F01_RESOURCES",
+            "reason": "Forbidden"
+          },
+          {
+            "expression": "has(variables.s.volumes) && size(variables.s.volumes) == 1 && variables.s.volumes[0].name == 'scratch' && has(variables.s.volumes[0].emptyDir) && has(variables.s.volumes[0].emptyDir.medium) && variables.s.volumes[0].emptyDir.medium == 'Memory' && has(variables.s.volumes[0].emptyDir.sizeLimit) && quantity(variables.s.volumes[0].emptyDir.sizeLimit).compareTo(quantity('16Mi')) == 0 && !has(variables.s.volumes[0].awsElasticBlockStore) && !has(variables.s.volumes[0].azureDisk) && !has(variables.s.volumes[0].azureFile) && !has(variables.s.volumes[0].cephfs) && !has(variables.s.volumes[0].cinder) && !has(variables.s.volumes[0].configMap) && !has(variables.s.volumes[0].csi) && !has(variables.s.volumes[0].downwardAPI) && !has(variables.s.volumes[0].ephemeral) && !has(variables.s.volumes[0].fc) && !has(variables.s.volumes[0].flexVolume) && !has(variables.s.volumes[0].flocker) && !has(variables.s.volumes[0].gcePersistentDisk) && !has(variables.s.volumes[0].gitRepo) && !has(variables.s.volumes[0].glusterfs) && !has(variables.s.volumes[0].hostPath) && !has(variables.s.volumes[0].image) && !has(variables.s.volumes[0].iscsi) && !has(variables.s.volumes[0].nfs) && !has(variables.s.volumes[0].persistentVolumeClaim) && !has(variables.s.volumes[0].photonPersistentDisk) && !has(variables.s.volumes[0].portworxVolume) && !has(variables.s.volumes[0].projected) && !has(variables.s.volumes[0].quobyte) && !has(variables.s.volumes[0].rbd) && !has(variables.s.volumes[0].scaleIO) && !has(variables.s.volumes[0].secret) && !has(variables.s.volumes[0].storageos) && !has(variables.s.volumes[0].vsphereVolume)",
+            "message": "F01_SCRATCH",
+            "reason": "Forbidden"
+          },
+          {
+            "expression": "has(variables.c.volumeMounts) && size(variables.c.volumeMounts) == 2 && variables.c.volumeMounts.all(m, m.name == 'scratch' && m.mountPath in ['/scratch','/tmp'] && (!has(m.readOnly) || !m.readOnly) && !has(m.mountPropagation) && !has(m.recursiveReadOnly) && !has(m.subPath) && !has(m.subPathExpr)) && variables.c.volumeMounts[0].mountPath != variables.c.volumeMounts[1].mountPath",
+            "message": "F01_MOUNTS",
+            "reason": "Forbidden"
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "admissionregistration.k8s.io/v1",
+      "kind": "ValidatingAdmissionPolicyBinding",
+      "metadata": {
+        "name": "f01-kernel-cg-r1"
+      },
+      "spec": {
+        "policyName": "f01-kernel-cg-r1",
+        "validationActions": [
+          "Deny"
+        ],
+        "matchResources": {
+          "namespaceSelector": {
+            "matchLabels": {
+              "kubernetes.io/metadata.name": "ilm-resource-sec-r1"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+[
+  {
+    "op": "add",
+    "path": "/spec/containers/0/resources/limits/memory",
+    "value": "257Mi"
+  }
+]

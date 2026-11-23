@@ -206,7 +206,13 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      # Both goals are bound to verify in the parent POM, and no job here goes past package,
+      - name: Install AI runtime components
+        if: hashFiles('ai-runtime/pom.xml') != ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: mvn -B -U -ntp -f ai-runtime/pom.xml install -DskipTests
+
+      # Both goals are bound to verify in the parent POM, and no Core job here goes past package,
       # so without this the gates would never run on a PR. Neither goal needs compiled output,
       # so this is a fast job independent of the compile/test chain.
       - name: Check formatting and lint
@@ -229,6 +235,12 @@ jobs:
           java-version: 21
           distribution: 'temurin'
           cache: maven
+
+      - name: Install AI runtime components
+        if: hashFiles('ai-runtime/pom.xml') != ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: mvn -B -U -ntp -f ai-runtime/pom.xml install -DskipTests
 
       - name: Compile
         env:
@@ -303,6 +315,12 @@ jobs:
       - name: Extract compiled output
         run: tar -xzf compiled.tar.gz
 
+      - name: Install AI runtime components
+        if: hashFiles('ai-runtime/pom.xml') != ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: mvn -B -U -ntp -f ai-runtime/pom.xml install -DskipTests
+
       - name: Run ${{ matrix.group }} tests
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
@@ -365,6 +383,25 @@ jobs:
             cp "$file" "jacoco-partial/jacoco-$group.exec"
           done
 
+      - name: Set up Python 3.12
+        if: hashFiles('ai-runtime/proof/f01/resources/v1/tests/requirements.txt') != ''
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Check runtime proof Python
+        if: hashFiles('ai-runtime/proof/f01/resources/v1/tests/requirements.txt') != ''
+        run: |
+          python -I -m pip install --disable-pip-version-check -r ai-runtime/proof/f01/resources/v1/tests/requirements.txt
+          python -I -B -m coverage run --rcfile=.coveragerc -m unittest discover -s ai-runtime/proof/f01/resources/v1/tests -p 'test_*.py'
+          python -I -B -m coverage run --append --rcfile=.coveragerc -m unittest discover -s ai-runtime/proof/f01/resources/kernel-v1/tests -p 'test_*.py'
+          python -I -B -m coverage report --rcfile=.coveragerc
+          python -I -B -m coverage xml --rcfile=.coveragerc -o target/coverage/python.xml
+      - name: Verify and install AI runtime contracts
+        if: hashFiles('ai-runtime/pom.xml') != ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: mvn -B -U -ntp -f ai-runtime/pom.xml install
+
       - name: Merge coverage, generate report, and package
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
@@ -374,6 +411,115 @@ jobs:
           mvn -B -U -ntp -Pmerge-coverage
           jar:jar@default-jar spring-boot:repackage@repackage
           jacoco:merge@merge-results jacoco:report@report "$MVNARG"
+
+      - name: Check AI runtime analysis output
+        if: hashFiles('ai-runtime/pom.xml') != ''
+        run: |
+          test -d ai-runtime/ai-runtime-protocol/target/classes
+          test -d ai-runtime/ai-runtime-protocol/target/test-classes
+          test -s ai-runtime/ai-runtime-protocol/target/site/jacoco/jacoco.xml
+
+      - name: Upload AI runtime analysis output
+        if: hashFiles('ai-runtime/pom.xml') != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ai-runtime-analysis
+          path: |
+            ai-runtime/ai-runtime-protocol/target/classes
+            ai-runtime/ai-runtime-protocol/target/test-classes
+            ai-runtime/ai-runtime-protocol/target/site/jacoco/jacoco.xml
+            ai-runtime/ai-runtime-protocol/target/ai-runtime-protocol-*.jar
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Check gateway analysis output
+        if: hashFiles('ai-runtime/ai-connector-gateway/pom.xml') != ''
+        run: |
+          test -d ai-runtime/ai-connector-gateway/target/classes
+          test -d ai-runtime/ai-connector-gateway/target/test-classes
+          test -s ai-runtime/ai-connector-gateway/target/site/jacoco/jacoco.xml
+
+      - name: Upload gateway analysis output
+        if: hashFiles('ai-runtime/ai-connector-gateway/pom.xml') != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ai-gateway-analysis
+          path: |
+            ai-runtime/ai-connector-gateway/target/classes
+            ai-runtime/ai-connector-gateway/target/test-classes
+            ai-runtime/ai-connector-gateway/target/site/jacoco/jacoco.xml
+            ai-runtime/ai-connector-gateway/target/ai-connector-gateway-*.jar
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Check confined proxy analysis output
+        if: hashFiles('ai-runtime/ai-runtime-proxy/pom.xml') != ''
+        run: |
+          test -d ai-runtime/ai-runtime-proxy/target/classes
+          test -d ai-runtime/ai-runtime-proxy/target/test-classes
+          test -s ai-runtime/ai-runtime-proxy/target/site/jacoco/jacoco.xml
+
+      - name: Upload confined proxy analysis output
+        if: hashFiles('ai-runtime/ai-runtime-proxy/pom.xml') != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ai-proxy-analysis
+          path: |
+            ai-runtime/ai-runtime-proxy/target/classes
+            ai-runtime/ai-runtime-proxy/target/test-classes
+            ai-runtime/ai-runtime-proxy/target/site/jacoco/jacoco.xml
+            ai-runtime/ai-runtime-proxy/target/ai-runtime-proxy-*.jar
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Check runner analysis output
+        if: hashFiles('ai-runtime/ai-runner/pom.xml') != ''
+        run: |
+          test -d ai-runtime/ai-runner/target/classes
+          test -d ai-runtime/ai-runner/target/test-classes
+          test -s ai-runtime/ai-runner/target/site/jacoco/jacoco.xml
+
+      - name: Upload runner analysis output
+        if: hashFiles('ai-runtime/ai-runner/pom.xml') != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ai-runner-analysis
+          path: |
+            ai-runtime/ai-runner/target/classes
+            ai-runtime/ai-runner/target/test-classes
+            ai-runtime/ai-runner/target/site/jacoco/jacoco.xml
+            ai-runtime/ai-runner/target/ai-runner-*.jar
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Check controller analysis output
+        if: hashFiles('ai-runtime/ai-controller/pom.xml') != ''
+        run: |
+          test -d ai-runtime/ai-controller/target/classes
+          test -d ai-runtime/ai-controller/target/test-classes
+          test -s ai-runtime/ai-controller/target/site/jacoco/jacoco.xml
+
+      - name: Upload controller analysis output
+        if: hashFiles('ai-runtime/ai-controller/pom.xml') != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ai-controller-analysis
+          path: |
+            ai-runtime/ai-controller/target/classes
+            ai-runtime/ai-controller/target/test-classes
+            ai-runtime/ai-controller/target/site/jacoco/jacoco.xml
+            ai-runtime/ai-controller/target/ai-controller-*.jar
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload runtime proof Python coverage
+        if: hashFiles('ai-runtime/proof/f01/resources/v1/tests/requirements.txt') != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ai-runtime-python-coverage
+          path: target/coverage/python.xml
+          if-no-files-found: error
+          retention-days: 7
 
       # Write PR number to file
       - name: Write PR number to file
@@ -391,7 +537,10 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: compiled-classes
-          path: target/classes
+          path: |
+            target/classes
+            target/test-classes
+          if-no-files-found: error
 
       # Upload Jacoco XML report(s)
       - name: Upload Coverage Reports
@@ -463,6 +612,12 @@ jobs:
           java-version: 21
           distribution: 'temurin'
           cache: maven
+
+      - name: Install AI runtime components
+        if: hashFiles('ai-runtime/pom.xml') != ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: mvn -B -U -ntp -f ai-runtime/pom.xml install -DskipTests
 
       # cbom/corpus-keys.tsv is the second committed artifact of the identity chain: every identity key
       # the extractor produces for the authored documents under src/test/resources/cbom/corpus. It

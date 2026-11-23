@@ -48,8 +48,12 @@ jobs:
   sonar:
     name: Sonar
     needs: gate
-    if: needs.gate.outputs.analyse == 'true'
+    if: needs.gate.outputs.analyse == 'true' && github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
     timeout-minutes: 30
     steps:
       # Download the PR number artifact
@@ -63,7 +67,7 @@ jobs:
       # Read the PR number from the file and store it in 'steps.pr_number.outputs.content'
       - name: Read PR number from file
         id: pr_number
-        run: echo "content=$(cat pr-number.txt)" >> $GITHUB_OUTPUT
+        run: echo "content=$(cat pr-number.txt)" >> "$GITHUB_OUTPUT"
       # Request GitHub API for PR data
       - name: Request GitHub API for PR data
         if: github.event.workflow_run.event == 'pull_request'
@@ -73,17 +77,12 @@ jobs:
           route: GET /repos/${{ github.event.repository.full_name }}/pulls/${{ steps.pr_number.outputs.content }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      # allow-unsafe-pr-checkout re-enables fork-PR checkout, refused by default
-      # from workflow_run since checkout v6.1.0. Accepted only until the scan moves
-      # to the sonar-scanner CLI, because the mvn step below executes the fork's
-      # pom with SONAR_TOKEN in scope. Pinned to head_sha rather than the
-      # fork-writable branch ref, so the tree matches the PR data read above.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ github.event.workflow_run.head_repository.full_name }}
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
-          allow-unsafe-pr-checkout: true
+          persist-credentials: false
       # Checkout the base branch to keep the information about the new lines of code
       - name: Checkout base branch
         if: github.event.workflow_run.event == 'pull_request'
@@ -106,7 +105,7 @@ jobs:
           name: compiled-classes
           github-token: ${{ secrets.GITHUB_TOKEN }}
           run-id: ${{ github.event.workflow_run.id }}
-          path: target/classes
+          path: target
       # Download Jacoco XML coverage files
       - name: Download Coverage Reports
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -115,17 +114,119 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           run-id: ${{ github.event.workflow_run.id }}
           path: target/site/jacoco
+      - name: Download AI runtime analysis output
+        if: hashFiles('ai-runtime/pom.xml') != ''
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ai-runtime-analysis
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+          path: ai-runtime/ai-runtime-protocol/target
+      - name: Download gateway analysis output
+        if: hashFiles('ai-runtime/ai-connector-gateway/pom.xml') != ''
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ai-gateway-analysis
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+          path: ai-runtime/ai-connector-gateway/target
+      - name: Download confined proxy analysis output
+        if: hashFiles('ai-runtime/ai-runtime-proxy/pom.xml') != ''
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ai-proxy-analysis
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+          path: ai-runtime/ai-runtime-proxy/target
+      - name: Download runner analysis output
+        if: hashFiles('ai-runtime/ai-runner/pom.xml') != ''
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ai-runner-analysis
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+          path: ai-runtime/ai-runner/target
+      - name: Download controller analysis output
+        if: hashFiles('ai-runtime/ai-controller/pom.xml') != ''
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ai-controller-analysis
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+          path: ai-runtime/ai-controller/target
+      - name: Download runtime proof Python coverage
+        if: hashFiles('ai-runtime/proof/f01/resources/v1/tests/requirements.txt') != ''
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ai-runtime-python-coverage
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+          path: target/coverage
+      - name: Check runtime proof Python coverage
+        if: hashFiles('ai-runtime/proof/f01/resources/v1/tests/requirements.txt') != ''
+        run: test -s target/coverage/python.xml
+
+      - name: Check analysis output
+        run: |
+          test -d target/classes
+          test -d target/test-classes
+          test -s target/site/jacoco/jacoco.xml
+
+      - name: Check AI runtime analysis output
+        if: hashFiles('ai-runtime/pom.xml') != ''
+        run: |
+          test -d ai-runtime/ai-runtime-protocol/target/classes
+          test -d ai-runtime/ai-runtime-protocol/target/test-classes
+          test -s ai-runtime/ai-runtime-protocol/target/site/jacoco/jacoco.xml
+          set -- ai-runtime/ai-runtime-protocol/target/ai-runtime-protocol-*.jar
+          test "$#" -eq 1
+          test -s "$1"
+      - name: Check gateway analysis output
+        if: hashFiles('ai-runtime/ai-connector-gateway/pom.xml') != ''
+        run: |
+          test -d ai-runtime/ai-connector-gateway/target/classes
+          test -d ai-runtime/ai-connector-gateway/target/test-classes
+          test -s ai-runtime/ai-connector-gateway/target/site/jacoco/jacoco.xml
+          set -- ai-runtime/ai-connector-gateway/target/ai-connector-gateway-*.jar
+          test "$#" -eq 1
+          test -s "$1"
+      - name: Check confined proxy analysis output
+        if: hashFiles('ai-runtime/ai-runtime-proxy/pom.xml') != ''
+        run: |
+          test -d ai-runtime/ai-runtime-proxy/target/classes
+          test -d ai-runtime/ai-runtime-proxy/target/test-classes
+          test -s ai-runtime/ai-runtime-proxy/target/site/jacoco/jacoco.xml
+          set -- ai-runtime/ai-runtime-proxy/target/ai-runtime-proxy-*.jar
+          test "$#" -eq 1
+          test -s "$1"
+      - name: Check runner analysis output
+        if: hashFiles('ai-runtime/ai-runner/pom.xml') != ''
+        run: |
+          test -d ai-runtime/ai-runner/target/classes
+          test -d ai-runtime/ai-runner/target/test-classes
+          test -s ai-runtime/ai-runner/target/site/jacoco/jacoco.xml
+          set -- ai-runtime/ai-runner/target/ai-runner-*.jar
+          test "$#" -eq 1
+          test -s "$1"
+      - name: Check controller analysis output
+        if: hashFiles('ai-runtime/ai-controller/pom.xml') != ''
+        run: |
+          test -d ai-runtime/ai-controller/target/classes
+          test -d ai-runtime/ai-controller/target/test-classes
+          test -s ai-runtime/ai-controller/target/site/jacoco/jacoco.xml
+          set -- ai-runtime/ai-controller/target/ai-controller-*.jar
+          test "$#" -eq 1
+          test -s "$1"
       - name: Set up JDK 21
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           java-version: 21
           distribution: 'temurin'
-          cache: maven
       - name: Compute cache month
         id: cache-month
         run: echo "yearmonth=$(date +%Y-%m)" >> "$GITHUB_OUTPUT"
       - name: Cache SonarCloud packages
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.sonar/cache
           key: ${{ runner.os }}-sonar-${{ steps.cache-month.outputs.yearmonth }}
@@ -143,15 +244,24 @@ jobs:
           run-id: ${{ github.event.workflow_run.id }}
           path: ${{ runner.temp }}/mvnarg
 
-      # SonarCloud Scan analysis and push
-      - name: SonarCloud Scan
+      - name: Install analyzed AI runtime artifacts
+        if: hashFiles('ai-runtime/pom.xml') != ''
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_REVISION: ${{ github.event.workflow_run.head_sha }}
-          SONAR_PR_KEY: ${{ fromJson(steps.get_pr_data.outputs.data).number }}
-          SONAR_PR_BRANCH: ${{ fromJson(steps.get_pr_data.outputs.data).head.ref }}
-          SONAR_PR_BASE: ${{ fromJson(steps.get_pr_data.outputs.data).base.ref }}
+        run: |
+          mvn -B -ntp -f ai-runtime/pom.xml -N install
+          for module in ai-runtime-protocol ai-connector-gateway ai-runtime-proxy ai-runner ai-controller; do
+            set -- "$GITHUB_WORKSPACE/ai-runtime/$module/target/$module-"*.jar
+            test "$#" -eq 1
+            test -s "$1"
+            mvn -B -ntp -f ai-runtime/pom.xml -N org.apache.maven.plugins:maven-install-plugin:3.1.4:install-file \
+              -Dfile="$1" \
+              -DpomFile="$GITHUB_WORKSPACE/ai-runtime/$module/pom.xml"
+          done
+
+      - name: Resolve Sonar test libraries
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           # A missing artifact means analysing against a classpath the classes
@@ -166,7 +276,37 @@ jobs:
             echo "::error::Invalid Interfaces version argument from Build PR."
             exit 1
           fi
+          CLASSPATH_FILE="$RUNNER_TEMP/sonar-test-dependencies.txt"
+          mvn -B -ntp org.apache.maven.plugins:maven-dependency-plugin:3.9.0:build-classpath ${MVNARG:+"$MVNARG"} \
+            -DincludeScope=test \
+            -Dmdep.pathSeparator=, \
+            -Dmdep.regenerateFile=true \
+            -Dmdep.outputFile="$CLASSPATH_FILE"
+          test -s "$CLASSPATH_FILE"
+          SONAR_TEST_LIBRARIES="$GITHUB_WORKSPACE/target/classes,$(cat "$CLASSPATH_FILE")"
+          if [ -f ai-runtime/pom.xml ]; then
+            for module in ai-connector-gateway ai-runner; do
+              test -d "ai-runtime/$module/target/classes"
+              SONAR_TEST_LIBRARIES="$SONAR_TEST_LIBRARIES,$GITHUB_WORKSPACE/ai-runtime/$module/target/classes"
+            done
+          fi
+          printf '%s\n' "$SONAR_TEST_LIBRARIES" > "$RUNNER_TEMP/sonar-test-libraries.txt"
+
+      # SonarCloud Scan analysis and push
+      - name: SonarCloud Scan
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_REVISION: ${{ github.event.workflow_run.head_sha }}
+          SONAR_PR_KEY: ${{ fromJson(steps.get_pr_data.outputs.data).number }}
+          SONAR_PR_BRANCH: ${{ fromJson(steps.get_pr_data.outputs.data).head.ref }}
+          SONAR_PR_BASE: ${{ fromJson(steps.get_pr_data.outputs.data).base.ref }}
+        run: |
+          set -euo pipefail
+          MVNARG=$(cat "$RUNNER_TEMP/mvnarg/mvnarg.txt")
+          SONAR_TEST_LIBRARIES=$(cat "$RUNNER_TEMP/sonar-test-libraries.txt")
           mvn org.sonarsource.scanner.maven:sonar-maven-plugin:sonar ${MVNARG:+"$MVNARG"} \
+            "-Dsonar.java.test.libraries=$SONAR_TEST_LIBRARIES" \
             -Dsonar.scm.revision="$SONAR_REVISION" \
             -Dsonar.pullrequest.key="$SONAR_PR_KEY" \
             -Dsonar.pullrequest.branch="$SONAR_PR_BRANCH" \

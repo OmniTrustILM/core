@@ -8,6 +8,7 @@ import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.core.dao.AggregateResultDto;
+import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.CryptographicKeyItem_;
 import com.otilm.core.dao.entity.GroupAssociation;
@@ -16,6 +17,7 @@ import com.otilm.core.dao.entity.ResourceObjectAssociation_;
 import com.otilm.core.dao.entity.UniquelyIdentifiedObject;
 import com.otilm.core.dao.entity.UniquelyIdentified_;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.security.ai.AiReadInvocationContext;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.security.authz.SecurityResourceFilter;
@@ -56,6 +58,7 @@ import org.apache.commons.lang3.function.TriFunction;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.support.JpaEntityInformation;
 import org.springframework.data.jpa.repository.support.SimpleJpaRepository;
+import org.springframework.security.access.AccessDeniedException;
 
 public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, ID>
         implements
@@ -89,7 +92,7 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
                 predicates.add(additionalWhereClause.apply(root, cb));
             }
             cr.select(root).where(predicates.toArray(new Predicate[]{}));
-            T result = entityManager.createQuery(cr).getSingleResult();
+            T result = createReadQuery(cr).getSingleResult();
             return Optional.of(result);
         } catch (NoResultException e) {
             return Optional.empty();
@@ -116,7 +119,7 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
         if (!predicates.isEmpty()) {
             cr.where(predicates.toArray(Predicate[]::new));
         }
-        return entityManager.createQuery(cr).getResultList();
+        return createReadQuery(cr).getResultList();
     }
 
     @Override
@@ -128,7 +131,7 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
     public List<T> findUsingSecurityFilter(SecurityFilter filter, List<String> fetchAssociations,
             TriFunction<Root<T>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause) {
         final CriteriaQuery<T> cr = createCriteriaBuilder(filter, fetchAssociations, additionalWhereClause, null);
-        return entityManager.createQuery(cr).getResultList();
+        return createReadQuery(cr).getResultList();
     }
 
     @Override
@@ -148,7 +151,7 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
         }
         final CriteriaQuery<T> cr = createCriteriaBuilder(filter, fetchAssociations, additionalWhereClause, order, sort,
                 p != null);
-        return window(entityManager.createQuery(cr), p).getResultList();
+        return window(createReadQuery(cr), p).getResultList();
     }
 
     @Override
@@ -166,7 +169,7 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
             return findUuidsOrderedBySortKey(filter, additionalWhereClause, p, sort);
         }
         final CriteriaQuery<UUID> cr = createCriteriaBuilderUuid(filter, additionalWhereClause, order, sort, p != null);
-        return window(entityManager.createQuery(cr), p).getResultList();
+        return window(createReadQuery(cr), p).getResultList();
     }
 
     /**
@@ -201,11 +204,7 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
         cr.orderBy(ordering.orders());
         applyPredicates(cr, filter, additionalWhereClause, root, cb);
 
-        return window(entityManager.createQuery(cr), p)
-                .getResultList()
-                .stream()
-                .map(tuple -> tuple.get(0, UUID.class))
-                .toList();
+        return window(createReadQuery(cr), p).getResultList().stream().map(tuple -> tuple.get(0, UUID.class)).toList();
     }
 
     /**
@@ -235,7 +234,7 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
             cr.groupBy(uuid, key);
         }
 
-        return window(entityManager.createQuery(cr), p).getResultList();
+        return window(createReadQuery(cr), p).getResultList();
     }
 
     /**
@@ -256,7 +255,7 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
         cr.select(root).where(root.get(UniquelyIdentified_.UUID).in(uuids));
 
         final Map<UUID, T> byUuid = new HashMap<>();
-        for (T loaded : entityManager.createQuery(cr).getResultList()) {
+        for (T loaded : createReadQuery(cr).getResultList()) {
             if (loaded instanceof UniquelyIdentifiedObject identified) {
                 byUuid.putIfAbsent(identified.getUuid(), loaded);
             }
@@ -332,8 +331,7 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
         final List<Predicate> predicates = getPredicates(filter, additionalWhereClause, root, cb, cr);
         cr = predicates.isEmpty() ? cr : cr.where(predicates.toArray(new Predicate[]{}));
 
-        return entityManager
-                .createQuery(cr)
+        return createReadQuery(cr)
                 .getResultList()
                 .stream()
                 .collect(Collectors
@@ -350,7 +348,7 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
     public Long countUsingSecurityFilter(SecurityFilter filter,
             TriFunction<Root<T>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause) {
         CriteriaQuery<Long> cr = createCountCriteriaBuilder(filter, additionalWhereClause, true);
-        List<Long> crlist = entityManager.createQuery(cr).getResultList();
+        List<Long> crlist = createReadQuery(cr).getResultList();
         return crlist.get(0);
     }
 
@@ -358,7 +356,7 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
     public Long countRowsUsingSecurityFilter(SecurityFilter filter,
             TriFunction<Root<T>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause) {
         CriteriaQuery<Long> cr = createCountCriteriaBuilder(filter, additionalWhereClause, false);
-        return entityManager.createQuery(cr).getResultList().get(0);
+        return createReadQuery(cr).getResultList().get(0);
     }
 
     @Override
@@ -391,7 +389,7 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
         CriteriaQuery<NameAndUuidDto> query = createResourceObjectsQuery(securityFilter, nameAttribute,
                 additionalWhereClause);
 
-        return entityManager.createQuery(query).getResultList();
+        return createReadQuery(query).getResultList();
     }
 
     private CriteriaQuery<NameAndUuidDto> createResourceObjectsQuery(SecurityFilter securityFilter,
@@ -438,7 +436,7 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
         CriteriaQuery<NameAndUuidDto> criteriaQuery = createResourceObjectsQuery(securityFilter, nameAttribute,
                 additionalWhereClause);
 
-        TypedQuery<NameAndUuidDto> query = entityManager.createQuery(criteriaQuery);
+        TypedQuery<NameAndUuidDto> query = createReadQuery(criteriaQuery);
         if (page != null) {
             query.setFirstResult((page.getPageNumber() - 1) * page.getItemsPerPage());
             query.setMaxResults(page.getItemsPerPage());
@@ -454,7 +452,7 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
         CriteriaQuery<NameAndUuidDto> criteriaQuery = createResourceObjectsQuery(securityFilter, nameExpressionFactory,
                 additionalWhereClause);
 
-        TypedQuery<NameAndUuidDto> query = entityManager.createQuery(criteriaQuery);
+        TypedQuery<NameAndUuidDto> query = createReadQuery(criteriaQuery);
         if (page != null) {
             query.setFirstResult((page.getPageNumber() - 1) * page.getItemsPerPage());
             query.setMaxResults(page.getItemsPerPage());
@@ -478,8 +476,7 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
                 .select(cb.construct(NameAndUuidDto.class, root.get("uuid"), nameExpression))
                 .where(cb.equal(root.get("uuid"), uuid));
 
-        return entityManager
-                .createQuery(query)
+        return createReadQuery(query)
                 .getResultList()
                 .stream()
                 .findFirst()
@@ -502,8 +499,7 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
                 .select(cb.construct(NameAndUuidDto.class, root.get("uuid"), nameExpression))
                 .where(cb.equal(root.get("uuid"), uuid));
 
-        return entityManager
-                .createQuery(query)
+        return createReadQuery(query)
                 .getResultList()
                 .stream()
                 .findFirst()
@@ -593,6 +589,9 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
 
     private List<Predicate> getPredicates(SecurityFilter filter, Predicate additionalWhereClause, Root<T> root,
             CriteriaBuilder cb, CommonAbstractCriteria query) {
+        if (AiReadInvocationContext.isActive()) {
+            return invocationPredicates(filter, additionalWhereClause, root, cb);
+        }
         List<Predicate> predicates = new ArrayList<>();
         if (additionalWhereClause != null) {
             predicates.add(additionalWhereClause);
@@ -643,6 +642,49 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
         }
 
         return getPredicates(filter, additionalWhereClausePredicate, root, cb, cr);
+    }
+
+    private List<Predicate> invocationPredicates(SecurityFilter filter, Predicate additional, Root<T> root,
+            CriteriaBuilder cb) {
+        if (filter == null || root.getJavaType() != Certificate.class) {
+            throw new AccessDeniedException("Certificate read filter unavailable");
+        }
+        var context = filter.requireCurrentCertificateRead();
+        var scope = context.scope();
+        List<Predicate> predicates = new ArrayList<>();
+        predicates.add(effectiveAccess(root.get("uuid"), filter.getResourceFilter(), cb));
+        predicates.add(effectiveAccess(root.get("raProfileUuid"), filter.getParentResourceFilter(), cb));
+        predicates.add(cb.equal(root.get("raProfileUuid"), scope.raProfileUuid()));
+        predicates
+                .add(scope.certificateUuids().isEmpty()
+                        ? cb.disjunction()
+                        : root.get("uuid").in(scope.certificateUuids()));
+        if (additional != null) {
+            predicates.add(additional);
+        }
+        return predicates;
+    }
+
+    private Predicate effectiveAccess(Path<UUID> path, SecurityResourceFilter filter, CriteriaBuilder cb) {
+        Predicate allowed = cb.conjunction();
+        if (filter.areOnlySpecificObjectsAllowed()) {
+            allowed = filter.getAllowedObjects().isEmpty() ? cb.disjunction() : path.in(filter.getAllowedObjects());
+        }
+        return filter.getForbiddenObjects().isEmpty()
+                ? allowed
+                : cb.and(allowed, path.in(filter.getForbiddenObjects()).not());
+    }
+
+    private <R> TypedQuery<R> createReadQuery(CriteriaQuery<R> criteria) {
+        var invocation = AiReadInvocationContext.current();
+        if (invocation.isEmpty()) {
+            return entityManager.createQuery(criteria);
+        }
+        var context = invocation.get();
+        int timeout = context.remainingQueryTimeoutSeconds();
+        TypedQuery<R> query = entityManager.createQuery(criteria);
+        query.setHint("org.hibernate.timeout", Math.min(timeout, context.remainingQueryTimeoutSeconds()));
+        return query;
     }
 
     private List<Predicate> initObjectAccessPredicates(Predicate resourceFilterPredicate,

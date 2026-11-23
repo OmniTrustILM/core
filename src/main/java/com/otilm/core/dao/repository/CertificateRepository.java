@@ -556,7 +556,7 @@ public interface CertificateRepository extends CertificateBaseRepository<Certifi
      * Carries no ORDER BY: the ordering the listing asked for lives in the rank of that list, and an ORDER BY here
      * would replace it. Callers rank the result with {@code SortOrderBuilder.rankBy}.
      */
-    @Query("""
+    String CERTIFICATE_DTO_PROJECTION = """
             SELECT new com.otilm.api.model.core.certificate.CertificateDto(
                 c.uuid, c.commonName, c.serialNumber, c.issuerCommonName, c.issuerDn, c.subjectDn, c.notBefore, c.notAfter,
                 c.publicKeyAlgorithm, c.altPublicKeyAlgorithm, c.signatureAlgorithm, c.altSignatureAlgorithm, c.hybridCertificate,
@@ -566,8 +566,8 @@ public interface CertificateRepository extends CertificateBaseRepository<Certifi
                 c.issuerCertificateUuid,
                 (CASE WHEN c.keyUuid IS NOT NULL AND EXISTS
                     (SELECT 1 FROM CryptographicKeyItem i WHERE i.keyUuid = c.keyUuid
-                        AND i.type = ?#{T(com.otilm.api.model.common.enums.cryptography.KeyType).PRIVATE_KEY}
-                        AND i.state = ?#{T(com.otilm.api.model.core.cryptography.key.KeyState).ACTIVE}
+                        AND i.type = com.otilm.api.model.common.enums.cryptography.KeyType.PRIVATE_KEY
+                        AND i.state = com.otilm.api.model.core.cryptography.key.KeyState.ACTIVE
                     )
                     THEN true ELSE false END
                 ),
@@ -576,8 +576,9 @@ public interface CertificateRepository extends CertificateBaseRepository<Certifi
             FROM Certificate c
             LEFT JOIN OwnerAssociation oa ON oa.objectUuid = c.uuid
             LEFT JOIN RaProfile ra ON ra.uuid = c.raProfileUuid
-            WHERE c.uuid IN ?1
-            """)
+            """;
+
+    @Query(CERTIFICATE_DTO_PROJECTION + " WHERE c.uuid IN ?1")
     List<CertificateDto> findCertificateDtosByUuidsIn(List<UUID> uuids);
 
 }

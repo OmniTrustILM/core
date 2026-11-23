@@ -31,7 +31,13 @@
         <sonar.host.url>https://sonarcloud.io</sonar.host.url>
         <sonar.organization>ilm</sonar.organization>
         <sonar.projectKey>ilm_core</sonar.projectKey>
-        <sonar.sources>src/main/java</sonar.sources>
+        <sonar.sources>src/main/java,ai-runtime/ai-runtime-protocol/src/main/java,ai-runtime/ai-connector-gateway/src/main/java,ai-runtime/ai-runtime-proxy/src/main/java,ai-runtime/ai-runner/src/main/java,ai-runtime/ai-controller/src/main/java,ai-runtime/proof/f01/resources/v1/python,ai-runtime/proof/f01/resources/kernel-v1/python</sonar.sources>
+        <sonar.tests>src/test/java,ai-runtime/ai-runtime-protocol/src/test/java,ai-runtime/ai-connector-gateway/src/test/java,ai-runtime/ai-runtime-proxy/src/test/java,ai-runtime/ai-runner/src/test/java,ai-runtime/ai-controller/src/test/java,ai-runtime/proof/f01/resources/v1/tests,ai-runtime/proof/f01/resources/kernel-v1/tests</sonar.tests>
+        <sonar.python.version>3.12</sonar.python.version>
+        <sonar.python.coverage.reportPaths>target/coverage/python.xml</sonar.python.coverage.reportPaths>
+        <sonar.java.binaries>target/classes,ai-runtime/ai-runtime-protocol/target/classes,ai-runtime/ai-connector-gateway/target/classes,ai-runtime/ai-runtime-proxy/target/classes,ai-runtime/ai-runner/target/classes,ai-runtime/ai-controller/target/classes</sonar.java.binaries>
+        <sonar.java.test.binaries>target/test-classes,ai-runtime/ai-runtime-protocol/target/test-classes,ai-runtime/ai-connector-gateway/target/test-classes,ai-runtime/ai-runtime-proxy/target/test-classes,ai-runtime/ai-runner/target/test-classes,ai-runtime/ai-controller/target/test-classes</sonar.java.test.binaries>
+        <sonar.coverage.jacoco.xmlReportPaths>target/site/jacoco/jacoco.xml,ai-runtime/ai-runtime-protocol/target/site/jacoco/jacoco.xml,ai-runtime/ai-connector-gateway/target/site/jacoco/jacoco.xml,ai-runtime/ai-runtime-proxy/target/site/jacoco/jacoco.xml,ai-runtime/ai-runner/target/site/jacoco/jacoco.xml,ai-runtime/ai-controller/target/site/jacoco/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
         <sonar.cpd.exclusions>src/main/java/com/otilm/core/dao/entity/**</sonar.cpd.exclusions>
         <sonar.coverage.exclusions>src/main/java/com/otilm/core/dao/entity/**,src/main/java/com/otilm/core/api/**,src/main/java/com/otilm/core/util/converter/**,src/main/java/db/migration/V202607031200__CreateAttributeContentResolverUserAndPermissions.java,src/main/java/db/migration/V202608311000__GrantRaProfileMembersToAttributeContentResolver.java,src/main/java/db/migration/V202611131010__CreateEstUserAndPermissions.java</sonar.coverage.exclusions>
     </properties>
@@ -41,14 +47,14 @@
             <dependency>
                 <groupId>io.opentelemetry</groupId>
                 <artifactId>opentelemetry-bom</artifactId>
-                <version>1.66.0</version>
+                <version>1.67.0</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
             <dependency>
                 <groupId>io.opentelemetry.instrumentation</groupId>
                 <artifactId>opentelemetry-instrumentation-bom</artifactId>
-                <version>2.31.1</version>
+                <version>2.33.0</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -65,6 +71,16 @@
     </dependencyManagement>
 
     <dependencies>
+        <dependency>
+            <groupId>com.otilm</groupId>
+            <artifactId>ai-runtime-protocol</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.otilm</groupId>
+            <artifactId>ai-controller</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>com.otilm</groupId>
             <artifactId>interfaces</artifactId>
@@ -193,6 +209,7 @@
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
+            <scope>compile</scope>
         </dependency>
         <dependency>
             <groupId>org.hibernate.orm</groupId>
@@ -301,6 +318,17 @@
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.platform</groupId>
+            <artifactId>junit-platform-launcher</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.hsqldb</groupId>
+            <artifactId>hsqldb</artifactId>
+            <version>${hsqldb.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>

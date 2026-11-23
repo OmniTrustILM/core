@@ -1,3 +1,7 @@
+otilm:
+  ai:
+    enabled: true
+
 app:
   version: '@project.version@'
 

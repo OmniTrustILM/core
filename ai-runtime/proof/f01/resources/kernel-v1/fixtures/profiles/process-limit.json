@@ -1,0 +1,93 @@
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "name": "f01-a2-process-limit",
+    "namespace": "ilm-resource-sec-r1",
+    "labels": {
+      "ilm.ai/proof": "a2-v1"
+    }
+  },
+  "spec": {
+    "os": {
+      "name": "linux"
+    },
+    "runtimeClassName": "runsc-f01-kernel-cg-r1",
+    "serviceAccountName": "runner",
+    "automountServiceAccountToken": false,
+    "enableServiceLinks": false,
+    "restartPolicy": "Never",
+    "activeDeadlineSeconds": 27,
+    "terminationGracePeriodSeconds": 1,
+    "dnsPolicy": "None",
+    "dnsConfig": {
+      "nameservers": [
+        "127.0.0.1"
+      ]
+    },
+    "securityContext": {
+      "runAsNonRoot": true,
+      "runAsUser": 65532,
+      "runAsGroup": 65532,
+      "fsGroup": 65532,
+      "seccompProfile": {
+        "type": "RuntimeDefault"
+      }
+    },
+    "containers": [
+      {
+        "name": "fixed-proof",
+        "image": "docker.io/library/busybox@sha256:d82c2ab94640ded77cf76514ce6a84870761105058a4a9e51b05a8a79be97a6c",
+        "imagePullPolicy": "Never",
+        "command": [
+          "/bin/busybox",
+          "ash",
+          "-c"
+        ],
+        "args": [
+          "# Fixed one-shot gate; original Pod-start deadline is never reset.\nset -eu\nset -f\numask 077\ncg_stat() {\n IFS= read -r cg_raw < /proc/self/stat || exit 100\n cg_pid=$${cg_raw%% *}; cg_tail=$${cg_raw##*) }\n [ \"$$cg_tail\" != \"$$cg_raw\" ] && [ \"$$cg_pid\" = \"$$$$\" ] || exit 101\n set -- $$cg_tail\n [ \"$$#\" -ge 20 ] || exit 102\n cg_start=$${20}\n case \"$$cg_start\" in ''|0|*[!0-9]*) exit 103;; esac\n}\ncg_stat\ncg_original=$$cg_start\ncg_count=0\n/bin/busybox mkfifo /scratch/f01-cg-start || exit 104\nexec 3<> /scratch/f01-cg-start || exit 105\ncg_release() {\n cg_count=$$((cg_count+1))\n [ \"$$cg_count\" -eq 1 ] || exit 106\n printf 'GO\\n' >&3 || exit 107\n}\ntrap cg_release USR1\nprintf 'CG_READY pid=%s start=%s\\n' \"$$$$\" \"$$cg_original\" || exit 108\ncg_token=\nset +e\nIFS= read -r -t 16 cg_token <&3\ncg_rc=$$?\nset -e\ncase \"$$cg_token\" in ''|GO) :;; *) exit 109;; esac\nprintf 'CG_RAW attempt=1 rc=%s count=%s token=%s\\n' \"$$cg_rc\" \"$$cg_count\" \"$$cg_token\" || exit 110\nif [ \"$$cg_rc\" -ne 0 ]; then\n [ -z \"$$cg_token\" ] && [ \"$$cg_count\" -eq 1 ] || exit 111\n set +e\n IFS= read -r -t 2 cg_token <&3\n cg_rc=$$?\n set -e\n printf 'CG_RAW attempt=2 rc=%s count=%s token=%s\\n' \"$$cg_rc\" \"$$cg_count\" \"$$cg_token\" || exit 112\nfi\n[ \"$$cg_rc\" -eq 0 ] && [ \"$$cg_token\" = GO ] && [ \"$$cg_count\" -eq 1 ] || exit 113\ncg_stat\n[ \"$$cg_start\" = \"$$cg_original\" ] || exit 114\nprintf 'CG_ACK pid=%s start=%s count=1\\n' \"$$$$\" \"$$cg_original\" || exit 115\ntrap - USR1\nexec 3>&-\n/bin/busybox rm /scratch/f01-cg-start || exit 116\nprintf 'CG_LOAD_BEGIN\\n' || exit 117\n# BEGIN_FIXED_HIGH_BODY\nset -eu\n/bin/busybox mkfifo /scratch/f01-process-gate\nexec 3<>/scratch/f01-process-gate\n: > /scratch/f01-process-input\ni=0\nwhile [ \"$$i\" -lt 298 ]; do\n  i=$$((i+1))\n  printf '%s\\n' \"$$i\" >> /scratch/f01-process-input\ndone\nexec /bin/busybox xargs -r -t -n 1 -P 298 /bin/busybox ash -c 'lines=0; while [ \"$$lines\" -lt 128 ] && IFS= read -r status_line; do lines=$$((lines+1)); case \"$$status_line\" in Pid:*|Uid:*|Threads:*) printf \"WORKER_STATUS %s\\n\" \"$$status_line\";; esac; done < /proc/self/status; printf \"CHILD_READY %s\\n\" \"$$1\"; IFS= read -r -t 12 token <&3 || :' f01-child < /scratch/f01-process-input"
+        ],
+        "securityContext": {
+          "allowPrivilegeEscalation": false,
+          "readOnlyRootFilesystem": true,
+          "capabilities": {
+            "drop": [
+              "ALL"
+            ]
+          }
+        },
+        "resources": {
+          "requests": {
+            "cpu": "100m",
+            "memory": "64Mi",
+            "ephemeral-storage": "16Mi"
+          },
+          "limits": {
+            "cpu": "500m",
+            "memory": "256Mi",
+            "ephemeral-storage": "32Mi"
+          }
+        },
+        "volumeMounts": [
+          {
+            "name": "scratch",
+            "mountPath": "/scratch"
+          },
+          {
+            "name": "scratch",
+            "mountPath": "/tmp"
+          }
+        ]
+      }
+    ],
+    "volumes": [
+      {
+        "name": "scratch",
+        "emptyDir": {
+          "medium": "Memory",
+          "sizeLimit": "16Mi"
+        }
+      }
+    ]
+  }
+}

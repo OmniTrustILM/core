@@ -1,28 +1,46 @@
 package com.otilm.core.security.authz;
 
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.certificate.CertificateSearchRequestDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.config.OpaSecuredAnnotationMetadataExtractor;
+import com.otilm.core.security.ai.AiReadInvocationContext;
 import com.otilm.core.security.authn.PlatformAuthenticationToken;
+import com.otilm.core.service.CertificateExternalService;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import org.aopalliance.intercept.MethodInvocation;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.springframework.aop.support.AopUtils;
+import org.springframework.core.BridgeMethodResolver;
 import org.springframework.core.annotation.AnnotationUtils;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Component;
+import org.springframework.util.ReflectionUtils;
 
 @Component
 public class ExternalMethodAuthorizationManager extends AbstractExternalAuthorizationManager<MethodInvocation> {
 
     protected final Log log = LogFactory.getLog(this.getClass());
+
+    private static final Method CERTIFICATE_LIST = Objects
+            .requireNonNull(ReflectionUtils
+                    .findMethod(CertificateExternalService.class, "listCertificates", SecurityFilter.class,
+                            CertificateSearchRequestDto.class));
+
+    private static final Method CERTIFICATE_STORED_HEALTH = Objects
+            .requireNonNull(ReflectionUtils
+                    .findMethod(CertificateExternalService.class, "getStoredCertificateHealth", SecuredParentUUID.class,
+                            SecuredUUID.class));
 
     private final OpaSecuredAnnotationMetadataExtractor metadataExtractor;
     private final ExternalAuthorizationCore core;
@@ -45,6 +63,13 @@ public class ExternalMethodAuthorizationManager extends AbstractExternalAuthoriz
     }
 
     private AuthorizationDecision check(Authentication authentication, MethodInvocation methodInvocation) {
+        if (isStoredHealthRead(methodInvocation.getMethod(), methodInvocation.getThis())
+                && !validStoredHealthArguments(methodInvocation.getArguments())) {
+            return new AuthorizationDecision(false);
+        }
+        if (AiReadInvocationContext.isActive() && !isScopedReadMethod(methodInvocation)) {
+            return new AuthorizationDecision(false);
+        }
         AuthorizationRequest request = resolveRequest(methodInvocation);
         if (request == null) {
             return new AuthorizationDecision(false);
@@ -52,9 +77,33 @@ public class ExternalMethodAuthorizationManager extends AbstractExternalAuthoriz
         return core.decide(authentication, request);
     }
 
+    private static boolean isScopedReadMethod(MethodInvocation invocation) {
+        return matchesMethod(invocation.getMethod(), invocation.getThis(), CERTIFICATE_LIST)
+                || isStoredHealthRead(invocation.getMethod(), invocation.getThis());
+    }
+
+    static boolean isStoredHealthRead(Method method, Object target) {
+        return matchesMethod(method, target, CERTIFICATE_STORED_HEALTH);
+    }
+
+    private static boolean matchesMethod(Method method, Object target, Method allowedMethod) {
+        if (!(target instanceof CertificateExternalService)) {
+            return false;
+        }
+        Class<?> targetClass = AopUtils.getTargetClass(target);
+        Method actual = BridgeMethodResolver.findBridgedMethod(AopUtils.getMostSpecificMethod(method, targetClass));
+        return AopUtils.getMostSpecificMethod(allowedMethod, targetClass).equals(actual);
+    }
+
+    private static boolean validStoredHealthArguments(Object[] arguments) {
+        return arguments != null && arguments.length == 2 && arguments[0] instanceof SecuredParentUUID parent
+                && parent.getValue() != null && arguments[1] instanceof SecuredUUID certificate
+                && !(certificate instanceof SecuredParentUUID) && certificate.getValue() != null;
+    }
+
     private AuthorizationRequest resolveRequest(MethodInvocation methodInvocation) {
         List<ExternalAuthorizationConfigAttribute> attributes = resolveAttributes(methodInvocation);
-        if (attributes == null) {
+        if (attributes == null || (AiReadInvocationContext.isActive() && attributes.isEmpty())) {
             return null;
         }
         Map<String, String> properties = attributes
@@ -69,13 +118,20 @@ public class ExternalMethodAuthorizationManager extends AbstractExternalAuthoriz
     }
 
     private List<ExternalAuthorizationConfigAttribute> resolveAttributes(MethodInvocation methodInvocation) {
-        ExternalAuthorization staticAnnotation = AnnotationUtils
-                .findAnnotation(methodInvocation.getMethod(), ExternalAuthorization.class);
+        Method method = methodInvocation.getMethod();
+        if (AiReadInvocationContext.isActive()) {
+            Object target = methodInvocation.getThis();
+            if (target == null) {
+                return List.of();
+            }
+            method = AopUtils.getMostSpecificMethod(method, AopUtils.getTargetClass(target));
+        }
+        ExternalAuthorization staticAnnotation = AnnotationUtils.findAnnotation(method, ExternalAuthorization.class);
         if (staticAnnotation != null) {
             return metadataExtractor.extractAttributes(staticAnnotation);
         }
         ExternalAuthorizationDynamic dynamicAnnotation = AnnotationUtils
-                .findAnnotation(methodInvocation.getMethod(), ExternalAuthorizationDynamic.class);
+                .findAnnotation(method, ExternalAuthorizationDynamic.class);
         if (dynamicAnnotation != null) {
             try {
                 Resource resolved = SecuredResource.fromArguments(methodInvocation.getArguments()).getResource();

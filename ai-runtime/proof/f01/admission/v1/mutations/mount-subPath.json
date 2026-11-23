@@ -1,0 +1,7 @@
+[
+  {
+    "op": "add",
+    "path": "/spec/containers/0/volumeMounts/0/subPath",
+    "value": "synthetic"
+  }
+]

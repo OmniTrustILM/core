@@ -1,0 +1,12 @@
+[
+  {
+    "op": "add",
+    "path": "/spec/containers/0/env",
+    "value": [
+      {
+        "name": "FREE",
+        "value": "synthetic"
+      }
+    ]
+  }
+]

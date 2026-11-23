@@ -1,0 +1,13 @@
+[
+  {
+    "op": "add",
+    "path": "/spec/containers/0/readinessProbe",
+    "value": {
+      "exec": {
+        "command": [
+          "/bin/true"
+        ]
+      }
+    }
+  }
+]

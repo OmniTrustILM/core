@@ -145,6 +145,7 @@ import com.otilm.core.model.request.CertificateRequest;
 import com.otilm.core.model.request.CertificateRequestKeys;
 import com.otilm.core.model.signing.CertificatePurposeRequirements;
 import com.otilm.core.model.signing.SigningCertificate;
+import com.otilm.core.security.ai.AiReadInvocationContext;
 import com.otilm.core.security.authn.client.AuthenticationCache;
 import com.otilm.core.security.authn.client.UserManagementApiClient;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
@@ -169,6 +170,8 @@ import com.otilm.core.service.RaProfileCertificateRequestAttributeService;
 import com.otilm.core.service.RaProfileInternalService;
 import com.otilm.core.service.ResourceObjectAssociationService;
 import com.otilm.core.service.handler.KeystoreAvailability;
+import com.otilm.core.service.handler.StoredCertificateHealth;
+import com.otilm.core.service.handler.StoredCertificateHealthProjector;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine;
@@ -244,7 +247,9 @@ import org.springframework.data.domain.AuditorAware;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.scheduling.annotation.Async;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.concurrent.DelegatingSecurityContextExecutorService;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionStatus;
@@ -652,6 +657,10 @@ public class CertificateServiceImpl
     public CertificateResponseDto listCertificates(SecurityFilter filter, CertificateSearchRequestDto request) {
         setupSecurityFilter(filter);
         RequestValidatorHelper.revalidateSearchRequestDto(request);
+        var invocation = AiReadInvocationContext.current();
+        if (invocation.isPresent() && (request.getPageNumber() > 10 || request.getItemsPerPage() > 100)) {
+            throw new AccessDeniedException("Certificate read page exceeds scope bounds");
+        }
         Pageable p = PageRequest.of(request.getPageNumber() - 1, request.getItemsPerPage());
         final Supplier<CustomAttributeContentFilter> contentFilter = attributeEngine.customAttributeContentFilterOnce();
         TriFunction<Root<Certificate>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause = getAdditionalWhereClause(
@@ -666,11 +675,15 @@ public class CertificateServiceImpl
         if (certificateUuids.isEmpty()) {
             certificates = Collections.emptyList();
         } else {
+            List<CertificateDto> projected = invocation.isPresent()
+                    ? certificateRepository.findScopedCertificateDtos(filter, certificateUuids)
+                    : certificateRepository.findCertificateDtosByUuidsIn(certificateUuids);
             certificates = SortOrderBuilder
-                    .rankBy(certificateUuids, certificateRepository.findCertificateDtosByUuidsIn(certificateUuids),
-                            certificate -> UUID.fromString(certificate.getUuid()));
-            List<GroupAssociation> groupAssociations = groupAssociationRepository
-                    .findWithAssociationsByResourceAndObjectUuidIn(Resource.CERTIFICATE, certificateUuids);
+                    .rankBy(certificateUuids, projected, certificate -> UUID.fromString(certificate.getUuid()));
+            List<GroupAssociation> groupAssociations = invocation.isPresent()
+                    ? List.of()
+                    : groupAssociationRepository
+                            .findWithAssociationsByResourceAndObjectUuidIn(Resource.CERTIFICATE, certificateUuids);
             Map<String, List<GroupDto>> groupsByCert = groupAssociations
                     .stream()
                     .collect(Collectors
@@ -695,7 +708,35 @@ public class CertificateServiceImpl
         responseDto.setTotalItems(maxItems);
         responseDto.setTotalPages((int) Math.ceil((double) maxItems / request.getItemsPerPage()));
 
+        invocation
+                .ifPresent(
+                        context -> context.requirePinnedActor(SecurityContextHolder.getContext().getAuthentication()));
         return responseDto;
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.DETAIL,
+            parentResource = Resource.RA_PROFILE, parentAction = ResourceAction.MEMBERS)
+    @Transactional(noRollbackFor = NotFoundException.class)
+    public StoredCertificateHealth getStoredCertificateHealth(SecuredParentUUID expectedRaProfileUuid,
+            SecuredUUID certificateUuid) throws NotFoundException {
+        var context = AiReadInvocationContext.current();
+        context.ifPresent(current -> {
+            current.requirePinnedActor(SecurityContextHolder.getContext().getAuthentication());
+            if (!current.scope().raProfileUuid().equals(expectedRaProfileUuid.getValue())
+                    || !current.scope().certificateUuids().contains(certificateUuid.getValue())) {
+                throw new AccessDeniedException("Certificate read tuple unavailable");
+            }
+            current.remainingQueryTimeoutSeconds();
+        });
+        var snapshot = certificateRepository
+                .findStoredCertificateHealth(expectedRaProfileUuid.getValue(), certificateUuid.getValue())
+                .orElseThrow(() -> new NotFoundException("Stored certificate health unavailable"));
+        var result = StoredCertificateHealthProjector.project(snapshot);
+        context
+                .ifPresent(
+                        current -> current.requirePinnedActor(SecurityContextHolder.getContext().getAuthentication()));
+        return result;
     }
 
     private static TriFunction<Root<Certificate>, CriteriaBuilder, CriteriaQuery<?>, Predicate> getAdditionalWhereClause(

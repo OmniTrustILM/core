@@ -1,0 +1,9 @@
+[
+  {
+    "op": "add",
+    "path": "/spec/dnsConfig/nameservers",
+    "value": [
+      "192.0.2.1"
+    ]
+  }
+]

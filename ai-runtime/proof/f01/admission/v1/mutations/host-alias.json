@@ -1,0 +1,14 @@
+[
+  {
+    "op": "add",
+    "path": "/spec/hostAliases",
+    "value": [
+      {
+        "ip": "192.0.2.1",
+        "hostnames": [
+          "synthetic"
+        ]
+      }
+    ]
+  }
+]

@@ -3,6 +3,7 @@ package com.otilm.core.util;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
+import java.util.function.Consumer;
 import org.hibernate.resource.jdbc.spi.StatementInspector;
 
 /**
@@ -14,6 +15,8 @@ public class SqlCapture implements StatementInspector {
 
     private static final ThreadLocal<List<String>> RECORDING = new ThreadLocal<>();
 
+    private static final ThreadLocal<Consumer<String>> BEFORE_STATEMENT = new ThreadLocal<>();
+
     /** What an action returned, and the statements it sent in the order they were sent. */
     public record Captured<R>(R result, List<String> statements) {
     }
@@ -24,6 +27,10 @@ public class SqlCapture implements StatementInspector {
         if (recorded != null) {
             recorded.add(sql);
         }
+        Consumer<String> before = BEFORE_STATEMENT.get();
+        if (before != null) {
+            before.accept(sql);
+        }
         return sql;
     }
 
@@ -33,6 +40,13 @@ public class SqlCapture implements StatementInspector {
     }
 
     public static <R> Captured<R> during(Callable<R> action) throws Exception {
+        return during(action, sql -> {
+        });
+    }
+
+    /** Coordinates a concurrent database change at an observed statement boundary. */
+    public static <R> Captured<R> during(Callable<R> action, Consumer<String> beforeStatement) throws Exception {
+        BEFORE_STATEMENT.set(beforeStatement);
         List<String> recorded = new ArrayList<>();
         RECORDING.set(recorded);
         try {
@@ -40,6 +54,7 @@ public class SqlCapture implements StatementInspector {
             return new Captured<>(result, List.copyOf(recorded));
         } finally {
             RECORDING.remove();
+            BEFORE_STATEMENT.remove();
         }
     }
 }

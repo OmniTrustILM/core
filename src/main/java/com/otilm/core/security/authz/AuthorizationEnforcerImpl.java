@@ -1,12 +1,16 @@
 package com.otilm.core.security.authz;
 
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.core.aop.TraceMetadataOnly;
 import com.otilm.core.logging.LoggingHelper;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authn.PlatformAuthenticationToken;
 import com.otilm.core.security.authn.PlatformUserDetails;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
 import com.otilm.core.security.authn.client.PlatformAuthenticationClient;
+import com.otilm.core.security.authz.opa.OpaClient;
+import com.otilm.core.security.authz.opa.dto.OpaRequestedResource;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -21,17 +25,38 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
 @Component
+@TraceMetadataOnly
 public class AuthorizationEnforcerImpl implements AuthorizationEnforcer {
 
     private static final Logger logger = LoggerFactory.getLogger(AuthorizationEnforcerImpl.class);
 
     private final ExternalAuthorizationCore core;
     private final PlatformAuthenticationClient authenticationClient;
+    private final OpaClient policy;
 
     public AuthorizationEnforcerImpl(ExternalAuthorizationCore core,
-            @Lazy PlatformAuthenticationClient authenticationClient) {
+            @Lazy PlatformAuthenticationClient authenticationClient, OpaClient policy) {
         this.core = core;
         this.authenticationClient = authenticationClient;
+        this.policy = policy;
+    }
+
+    @Override
+    public void enforce(Resource resource, ResourceAction action, AuthenticationInfo currentPrincipal, UUID objectUuid,
+            Duration timeout) {
+        try {
+            if (resource == null || resource == Resource.NONE || action == null || action == ResourceAction.NONE
+                    || currentPrincipal == null || currentPrincipal.isAnonymous() || objectUuid == null) {
+                throw new AccessDeniedException("Current object access denied");
+            }
+            AuthorizationRequest request = AuthorizationRequest
+                    .forDirectCheck(resource, action, List.of(SecuredUUID.fromUUID(objectUuid)));
+            var requested = new OpaRequestedResource(request.properties());
+            requested.setObjectUUIDs(List.of(objectUuid.toString()));
+            policy.requireObjectAccessUncached(requested, currentPrincipal.getRawData(), objectUuid, timeout);
+        } catch (RuntimeException failure) {
+            throw new AccessDeniedException("Current object access denied");
+        }
     }
 
     @Override

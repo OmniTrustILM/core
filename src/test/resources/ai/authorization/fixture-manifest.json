@@ -1,0 +1,66 @@
+{
+  "purpose": "Task 1 ordinary-path F05/F06 characterization, not production AI authorization",
+  "core": {
+    "baseSha": "acc21bcf940bff4a02d78da160248eaae0bc13e3",
+    "artifact": "com.otilm:core:2.21.0-SNAPSHOT"
+  },
+  "interfaces": {
+    "artifact": "com.otilm:interfaces:2.21.0-SNAPSHOT",
+    "resolvedJarSha256": "88da84b7efbdf79ac4dec8f568a9c24a9bb8731f2b6ba3a1b660f0b23f9c9b36",
+    "localSourceShaAtInspection": "46b0cda84c37e740e70e985ec06b5d8bb4402f00",
+    "note": "Artifact hash identifies execution input; local source SHA is not an assertion that the artifact was built from it.",
+    "resolvedTimestampArtifact": "com.otilm:interfaces:2.21.0-20261025.070352-3"
+  },
+  "parent": {
+    "artifact": "com.otilm:dependencies:2.20.0",
+    "pomSha256": "18a1283d3a8a9d5e4033fd6ee0658336ddf2ee57ba1b0fb6550b3d11d383b0c3"
+  },
+  "policies": {
+    "repository": "https://github.com/OmniTrustILM/auth-opa-policies",
+    "maintainedMainSha": "d12055c6af6d2dd8ceb5248fa11243b74a8d0615",
+    "confirmedReadOnlyAt": "2026-10-26",
+    "confirmation": "git ls-remote origin HEAD refs/heads/main; SHA256 of raw.githubusercontent.com files at immutable remote SHA",
+    "localSourceSha": "e430c8f1400ee330b7b5243da340e35e9a48ea3c",
+    "license": "Apache-2.0",
+    "notice": "POLICY-LICENSE.txt",
+    "deployedPolicyConfirmation": false,
+    "methodSourceSha256": "fd9bb65d35e959c0b2eec70faa3a15853adeec9224246fb336a48f5b3f80331a",
+    "methodFixtureSha256": "de316e802c527c0cf152b5ffa2b5757fa562ed2ed233e0f7589857b68349c175",
+    "objectsSourceSha256": "8f1ce0a769482d2ef5d4e4d94b2c9eac0c52d947ce421beaa550c6197f565ac4",
+    "objectsFixtureSha256": "e4a651b68159c2b3628c096032d4cadebd597303e769d51ec66e721cf79c9f11",
+    "preparation": "Remove exactly two upstream placeholder comment lines; all executable policy rules and remaining bytes retained. Fixture is not raw byte-identical to upstream.",
+    "sourceRevisionNote": "Read-only maintained main and inspected local checkout revisions differ; both immutable source versions have identical method/object policy bytes before the documented comment-only preparation."
+  },
+  "opa": {
+    "version": "1.9.0-static",
+    "image": "openpolicyagent/opa@sha256:60b6af32b58377718546ac7d4634eecbfe50ec36f7d3ca3f8ebf515f9826c2ac",
+    "versionSource": "maintained policies Dockerfile at d12055c6af6d2dd8ceb5248fa11243b74a8d0615",
+    "license": "Apache-2.0",
+    "licenseSource": "https://github.com/open-policy-agent/opa/blob/v1.9.0/LICENSE"
+  },
+  "database": {
+    "image": "postgres@sha256:09e4f20b14ddb3dfe3a0c825b206032aaf8f28300ba2070c0b60fc1c10c6abc7",
+    "tagAtInspection": "15-alpine",
+    "observedServerVersion": "15.17",
+    "license": "PostgreSQL",
+    "licenseSource": "https://www.postgresql.org/about/licence/"
+  },
+  "testLibraries": {
+    "newDependencies": [],
+    "testcontainers": "1.21.4 (MIT)",
+    "httpFixture": "JDK 21 HttpServer and HttpClient; synthetic Auth responses and transparent observed forwarding to actual OPA",
+    "replicaClaim": "independent local in-memory cache instances only; production TTL/capacity and two deployed Core replicas are not verified",
+    "authClaim": "real Auth HTTP client wiring only; not actual Auth-service disable/revocation verification"
+  },
+  "fixtureNetwork": {
+    "dockerEngine": "local engine over a Unix socket with loopback access; remote engines unsupported",
+    "publishedHostIp": "127.0.0.1",
+    "hostPortAllocation": "random, selected by Docker; no fixed host port",
+    "containerPorts": {
+      "opa": 8181,
+      "postgresql": 5432
+    },
+    "httpAuthorityBindIp": "127.0.0.1",
+    "bindingVerification": "positive control inspects actual Docker container NetworkSettings port bindings for both fixtures"
+  }
+}

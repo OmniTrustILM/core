@@ -1,3 +1,4 @@
+com/otilm/core/integration/ai/ConversationStreamHttpITest.java
 com/otilm/core/integration/attribute/engine/AttributeReferenceExpanderITest.java
 com/otilm/core/integration/attribute/engine/NestedReferenceResolutionITest.java
 com/otilm/core/integration/cryptography/PQCITest.java
@@ -5,6 +6,7 @@ com/otilm/core/integration/dao/repository/signing/SigningRecordOutboxRepositoryI
 com/otilm/core/integration/dao/repository/signing/SigningRecordRepositoryITest.java
 com/otilm/core/integration/messaging/jms/configuration/JmsMessageConverterITest.java
 com/otilm/core/integration/messaging/jms/configuration/JmsWireGoldenITest.java
+com/otilm/core/integration/migration/AiRuntimeControlMigrationITest.java
 com/otilm/core/integration/migration/DiscoveryResourcesRequiredMigrationITest.java
 com/otilm/core/integration/migration/EstProfileMigrationITest.java
 com/otilm/core/integration/migration/LogRecordsRefactorITest.java
@@ -13,12 +15,25 @@ com/otilm/core/integration/migration/RepairDateAttributeContentMigrationITest.ja
 com/otilm/core/integration/migration/ScheduledJobUniqueNameMigrationITest.java
 com/otilm/core/integration/migration/TokenProfileKeyTypesMigrationITest.java
 com/otilm/core/integration/provisioning/ProxyProvisioningServiceITest.java
+com/otilm/core/integration/security/ai/AiCertificateReadProofITest.java
 com/otilm/core/integration/security/authn/tsp/TspProfileSecretEvictionITest.java
 com/otilm/core/integration/security/oauth2/JwtDecoderITest.java
 com/otilm/core/integration/security/oauth2/OAuth2AuthenticationSuccessHandlerITest.java
 com/otilm/core/integration/security/oauth2/PlatformClientRegistrationRepositoryITest.java
 com/otilm/core/integration/security/oauth2/PlatformJwtConvertorITest.java
 com/otilm/core/integration/service/ActionServiceITest.java
+com/otilm/core/integration/service/AiModelDispatchIntegrityITest.java
+com/otilm/core/integration/service/AiModelDispatchModelBindingITest.java
+com/otilm/core/integration/service/AiModelManagementNativeITest.java
+com/otilm/core/integration/service/AiModelNativeGatewayConsumeITest.java
+com/otilm/core/integration/service/AiModelRunInputITest.java
+com/otilm/core/integration/service/AiRuntimeAdmissionBudgetITest.java
+com/otilm/core/integration/service/AiRuntimeControlITest.java
+com/otilm/core/integration/service/AiRuntimeGatewayRegistrationITest.java
+com/otilm/core/integration/service/AiRuntimeKernelClaimITest.java
+com/otilm/core/integration/service/AiRuntimeKernelITest.java
+com/otilm/core/integration/service/AiRuntimeKernelRaceITest.java
+com/otilm/core/integration/service/AiRuntimeNativeStartupITest.java
 com/otilm/core/integration/service/ApprovalProfileServiceITest.java
 com/otilm/core/integration/service/ApprovalServiceITest.java
 com/otilm/core/integration/service/AuthorityInstanceServiceITest.java
@@ -55,6 +70,7 @@ com/otilm/core/integration/service/SigningProfileRecordPolicyITest.java
 com/otilm/core/integration/service/TokenProfileServiceV2ITest.java
 com/otilm/core/integration/service/TrustedCertificateServiceITest.java
 com/otilm/core/integration/service/VaultInstanceServiceITest.java
+com/otilm/core/integration/service/ai/AiGatewaySafetyRefreshITest.java
 com/otilm/core/integration/service/cmp/message/handler/CertConfirmMessageHandlerITest.java
 com/otilm/core/integration/service/cmp/message/handler/CmpRegistrationEnrolmentITest.java
 com/otilm/core/integration/service/cmp/message/handler/CrmfIrCrRequestAttributeValidationITest.java

@@ -1,0 +1,116 @@
+{
+  "version": 1,
+  "pins": {
+    "cluster": "lab",
+    "namespaceName": "runtime",
+    "namespaceUid": "77bd9027-9e2a-43b4-890f-a36eb970ae46",
+    "serviceAccountName": "runner",
+    "serviceAccountUid": "f520b467-e75e-4b51-9579-d9af91d683aa",
+    "runtimeClass": "ilm-runsc",
+    "imageDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "templateDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "profileRevision": 11,
+    "securityRevision": 12,
+    "trustRevision": 13,
+    "protocol": "v1"
+  },
+  "runtime": {
+    "uid": "bb92d9d9-796b-427e-9e29-daa69c8a061b",
+    "handler": "runsc",
+    "schedulingGate": "ilm.otilm.ai/runtime-eligible",
+    "configuration": {
+      "handler": "runsc"
+    }
+  },
+  "job": {
+    "apiVersion": "batch/v1",
+    "kind": "Job",
+    "metadata": {
+      "namespace": "runtime",
+      "name": "ilm-ai-d00f5707e1ad41e09f21b66c74358c99"
+    },
+    "spec": {
+      "parallelism": 1,
+      "completions": 1,
+      "backoffLimit": 0,
+      "manualSelector": true,
+      "selector": {
+        "matchLabels": {
+          "ilm.otilm.ai/attempt": "d00f5707-e1ad-41e0-9f21-b66c74358c99"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "ilm.otilm.ai/attempt": "d00f5707-e1ad-41e0-9f21-b66c74358c99"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "runner",
+          "runtimeClassName": "ilm-runsc",
+          "restartPolicy": "Never",
+          "automountServiceAccountToken": false,
+          "schedulingGates": [
+            {
+              "name": "ilm.otilm.ai/runtime-eligible"
+            }
+          ],
+          "containers": [
+            {
+              "name": "runner",
+              "image": "local.invalid/runner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "command": [
+                "/opt/java/openjdk/bin/java",
+                "com.otilm.ai.runner.RunnerBootstrapMain"
+              ],
+              "securityContext": {
+                "runAsUser": 65532,
+                "runAsGroup": 65532,
+                "allowPrivilegeEscalation": false
+              }
+            }
+          ],
+          "activeDeadlineSeconds": 27,
+          "terminationGracePeriodSeconds": 1
+        }
+      }
+    }
+  },
+  "podSpec": {
+    "serviceAccountName": "runner",
+    "runtimeClassName": "ilm-runsc",
+    "restartPolicy": "Never",
+    "automountServiceAccountToken": false,
+    "schedulingGates": [
+      {
+        "name": "ilm.otilm.ai/runtime-eligible"
+      }
+    ],
+    "containers": [
+      {
+        "name": "runner",
+        "image": "local.invalid/runner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "command": [
+          "/opt/java/openjdk/bin/java",
+          "com.otilm.ai.runner.RunnerBootstrapMain"
+        ],
+        "securityContext": {
+          "runAsUser": 65532,
+          "runAsGroup": 65532,
+          "allowPrivilegeEscalation": false
+        }
+      }
+    ],
+    "activeDeadlineSeconds": 27,
+    "terminationGracePeriodSeconds": 1
+  },
+  "podMetadata": {
+    "labels": {
+      "ilm.otilm.ai/attempt": "d00f5707-e1ad-41e0-9f21-b66c74358c99"
+    },
+    "annotations": {}
+  },
+  "imageIds": {
+    "runner": "containerd://sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  }
+}

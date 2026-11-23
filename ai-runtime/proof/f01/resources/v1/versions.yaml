@@ -1,0 +1,127 @@
+{
+  "profile": "a2-v1",
+  "fixtureRevision": 2,
+  "kubernetes": "v1.36.1",
+  "containerd": "2.3.1",
+  "gvisor": "release-20261019.0",
+  "platform": "systrap",
+  "architecture": "arm64",
+  "busybox": "docker.io/library/busybox@sha256:d82c2ab94640ded77cf76514ce6a84870761105058a4a9e51b05a8a79be97a6c",
+  "a1Sources": {
+    "README.md": "301153a7e62a22ff60f2feb105f6725b123bf0b8f77713f7af019029dfdef4ce",
+    "admission/v1/cases.tsv": "31fbfad2b6bda62c4a5769c5acd3c416cc5ad325c08c902490b5ba0aa5541fdd",
+    "admission/v1/controls/scratch-mode.json": "0a588007c8967ca1661f639c2f4d9473461c2b1fbde10ebebc8266d25110caca",
+    "admission/v1/field-inventory.json": "e02d693366712d1552102a7677952723c1739a2ba54e43f009eff5b5b4220f20",
+    "admission/v1/field-inventory.md": "9763bd238f23b0cbba8430e0faaaebee94ae91f0f052719104db8c1bffa60bc4",
+    "admission/v1/mutations/allow-escalation.json": "a62139abc72f361c86fe06fc64b8a64ee8dff99588152e8a284b82bb0fa61401",
+    "admission/v1/mutations/annotation-update.json": "281b3a95010a85175d652a347cfa2263faf65d4933c6a90357701125d7318c44",
+    "admission/v1/mutations/args-change.json": "0a7cb234dee97c1a310c94dffa55005073236a8c73a4ff5a1a88ecabfe31caf7",
+    "admission/v1/mutations/automount-true.json": "d3d4063d1b53ce9e47541331dba3c9e426f8adb0f6bbb5f7c00b2649f3bd33ee",
+    "admission/v1/mutations/capabilities-drop-missing.json": "542e48cc5a60a0f434edafba1ac4d5db071fb82ef9e182f864d56cd9c55c044b",
+    "admission/v1/mutations/capability-add.json": "8a37b6b70b52baeeab6a528caab8b5655027f547c6cff2f45f1c338846b6e7a3",
+    "admission/v1/mutations/cni-annotation.json": "5836afe443dd7200407daea9133b113a29745df397b8aaaca0f312e09164ff68",
+    "admission/v1/mutations/command-change.json": "1ea1bdd807f0709f73ed086e70a88907180c52572c7cf4e44ddacdded4be8456",
+    "admission/v1/mutations/container-security-missing.json": "66a9b599246ba871d0acff70f36df09aede2f978eb43830cd3fd161a05e17fd1",
+    "admission/v1/mutations/container-uid.json": "ccae2e8cbea939799d8cdfaead636fd728bf1832f838ab5ff0c1697a80b838ab",
+    "admission/v1/mutations/cpu-limit-missing.json": "35f43bcdc1d009cbff87b7fcecdc3fa29e2600f81f56d184c44f7c80edf99d35",
+    "admission/v1/mutations/csi-volume.json": "a10ed87f48cfabbf72c34ec8dd5f5ed4324feaa82c0c7605ffdeba6b489723bc",
+    "admission/v1/mutations/dns-override.json": "d71afd443ecc79610e9ca529e94ebc96d342df90238c541a8d177e404e93a3c0",
+    "admission/v1/mutations/env-literal.json": "c8cdd7cbec1d6a0fed441d8a76e2cb0b4ec29175eb7d7a7d54f3ad6feacc01fe",
+    "admission/v1/mutations/env-secretKeyRef.json": "55913cc439eb5fa94a0ad12c561d9685fb7c2e9c5f285d3cf21dac785804eeca",
+    "admission/v1/mutations/envFrom-secret.json": "1eda3ed25a19a4b484bb91d9385a28e73056a3c491e4e9f4e96a249f1d507b5f",
+    "admission/v1/mutations/ephemeral-subresource.json": "52ea5dda6e5f04cc224b73fa628fff28547fdccb437d86bf7001dc8c1ea66474",
+    "admission/v1/mutations/extra-container.json": "f43d65b133a56a45d78f441bce0b061ea60a164cfe56b2d0614e11b44de0aff8",
+    "admission/v1/mutations/extra-label.json": "f0721d908c0142a740287af5bcfcbfaff6bd9b91a933f6b31961a09088b1a749",
+    "admission/v1/mutations/finalizer.json": "99ad77dab15748980153e0d0691af4e1f33b9d52cbc27582f124d6cab0eb61e2",
+    "admission/v1/mutations/host-alias.json": "04ff00d12a4f70b6a5ffa8f50ff4d095ef077ef701d0563e5c30405ee7da1568",
+    "admission/v1/mutations/host-users.json": "db269795e8f334e354eb17ac3c42e0b02611bcafce6b7613a0336ca8258b39e4",
+    "admission/v1/mutations/hostIPC.json": "3e8e8d72a250253d9977f65b347b9cf49f3906dd69e33c0b73c450ffa873f2d2",
+    "admission/v1/mutations/hostNetwork.json": "fc62d0c0ff97f6d403f8cc9b780efb7ba6d6f4ff4c813161962a12d7646791df",
+    "admission/v1/mutations/hostPID.json": "af6fbfb0660dd7a1dd76af63e7ea75d6a9f959bdbfb1e5768e60816653d36494",
+    "admission/v1/mutations/hostPath-volume.json": "94c804b3163fc8298e654984bd302ac053a5cd1ab4224dc5bdc2affee251e913",
+    "admission/v1/mutations/hostPort.json": "0a096a2dd55e48ef8fc5dd6b75644e71d2932968a32c41693228e1607d9135fd",
+    "admission/v1/mutations/hostname-override.json": "22141fec6484617295bdac0ecc1bfc041305f5f9e520e5f641a96e5a3f07df3b",
+    "admission/v1/mutations/image-other-digest.json": "da23c2def9b28c543be4881a802a4ce5e07cd93e3617eceaf7012e955c82e007",
+    "admission/v1/mutations/image-pull-secret.json": "41524d14f6e7cb53a17481e6c6f6b862319e38df52c538640b8c50bc3e99ff8c",
+    "admission/v1/mutations/image-tag.json": "9ac56679620cda6a32f788132107aa33bedf60ab794ad343a86c80ab97a2a973",
+    "admission/v1/mutations/image-update.json": "9ac56679620cda6a32f788132107aa33bedf60ab794ad343a86c80ab97a2a973",
+    "admission/v1/mutations/init-sidecar.json": "dc35898651065d02c5f3c17dab72b0eb6897f9776ea4dd389a51b2fc2368307a",
+    "admission/v1/mutations/memory-limit-oversize.json": "e282b703f5c443bb114bff5dfaa5cdb826dee16f389804f6caec21394cde1d11",
+    "admission/v1/mutations/mount-propagation.json": "8ace101294f4ee6ce06de2c7bc99fbd9806c97b058c79b8310944e0d1035de58",
+    "admission/v1/mutations/mount-subPath.json": "51d315d13701c225069073595bd4cd964436c6083798cc8d3d4adfddf87102ad",
+    "admission/v1/mutations/name-change.json": "f7e3fba27a14e5a575b473764768928d1d7c9ff499a04dcd0954dd8b7de7a658",
+    "admission/v1/mutations/node-selector.json": "6ecdcfbec88ac368339fed9d599b9371d86eb1c81b16f13ddf76903d7816b1f2",
+    "admission/v1/mutations/pod-resources.json": "0b52ded58b630c25ac4e67f227d3fbea79b191507d72f4b78400da9ed2a03728",
+    "admission/v1/mutations/pod-security-missing.json": "59ed9dcb8e03867fecf297cf4efa3919aaa3255ea0e17a1a6f4c3bbf25d183f8",
+    "admission/v1/mutations/probe.json": "212f27b9b13d690dacfdfbf39eb571dfdceb92dddf7691a41948792e2c8a6e83",
+    "admission/v1/mutations/profile-label-missing.json": "3f584717ac4944033233f4d1bb138be32aff519abe584f53b25a223b19cc906e",
+    "admission/v1/mutations/projected-sa-token.json": "2bcaadc96a01b3d068040fddda4a6a21783418158e6ae03af93bae803a3a6de3",
+    "admission/v1/mutations/pvc-volume.json": "698ccff041cee2b9096da987df22fd7be849d0ff6e3524aead634995138780b2",
+    "admission/v1/mutations/resize-subresource.json": "c4d53bdf2209c10a88c0bcb2add482114528b3bd14933d5ec046290abdc180c7",
+    "admission/v1/mutations/resource-claim.json": "9c10882601e7c1b02d08ad84c402d7060f35433178f9366ddc1afe0bfdd94fc7",
+    "admission/v1/mutations/rootfs-writable.json": "01a27d000ee20663e20aa0db1a82d804824df6cef695cb42850dfd5574a7ea22",
+    "admission/v1/mutations/runtime-missing.json": "a98eccb09ed9dac55d4ee56792e3ff9e3be4738078d12c7e2e08b5a6485b343d",
+    "admission/v1/mutations/runtime-runc.json": "1bac17c6009cd19c32f41b6ff35a24f20ae74283b5c56190819af4181bd8a9dd",
+    "admission/v1/mutations/sa-default.json": "cc6e53dca1b7b2c5f031f3b50bedbdf2873b4000f880c2b1ce50383f684888c5",
+    "admission/v1/mutations/scratch-missing.json": "f309dfa0f844f98bf5059e78b74aaf79a6792361ba852ae009db8511e3853045",
+    "admission/v1/mutations/scratch-oversize.json": "6280c6f92b23cc8a91138c960372353f1ffe66255d4a27565439efef82ba886f",
+    "admission/v1/mutations/seccomp-unconfined.json": "43d70733a3416fa6955440f438ffc038831a2b52d74cc095f47985746763d8ac",
+    "admission/v1/mutations/secret-volume.json": "55e19bf929ae69fae7996e48fc38582e151f694785d7ab4e87b3dd26afcb9c54",
+    "admission/v1/mutations/shared-process.json": "25bdbe08220bbdb9079f705ce1e4371fb48147b2a86dfae93819812bba256614",
+    "admission/v1/mutations/storage-limit-missing.json": "88678a069a014a93da6a5feff237c5f7cd032df62cc568201835b8484329c09e",
+    "admission/v1/mutations/tmp-mount-missing.json": "3dde687a2afd19a1a1f18a7c7df4063915c85afedb82a50980eb1bc5068356c3",
+    "admission/v1/mutations/uid-root.json": "e13e8c6c2178deace81a82f7f0a7284b2bc4efe3243846427f4dcbded958c000",
+    "admission/v1/mutations/working-directory.json": "617d46ca54a4127cccda0291fdd72b920d447aaca9cb7798f7288ba82b1009b9",
+    "admission/v1/pod-floor.yaml": "9249282ed1c418d52d7d5eb7a78760efebf27dcfe66d9f9922e823ddd4eb2841",
+    "admission/v1/rejected-runtime.yaml": "3cf35c8a6c6a1c94d85702e0947b1f0c4b50119539c1478ce0e803bed0ca66cc",
+    "check-api-absence.sh": "b7bb4b279d3cf9de3d3a4401f8bb9424bcfdb2a579b6bb08463e79d7bec2e2ed",
+    "profile/v1/namespace.yaml": "2a2b3859fd70581ccf0cd48f5ab53c8463e9ed304c63fcfd03c9f8d1a9a513e3",
+    "profile/v1/pod.yaml": "a07fd4a0c36611611c552b78b7125ed8ae1a698ccb244a6a554dcd3c563934f0",
+    "run-admission.sh": "5cc1b41ee67be0dea9ed71d4555cd22729105f34b4cfd24a0afa007961969753",
+    "versions.yaml": "c4c12655d33bee29ed7298a6a0ceef91ad36d7b09f6e34dab1e70aad42559922",
+    "resources/v1/floor-common.sh": "bd9047d020b3df9660ee491ea6cd05c0fbc3b79a2c0b9e0a4606ad88aee57f67"
+  },
+  "profiles": {
+    "floor-control": {
+      "sha256": "c4e3f036f8748d1762b00660a3ca2ee921d4ee06c642b093087559797e7c5504",
+      "bodySha256": "c015e07a080a0a0b0f43f6ec4799a250fa08d898366bf86aa6e49a629ffbf0ca"
+    },
+    "scratch-a": {
+      "sha256": "5175dc5d267f15eed7247f52d548ae0813373177d21acab3725c937b27178334",
+      "bodySha256": "26f3ecb8e2301b9dc62a2b7414b5901f5278c1e5bfe58cb7008256b0ebf1ce0f"
+    },
+    "scratch-b": {
+      "sha256": "4adbecfa3fedd272927141bf4d60100fc26686348c4652ec4299f8e17ebd1f17",
+      "bodySha256": "a61ca82c52fb390ecd98ff5d6920aa0b6f00f4403576247c889b8acd473c41da"
+    },
+    "process-control": {
+      "sha256": "7f044c2d78fc3719d9350ed605d4cc22d154447a82ddbceb34a5f99c4f86f4a0",
+      "bodySha256": "c90898a6b759ff38d0d28b05f9df3171557a93f9d976f442b3b73a65e8b5e6e1"
+    },
+    "process-limit": {
+      "sha256": "818f454ead5d1276f5ca114bb3814460e08ee1a40932a624525e068536efc486",
+      "bodySha256": "6bfbb7fc0a61cae3e142a795ce159ce253e5e4a2fe4bad8fa51ff3ce811ab2bc"
+    },
+    "memory-control": {
+      "sha256": "9fc3fa9f67132d29c47aa42c72c68d597015d5fd3d79e0fd1cac14a3539b0105",
+      "bodySha256": "13ee2cf89857209ab58f77a691c0b0ae2c0acdd65a7eaf5935289968b22a9e9d"
+    },
+    "memory-limit": {
+      "sha256": "ac5340f81ff765f6b8ed0c1a96e39c184fbe1a797f9370ba832f17f3acd36db1",
+      "bodySha256": "c68e460c1e998f2cc6d2a023979deaa64a9bcf8fd67f5071ca25d561476ff643"
+    },
+    "cpu-control": {
+      "sha256": "0a381721962299561d34d1ed2ec7faee7e9a23743ae3835d47d7c9db1b6e0b96",
+      "bodySha256": "b44261acbf3b54caa054e3f3dc90cacc89056a857588b53314541f82a15c755e"
+    },
+    "cpu-deadline": {
+      "sha256": "e52f9cd898973d3945305f599cb1f3f188c9639535b84ea9f65e1b80095b7eda",
+      "bodySha256": "977c690a1a1d61989fd48e4f28f8a0193fa2fc397215ad495ca11dbda958ce3b"
+    }
+  },
+  "negativeCases": 67,
+  "authoritySha256": {
+    "namespace.yaml": "cbfc23c29f7454f278c174340a59f0bc9503445c122198df8c95c99dceaf18ba",
+    "pod-floor.yaml": "a7ca56fc29d76de8b12af5c745e73e876b35ba949ee44390add4f2dccba52ceb"
+  }
+}

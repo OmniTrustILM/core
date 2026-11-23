@@ -1,0 +1,30 @@
+[
+  {
+    "op": "replace",
+    "path": "/metadata/name",
+    "value": "f01-a2-memory-control"
+  },
+  {
+    "op": "replace",
+    "path": "/metadata/labels",
+    "value": {
+      "ilm.ai/proof": "a2-v1"
+    }
+  },
+  {
+    "op": "replace",
+    "path": "/spec/containers/0/command",
+    "value": [
+      "/bin/busybox",
+      "ash",
+      "-c"
+    ]
+  },
+  {
+    "op": "replace",
+    "path": "/spec/containers/0/args",
+    "value": [
+      "exec /bin/busybox awk 'BEGIN {\n  for (i=1; i<=1024; i++) {\n    s=sprintf(\"%08x\",i)\n    for (j=0; j<9; j++) s=s s\n    a[i]=s\n    if (length(a[i])!=4096) exit 42\n    if (i%1024==0) { printf \"ALLOCATED_PAYLOAD_BYTES %d\\n\",i*4096; fflush() }\n  }\n  printf \"ALLOCATION_COMPLETED %d\\n\",1024*4096; fflush()\n  system(\"/bin/busybox sleep 3\")\n}'"
+    ]
+  }
+]

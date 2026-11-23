@@ -9,6 +9,8 @@ import com.otilm.core.security.authn.PlatformAuthenticationToken;
 import com.otilm.core.security.authn.PlatformUserDetails;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
 import com.otilm.core.security.authn.client.PlatformAuthenticationClient;
+import com.otilm.core.security.authz.opa.OpaClient;
+import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -41,11 +43,14 @@ class AuthorizationEnforcerImplTest {
     @Mock
     PlatformAuthenticationClient authenticationClient;
 
+    @Mock
+    OpaClient policy;
+
     AuthorizationEnforcerImpl enforcer;
 
     @BeforeEach
     void setUp() {
-        enforcer = new AuthorizationEnforcerImpl(core, authenticationClient);
+        enforcer = new AuthorizationEnforcerImpl(core, authenticationClient, policy);
         SecurityContextHolder.getContext().setAuthentication(platformAuth());
     }
 
@@ -53,6 +58,72 @@ class AuthorizationEnforcerImplTest {
     void tearDown() {
         SecurityContextHolder.clearContext();
         LoggingHelper.clearActorInfo();
+    }
+
+    @Test
+    void boundedObjectCheckUsesSuppliedCurrentPrincipalAndExactUncachedObjectVotes() {
+        var principal = new AuthenticationInfo(AuthMethod.NONE, UUID.randomUUID().toString(), "current-user", List.of(),
+                "{\"fresh\":true}");
+        var object = UUID.randomUUID();
+        var timeout = Duration.ofMillis(100);
+
+        enforcer.enforce(Resource.AI_MODEL, ResourceAction.USE, principal, object, timeout);
+
+        verify(policy)
+                .requireObjectAccessUncached(
+                        argThat(resource -> resource.getProperties().get("name").equals(Resource.AI_MODEL.getCode())
+                                && resource.getProperties().get("action").equals(ResourceAction.USE.getCode())
+                                && Resource.NONE.getCode().equals(resource.getProperties().get("parentName"))
+                                && ResourceAction.NONE.getCode().equals(resource.getProperties().get("parentAction"))
+                                && resource.getObjectUUIDs().equals(List.of(object.toString()))),
+                        eq("{\"fresh\":true}"), eq(object), eq(timeout));
+        verifyNoInteractions(core, authenticationClient);
+    }
+
+    @Test
+    void boundedObjectCheckRejectsMissingPrincipalWithoutOrdinaryFallback() {
+        assertThatThrownBy(() -> enforcer
+                .enforce(Resource.AI_MODEL, ResourceAction.USE, null, UUID.randomUUID(), Duration.ofMillis(100)))
+                .isInstanceOf(AccessDeniedException.class);
+        verifyNoInteractions(core, authenticationClient, policy);
+    }
+
+    @Test
+    void boundedObjectCheckRejectsInvalidResourceActionAnonymousAndMissingObject() {
+        var principal = new AuthenticationInfo(AuthMethod.NONE, UUID.randomUUID().toString(), "current-user", List.of(),
+                "{}");
+        UUID object = UUID.randomUUID();
+        Duration timeout = Duration.ofMillis(100);
+        List<Runnable> invalid = List
+                .of(() -> enforcer.enforce(null, ResourceAction.USE, principal, object, timeout),
+                        () -> enforcer.enforce(Resource.NONE, ResourceAction.USE, principal, object, timeout),
+                        () -> enforcer.enforce(Resource.AI_MODEL, null, principal, object, timeout),
+                        () -> enforcer.enforce(Resource.AI_MODEL, ResourceAction.NONE, principal, object, timeout),
+                        () -> enforcer
+                                .enforce(Resource.AI_MODEL, ResourceAction.USE,
+                                        AuthenticationInfo.getAnonymousAuthenticationInfo(), object, timeout),
+                        () -> enforcer.enforce(Resource.AI_MODEL, ResourceAction.USE, principal, null, timeout));
+        for (Runnable request : invalid) {
+            assertThatThrownBy(request::run).isInstanceOf(AccessDeniedException.class).hasNoCause();
+        }
+        verifyNoInteractions(core, authenticationClient, policy);
+    }
+
+    @Test
+    void boundedObjectCheckRedactsPolicyFailures() {
+        var principal = new AuthenticationInfo(AuthMethod.NONE, UUID.randomUUID().toString(), "current-user", List.of(),
+                "{}");
+        org.mockito.Mockito
+                .doThrow(new IllegalStateException("private-policy-canary"))
+                .when(policy)
+                .requireObjectAccessUncached(any(), any(), any(), any());
+
+        assertThatThrownBy(() -> enforcer
+                .enforce(Resource.AI_MODEL, ResourceAction.USE, principal, UUID.randomUUID(), Duration.ofMillis(100)))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessage("Current object access denied")
+                .hasNoCause();
+        verifyNoInteractions(core, authenticationClient);
     }
 
     @Test

@@ -1,0 +1,7 @@
+[
+  {
+    "op": "add",
+    "path": "/spec/containers/0/image",
+    "value": "docker.io/library/busybox:1.37.0"
+  }
+]

@@ -1,0 +1,9 @@
+[
+  {
+    "op": "add",
+    "path": "/metadata/finalizers",
+    "value": [
+      "synthetic.example/finalizer"
+    ]
+  }
+]

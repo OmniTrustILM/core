@@ -1,0 +1,93 @@
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "name": "f01-a2-process-limit",
+    "namespace": "ilm-sandbox-a2",
+    "labels": {
+      "ilm.ai/proof": "a2-v1"
+    }
+  },
+  "spec": {
+    "os": {
+      "name": "linux"
+    },
+    "runtimeClassName": "runsc-f01-a2-v1",
+    "serviceAccountName": "runner",
+    "automountServiceAccountToken": false,
+    "enableServiceLinks": false,
+    "restartPolicy": "Never",
+    "activeDeadlineSeconds": 27,
+    "terminationGracePeriodSeconds": 1,
+    "dnsPolicy": "None",
+    "dnsConfig": {
+      "nameservers": [
+        "127.0.0.1"
+      ]
+    },
+    "securityContext": {
+      "runAsNonRoot": true,
+      "runAsUser": 65532,
+      "runAsGroup": 65532,
+      "fsGroup": 65532,
+      "seccompProfile": {
+        "type": "RuntimeDefault"
+      }
+    },
+    "containers": [
+      {
+        "name": "fixed-proof",
+        "image": "docker.io/library/busybox@sha256:d82c2ab94640ded77cf76514ce6a84870761105058a4a9e51b05a8a79be97a6c",
+        "imagePullPolicy": "Never",
+        "command": [
+          "/bin/busybox",
+          "ash",
+          "-c"
+        ],
+        "args": [
+          "set -eu\n/bin/busybox mkfifo /scratch/f01-process-gate\nexec 3<>/scratch/f01-process-gate\n: > /scratch/f01-process-input\ni=0\nwhile [ \"$i\" -lt 298 ]; do\n  i=$((i+1))\n  printf '%s\\n' \"$i\" >> /scratch/f01-process-input\ndone\nexec /bin/busybox xargs -r -t -n 1 -P 298 /bin/busybox ash -c 'lines=0; while [ \"$lines\" -lt 128 ] && IFS= read -r status_line; do lines=$((lines+1)); case \"$status_line\" in Pid:*|Uid:*|Threads:*) printf \"WORKER_STATUS %s\\n\" \"$status_line\";; esac; done < /proc/self/status; printf \"CHILD_READY %s\\n\" \"$1\"; IFS= read -r -t 12 token <&3 || :' f01-child < /scratch/f01-process-input"
+        ],
+        "securityContext": {
+          "allowPrivilegeEscalation": false,
+          "readOnlyRootFilesystem": true,
+          "capabilities": {
+            "drop": [
+              "ALL"
+            ]
+          }
+        },
+        "resources": {
+          "requests": {
+            "cpu": "100m",
+            "memory": "64Mi",
+            "ephemeral-storage": "16Mi"
+          },
+          "limits": {
+            "cpu": "500m",
+            "memory": "256Mi",
+            "ephemeral-storage": "32Mi"
+          }
+        },
+        "volumeMounts": [
+          {
+            "name": "scratch",
+            "mountPath": "/scratch"
+          },
+          {
+            "name": "scratch",
+            "mountPath": "/tmp"
+          }
+        ]
+      }
+    ],
+    "volumes": [
+      {
+        "name": "scratch",
+        "emptyDir": {
+          "medium": "Memory",
+          "sizeLimit": "16Mi"
+        }
+      }
+    ]
+  }
+}

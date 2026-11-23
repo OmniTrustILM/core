@@ -1,0 +1,12 @@
+[
+  {
+    "op": "add",
+    "path": "/spec/containers/0/ports",
+    "value": [
+      {
+        "containerPort": 18080,
+        "hostPort": 18080
+      }
+    ]
+  }
+]

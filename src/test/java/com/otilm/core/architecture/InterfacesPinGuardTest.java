@@ -13,6 +13,7 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
+import javax.xml.parsers.DocumentBuilderFactory;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -50,6 +51,11 @@ class InterfacesPinGuardTest {
 
     /** Prevents the override check from passing if detection finds no jobs. */
     private static final Set<String> EXPECTED_INTERFACES_JOBS = Set.of("compile", "test", "package", "generated");
+
+    /** These standalone runtime installs do not resolve Core's Interfaces dependency. */
+    private static final Set<String> STANDALONE_RUNTIME_INSTALLS = Set
+            .of("mvn -B -U -ntp -f ai-runtime/pom.xml install",
+                    "mvn -B -U -ntp -f ai-runtime/pom.xml install -DskipTests");
 
     @Test
     void aggregateJobDependsOnThePinGate() throws IOException {
@@ -163,6 +169,62 @@ class InterfacesPinGuardTest {
         return detected;
     }
 
+    @Test
+    void onlyStandaloneRuntimeInstallsAvoidTheCoreOverrideRequirement() {
+        assertThat(List
+                .of("mvn -B -U -ntp -f ai-runtime/pom.xml install",
+                        "mvn -B -U -ntp -f ai-runtime/pom.xml install -DskipTests"))
+                .noneMatch(InterfacesPinGuardTest::compilesTheTree);
+        assertThat(List
+                .of("mvn install", "mvn verify", "mvn -f pom.xml install", "mvn -f other/pom.xml install",
+                        "mvn -f ai-runtime/other.xml install", "mvn -B -U -ntp -f ai-runtime/pom.xml verify",
+                        "mvn -B -U -ntp -f ai-runtime/pom.xml install && mvn verify"))
+                .allMatch(InterfacesPinGuardTest::compilesTheTree);
+    }
+
+    @Test
+    void runtimeInstallInAShellBlockDoesNotHideAnUnpinnedCoreBuild() {
+        Map<String, Object> job = Map.of("steps", List.of(Map.of("run", """
+                mvn -B -U -ntp -f ai-runtime/pom.xml install
+                mvn -B -U verify
+                """)));
+        List<String> unpinned = mavenInvocations(job)
+                .stream()
+                .filter(InterfacesPinGuardTest::compilesTheTree)
+                .filter(command -> !command.contains(OVERRIDE))
+                .toList();
+        assertThat(unpinned).containsExactly("mvn -B -U verify");
+    }
+
+    @Test
+    void standaloneRuntimeModulesRemainIndependentOfInterfacesAndOutsideModules() throws Exception {
+        List<String> modules = List
+                .of("ai-runtime-protocol", "ai-connector-gateway", "ai-runtime-proxy", "ai-runner", "ai-controller");
+        List<String> projects = new ArrayList<>(modules);
+        projects.add("");
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setNamespaceAware(true);
+        factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+        for (String project : projects) {
+            Path pom = Path.of("ai-runtime", project, "pom.xml");
+            var document = factory.newDocumentBuilder().parse(pom.toFile());
+            var artifacts = document.getElementsByTagNameNS("*", "artifactId");
+            for (int i = 0; i < artifacts.getLength(); i++) {
+                assertThat(artifacts.item(i).getTextContent().strip())
+                        .describedAs("artifact in %s", pom)
+                        .isNotEqualTo("interfaces");
+            }
+            var moduleElements = document.getElementsByTagNameNS("*", "module");
+            List<String> declared = new ArrayList<>();
+            for (int i = 0; i < moduleElements.getLength(); i++) {
+                declared.add(moduleElements.item(i).getTextContent().strip());
+            }
+            assertThat(declared)
+                    .describedAs("modules in %s", pom)
+                    .containsExactlyInAnyOrderElementsOf(project.isEmpty() ? modules : List.of());
+        }
+    }
+
     @SuppressWarnings("unchecked")
     private static Map<String, Object> jobs() throws IOException {
         try (InputStream in = Files.newInputStream(WORKFLOW)) {
@@ -243,9 +305,12 @@ class InterfacesPinGuardTest {
     }
 
     /**
-     * True when the invocation names a lifecycle phase rather than only plugin goals such as {@code spotless:check}.
+     * True for Core lifecycle builds, excluding the fixed standalone runtime installs and plugin-only goals.
      */
     private static boolean compilesTheTree(String invocation) {
+        if (STANDALONE_RUNTIME_INSTALLS.contains(invocation)) {
+            return false;
+        }
         return Arrays
                 .stream(invocation.split("\\s+"))
                 .filter(token -> !token.startsWith("-"))
