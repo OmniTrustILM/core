@@ -24,6 +24,11 @@ public record RawSigningItem(String identifier, byte[] digest) {
         return digest.clone();
     }
 
+    /** The digest length, free of the copy {@link #digest()} has to make. */
+    public int digestLength() {
+        return digest.length;
+    }
+
     /** A record's generated {@code equals} would compare the digest by identity. */
     @Override
     public boolean equals(Object other) {

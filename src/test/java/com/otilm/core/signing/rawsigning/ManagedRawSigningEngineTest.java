@@ -359,8 +359,8 @@ class ManagedRawSigningEngineTest {
         // given
         var timestampingProfileOnTheKey = "timestamping-profile";
         when(signingProfileVersionRepository
-                .findLatestProfileNamesBySigningKeyAndWorkflowIn(getSigningKeyUuid(profile),
-                        Set.of(SigningWorkflowType.CONTENT_SIGNING, SigningWorkflowType.TIMESTAMPING), PROFILE_UUID))
+                .findProfileNamesBySigningKeyAndWorkflowIn(getSigningKeyUuid(profile),
+                        Set.of(SigningWorkflowType.CONTENT_SIGNING, SigningWorkflowType.TIMESTAMPING), null, null))
                 .thenReturn(List.of(timestampingProfileOnTheKey));
         var request = buildDigestRequest(IDENTIFIERS);
 
@@ -381,8 +381,8 @@ class ManagedRawSigningEngineTest {
         // given
         var unexpectedFault = new IllegalStateException("repository unavailable");
         when(signingProfileVersionRepository
-                .findLatestProfileNamesBySigningKeyAndWorkflowIn(getSigningKeyUuid(profile),
-                        Set.of(SigningWorkflowType.CONTENT_SIGNING, SigningWorkflowType.TIMESTAMPING), PROFILE_UUID))
+                .findProfileNamesBySigningKeyAndWorkflowIn(getSigningKeyUuid(profile),
+                        Set.of(SigningWorkflowType.CONTENT_SIGNING, SigningWorkflowType.TIMESTAMPING), null, null))
                 .thenThrow(unexpectedFault);
         var request = buildDigestRequest(IDENTIFIERS);
 

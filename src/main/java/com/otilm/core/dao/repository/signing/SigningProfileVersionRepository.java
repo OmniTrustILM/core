@@ -45,20 +45,21 @@ public interface SigningProfileVersionRepository extends JpaRepository<SigningPr
     Optional<SigningProfileVersion> findLatestByProfileUuid(UUID signingProfileUuid);
 
     /**
-     * Names the profiles of the given workflows whose latest version signs with the key, through whichever certificate
-     * carries it. Superseded versions do not count: they never sign again.
+     * Names the profiles of the given workflows that sign, or once signed, with the key, through whichever certificate
+     * carries it. Every stored version counts, superseded ones too: a signature stays valid after its profile has moved
+     * to another key.
      *
-     * @param excludedProfileUuid the profile under check, whose own latest version never counts: the one being saved,
-     * which may change its own workflow (null on create), activated for ILM_NATIVE, or run
+     * @param excludedProfileUuid with {@code excludedVersion}, the one version that does not count: the latest version
+     * of a profile that a save overwrites in place; both null to count every version
      */
     @Query("""
             SELECT DISTINCT v.signingProfile.name FROM SigningProfileVersion v
             WHERE v.certificate.keyUuid = :keyUuid
               AND v.workflowType IN :workflowTypes
-              AND v.version = v.signingProfile.latestVersion
-              AND (CAST(:excludedProfileUuid AS java.util.UUID) IS NULL OR v.signingProfileUuid <> :excludedProfileUuid)
+              AND (CAST(:excludedProfileUuid AS java.util.UUID) IS NULL
+                   OR v.signingProfileUuid <> :excludedProfileUuid OR v.version <> :excludedVersion)
             ORDER BY v.signingProfile.name
             """)
-    List<String> findLatestProfileNamesBySigningKeyAndWorkflowIn(UUID keyUuid,
-            Collection<SigningWorkflowType> workflowTypes, UUID excludedProfileUuid);
+    List<String> findProfileNamesBySigningKeyAndWorkflowIn(UUID keyUuid, Collection<SigningWorkflowType> workflowTypes,
+            UUID excludedProfileUuid, Integer excludedVersion);
 }

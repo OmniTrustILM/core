@@ -173,6 +173,9 @@ class RawSigningEngineITest extends BaseSpringBootTest {
         // then
         assertThat(result.signatureAlgorithm()).isEqualTo(signingKey.signatureAlgorithm());
         assertThat(result.items()).extracting(RawSignedItem::identifier).containsExactlyElementsOf(IDENTIFIERS);
+        assertThat(result.certificateChain())
+                .extracting(certificate -> certificate.getSubjectX500Principal().getName())
+                .containsExactly("CN=" + profile.getName(), "CN=Raw Signing Root CA");
         PublicKey signingPublicKey = result.certificateChain().getFirst().getPublicKey();
         for (RawSignedItem item : result.items()) {
             assertThat(verifiesOverItsMessage(signingKey, signingPublicKey, item))

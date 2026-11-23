@@ -63,9 +63,9 @@ public final class RawSigningProfileRules {
         }
         String profileNames = String.join(", ", conflictingProfileNames);
         String conflict = workflowType == SigningWorkflowType.RAW_SIGNING
-                ? "The signing key of certificate %s also signs for Signing Profile(s) of another workflow: %s"
-                        .formatted(certificateUuid, profileNames)
-                : "The signing key of certificate %s signs raw digests for Signing Profile(s): %s"
+                ? ("The signing key of certificate %s signs, or has signed, for Signing Profile(s) of another "
+                        + "workflow: %s").formatted(certificateUuid, profileNames)
+                : "The signing key of certificate %s signs, or has signed, raw digests for Signing Profile(s): %s"
                         .formatted(certificateUuid, profileNames);
         throw new ValidationException(conflict + ". A key that signs raw digests can serve no other workflow.");
     }

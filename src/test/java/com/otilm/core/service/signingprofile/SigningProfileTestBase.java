@@ -219,7 +219,6 @@ public abstract class SigningProfileTestBase extends BaseSpringBootTest {
         tokenProfile.setTokenInstanceName("test-token-instance");
         tokenProfile = tokenProfileRepository.saveAndFlush(tokenProfile);
 
-        // MLDSA key — produces empty attribute definitions
         cryptographicKey = cryptographicKeySeeder
                 .seedKey("test-key-mldsa", tokenProfile, tokenInstanceRef, signingPrivateKey(KeyAlgorithm.MLDSA));
 

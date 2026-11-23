@@ -138,7 +138,7 @@ class RawSigningProfileRulesTest {
             assertThatThrownBy(refuse)
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining(certificateUuid.toString())
-                    .hasMessageContaining("also signs for Signing Profile(s) of another workflow")
+                    .hasMessageContaining("signs, or has signed, for Signing Profile(s) of another workflow")
                     .hasMessageContaining(String.join(", ", contentAndTimestampingProfiles));
         }
 
@@ -157,7 +157,8 @@ class RawSigningProfileRulesTest {
             assertThatThrownBy(refuse)
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining(certificateUuid.toString())
-                    .hasMessageContaining("signs raw digests for Signing Profile(s): raw-signing-profile");
+                    .hasMessageContaining(
+                            "signs, or has signed, raw digests for Signing Profile(s): raw-signing-profile");
         }
 
         @Test

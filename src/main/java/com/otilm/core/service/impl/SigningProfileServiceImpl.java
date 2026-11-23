@@ -902,8 +902,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
             // Only a static-key scheme names a key ILM signs with.
             return;
         }
-        refuseSharedSigningKey(SigningWorkflowType.RAW_SIGNING, certificate.getUuid(), certificate.getKeyUuid(),
-                profile.getUuid());
+        refuseSharedSigningKey(SigningWorkflowType.RAW_SIGNING, certificate.getUuid(), certificate.getKeyUuid(), null);
     }
 
     /** An update may move a profile to a workflow or scheme that cannot carry a protocol it had enabled. */
@@ -1161,12 +1160,27 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         refuseSharedSigningKey(request.getWorkflow().getType(), certificateUuid, keyUuid, targetProfileUuid);
     }
 
+    /**
+     * @param savedProfileUuid the profile a save is about to change, or null; its latest version is left out only when
+     * the save overwrites it in place, which it does when no signing record names that version
+     */
     private void refuseSharedSigningKey(SigningWorkflowType workflowType, UUID certificateUuid, UUID keyUuid,
-            @Nullable UUID excludedProfileUuid) {
+            @Nullable UUID savedProfileUuid) {
+        Integer overwrittenVersion = savedProfileUuid == null ? null : overwrittenVersionOf(savedProfileUuid);
         List<String> conflictingProfileNames = signingProfileVersionRepository
-                .findLatestProfileNamesBySigningKeyAndWorkflowIn(keyUuid,
-                        RawSigningProfileRules.conflictingWorkflows(workflowType), excludedProfileUuid);
+                .findProfileNamesBySigningKeyAndWorkflowIn(keyUuid,
+                        RawSigningProfileRules.conflictingWorkflows(workflowType),
+                        overwrittenVersion == null ? null : savedProfileUuid, overwrittenVersion);
         RawSigningProfileRules.refuseSharedSigningKey(workflowType, certificateUuid, conflictingProfileNames);
+    }
+
+    /** A save keeps a version its signing records name, so only a version without records is overwritten. */
+    private @Nullable Integer overwrittenVersionOf(UUID profileUuid) {
+        return signingProfileVersionRepository
+                .findLatestByProfileUuid(profileUuid)
+                .map(SigningProfileVersion::getVersion)
+                .filter(version -> !signingRecordInternalService.doesSigningRecordExistInternal(profileUuid, version))
+                .orElse(null);
     }
 
     /**

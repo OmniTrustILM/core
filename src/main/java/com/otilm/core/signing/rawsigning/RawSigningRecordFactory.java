@@ -36,8 +36,9 @@ public class RawSigningRecordFactory {
 
     /**
      * Reads the signing time and the requester now, on the thread that signed, and defers the rest of each input until
-     * recording is known to be on. Call it once the batch is signed, so the time follows the signatures. Each record
-     * names both algorithms, since a bare digest and signature cannot be verified without them.
+     * recording is known to be on. Call it once the batch is signed, so the time follows the signatures. Both
+     * algorithms go into the request metadata, which a record keeps only when the profile records request metadata;
+     * without it, the profile version's certificate and signing attributes still name them.
      *
      * @param items the digests in request order
      * @param signatures the signature of each digest, in the same order

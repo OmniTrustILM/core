@@ -2492,7 +2492,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             // then
             assertThatThrownBy(create)
                     .isInstanceOf(ValidationException.class)
-                    .hasMessageContaining("also signs for Signing Profile(s) of another workflow")
+                    .hasMessageContaining("signs, or has signed, for Signing Profile(s) of another workflow")
                     .hasMessageContaining(contentProfile.getName());
             assertThat(signingProfileRepository.findByName(rawRequest.getName())).isEmpty();
         }
@@ -2515,7 +2515,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             // then
             assertThatThrownBy(create)
                     .isInstanceOf(ValidationException.class)
-                    .hasMessageContaining("also signs for Signing Profile(s) of another workflow")
+                    .hasMessageContaining("signs, or has signed, for Signing Profile(s) of another workflow")
                     .hasMessageContaining(defaultTimestampingProfile.getName());
             assertThat(signingProfileRepository.findByName(rawRequest.getName())).isEmpty();
         }
@@ -2550,7 +2550,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             // then
             assertThatThrownBy(create)
                     .isInstanceOf(ValidationException.class)
-                    .hasMessageContaining("signs raw digests for Signing Profile(s)")
+                    .hasMessageContaining("signs, or has signed, raw digests for Signing Profile(s)")
                     .hasMessageContaining(defaultManagedStaticKeySigningProfile.getName());
             assertThat(signingProfileRepository.findByName(contentRequest.getName())).isEmpty();
         }
@@ -2592,7 +2592,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             // then
             assertThatThrownBy(update)
                     .isInstanceOf(ValidationException.class)
-                    .hasMessageContaining("signs raw digests for Signing Profile(s)")
+                    .hasMessageContaining("signs, or has signed, raw digests for Signing Profile(s)")
                     .hasMessageContaining(defaultManagedStaticKeySigningProfile.getName());
             assertThat(loadLatestCertificateUuid(contentProfile)).isEqualTo(defaultSigningCertificate.getUuid());
         }
@@ -2616,7 +2616,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             // then
             assertThatThrownBy(update)
                     .isInstanceOf(ValidationException.class)
-                    .hasMessageContaining("also signs for Signing Profile(s) of another workflow")
+                    .hasMessageContaining("signs, or has signed, for Signing Profile(s) of another workflow")
                     .hasMessageContaining(defaultTimestampingProfile.getName());
             assertThat(loadLatestCertificateUuid(defaultManagedStaticKeySigningProfile))
                     .isEqualTo(defaultRawSigningCertificate.getUuid());
@@ -2648,9 +2648,9 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         }
 
         @Test
-        void refusesNothing_whenCertificateIsBoundOnlyToASupersededVersion() throws Exception {
+        void refusesTheKey_whenOnlyASupersededVersionSignedWithIt() throws Exception {
             // given — a content profile whose latest version left the certificate, and so the key, that version 1
-            // still names
+            // still names; the signatures version 1 made stay valid
             SigningProfileDto movedAway = createManagedContentProfile("content-that-moved-away",
                     defaultSigningCertificate.getUuid());
             createSigningRecordFor(movedAway);
@@ -2669,10 +2669,36 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                     .build();
 
             // when
-            SigningProfileDto created = signingProfileService.createSigningProfile(rawRequest);
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService.createSigningProfile(rawRequest);
 
             // then
-            assertThat(created.getWorkflow()).isInstanceOf(RawSigningWorkflowDto.class);
+            assertThatThrownBy(create)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("signs, or has signed, for Signing Profile(s) of another workflow")
+                    .hasMessageContaining(movedAway.getName());
+            assertThat(signingProfileRepository.findByName(rawRequest.getName())).isEmpty();
+        }
+
+        @Test
+        void refusesTheSwitchToRaw_whenTheProfileHasSignedWithTheKey() throws Exception {
+            // given — the content profile's latest version has a signing record, so the update keeps it
+            SigningProfileDto signedContent = createManagedContentProfile("content-that-signed",
+                    defaultSigningCertificate.getUuid());
+            createSigningRecordFor(signedContent);
+            SigningProfileRequestDto toRaw = aSigningProfileRequestFromExistingProfile(signedContent)
+                    .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
+                    .withRawSigning()
+                    .build();
+
+            // when
+            ThrowableAssert.ThrowingCallable update = () -> signingProfileService
+                    .updateSigningProfile(SecuredUUID.fromString(signedContent.getUuid()), toRaw);
+
+            // then
+            assertThatThrownBy(update)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("signs, or has signed, for Signing Profile(s) of another workflow")
+                    .hasMessageContaining(signedContent.getName());
         }
 
         @Test
@@ -2754,7 +2780,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             // then
             assertThatThrownBy(create)
                     .isInstanceOf(ValidationException.class)
-                    .hasMessageContaining("signs raw digests for Signing Profile(s)")
+                    .hasMessageContaining("signs, or has signed, raw digests for Signing Profile(s)")
                     .hasMessageContaining(defaultManagedStaticKeySigningProfile.getName());
             assertThat(signingProfileRepository.findByName(timestampingRequest.getName())).isEmpty();
         }
@@ -3624,7 +3650,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             // then
             assertThatThrownBy(activate)
                     .isInstanceOf(ValidationException.class)
-                    .hasMessageContaining("also signs for Signing Profile(s) of another workflow")
+                    .hasMessageContaining("signs, or has signed, for Signing Profile(s) of another workflow")
                     .hasMessageContaining(defaultTimestampingProfile.getName());
             assertThat(signingProfileRepository.findByUuid(uuid).orElseThrow().isIlmNativeEnabled()).isFalse();
         }

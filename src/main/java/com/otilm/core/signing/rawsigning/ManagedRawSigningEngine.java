@@ -56,8 +56,10 @@ public class ManagedRawSigningEngine {
     }
 
     /**
-     * Signs every digest of {@code request} and stages one signing record per digest. Every check runs before the key
-     * is used, so a refused batch is neither signed nor recorded.
+     * Signs every digest of {@code request} and stages their signing records as the profile's record policy says. Every
+     * refusal comes before the key is used, so a refused batch is neither signed nor recorded. A batch that has been
+     * signed can still fail afterwards, when the provider's signatures do not verify or a durable record cannot be
+     * staged; the key has then been used, so a caller must not take such a failure as proof that nothing was signed.
      *
      * @param protocol how the run was initiated, which is what its signing records will carry
      * @return the signatures in request order
@@ -186,7 +188,7 @@ public class ManagedRawSigningEngine {
             throws SigningEngineException {
         int digestSize = digestAlgorithm.getDigestSizeBytes();
         for (RawSigningItem item : items) {
-            int length = item.digest().length;
+            int length = item.digestLength();
             if (length != digestSize) {
                 throw new SigningEngineException(SigningEngineFailure.INVALID_INPUT,
                         "digest is %d bytes, but a %s digest is %d"
