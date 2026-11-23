@@ -15,7 +15,7 @@ class CryptographicKeyItemBasicModelTest {
     private static final String KEY_DATA = "MIIEvQIBADANBgkqhkiG9w0BAQEFAASC";
 
     @Test
-    void toString_leavesTheKeyDataOut() {
+    void omitsKeyData_whenPrinted() {
         // given
         UUID uuid = UUID.randomUUID();
         CryptographicKeyItemBasicModel model = new CryptographicKeyItemBasicModel(uuid, UUID.randomUUID(), "test-key",

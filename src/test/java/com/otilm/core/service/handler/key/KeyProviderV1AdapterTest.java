@@ -204,17 +204,19 @@ class KeyProviderV1AdapterTest {
     }
 
     @Test
-    void exportKey_isRefusedForAV1Connector() {
+    void refusesExport_whenConnectorUsesV1() {
         // given
         CryptographicKeyItemOperationModel context = keyItem(KeyAlgorithm.RSA,
                 new RemoteKeyReference.UuidReference(UUID.randomUUID()), UUID.randomUUID());
         HeldKey heldKey = new HeldKey(KeyRequestType.KEY_PAIR, KeyAlgorithm.RSA, null, new byte[]{1}, null);
         Passphrase passphrase = new Passphrase("correct horse battery staple".toCharArray());
+        List<RequestAttribute> noAttributes = List.of();
 
         // when
+        ThrowingCallable exportKey = () -> adapter.exportKey(context, heldKey, passphrase, noAttributes);
+
         // then
-        List<RequestAttribute> noAttributes = List.of();
-        assertThrows(ValidationException.class, () -> adapter.exportKey(context, heldKey, passphrase, noAttributes));
+        assertThatThrownBy(exportKey).isInstanceOf(ValidationException.class);
     }
 
     @Test
