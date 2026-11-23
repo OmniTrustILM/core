@@ -97,7 +97,7 @@ class InterfacesPinGuardTest {
             assertThat(needsOf(downstreamJob)).contains("compile");
             assertThat(stepSource(downstreamJob))
                     .describedAs("%s must resolve Interfaces at the version recorded by Compile", downstream)
-                    .contains("MVNARG=${{ needs.compile.outputs.mvnarg }}");
+                    .contains("MVNARG=${{ needs.compile.outputs.pinned_interfaces_mvnarg }}");
         }
     }
 
