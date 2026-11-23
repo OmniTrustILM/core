@@ -46,6 +46,7 @@ import java.util.List;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Component;
 
 /**
@@ -91,6 +92,9 @@ public class ManagedContentSigningEngine {
         List<BigInteger> serials = new ArrayList<>();
         try {
             return signAtProfileLevel(request, signingProfile, profile, protocol, serials);
+        } catch (AccessDeniedException e) {
+            logDenial(profile, serials, e);
+            throw e;
         } catch (Exception e) {
             throw loggedFailure(profile, serials, e);
         }
@@ -104,7 +108,7 @@ public class ManagedContentSigningEngine {
         List<ComputeDtbsResponseDto> dtbsResponses = boundDtbsResponses(run);
 
         List<byte[]> dtbsList = dtbsResponses.stream().map(ComputeDtbsResponseDto::getDtbs).toList();
-        // The key signs only once the connector has committed to every authorized document.
+        // When the caller authorized digests, the key signs only once the connector has committed to each of them.
         List<byte[]> signatureValues = signDtbs(run, dtbsList);
 
         List<CompletedDocument> documents = completeDocuments(run, dtbsResponses, signatureValues, serials);
@@ -195,11 +199,16 @@ public class ManagedContentSigningEngine {
         return signed;
     }
 
-    /** Lets the caller and the log name the document that broke the batch. */
+    /**
+     * Lets the caller and the log name the document that broke the batch. A denial passes unchanged, so the caller
+     * learns which permission it lacks.
+     */
     private static <T> T attributingFailuresTo(ContentSigningItem item, DocumentWork<T> work)
             throws SigningEngineException {
         try {
             return work.run();
+        } catch (AccessDeniedException e) {
+            throw e;
         } catch (SigningEngineException | RuntimeException e) {
             throw asEngineFailure(e).withItem(item.identifier());
         }
@@ -213,7 +222,9 @@ public class ManagedContentSigningEngine {
     private ComputeDtbsResponseDto boundDtbsResponse(SigningRun run, ContentSigningItem item)
             throws SigningEngineException {
         ComputeDtbsResponseDto dtbsResponse = requireCompleteDtbsResponse(computeDtbs(run, item));
-        DtbsBindingVerifier.verify(run.request().authorizedDigestOf(item), dtbsResponse);
+        if (run.request().bindsAuthorizedDigests()) {
+            DtbsBindingVerifier.verify(run.request().authorizedDigestOf(item), dtbsResponse);
+        }
         return dtbsResponse;
     }
 
@@ -226,18 +237,18 @@ public class ManagedContentSigningEngine {
             throws SigningEngineException {
         ContentSigningCursor cursor = advance(ContentSigningCursor.DTBS_COMPUTED,
                 ContentSigningCursor.SIGNATURE_ACQUIRED);
-        byte[] signedDocument = embedSignatureValue(run.profile(), dtbsResponse, signatureValue,
+        SignedDocumentResponseDto signed = embedSignatureValue(run.profile(), dtbsResponse, signatureValue,
                 run.signatureAlgorithm());
         cursor = advance(cursor, ContentSigningCursor.SIGNED);
 
         SignatureLevel level = run.profile().level();
         int issuedBefore = serials.size();
         if (level != SignatureLevel.SIGNED) {
-            signedDocument = applySignatureTimestamp(run.profile(), signedDocument,
+            signed = applySignatureTimestamp(run.profile(), signed.getSignedDocument(),
                     detachedContentFor(run.request(), item), cursor, serials);
         }
         List<BigInteger> documentSerials = List.copyOf(serials.subList(issuedBefore, serials.size()));
-        return new SignedContent(signedDocument, level, documentSerials);
+        return new SignedContent(signed.getSignedDocument(), signed.getMediaType(), level, documentSerials);
     }
 
     /**
@@ -267,10 +278,11 @@ public class ManagedContentSigningEngine {
         }
         // No certificate or clock gate here: the profile's own key signs nothing on this path, which mints no
         // signingTime claim. The referenced TIMESTAMPING profile gates its own key and its own time.
-        byte[] timestamped = applySignatureTimestamp(profile, request.signedDocument(), request.detachedContent(),
-                ContentSigningCursor.SIGNED, serials);
+        SignedDocumentResponseDto timestamped = applySignatureTimestamp(profile, request.signedDocument(),
+                request.detachedContent(), ContentSigningCursor.SIGNED, serials);
 
-        SignedContent result = new SignedContent(timestamped, profile.level(), serials);
+        SignedContent result = new SignedContent(timestamped.getSignedDocument(), timestamped.getMediaType(),
+                profile.level(), serials);
         recordAugmentation(signingProfile, profile, result, protocol);
         return result;
     }
@@ -301,7 +313,9 @@ public class ManagedContentSigningEngine {
     /** A digest whose algorithm never produces its length came from no document, so no connector sees it. */
     private static void requireWellFormedDigests(ContentSigningRequest request) throws SigningEngineException {
         for (ContentSigningItem item : request.items()) {
-            requireWellFormedDigest("authorized digest", request.authorizedDigestOf(item), item);
+            if (request.bindsAuthorizedDigests()) {
+                requireWellFormedDigest("authorized digest", request.authorizedDigestOf(item), item);
+            }
             if (request.transferMode() == DocumentTransferMode.DIGEST_ONLY) {
                 requireWellFormedDigest("digest sent in place of the document",
                         new DocumentDigest(request.digestAlgorithm(), item.content()), item);
@@ -415,7 +429,7 @@ public class ManagedContentSigningEngine {
     /**
      * Replays the algorithm {@code computeDtbs} was given rather than resolving it again, so the pair cannot disagree.
      */
-    private byte[] embedSignatureValue(ResolvedManagedContentSigningProfile profile,
+    private SignedDocumentResponseDto embedSignatureValue(ResolvedManagedContentSigningProfile profile,
             ComputeDtbsResponseDto dtbsResponse, byte[] signatureValue, SignatureAlgorithm signatureAlgorithm)
             throws SigningEngineException {
         EmbedSignatureValueRequestDto embed = new EmbedSignatureValueRequestDto();
@@ -424,7 +438,7 @@ public class ManagedContentSigningEngine {
         embed.setSignatureValue(signatureValue);
         embed.setSignatureAlgorithm(signatureAlgorithm);
         embed.setFormattingContext(dtbsResponse.getFormattingContext());
-        return requireSignedDocument(
+        return requireEmbeddedDocument(
                 formattingClient.embedSignatureValue(profile.signatureFormattingConnector(), embed),
                 "embedSignatureValue");
     }
@@ -433,9 +447,9 @@ public class ManagedContentSigningEngine {
      * Drives {@code computeSignatureTimestampImprint}, the in-process timestamp, and {@code embedSignatureTimestamp}.
      * The serial is collected because it is the only handle a completed operation has on its timestamp record.
      */
-    private byte[] applySignatureTimestamp(ResolvedManagedContentSigningProfile profile, byte[] signedDocument,
-            DocumentTransferDto detachedContent, ContentSigningCursor cursor, List<BigInteger> serials)
-            throws SigningEngineException {
+    private SignedDocumentResponseDto applySignatureTimestamp(ResolvedManagedContentSigningProfile profile,
+            byte[] signedDocument, DocumentTransferDto detachedContent, ContentSigningCursor cursor,
+            List<BigInteger> serials) throws SigningEngineException {
         TimestampImprint imprint = requireImprint(
                 formattingClient
                         .computeSignatureTimestampImprint(profile.signatureFormattingConnector(),
@@ -452,7 +466,7 @@ public class ManagedContentSigningEngine {
         embed.setSignedDocument(signedDocument);
         embed.setDetachedContent(detachedContent);
         embed.setTimestampToken(issued.encoded());
-        byte[] timestamped = requireSignedDocument(
+        SignedDocumentResponseDto timestamped = requireEmbeddedDocument(
                 formattingClient.embedSignatureTimestamp(profile.signatureFormattingConnector(), embed),
                 "embedSignatureTimestamp");
         advance(acquired, ContentSigningTransitions.exitCursorFor(profile.level()));
@@ -493,14 +507,19 @@ public class ManagedContentSigningEngine {
         return new TimestampImprint(response.getDigestAlgorithm(), response.getImprint());
     }
 
-    private static byte[] requireSignedDocument(SignedDocumentResponseDto response, String step)
+    private static SignedDocumentResponseDto requireEmbeddedDocument(SignedDocumentResponseDto response, String step)
             throws SigningEngineException {
-        if (response == null || response.getSignedDocument() == null) {
+        if (response == null || response.getSignedDocument() == null || response.getSignedDocument().length == 0) {
             throw SigningEngineException
                     .stepFailed(SigningEngineFailure.CONNECTOR_FAULT, step, "connector returned no signed document",
                             null, CLIENT_MESSAGE);
         }
-        return response.getSignedDocument();
+        if (response.getMediaType() == null || response.getMediaType().isBlank()) {
+            throw SigningEngineException
+                    .stepFailed(SigningEngineFailure.CONNECTOR_FAULT, step,
+                            "connector named no media type for the signed document", null, CLIENT_MESSAGE);
+        }
+        return response;
     }
 
     /**
@@ -550,6 +569,14 @@ public class ManagedContentSigningEngine {
                             + "timestamp serials already issued {}: {}", profile.name(), step, scope, profile.level(),
                             TimestampTokenSerialNumbers.hex(serials), e.operatorMessage());
         }
+    }
+
+    private static void logDenial(ResolvedManagedContentSigningProfile profile, List<BigInteger> serials,
+            AccessDeniedException e) {
+        logger
+                .warn("Refusing to sign content for signing profile '{}': the caller lacks a permission the run needs, "
+                        + "timestamp serials already issued {}: {}", profile.name(),
+                        TimestampTokenSerialNumbers.hex(serials), e.getMessage());
     }
 
     private static String failureScope(SigningEngineException e) {

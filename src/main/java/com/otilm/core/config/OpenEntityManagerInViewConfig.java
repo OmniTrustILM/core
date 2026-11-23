@@ -11,8 +11,8 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
  * Keeps the EntityManager of a request open until its response is written, as {@code spring.jpa.open-in-view} does, for
  * every endpoint except those of EST. The interceptor and its registration are those that Spring Boot makes for that
  * property, which is off, and Spring Boot makes none while this interceptor exists. An EST enrolment can wait for its
- * certificate, and an EntityManager that a request keeps open holds the connection that its first read took until the
- * response is written.
+ * certificate, and an EntityManager that the request kept open would keep what it read managed through that wait and
+ * let the request's transactions flush it.
  */
 @Configuration(proxyBeanMethods = false)
 public class OpenEntityManagerInViewConfig {

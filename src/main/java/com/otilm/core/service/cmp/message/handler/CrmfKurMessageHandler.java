@@ -50,7 +50,6 @@ import org.bouncycastle.asn1.crmf.Controls;
 import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * <p>
@@ -67,8 +66,8 @@ import org.springframework.transaction.annotation.Transactional;
  * "https://doc.primekey.com/bouncycastle/how-to-guides-pki-at-the-edge/how-to-generate-key-pairs-and-certification-requests#HowtoGenerateKeyPairsandCertificationRequests-GenerateCRMFCertificationRequestusingCMP">How
  * to generate CRMF request</a>
  */
+// Not @Transactional: a transaction here would keep its connection while the submission takes another.
 @Component
-@Transactional
 public class CrmfKurMessageHandler implements MessageHandler<ClientCertificateDataResponseDto> {
 
     private CertificateRepository certificateRepository;

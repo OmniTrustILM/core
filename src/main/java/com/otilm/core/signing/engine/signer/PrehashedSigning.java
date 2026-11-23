@@ -30,7 +30,7 @@ public final class PrehashedSigning {
      */
     public static DigestAlgorithm digestAlgorithm(SignatureAlgorithm algorithm) {
         if (!admits(algorithm)) {
-            throw new IllegalArgumentException("Signature algorithm %s cannot sign a prehashed digest"
+            throw new IllegalArgumentException("Signature algorithm %s cannot sign a data digest"
                     .formatted(algorithm == null ? null : algorithm.getCode()));
         }
         return DigestAlgorithm.findByOid(algorithm.getDigestAlgorithmIdentifier().getAlgorithm().getId());

@@ -9,16 +9,21 @@ import java.util.Objects;
  *
  * @param identifier the caller-chosen identifier, used to identify the document in result and failures
  * @param content the document itself, or its digest when the batch travels as digests
- * @param authorizedDigest the digest the caller authorized, against which the binding gate checks the connector's echo
+ * @param authorizedDigest the digest the caller authorized, against which the binding gate checks the connector's echo;
+ * {@code null} when the protocol authorizes no digest
  */
 public record ContentSigningItem(String identifier, byte[] content, byte[] authorizedDigest) {
 
     public ContentSigningItem {
         Objects.requireNonNull(identifier, "identifier");
         Objects.requireNonNull(content, "content");
-        Objects.requireNonNull(authorizedDigest, "authorizedDigest");
         content = content.clone();
-        authorizedDigest = authorizedDigest.clone();
+        authorizedDigest = authorizedDigest == null ? null : authorizedDigest.clone();
+    }
+
+    /** Its batch skips the binding gate. */
+    public static ContentSigningItem withoutAuthorizedDigest(String identifier, byte[] content) {
+        return new ContentSigningItem(identifier, content, null);
     }
 
     @Override
@@ -28,7 +33,11 @@ public record ContentSigningItem(String identifier, byte[] content, byte[] autho
 
     @Override
     public byte[] authorizedDigest() {
-        return authorizedDigest.clone();
+        return authorizedDigest == null ? null : authorizedDigest.clone();
+    }
+
+    public boolean carriesAuthorizedDigest() {
+        return authorizedDigest != null;
     }
 
     /** A record's generated {@code equals} would compare the bytes by identity, so two equal items differ. */
@@ -47,6 +56,7 @@ public record ContentSigningItem(String identifier, byte[] content, byte[] autho
     @Override
     public String toString() {
         return "ContentSigningItem[identifier=" + identifier + ", content=" + content.length
-                + " bytes, authorizedDigest=" + HexFormat.of().formatHex(authorizedDigest) + "]";
+                + " bytes, authorizedDigest="
+                + (authorizedDigest == null ? null : HexFormat.of().formatHex(authorizedDigest)) + "]";
     }
 }
