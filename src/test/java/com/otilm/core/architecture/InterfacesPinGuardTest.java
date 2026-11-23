@@ -29,6 +29,7 @@ class InterfacesPinGuardTest {
     private static final String GATE_JOB = "pin-gate";
     private static final String AGGREGATE_JOB = "build";
     private static final String OVERRIDE = "$MVNARG";
+    private static final String COMPILED_PIN = "${{ needs.compile.outputs.pinned_interfaces_mvnarg }}";
 
     /** A Maven call anywhere in the line, so that {@code cd x && mvn ...} and the wrapper are seen too. */
     private static final Pattern MAVEN_INVOCATION = Pattern
@@ -95,9 +96,10 @@ class InterfacesPinGuardTest {
         for (String downstream : List.of("test", "package")) {
             Object downstreamJob = workflowJobs.get(downstream);
             assertThat(needsOf(downstreamJob)).contains("compile");
-            assertThat(stepSource(downstreamJob))
+            assertThat(readInterfacesStepPins(downstreamJob))
                     .describedAs("%s must resolve Interfaces at the version recorded by Compile", downstream)
-                    .contains("MVNARG=${{ needs.compile.outputs.pinned_interfaces_mvnarg }}");
+                    .isNotEmpty()
+                    .containsOnly(COMPILED_PIN);
         }
     }
 
@@ -170,23 +172,35 @@ class InterfacesPinGuardTest {
      */
     @SuppressWarnings("unchecked")
     private static List<String> mavenInvocations(Object job) {
-        List<String> invocations = new ArrayList<>();
         Object steps = ((Map<String, Object>) job).get("steps");
         if (steps == null) {
-            return invocations;
+            return List.of();
         }
-        for (Object step : (List<Object>) steps) {
-            Object run = ((Map<String, Object>) step).get("run");
-            if (!(run instanceof String script)) {
-                continue;
+        return ((List<Object>) steps).stream().flatMap(step -> stepMavenInvocations(step).stream()).toList();
+    }
+
+    private static List<String> stepMavenInvocations(Object step) {
+        if (!(((Map<?, ?>) step).get("run") instanceof String script)) {
+            return List.of();
+        }
+        return Arrays
+                .stream(script.replace("\\\n", " ").split("\n"))
+                .map(String::strip)
+                .filter(line -> MAVEN_INVOCATION.matcher(line).find())
+                .toList();
+    }
+
+    /** The {@code env.MVNARG} of each step that runs Maven on Interfaces, null where a step binds none. */
+    @SuppressWarnings("unchecked")
+    private static List<Object> readInterfacesStepPins(Object job) {
+        List<Object> pins = new ArrayList<>();
+        for (Object step : (List<Object>) ((Map<String, Object>) job).getOrDefault("steps", List.of())) {
+            if (stepMavenInvocations(step).stream().anyMatch(InterfacesPinGuardTest::usesInterfaces)) {
+                Map<?, ?> env = (Map<?, ?>) ((Map<?, ?>) step).get("env");
+                pins.add(env == null ? null : env.get("MVNARG"));
             }
-            Arrays
-                    .stream(script.replace("\\\n", " ").split("\n"))
-                    .map(String::strip)
-                    .filter(line -> MAVEN_INVOCATION.matcher(line).find())
-                    .forEach(invocations::add);
         }
-        return invocations;
+        return pins;
     }
 
     private static boolean usesInterfaces(String invocation) {
