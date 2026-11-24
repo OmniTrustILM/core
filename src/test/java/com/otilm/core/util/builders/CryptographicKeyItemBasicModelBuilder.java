@@ -59,7 +59,7 @@ public class CryptographicKeyItemBasicModelBuilder {
 
     public CryptographicKeyItemBasicModel build() {
         return new CryptographicKeyItemBasicModel(UUID.randomUUID(), UUID.randomUUID(), name, reference, type,
-                KeyAlgorithm.RSA, format, keyData, 2048, state, true, usages, null, complianceStatus, exportable);
+                KeyAlgorithm.RSA, null, format, keyData, 2048, state, true, usages, null, complianceStatus, exportable);
     }
 
     public CryptographicKeyItemBasicModelBuilder withKeyData(String keyData) {

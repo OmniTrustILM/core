@@ -2,10 +2,10 @@ package com.otilm.core.container;
 
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
+import com.otilm.api.model.common.cryptography.ExplicitCurve;
 import com.otilm.api.model.core.secret.Passphrase;
 import com.otilm.core.container.ContainerFormat.Contents;
 import com.otilm.core.key.normalization.DerivationBudget;
-import com.otilm.core.key.normalization.ExplicitCurve;
 import com.otilm.core.key.normalization.KeyDescription;
 import com.otilm.core.key.normalization.KeyFileRefusal;
 import com.otilm.core.key.normalization.KeyNormalizer;
@@ -99,7 +99,7 @@ class ContainerAssembler {
      * against the order the file states, at a cost that grows with that order and that nothing charges.
      */
     private static void requireNamedCurveSize(SubjectPublicKeyInfo publicKey) {
-        if (ExplicitCurve.largerThanAnyNamed(publicKey.getAlgorithm())) {
+        if (ExplicitCurve.pastTheBound(publicKey.getAlgorithm())) {
             throw ContainerRefusal.notSupportedFormat();
         }
     }

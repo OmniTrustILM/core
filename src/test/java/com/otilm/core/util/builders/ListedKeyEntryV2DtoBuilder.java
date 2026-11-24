@@ -28,6 +28,7 @@ public final class ListedKeyEntryV2DtoBuilder {
     private String keyId = UUID.randomUUID().toString();
     private KeyAlgorithm algorithm = KeyAlgorithm.RSA;
     private Integer length = 2048;
+    private byte[] algorithmIdentifier;
     private PublicKey publicKey;
     private boolean publicKeyOnToken = true;
     private boolean keyDataRead = true;
@@ -76,6 +77,11 @@ public final class ListedKeyEntryV2DtoBuilder {
 
     public ListedKeyEntryV2DtoBuilder withLength(Integer length) {
         this.length = length;
+        return this;
+    }
+
+    public ListedKeyEntryV2DtoBuilder withAlgorithmIdentifier(byte[] algorithmIdentifier) {
+        this.algorithmIdentifier = algorithmIdentifier;
         return this;
     }
 
@@ -132,6 +138,7 @@ public final class ListedKeyEntryV2DtoBuilder {
         PrivateKeyDataV2Dto descriptor = new PrivateKeyDataV2Dto();
         descriptor.setAlgorithm(algorithm);
         descriptor.setLength(length);
+        descriptor.setAlgorithmIdentifier(algorithmIdentifier);
         descriptor.setMetadata(metadata);
         return descriptor;
     }
@@ -147,7 +154,6 @@ public final class ListedKeyEntryV2DtoBuilder {
     private PublicKeyDataResponseV2Dto publicKeyData() {
         PublicKeyDataV2Dto descriptor = new PublicKeyDataV2Dto();
         descriptor.setAlgorithm(algorithm);
-        descriptor.setLength(length);
         descriptor.setPublicKeySpki(publicKey().getEncoded());
         PublicKeyDataResponseV2Dto publicKeyData = new PublicKeyDataResponseV2Dto();
         publicKeyData.setKeyMeta(keyIdMeta(keyId));

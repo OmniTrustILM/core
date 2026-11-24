@@ -9,6 +9,7 @@ import com.otilm.api.model.common.events.data.CertificateEventData;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
+import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.other.ResourceEvent;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.settings.CertificateSettingsDto;
@@ -18,9 +19,14 @@ import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.workflows.EventStatus;
 import com.otilm.api.model.core.workflows.ExecutionType;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.certificate.type.CertificateTypeHandler;
+import com.otilm.core.certificate.type.CertificateTypeHandlerException;
+import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
+import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry.DetectedCertificate;
+import com.otilm.core.certificate.type.ParsedCertificate;
+import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
-import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.workflows.EventHistory;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.workflows.TriggerHistoryRepository;
@@ -39,16 +45,11 @@ import com.otilm.core.service.CertificateEventHistoryInternalService;
 import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.util.AuthHelper;
-import com.otilm.core.util.CertificateUtil;
-import com.otilm.core.util.X509ObjectToString;
-import java.security.NoSuchAlgorithmException;
-import java.security.cert.CertificateEncodingException;
 import java.security.cert.CertificateException;
-import java.security.cert.X509Certificate;
+import java.util.Base64;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
-import org.bouncycastle.asn1.x509.Extension;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -65,6 +66,12 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
     private CertificateEventHistoryInternalService certificateEventHistoryService;
     private AttributeEngine attributeEngine;
     private TriggerHistoryRepository triggerHistoryRepository;
+    private CertificateTypeHandlerRegistry typeHandlerRegistry;
+
+    @Autowired
+    public void setTypeHandlerRegistry(CertificateTypeHandlerRegistry typeHandlerRegistry) {
+        this.typeHandlerRegistry = typeHandlerRegistry;
+    }
 
     @Autowired
     public void setTriggerHistoryRepository(TriggerHistoryRepository triggerHistoryRepository) {
@@ -112,10 +119,9 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
         return EventDataBuilder.getCertificateUploadedEventData(object);
     }
 
-    @Override
-    protected EventContext<Certificate> prepareContext(EventMessage eventMessage) throws EventException {
-        EventContext<Certificate> context = new EventContext<>(eventMessage, triggerEvaluator,
-                new X509CertificateEntity(), null);
+    private EventContext<Certificate> createContext(EventMessage eventMessage, Certificate certificate)
+            throws EventException {
+        EventContext<Certificate> context = new EventContext<>(eventMessage, triggerEvaluator, certificate, null);
         fetchEventTriggers(context, null, null); // triggers without resource and its UUID are platform ones
         return context;
     }
@@ -123,39 +129,34 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
     @Override
     @Transactional
     public void handleEvent(EventMessage eventMessage) throws EventException {
-        EventContext<Certificate> context = prepareContext(eventMessage);
         EventHistory eventHistory = createEventHistory(ResourceEvent.CERTIFICATE_UPLOADED, null, null);
         CertificateUploadEventMessageData eventMessageData = objectMapper
                 .convertValue(eventMessage.getData(), CertificateUploadEventMessageData.class);
 
-        X509Certificate x509Certificate;
-        try {
-            x509Certificate = CertificateUtil.parseCertificate(eventMessageData.certificateContent());
-        } catch (CertificateException e) {
-            logger
-                    .error("Unable to parse certificate {} from uploaded certificate: {}",
-                            eventMessageData.certificateContent(), e.getMessage());
+        DetectedCertificate detected = detectCertificate(eventMessageData.certificateContent());
+        if (detected == null) {
             saveEventHistory(eventHistory, EventStatus.FAILED);
             return;
         }
-        String fingerprint;
-        try {
-            fingerprint = CertificateUtil.getThumbprint(x509Certificate);
-        } catch (NoSuchAlgorithmException | CertificateEncodingException e) {
-            logger
-                    .error("Unable to calculate fingerprint for certificate {}: {}",
-                            eventMessageData.certificateContent(), e.getMessage());
-            saveEventHistory(eventHistory, EventStatus.FAILED);
-            return;
-        }
+        CertificateTypeHandler handler = detected.handler();
+        ParsedCertificate parsed = detected.certificate();
+        String fingerprint = parsed.properties().fingerprint();
         if (certificateRepository.findByFingerprint(fingerprint).isPresent()) {
             logger.warn("Certificate with fingerprint {} already exists, skipping upload event", fingerprint);
             saveEventHistory(eventHistory, EventStatus.FAILED);
             return;
         }
-        X509CertificateEntity certificate = X509CertificateEntity.from(context.getResourceObjects().getFirst());
-        CertificateUtil.prepareIssuedCertificate(certificate, x509Certificate);
+        Certificate certificate;
+        try {
+            certificate = handler.stampIssued(handler.newCertificate(), parsed);
+        } catch (UnsupportedCertificateTypeException e) {
+            logger.error("Unable to store the uploaded certificate {}: {}", fingerprint, e.getMessage());
+            saveEventHistory(eventHistory, EventStatus.FAILED);
+            return;
+        }
+        certificate.setState(CertificateState.ISSUED);
         certificate.setFingerprint(fingerprint);
+        EventContext<Certificate> context = createContext(eventMessage, certificate);
         CertificateEventData eventData = (CertificateEventData) getEventData(certificate, eventMessageData);
         // Always a non-null list, even if the request omitted custom attributes entirely: a real Java null passed down
         // to the
@@ -170,7 +171,7 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
                 saveEventHistory(eventHistory, EventStatus.FINISHED);
                 return;
             }
-            saveCertificate(certificate, fingerprint, x509Certificate);
+            saveCertificate(certificate, handler, parsed);
             eventData.setCertificateUuid(certificate.getUuid());
             // Retroactively link trigger histories of the ignore triggers to the certificate
             triggerHistoryRepository
@@ -242,14 +243,35 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
                         FilterFieldSource.PROPERTY, FilterField.OWNER.name());
     }
 
-    private void saveCertificate(Certificate certificate, String fingerprint, X509Certificate x509Certificate) {
+    // The upload service has accepted the content, so content that is no certificate any more is a fault that the
+    // event history records.
+    private DetectedCertificate detectCertificate(String certificateContent) {
+        if (certificateContent == null) {
+            logger.error("The upload event carries no certificate content");
+            return null;
+        }
+        try {
+            DetectedCertificate detected = typeHandlerRegistry
+                    .detectCertificate(Base64.getDecoder().decode(certificateContent))
+                    .orElse(null);
+            if (detected == null) {
+                logger.error("No certificate type recognises the content of the uploaded certificate");
+            }
+            return detected;
+        } catch (IllegalArgumentException | CertificateTypeHandlerException e) {
+            logger.error("Unable to read the uploaded certificate: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private void saveCertificate(Certificate certificate, CertificateTypeHandler handler, ParsedCertificate parsed)
+            throws CertificateException {
         CertificateContent certificateContent = certificateService
-                .checkAddCertificateContent(fingerprint, X509ObjectToString.toPem(x509Certificate));
+                .checkAddCertificateContent(parsed.properties().fingerprint(), handler.contentToStore(parsed));
         certificate.setCertificateContent(certificateContent);
         certificate.setCertificateContentId(certificateContent.getId());
 
-        byte[] altPublicKey = x509Certificate.getExtensionValue(Extension.subjectAltPublicKeyInfo.getId());
-        certificateService.uploadCertificateKey(x509Certificate.getPublicKey(), certificate, altPublicKey);
+        certificateService.uploadCertificateKeys(certificate, parsed);
         repository.save(certificate);
     }
 

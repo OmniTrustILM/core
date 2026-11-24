@@ -109,7 +109,7 @@ import static org.mockito.Mockito.when;
 class KeyProviderV2AdapterImportTest {
 
     @Test
-    void importKey_preservesAbsentLength_forSynchronousPqcPair() throws Exception {
+    void sizesEachHalfByItsParameterSet_whenImportingAPostQuantumPair() throws Exception {
         // given
         KeyPairDataResponseV2Dto response = PqcKeyFixtures.response(PqcKeyFixtures.keyPair());
         when(client.importKey(eq(connector), any())).thenReturn(ResponseEntity.ok(response));
@@ -119,11 +119,11 @@ class KeyProviderV2AdapterImportTest {
                 .importKey(terms(List.of(FeatureFlag.KEY_IMPORT), false), attempt(), normalizedKey(), "pqc");
 
         // then
-        assertPqcWithoutLength(answer);
+        assertPqcPairSizedByItsParameterSet(answer);
     }
 
     @Test
-    void importKeyStatus_preservesAbsentLength_forCompletedPqcPair() throws Exception {
+    void sizesEachHalfByItsParameterSet_whenReadingACompletedPostQuantumImport() throws Exception {
         // given
         KeyPairOperationStatusResponseV2Dto response = completedPqcImport();
         when(client.getImportKeyStatus(eq(connector), any())).thenReturn(response);
@@ -134,11 +134,11 @@ class KeyProviderV2AdapterImportTest {
                         "pqc");
 
         // then
-        assertPqcWithoutLength(answer);
+        assertPqcPairSizedByItsParameterSet(answer);
     }
 
     @Test
-    void importKeyResult_preservesAbsentLength_forRecoveredPqcPair() throws Exception {
+    void sizesEachHalfByItsParameterSet_whenRecoveringAPostQuantumImport() throws Exception {
         // given
         KeyPairOperationStatusResponseV2Dto response = completedPqcImport();
         when(client.getImportKeyResult(eq(connector), any())).thenReturn(response);
@@ -149,7 +149,7 @@ class KeyProviderV2AdapterImportTest {
                         "pqc");
 
         // then
-        assertPqcWithoutLength(answer);
+        assertPqcPairSizedByItsParameterSet(answer);
     }
 
     private static KeyPairOperationStatusResponseV2Dto completedPqcImport() throws Exception {
@@ -159,12 +159,16 @@ class KeyProviderV2AdapterImportTest {
         return response;
     }
 
-    private static void assertPqcWithoutLength(ImportAnswer answer) {
+    private static void assertPqcPairSizedByItsParameterSet(ImportAnswer answer) {
         assertThat(answer).isInstanceOf(ImportAnswer.Imported.class);
-        assertThat(((ImportAnswer.Imported) answer).items()).hasSize(2).allSatisfy(item -> {
-            assertThat(item.algorithm()).isEqualTo(KeyAlgorithm.MLDSA);
-            assertThat(item.length()).isNull();
-        });
+        assertThat(((ImportAnswer.Imported) answer).items())
+                .extracting(ProviderKeyItem::type, ProviderKeyItem::algorithm, ProviderKeyItem::parameterSet,
+                        ProviderKeyItem::length)
+                .containsExactly(
+                        tuple(KeyType.PUBLIC_KEY, KeyAlgorithm.MLDSA, PqcKeyFixtures.ML_DSA_PARAMETER_SET,
+                                PqcKeyFixtures.ML_DSA_PUBLIC_KEY_BITS),
+                        tuple(KeyType.PRIVATE_KEY, KeyAlgorithm.MLDSA, PqcKeyFixtures.ML_DSA_PARAMETER_SET,
+                                PqcKeyFixtures.ML_DSA_PRIVATE_KEY_BITS));
     }
 
     private static final char[] TRANSPORT_PASSPHRASE = "transport-passphrase-of-forty-three-chars-x".toCharArray();
@@ -878,7 +882,6 @@ class KeyProviderV2AdapterImportTest {
     private KeyPairDataResponseV2Dto imported() {
         PublicKeyDataV2Dto publicData = new PublicKeyDataV2Dto();
         publicData.setAlgorithm(KeyAlgorithm.RSA);
-        publicData.setLength(2048);
         publicData.setPublicKeySpki(publicKeySpki);
         publicData.setMetadata(List.of());
         PublicKeyDataResponseV2Dto publicKey = new PublicKeyDataResponseV2Dto();
