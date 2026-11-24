@@ -11,7 +11,6 @@ import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
 import com.otilm.core.certificate.type.ParsedCertificate;
 import com.otilm.core.certificate.type.ParsedRequest;
 import com.otilm.core.certificate.type.RequestFormatResolver;
-import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
@@ -39,7 +38,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -154,19 +152,13 @@ class ClientOperationServiceImplRenewalForTest {
     }
 
     @Test
-    void answersNothing_whenTheAuthorityDoesNotIssueTheCertificateType() throws Exception {
-        // given
-        doThrow(UnsupportedCertificateTypeException.notIssuedByAuthority("ssh", "ra"))
-                .when(authorityCertificateTypes)
-                .requireSupport(any(), any());
-
+    void doesNotAskTheAuthorityForTheCertificateType_whenTheReplacementComesThroughAProtocol() throws Exception {
         // when
         Optional<ResourceAction> renewal = renewalFor();
 
         // then
-        assertThat(renewal).isEmpty();
-        verify(extendedAttributeService, never()).mergeAndValidateRenewAttributes(any(), any());
-        verifyNoInteractions(typeHandlerRegistry);
+        assertThat(renewal).contains(ResourceAction.RENEW);
+        verifyNoInteractions(authorityCertificateTypes);
     }
 
     @Test

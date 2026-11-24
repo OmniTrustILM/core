@@ -18,6 +18,7 @@ public class DiscoveredKeyDtoBuilder {
     private KeyFormat publicKeyFormat;
     private String publicKey;
     private String fingerprint;
+    private String algorithmIdentifier;
 
     /** A 2048-bit RSA public key with no material yet; add it with {@link #withSpki}. */
     public static DiscoveredKeyDtoBuilder aPublicKey() {
@@ -64,6 +65,11 @@ public class DiscoveredKeyDtoBuilder {
         return this;
     }
 
+    public DiscoveredKeyDtoBuilder withAlgorithmIdentifier(String algorithmIdentifier) {
+        this.algorithmIdentifier = algorithmIdentifier;
+        return this;
+    }
+
     public DiscoveredKeyDto build() {
         DiscoveredKeyDto key = new DiscoveredKeyDto();
         key.setType(type);
@@ -72,6 +78,7 @@ public class DiscoveredKeyDtoBuilder {
         key.setPublicKeyFormat(publicKeyFormat);
         key.setPublicKey(publicKey);
         key.setFingerprint(fingerprint);
+        key.setAlgorithmIdentifier(algorithmIdentifier);
         return key;
     }
 }

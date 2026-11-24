@@ -57,11 +57,11 @@ public class CryptographyUtil {
      * Calculates a fingerprint from serialized key material.
      *
      * @param material key material, or null when no material is available
-     * @return fingerprint, or null for absent material, format, or serialized value, or a custom format
+     * @return fingerprint, or null for absent material, format, or serialized value, or a format many keys share
      * @throws ValidationException if the fingerprint algorithm is unavailable
      */
     public static String calculateKeyFingerprint(KeyMaterial material) {
-        if (material == null || material.format() == null || material.format() == KeyFormat.CUSTOM
+        if (material == null || material.format() == null || !identifiesTheKey(material.format())
                 || material.serializedValue() == null) {
             return null;
         }
@@ -71,6 +71,11 @@ public class CryptographyUtil {
         } catch (NoSuchAlgorithmException e) {
             throw new ValidationException("Failed to calculate key fingerprint.");
         }
+    }
+
+    /** Custom key data and an AlgorithmIdentifier can each be shared by many keys. */
+    private static boolean identifiesTheKey(KeyFormat format) {
+        return format != KeyFormat.CUSTOM && format != KeyFormat.ALGORITHM_IDENTIFIER;
     }
 
     public static AlgorithmIdentifier prepareSignatureAlgorithm(KeyAlgorithm keyAlgorithm, String publicKey,

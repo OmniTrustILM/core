@@ -223,8 +223,9 @@ public class CryptographicKeyExportServiceImpl implements CryptographicKeyExport
     private HeldKey heldKey(CryptographicKeyItemBasicModel item) {
         KeyRequestType type = requestTypeOf(item);
         byte[] publicKeySpki = type == KeyRequestType.KEY_PAIR ? publicKeyOfPair(item) : null;
+        Integer secretKeyLength = type == KeyRequestType.SECRET ? item.length() : null;
         UUID keyReference = cryptographicKeyItemRepository.findKeyReferenceUuidByUuid(item.uuid()).orElse(null);
-        return new HeldKey(type, item.algorithm(), item.length(), publicKeySpki, keyReference);
+        return new HeldKey(type, item.algorithm(), secretKeyLength, publicKeySpki, keyReference);
     }
 
     private byte[] publicKeyOfPair(CryptographicKeyItemBasicModel item) {

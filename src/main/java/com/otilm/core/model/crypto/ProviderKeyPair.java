@@ -40,7 +40,7 @@ public record ProviderKeyPair(List<MetadataAttribute> keyPairMeta, ProviderKeyIt
     }
 
     private static ProviderKeyItem named(ProviderKeyItem item, String name) {
-        return new ProviderKeyItem(name, item.type(), item.algorithm(), item.length(), item.reference(),
-                item.material(), item.metadata(), item.association());
+        return new ProviderKeyItem(name, item.type(), item.algorithm(), item.parameterSet(), item.length(),
+                item.reference(), item.material(), item.metadata(), item.association());
     }
 }

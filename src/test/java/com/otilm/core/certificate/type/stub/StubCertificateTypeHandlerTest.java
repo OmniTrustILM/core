@@ -26,6 +26,19 @@ class StubCertificateTypeHandlerTest {
     private final StubCertificateTypeHandler handler = new StubCertificateTypeHandler();
 
     @Test
+    void refusesNamingTheType_whenAskedForANewCertificate() {
+        // given — the stub type has no entity, so it keeps the default of the handler interface
+
+        // when
+        ThrowingCallable create = handler::newCertificate;
+
+        // then
+        assertThatThrownBy(create)
+                .isInstanceOf(UnsupportedCertificateTypeException.class)
+                .hasMessageContaining(StubCertificateTypeHandler.TYPE_CODE);
+    }
+
+    @Test
     void readsTheCommonProperties_whenParsingACertificate() {
         // given
         byte[] stubCertificate = certificate("42", "holder-one");

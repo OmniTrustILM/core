@@ -83,6 +83,7 @@ import com.otilm.core.certificate.type.CertificateTypeHandler;
 import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
 import com.otilm.core.certificate.type.IssuedCertificateRefusedException;
 import com.otilm.core.certificate.type.ParsedCertificate;
+import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
 import com.otilm.core.comparator.SearchFieldDataComparator;
 import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.dao.entity.Certificate;
@@ -1571,69 +1572,49 @@ public class CertificateServiceImpl
         return resultDto;
     }
 
-    private X509Certificate getX509(String certificate) throws CertificateException {
-        return CertificateUtil
-                .getX509Certificate(certificate
-                        .replace("-----BEGIN CERTIFICATE-----", "")
-                        .replace("\r", "")
-                        .replace("\n", "")
-                        .replace("-----END CERTIFICATE-----", ""));
-    }
-
     @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.CREATE)
     public Certificate createCertificate(String certificateData, CertificateType certificateType)
             throws com.otilm.api.exception.CertificateException {
-        X509CertificateEntity entity = new X509CertificateEntity();
-        String fingerprint;
-
         // by default, we are working with the X.509 certificate
-        if (certificateType == null) {
-            certificateType = CertificateType.X509;
+        CertificateType effectiveType = certificateType != null ? certificateType : CertificateType.X509;
+        CertificateTypeHandler handler = typeHandlerRegistry.require(effectiveType.getCode());
+        if (!handler.storesCertificates()) {
+            throw UnsupportedCertificateTypeException.notStored(handler.typeCode());
         }
-        if (!certificateType.equals(CertificateType.X509)) {
-            String message = "Unsupported type of the certificate: " + certificateType;
-            log.debug(message);
-            throw new com.otilm.api.exception.CertificateException(message);
-        } else {
-            X509Certificate certificate;
-            try {
-                certificate = getX509(certificateData);
-            } catch (CertificateException e) {
-                String message = "Failed to get parse the certificate " + certificateData + " > " + e.getMessage();
-                log.error(message);
-                throw new com.otilm.api.exception.CertificateException(message);
-            }
-            try {
-                fingerprint = fingerprintOf(certificate);
-                Optional<Certificate> existingCertificate = certificateRepository.findByFingerprint(fingerprint);
-
-                if (existingCertificate.isPresent()) {
-                    log.debug("Returning existing certificate with fingerprint {}", fingerprint);
-                    return existingCertificate.get();
-                }
-            } catch (CertificateException e) {
-                String message = "Failed to get thumbprint for certificate " + certificate.getSerialNumber() + " > "
-                        + e.getMessage();
-                log.error(message);
-                throw new com.otilm.api.exception.CertificateException(message);
-            }
-
-            CertificateUtil.prepareIssuedCertificate(entity, certificate);
-            byte[] altPublicKey = certificate.getExtensionValue(Extension.subjectAltPublicKeyInfo.getId());
-            uploadCertificateKey(certificate.getPublicKey(), entity, altPublicKey);
-            entity.setFingerprint(fingerprint);
-            entity
-                    .setCertificateContent(
-                            checkAddCertificateContent(fingerprint, X509ObjectToString.toPem(certificate)));
-
-            certificateRepository.save(entity);
-            certificateEventHistoryService
-                    .addEventHistory(entity.getUuid(), CertificateEvent.UPLOAD, CertificateEventStatus.SUCCESS,
-                            "Certificate uploaded", "");
-
-            return entity;
+        ParsedCertificate parsed = handler
+                .parseCertificate(CertificateUtil.decodeCertificateContent(certificateData))
+                .orElse(null);
+        if (parsed == null) {
+            String message = "Failed to parse the certificate: the content is not a certificate of type "
+                    + effectiveType.getLabel();
+            log.error(message);
+            throw new ValidationException(message);
         }
+        String fingerprint = parsed.properties().fingerprint();
+        Optional<Certificate> existingCertificate = certificateRepository.findByFingerprint(fingerprint);
+        if (existingCertificate.isPresent()) {
+            log.debug("Returning existing certificate with fingerprint {}", fingerprint);
+            return existingCertificate.get();
+        }
+
+        Certificate entity = handler.stampIssued(handler.newCertificate(), parsed);
+        entity.setState(CertificateState.ISSUED);
+        try {
+            uploadCertificateKeys(entity, parsed);
+        } catch (CertificateException e) {
+            throw new com.otilm.api.exception.CertificateException(
+                    "Failed to read the keys of the certificate " + fingerprint + " > " + e.getMessage());
+        }
+        entity.setFingerprint(fingerprint);
+        entity.setCertificateContent(checkAddCertificateContent(fingerprint, handler.contentToStore(parsed)));
+
+        certificateRepository.save(entity);
+        certificateEventHistoryService
+                .addEventHistory(entity.getUuid(), CertificateEvent.UPLOAD, CertificateEventStatus.SUCCESS,
+                        "Certificate uploaded", "");
+
+        return entity;
     }
 
     @Override
@@ -1810,8 +1791,7 @@ public class CertificateServiceImpl
         return certificateRequestEntity.getUuid();
     }
 
-    @Override
-    public void uploadCertificateKey(PublicKey publicKey, Certificate certificate, byte[] altPublicKeyEncoded) {
+    private void uploadCertificateKey(PublicKey publicKey, Certificate certificate, byte[] altPublicKeyEncoded) {
         UUID keyUuid;
         if (publicKey != null && certificate.getKeyUuid() == null) {
             keyUuid = cryptographicKeyService.findKeyByFingerprint(certificate.getPublicKeyFingerprint());
@@ -2808,15 +2788,26 @@ public class CertificateServiceImpl
 
     /** Links the alternative key of a hybrid X.509 certificate; other types have none. */
     private void uploadAlternativeKey(Certificate certificate, ParsedCertificate issued) throws CertificateException {
-        if (!CertificateType.X509.getCode().equals(issued.typeCode())) {
-            return;
+        Optional<byte[]> alternativeKey = alternativeKeyOf(issued);
+        if (alternativeKey.isPresent()) {
+            uploadCertificateKey(null, certificate, alternativeKey.get());
         }
-        byte[] alternativeKey = CertificateUtil
-                .getX509Certificate(issued.encoded())
-                .getExtensionValue(Extension.subjectAltPublicKeyInfo.getId());
-        if (alternativeKey != null) {
-            uploadCertificateKey(null, certificate, alternativeKey);
+    }
+
+    @Override
+    public void uploadCertificateKeys(Certificate certificate, ParsedCertificate content) throws CertificateException {
+        uploadCertificateKey(content.properties().publicKey(), certificate, alternativeKeyOf(content).orElse(null));
+    }
+
+    /** The alternative key of a hybrid X.509 certificate; no other type has one. */
+    private static Optional<byte[]> alternativeKeyOf(ParsedCertificate certificate) throws CertificateException {
+        if (!CertificateType.X509.getCode().equals(certificate.typeCode())) {
+            return Optional.empty();
         }
+        return Optional
+                .ofNullable(CertificateUtil
+                        .getX509Certificate(certificate.encoded())
+                        .getExtensionValue(Extension.subjectAltPublicKeyInfo.getId()));
     }
 
     @Override

@@ -1336,7 +1336,6 @@ class CryptographicKeyImportV2ITest extends BaseSpringBootTest {
     static KeyPairDataResponseV2Dto imported(PublicKey publicKey) {
         PublicKeyDataV2Dto publicData = new PublicKeyDataV2Dto();
         publicData.setAlgorithm(KeyAlgorithm.RSA);
-        publicData.setLength(2048);
         publicData.setPublicKeySpki(publicKey.getEncoded());
         publicData.setMetadata(List.of());
         PublicKeyDataResponseV2Dto publicKeyData = new PublicKeyDataResponseV2Dto();

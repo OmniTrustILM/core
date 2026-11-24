@@ -76,6 +76,7 @@ import com.otilm.core.service.acme.AcmeChallengeStateMachine;
 import com.otilm.core.service.acme.AcmeConstants;
 import com.otilm.core.service.acme.AcmeDnsChallengeValidator;
 import com.otilm.core.service.acme.AcmeExternalService;
+import com.otilm.core.service.acme.AcmeHttpChallengeValidator;
 import com.otilm.core.service.acme.ChallengeValidationResult;
 import com.otilm.core.service.acme.ReplacesValidator;
 import com.otilm.core.service.acme.eab.AcmeEabVerifier;
@@ -96,13 +97,9 @@ import com.otilm.core.util.X509ObjectToString;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import jakarta.transaction.Transactional;
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.io.StringWriter;
-import java.net.HttpURLConnection;
 import java.net.URI;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.MessageDigest;
@@ -159,6 +156,8 @@ public class AcmeServiceImpl implements AcmeExternalService {
 
     /** Longer than any DNS name or address literal, so a well-formed identifier is never the one that gets cut. */
     private static final int MAX_LISTED_IDENTIFIER_LENGTH = 255;
+
+    private static final AcmeHttpChallengeValidator HTTP_CHALLENGE_VALIDATOR = new AcmeHttpChallengeValidator();
 
     private AcmeNonceRepository acmeNonceRepository;
     private RaProfileRepository raProfileRepository;
@@ -1400,8 +1399,6 @@ public class AcmeServiceImpl implements AcmeExternalService {
     private ChallengeValidationResult validateHttpChallenge(AcmeChallenge challenge)
             throws AcmeProblemDocumentException {
         logger.debug("Initiating HTTP-01 Challenge validation: {}", challenge.toString());
-        String identifierValue = identifierValue(challenge);
-        String response = getHttpChallengeResponse(identifierValue.replace("*.", ""), challenge.getToken());
         PublicKey pubKey;
         try {
             pubKey = AcmePublicKeyProcessor
@@ -1409,16 +1406,9 @@ public class AcmeServiceImpl implements AcmeExternalService {
         } catch (Exception e) {
             throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.SERVER_INTERNAL);
         }
-        String expectedResponse = AcmeCommonHelper.createKeyAuthorization(challenge.getToken(), pubKey);
-        logger
-                .debug("HTTP01 validation response from the server: {}, expected response: {}", response,
-                        expectedResponse);
-        if (!response.equals(expectedResponse)) {
-            return ChallengeValidationResult
-                    .failure(Problem.INCORRECT_RESPONSE, "The response served for the HTTP-01 challenge of "
-                            + identifierValue + " does not match the expected key authorization");
-        }
-        return ChallengeValidationResult.success();
+        String expectedKeyAuthorization = AcmeCommonHelper.createKeyAuthorization(challenge.getToken(), pubKey);
+        return HTTP_CHALLENGE_VALIDATOR
+                .validate(identifierValue(challenge), challenge.getToken(), expectedKeyAuthorization);
     }
 
     private ChallengeValidationResult validateDnsChallenge(AcmeChallenge challenge)
@@ -1440,54 +1430,6 @@ public class AcmeServiceImpl implements AcmeExternalService {
                     "Authorization has no identifier");
         }
         return identifier.getValue();
-    }
-
-    private String getHttpChallengeResponse(String domain, String token) throws AcmeProblemDocumentException {
-        return getResponseFollowRedirects(AcmeConstants.HTTP_CHALLENGE_BASE_URL.formatted(domain, token));
-    }
-
-    private String getResponseFollowRedirects(String url) throws AcmeProblemDocumentException {
-        String finalUrl = url;
-        String acmeChallengeOutput = "";
-        int redirectFollowCount = 0;
-        try {
-            HttpURLConnection connection;
-            do {
-                redirectFollowCount += 1;
-                URL urlObject = new URL(finalUrl);
-                if (!(urlObject.getPort() == 80 || urlObject.getPort() == 443 || urlObject.getPort() == -1)) {
-                    throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.TLS,
-                            "Only 80 and 443 ports can be followed");
-                }
-                connection = (HttpURLConnection) new URL(finalUrl).openConnection();
-                connection.setInstanceFollowRedirects(false);
-                connection.setUseCaches(false);
-                connection.setRequestMethod(AcmeConstants.HTTP_CHALLENGE_REQUEST_METHOD);
-                connection.connect();
-                int responseCode = connection.getResponseCode();
-                if (100 <= connection.getResponseCode() && connection.getResponseCode() <= 399) {
-                    BufferedReader bufferedReader = new BufferedReader(
-                            new InputStreamReader(connection.getInputStream()));
-                    acmeChallengeOutput = bufferedReader.lines().collect(Collectors.joining());
-                }
-                if (responseCode >= 300 && responseCode < 400) {
-                    String redirectedUrl = connection.getHeaderField(AcmeConstants.LOCATION_HEADER_NAME);
-                    if (null == redirectedUrl) {
-                        break;
-                    }
-                    finalUrl = redirectedUrl;
-                } else {
-                    break;
-                }
-            } while (connection.getResponseCode() != HttpURLConnection.HTTP_OK
-                    && redirectFollowCount < AcmeConstants.MAX_REDIRECT_COUNT);
-            connection.disconnect();
-        } catch (AcmeProblemDocumentException e) {
-            throw e;
-        } catch (Exception e) {
-            logger.error(e.getMessage());
-        }
-        return acmeChallengeOutput;
     }
 
     private String generateDnsValidationToken(String publicKey, String token) throws AcmeProblemDocumentException {

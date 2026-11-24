@@ -20,6 +20,7 @@ import com.otilm.api.model.client.signing.profile.SigningProfileListDto;
 import com.otilm.api.model.client.signing.profile.SigningProfileRequestDto;
 import com.otilm.api.model.client.signing.profile.SimplifiedSigningProfileDto;
 import com.otilm.api.model.client.signing.profile.scheme.DelegatedSigningDto;
+import com.otilm.api.model.client.signing.profile.scheme.ManagedSigningType;
 import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
 import com.otilm.api.model.client.signing.profile.scheme.StaticKeyManagedSigningDto;
 import com.otilm.api.model.client.signing.profile.workflow.ContentSigningWorkflowDto;
@@ -103,6 +104,7 @@ import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.scheme.StaticKeyManagedSigning;
 import com.otilm.core.model.signing.workflow.ManagedContentSigningWorkflow;
+import com.otilm.core.model.signing.workflow.ManagedRawSigningWorkflow;
 import com.otilm.core.model.signing.workflow.ManagedTimestampingWorkflow;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -135,6 +137,8 @@ import com.otilm.core.util.mocks.SignerConnectorMock;
 import com.otilm.core.util.mocks.TimestampingFormattingConnectorMock;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.Validator;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.security.NoSuchAlgorithmException;
@@ -149,6 +153,7 @@ import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.assertj.core.api.ThrowableAssert;
+import org.bouncycastle.jcajce.spec.MLDSAParameterSpec;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
@@ -179,6 +184,7 @@ import static com.otilm.core.util.builders.SignatureFamilyDeclarationDtoBuilder.
 import static com.otilm.core.util.builders.SigningProfileRequestDtoBuilder.aSigningProfileRequest;
 import static com.otilm.core.util.builders.SigningProfileRequestDtoBuilder.aSigningProfileRequestFromExistingProfile;
 import static com.otilm.core.util.builders.SigningRecordEntityBuilder.aSigningRecord;
+import static com.otilm.core.util.builders.SigningRecordPolicyRequestDtoBuilder.aSigningRecordPolicyRequest;
 import static com.otilm.core.util.builders.TimeQualityConfigurationRequestDtoBuilder.aTimeQualityConfigurationRequest;
 import static com.otilm.core.util.builders.TimestampingWorkflowRequestDtoBuilder.aTimestampingWorkflow;
 import static com.otilm.core.util.builders.TokenInstanceRequestDtoBuilder.aTokenInstanceRequest;
@@ -248,8 +254,11 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
     private TokenInstanceDetailDto tokenInstance;
     private TokenProfileDetailDto defaultTokenProfile;
     private KeyPair keyPair;
+    private KeyPair rawSigningKeyPair;
+    private KeyPair timestampingKeyPair;
     private KeyDetailDto key;
     private Certificate defaultSigningCertificate;
+    private Certificate defaultRawSigningCertificate;
     private Certificate defaultTimestampingCertificate;
     private SigningProfileDto defaultDelegatedSigningProfile;
     private SigningProfileDto defaultManagedStaticKeySigningProfile;
@@ -311,6 +320,9 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
 
     @Autowired
     private ConnectorContentSigningDeclarationRepository declarationRepository;
+
+    @Autowired
+    private Validator beanValidator;
 
     /**
      * The row is re-read because the field's instance predates {@code certificateUploader.validate} and would write a
@@ -452,7 +464,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
     }
 
     @BeforeEach
-    void setUp() throws Exception {
+    void seedSigningInfrastructureAndDefaultProfiles() throws Exception {
 
         // Set up mocks of connectors (the servers to call); the cryptography-provider mock also seeds
         // the function-group reference data normally provided by Flyway (wiped by per-test truncation)
@@ -506,12 +518,19 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                 .createKey(UUID.fromString(tokenInstance.getUuid()),
                         SecuredParentUUID.fromString(defaultTokenProfile.getUuid()), KeyRequestType.KEY_PAIR,
                         aKeyPairRequest().withName("soft-key-pair").build());
+        // Raw signing shares its key with no other workflow, so the raw and timestamping defaults each sign with one
+        // of their own.
+        rawSigningKeyPair = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+        createTokenKey(rawSigningKeyPair, KeyAlgorithm.RSA, "soft-raw-key-pair");
+        timestampingKeyPair = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+        createTokenKey(timestampingKeyPair, KeyAlgorithm.RSA, "soft-timestamping-key-pair");
 
         // Establish a trusted root CA, then leaves signed by it and built from the token key pair.
         // Uploading a leaf associates it (by public-key fingerprint) with the token-backed key.
         TestCertificateAuthority.TrustedCa trustedCa = testCertificateAuthority.createTrustedCa("CN=Test Root CA");
         defaultSigningCertificate = trustedCa.issueSigningCertificate(keyPair, "CN=Test Signing");
-        defaultTimestampingCertificate = trustedCa.issueTimestampingCertificate(keyPair, "CN=Test TSA");
+        defaultRawSigningCertificate = trustedCa.issueSigningCertificate(rawSigningKeyPair, "CN=Test Raw Signing");
+        defaultTimestampingCertificate = trustedCa.issueTimestampingCertificate(timestampingKeyPair, "CN=Test TSA");
 
         // Create signing profiles
         defaultDelegatedSigningProfile = signingProfileService
@@ -524,7 +543,8 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         defaultManagedStaticKeySigningProfile = signingProfileService
                 .createSigningProfile(aSigningProfileRequest()
                         .withName("default-managed-static-key-signing-profile")
-                        .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
+                        .withStaticKeyManagedSigning(defaultRawSigningCertificate.getUuid(),
+                                RsaSignatureScheme.PKCS1_v1_5, DigestAlgorithm.SHA_256)
                         .withRawSigning()
                         .build());
 
@@ -591,24 +611,25 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
     }
 
     @Test
-    void create_intrinsicAlgorithmWithOmittedAttributes_persistsEmptySigningAttributes() throws Exception {
+    void persistsEmptySigningAttributes_whenIntrinsicAlgorithmProfileIsCreated() throws Exception {
         // given
-        SigningProfileRequestDto request = intrinsicAlgorithmRequestWithOmittedAttributes();
+        SigningProfileRequestDto request = buildIntrinsicAlgorithmRequestWithOmittedAttributes();
 
         // when
         SigningProfileDto created = signingProfileService.createSigningProfile(request);
 
         // then
-        StaticKeyManagedSigningDto scheme = assertInstanceOf(StaticKeyManagedSigningDto.class,
-                created.getSigningScheme());
-        assertTrue(scheme.getSigningOperationAttributes().isEmpty());
-        assertEquals(created, signingProfileService.getSigningProfile(SecuredUUID.fromString(created.getUuid()), null));
+        assertThat(created.getSigningScheme())
+                .isInstanceOfSatisfying(StaticKeyManagedSigningDto.class,
+                        scheme -> assertThat(scheme.getSigningOperationAttributes()).isEmpty());
+        assertThat(signingProfileService.getSigningProfile(SecuredUUID.fromString(created.getUuid()), null))
+                .isEqualTo(created);
     }
 
     @Test
-    void update_intrinsicAlgorithmWithOmittedAttributes_persistsEmptySigningAttributes() throws Exception {
+    void persistsEmptySigningAttributes_whenIntrinsicAlgorithmProfileIsUpdated() throws Exception {
         // given
-        SigningProfileRequestDto request = intrinsicAlgorithmRequestWithOmittedAttributes();
+        SigningProfileRequestDto request = buildIntrinsicAlgorithmRequestWithOmittedAttributes();
         SecuredUUID profileUuid = SecuredUUID.fromString(defaultManagedStaticKeySigningProfile.getUuid());
         createSigningRecordFor(defaultManagedStaticKeySigningProfile);
         int expectedVersion = defaultManagedStaticKeySigningProfile.getVersion() + 1;
@@ -617,30 +638,11 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         SigningProfileDto updated = signingProfileService.updateSigningProfile(profileUuid, request);
 
         // then
-        StaticKeyManagedSigningDto scheme = assertInstanceOf(StaticKeyManagedSigningDto.class,
-                updated.getSigningScheme());
-        assertTrue(scheme.getSigningOperationAttributes().isEmpty());
-        assertEquals(expectedVersion, updated.getVersion());
-        assertEquals(updated, signingProfileService.getSigningProfile(profileUuid, null));
-    }
-
-    private SigningProfileRequestDto intrinsicAlgorithmRequestWithOmittedAttributes() throws Exception {
-        KeyAlgorithm intrinsicAlgorithm = KeyAlgorithm.FALCON;
-        KeyPair intrinsicKeyPair = CertificateGeneratorHelper.generateKeyPair(intrinsicAlgorithm, null);
-        String base64Spki = Base64.getEncoder().encodeToString(intrinsicKeyPair.getPublic().getEncoded());
-        cryptographyProviderServerMock.stubKeyPairCreation(base64Spki, intrinsicAlgorithm, UUID.randomUUID());
-        cryptographicKeyService
-                .createKey(UUID.fromString(tokenInstance.getUuid()),
-                        SecuredParentUUID.fromString(defaultTokenProfile.getUuid()), KeyRequestType.KEY_PAIR,
-                        aKeyPairRequest().withName("intrinsic-signing-key").build());
-        TestCertificateAuthority.TrustedCa trustedCa = testCertificateAuthority.createTrustedCa("CN=Intrinsic Root");
-        Certificate certificate = trustedCa.issueSigningCertificate(intrinsicKeyPair, "CN=Intrinsic Signing");
-        List<RequestAttribute> omittedAttributes = null;
-        return aSigningProfileRequest()
-                .withName("intrinsic-signing-profile")
-                .withStaticKeyManagedSigning(certificate.getUuid(), omittedAttributes)
-                .withRawSigning()
-                .build();
+        assertThat(updated.getSigningScheme())
+                .isInstanceOfSatisfying(StaticKeyManagedSigningDto.class,
+                        scheme -> assertThat(scheme.getSigningOperationAttributes()).isEmpty());
+        assertThat(updated.getVersion()).isEqualTo(expectedVersion);
+        assertThat(signingProfileService.getSigningProfile(profileUuid, null)).isEqualTo(updated);
     }
 
     @Nested
@@ -1082,27 +1084,45 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         }
 
         @Test
-        void create_v2Key_refusesASignatureAlgorithmStatedBesideTheFields() throws Exception {
-            // given: a definition of the connector's attribute stored before Core presented the fields
-            String expectedError = "Signature attributes must contain one or two attributes.";
-            attributeEngine
-                    .updateDataAttributeDefinitions(v2Connector.getUuid(), AttributeOperation.SIGN, List
-                            .of(SignatureAlgorithmAttribute.definition(List.of(SignatureAlgorithm.SHA256_WITH_RSA))));
-            List<RequestAttribute> attributes = new ArrayList<>(
-                    signingAttributes(RsaSignatureScheme.PKCS1_v1_5, DigestAlgorithm.SHA_256));
-            attributes.add(SignatureAlgorithmAttribute.request(SignatureAlgorithm.SHA256_WITH_RSA));
+        void refusesASignatureAlgorithmStatedBesideTheFields_whenTimestampingProfileIsCreated() throws Exception {
+            // given
+            List<RequestAttribute> attributes = stateTheSignatureAlgorithmBesideTheFields();
+            // Raw and content-signing saves resolve the algorithm before the attributes are validated, so this
+            // profile timestamps.
             SigningProfileRequestDto request = aSigningProfileRequest()
                     .withName("v2-direct")
-                    .withStaticKeyManagedSigning(v2SigningCertificate.getUuid(), attributes)
+                    .withStaticKeyManagedSigning(v2TimestampingCertificate.getUuid(), attributes)
+                    .withTimestamping(UUID.fromString(timestampingFormattingConnector.getUuid()))
+                    .build();
+
+            // when
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService.createSigningProfile(request);
+
+            // then
+            assertThatThrownBy(create)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("Signature attributes must contain one or two attributes.");
+        }
+
+        @Test
+        void refusesRawProfile_whenItsAttributesResolveNoSignatureAlgorithm() throws Exception {
+            // given
+            List<RequestAttribute> attributes = stateTheSignatureAlgorithmBesideTheFields();
+            UUID certificateUuid = v2SigningCertificate.getUuid();
+            SigningProfileRequestDto request = aSigningProfileRequest()
+                    .withName("v2-raw-direct")
+                    .withStaticKeyManagedSigning(certificateUuid, attributes)
                     .withRawSigning()
                     .build();
 
             // when
-            Executable create = () -> signingProfileService.createSigningProfile(request);
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService.createSigningProfile(request);
 
-            // then
-            ValidationException failure = assertThrows(ValidationException.class, create);
-            assertEquals(expectedError, firstErrorMessage(failure));
+            // then — a raw save resolves the algorithm as signing does, and these attributes resolve none
+            assertThatThrownBy(create)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("Signature algorithm cannot be resolved for certificate " + certificateUuid)
+                    .hasMessageContaining(": Signing configuration is not supported.");
         }
 
         @Test
@@ -1148,7 +1168,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                             .build());
 
             // when
-            signingProfileService
+            SigningProfileDto updated = signingProfileService
                     .updateSigningProfile(SecuredUUID.fromString(created.getUuid()),
                             aSigningProfileRequestFromExistingProfile(created)
                                     .withDelegatedSigning(signerConnector.getUuid())
@@ -1157,8 +1177,24 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             // then
             assertTrue(attributeContent2ObjectRepository
                     .getObjectDataAttributesContent(AttributeType.DATA, v2Connector.getUuid(), AttributeOperation.SIGN,
-                            null, Resource.SIGNING_PROFILE, UUID.fromString(created.getUuid()), created.getVersion())
+                            null, Resource.SIGNING_PROFILE, UUID.fromString(created.getUuid()), updated.getVersion())
                     .isEmpty());
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        /**
+         * Stores a definition of the connector's signature algorithm attribute as it was before Core presented the
+         * fields, and states that algorithm beside them.
+         */
+        private List<RequestAttribute> stateTheSignatureAlgorithmBesideTheFields() throws AttributeException {
+            attributeEngine
+                    .updateDataAttributeDefinitions(v2Connector.getUuid(), AttributeOperation.SIGN, List
+                            .of(SignatureAlgorithmAttribute.definition(List.of(SignatureAlgorithm.SHA256_WITH_RSA))));
+            List<RequestAttribute> attributes = new ArrayList<>(
+                    signingAttributes(RsaSignatureScheme.PKCS1_v1_5, DigestAlgorithm.SHA_256));
+            attributes.add(SignatureAlgorithmAttribute.request(SignatureAlgorithm.SHA256_WITH_RSA));
+            return attributes;
         }
 
         /** Core's fields choose the signature algorithm, and the connector's own attributes repeat the choice. */
@@ -1429,6 +1465,68 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                 assertThat(workflow.isRequireNonRepudiation()).isTrue();
                 assertThat(workflow.getRequiredExtendedKeyUsageOids()).containsExactly(DOCUMENT_SIGNING_OID);
             });
+        }
+
+        @Test
+        void persistsAndEchoesCertificatePurpose_whenRawProfileIsCreated() throws Exception {
+            // given: a certificate that satisfies both constraints the profile is about to set
+            widenDefaultSigningCertificate(CertificateKeyUsage.NON_REPUDIATION, DOCUMENT_SIGNING_OID);
+
+            // when
+            SigningProfileDto created = signingProfileService
+                    .createSigningProfile(aSigningProfileRequest()
+                            .withName("ct-managed-raw-purpose-constraints")
+                            .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
+                            .withRawSigning(true, DOCUMENT_SIGNING_OID)
+                            .build());
+
+            // then
+            SigningProfileDto fetched = signingProfileService
+                    .getSigningProfile(SecuredUUID.fromString(created.getUuid()), created.getVersion());
+            assertThat(List.of(created, fetched))
+                    .allSatisfy(profile -> assertThat(profile.getWorkflow())
+                            .isInstanceOfSatisfying(RawSigningWorkflowDto.class, workflow -> {
+                                assertThat(workflow.isRequireNonRepudiation()).isTrue();
+                                assertThat(workflow.getRequiredExtendedKeyUsageOids())
+                                        .containsExactly(DOCUMENT_SIGNING_OID);
+                            }));
+        }
+
+        @Test
+        void refusesCertificate_whenCreatedRawProfileDemandsAMissingEku() {
+            // given — defaultSigningCertificate does not carry the document-signing extended key usage
+
+            // when
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService
+                    .createSigningProfile(aSigningProfileRequest()
+                            .withName("ct-managed-raw-eku-mismatch")
+                            .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
+                            .withRawSigning(false, DOCUMENT_SIGNING_OID)
+                            .build());
+
+            // then
+            assertThatThrownBy(create)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("is not eligible for signing workflow type")
+                    .hasMessageContaining(DOCUMENT_SIGNING_OID);
+        }
+
+        @Test
+        void reportsNonRepudiationViolation_whenDelegatedRawRequestIsValidated() {
+            // given
+            SigningProfileRequestDto request = aSigningProfileRequest()
+                    .withName("ct-delegated-raw-nr")
+                    .withDelegatedSigning(signerConnector.getUuid())
+                    .withRawSigning(true)
+                    .build();
+
+            // when
+            Set<ConstraintViolation<SigningProfileRequestDto>> violations = beanValidator.validate(request);
+
+            // then
+            assertThat(violations)
+                    .anySatisfy(violation -> assertThat(violation.getMessage())
+                            .contains("requireNonRepudiation must be omitted for delegated signing"));
         }
 
         @Test
@@ -2004,6 +2102,29 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
     class UpdateTests {
 
         @Test
+        void clearsCertificatePurpose_whenRawProfileUpdateOmitsTheKnobs() throws Exception {
+            // given: a managed raw profile that carries both constraints
+            widenDefaultSigningCertificate(CertificateKeyUsage.NON_REPUDIATION, DOCUMENT_SIGNING_OID);
+            SigningProfileDto profile = signingProfileService
+                    .createSigningProfile(aSigningProfileRequest()
+                            .withName("ct-raw-purpose-cleared")
+                            .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
+                            .withRawSigning(true, DOCUMENT_SIGNING_OID)
+                            .build());
+
+            // when
+            SigningProfileDto updated = signingProfileService
+                    .updateSigningProfile(SecuredUUID.fromString(profile.getUuid()),
+                            aSigningProfileRequestFromExistingProfile(profile).withRawSigning().build());
+
+            // then
+            assertThat(updated.getWorkflow()).isInstanceOfSatisfying(RawSigningWorkflowDto.class, workflow -> {
+                assertThat(workflow.isRequireNonRepudiation()).isFalse();
+                assertThat(workflow.getRequiredExtendedKeyUsageOids()).isEmpty();
+            });
+        }
+
+        @Test
         void update_schemeFromStaticKeyManagedToDelegated()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
             // given: a profile with static-key-managed scheme
@@ -2074,10 +2195,13 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             assertThat(persistedVersion(profile.getUuid(), profile.getVersion()).getAllowedRequestAttributes())
                     .containsExactly("reason");
 
-            // when
+            // when — a raw profile may not sign with a key a content version used, so it moves to the raw key
             SigningProfileDto updated = signingProfileService
                     .updateSigningProfile(SecuredUUID.fromString(profile.getUuid()),
-                            aSigningProfileRequestFromExistingProfile(profile).withRawSigning().build());
+                            aSigningProfileRequestFromExistingProfile(profile)
+                                    .withStaticKeyManagedSigning(defaultRawSigningCertificate.getUuid())
+                                    .withRawSigning()
+                                    .build());
 
             // then
             assertThat(persistedVersion(updated.getUuid(), updated.getVersion()).getAllowedRequestAttributes())
@@ -2307,6 +2431,519 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                     .withLevel(SignatureLevel.SIGNED)
                     .withAllowedRequestAttributes(allowedName)
                     .build();
+        }
+    }
+
+    // ── RawSigningSaveRules ───────────────────────────────────────────────────
+
+    @Nested
+    class RawSigningSaveRules {
+
+        @Test
+        void refusesRawProfile_whenKeyIsMlDsa() throws Exception {
+            // given
+            var signsItsOwnMessage = SignatureAlgorithm.ML_DSA_65;
+            Certificate mlDsaCertificate = issueMlDsa65SigningCertificate();
+            List<RequestAttribute> keyIntrinsicAlgorithm = null;
+            SigningProfileRequestDto request = aSigningProfileRequest()
+                    .withName("raw-on-ml-dsa")
+                    .withStaticKeyManagedSigning(mlDsaCertificate.getUuid(), keyIntrinsicAlgorithm)
+                    .withRawSigning()
+                    .build();
+
+            // when
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService.createSigningProfile(request);
+
+            // then
+            assertThatThrownBy(create)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("cannot sign a data digest")
+                    .hasMessageContaining(signsItsOwnMessage.getCode());
+            assertThat(signingProfileRepository.findByName(request.getName())).isEmpty();
+        }
+
+        @Test
+        void refusesRawProfile_whenSchemeIsOneTimeKey() {
+            // given
+            SigningProfileRequestDto request = aSigningProfileRequest()
+                    .withName("raw-on-one-time-key")
+                    .withOneTimeKeyManagedSigning(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID())
+                    .withRawSigning()
+                    .build();
+
+            // when
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService.createSigningProfile(request);
+
+            // then
+            assertThatThrownBy(create)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining(ManagedSigningType.ONE_TIME_KEY.name());
+            assertThat(signingProfileRepository.findByName(request.getName())).isEmpty();
+        }
+
+        @Test
+        void refusesRawProfile_whenCertificateIsBoundToContentProfile() throws Exception {
+            // given
+            SigningProfileDto contentProfile = createManagedContentProfile("content-on-shared-certificate",
+                    defaultSigningCertificate.getUuid());
+            SigningProfileRequestDto rawRequest = aSigningProfileRequest()
+                    .withName("raw-on-shared-certificate")
+                    .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
+                    .withRawSigning()
+                    .build();
+
+            // when
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService.createSigningProfile(rawRequest);
+
+            // then
+            assertThatThrownBy(create)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("signs, or has signed, for Signing Profile(s) of another workflow")
+                    .hasMessageContaining(contentProfile.getName());
+            assertThat(signingProfileRepository.findByName(rawRequest.getName())).isEmpty();
+        }
+
+        @Test
+        void refusesRawProfile_whenKeyIsBoundToTimestampingProfileThroughAnotherCertificate() throws Exception {
+            // given — defaultTimestampingProfile signs with the key of a second certificate
+            Certificate secondCertificateOnTheKey = issueSigningCertificate(timestampingKeyPair,
+                    "Signing on the TSA key");
+            assertThat(loadKeyUuid(secondCertificateOnTheKey)).isEqualTo(loadKeyUuid(defaultTimestampingCertificate));
+            SigningProfileRequestDto rawRequest = aSigningProfileRequest()
+                    .withName("raw-on-the-tsa-key")
+                    .withStaticKeyManagedSigning(secondCertificateOnTheKey.getUuid())
+                    .withRawSigning()
+                    .build();
+
+            // when
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService.createSigningProfile(rawRequest);
+
+            // then
+            assertThatThrownBy(create)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("signs, or has signed, for Signing Profile(s) of another workflow")
+                    .hasMessageContaining(defaultTimestampingProfile.getName());
+            assertThat(signingProfileRepository.findByName(rawRequest.getName())).isEmpty();
+        }
+
+        @Test
+        void admitsContentProfile_whenKeyIsBoundOnlyToTimestampingProfile() throws Exception {
+            // given — defaultTimestampingProfile, the only profile signing with the key of a second certificate
+            Certificate secondCertificateOnTheKey = issueSigningCertificate(timestampingKeyPair,
+                    "Content signing on the TSA key");
+            assertThat(loadKeyUuid(secondCertificateOnTheKey)).isEqualTo(loadKeyUuid(defaultTimestampingCertificate));
+
+            // when
+            SigningProfileDto created = createManagedContentProfile("content-on-the-tsa-key",
+                    secondCertificateOnTheKey.getUuid());
+
+            // then
+            assertThat(created.getWorkflow()).isInstanceOf(ContentSigningWorkflowDto.class);
+        }
+
+        @Test
+        void refusesContentProfile_whenCertificateIsBoundToRawProfile() {
+            // given — defaultManagedStaticKeySigningProfile, a raw profile, holds defaultRawSigningCertificate
+            SigningProfileRequestDto contentRequest = aSigningProfileRequest()
+                    .withName("content-on-raw-certificate")
+                    .withStaticKeyManagedSigning(defaultRawSigningCertificate.getUuid())
+                    .withManagedContentSigning(UUID.fromString(contentSigningFormattingConnector.getUuid()))
+                    .build();
+
+            // when
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService.createSigningProfile(contentRequest);
+
+            // then
+            assertThatThrownBy(create)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("signs, or has signed, raw digests for Signing Profile(s)")
+                    .hasMessageContaining(defaultManagedStaticKeySigningProfile.getName());
+            assertThat(signingProfileRepository.findByName(contentRequest.getName())).isEmpty();
+        }
+
+        @Test
+        void refusesTheSwitchToRaw_whenAContentProfileWithNoRecordsStaysOnItsKey() throws Exception {
+            // given — no signing record names the content version, yet a profile can sign without leaving one
+            SigningProfileDto contentProfile = createManagedContentProfile("content-turning-raw",
+                    defaultSigningCertificate.getUuid());
+            SigningProfileRequestDto toRaw = aSigningProfileRequestFromExistingProfile(contentProfile)
+                    .withRawSigning()
+                    .build();
+
+            // when
+            ThrowableAssert.ThrowingCallable update = () -> signingProfileService
+                    .updateSigningProfile(SecuredUUID.fromString(contentProfile.getUuid()), toRaw);
+
+            // then
+            assertThatThrownBy(update)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("signs, or has signed, for Signing Profile(s) of another workflow")
+                    .hasMessageContaining(contentProfile.getName());
+        }
+
+        @Test
+        void keepsTheOldVersion_whenAnUpdateChangesTheWorkflow() throws Exception {
+            // given — a content profile with no signing record, moving to raw signing on another key
+            SigningProfileDto contentProfile = createManagedContentProfile("content-moving-to-raw",
+                    defaultSigningCertificate.getUuid());
+            SigningProfileRequestDto toRawOnAnotherKey = aSigningProfileRequestFromExistingProfile(contentProfile)
+                    .withStaticKeyManagedSigning(defaultRawSigningCertificate.getUuid())
+                    .withRawSigning()
+                    .build();
+
+            // when
+            SigningProfileDto updated = signingProfileService
+                    .updateSigningProfile(SecuredUUID.fromString(contentProfile.getUuid()), toRawOnAnotherKey);
+
+            // then
+            assertThat(updated.getVersion()).isEqualTo(contentProfile.getVersion() + 1);
+            assertThat(persistedVersion(contentProfile.getUuid(), contentProfile.getVersion()).getWorkflowType())
+                    .isEqualTo(SigningWorkflowType.CONTENT_SIGNING);
+        }
+
+        @Test
+        void refusesContentProfile_whenARawProfileWithNoRecordsMovedOffTheKey() throws Exception {
+            // given — defaultManagedStaticKeySigningProfile, a raw profile with no signing record, moves to another key
+            signingProfileService
+                    .updateSigningProfile(SecuredUUID.fromString(defaultManagedStaticKeySigningProfile.getUuid()),
+                            aSigningProfileRequestFromExistingProfile(defaultManagedStaticKeySigningProfile)
+                                    .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
+                                    .build());
+            SigningProfileRequestDto contentRequest = aSigningProfileRequest()
+                    .withName("content-on-the-abandoned-raw-key")
+                    .withStaticKeyManagedSigning(defaultRawSigningCertificate.getUuid())
+                    .withManagedContentSigning(UUID.fromString(contentSigningFormattingConnector.getUuid()))
+                    .build();
+
+            // when
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService.createSigningProfile(contentRequest);
+
+            // then
+            assertThatThrownBy(create)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("signs, or has signed, raw digests for Signing Profile(s)")
+                    .hasMessageContaining(defaultManagedStaticKeySigningProfile.getName());
+            assertThat(signingProfileRepository.findByName(contentRequest.getName())).isEmpty();
+        }
+
+        @Test
+        void refusesRawProfile_whenAContentProfileWithNoRecordsMovedOffTheKey() throws Exception {
+            // given — a content profile with no signing record leaves its key for a delegated scheme
+            SigningProfileDto movedAway = createManagedContentProfile("unrecorded-content-that-moved-away",
+                    defaultSigningCertificate.getUuid());
+            signingProfileService
+                    .updateSigningProfile(SecuredUUID.fromString(movedAway.getUuid()),
+                            aSigningProfileRequestFromExistingProfile(movedAway)
+                                    .withDelegatedSigning(signerConnector.getUuid())
+                                    .withDelegatedContentSigning()
+                                    .build());
+            SigningProfileRequestDto rawRequest = aSigningProfileRequest()
+                    .withName("raw-after-unrecorded-content-moved-away")
+                    .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
+                    .withRawSigning()
+                    .build();
+
+            // when
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService.createSigningProfile(rawRequest);
+
+            // then
+            assertThatThrownBy(create)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("signs, or has signed, for Signing Profile(s) of another workflow")
+                    .hasMessageContaining(movedAway.getName());
+            assertThat(signingProfileRepository.findByName(rawRequest.getName())).isEmpty();
+        }
+
+        @Test
+        void overwritesTheVersion_whenTheNewCertificateCarriesTheSameKey() throws Exception {
+            // given — a renewed certificate on the key of defaultManagedStaticKeySigningProfile, which has no record
+            Certificate renewedOnTheSameKey = issueSigningCertificate(rawSigningKeyPair, "Renewed Raw Signing");
+            assertThat(loadKeyUuid(renewedOnTheSameKey)).isEqualTo(loadKeyUuid(defaultRawSigningCertificate));
+            SigningProfileRequestDto ontoTheRenewal = aSigningProfileRequestFromExistingProfile(
+                    defaultManagedStaticKeySigningProfile)
+                    .withStaticKeyManagedSigning(renewedOnTheSameKey.getUuid())
+                    .build();
+
+            // when
+            SigningProfileDto updated = signingProfileService
+                    .updateSigningProfile(SecuredUUID.fromString(defaultManagedStaticKeySigningProfile.getUuid()),
+                            ontoTheRenewal);
+
+            // then
+            assertThat(updated.getVersion()).isEqualTo(defaultManagedStaticKeySigningProfile.getVersion());
+        }
+
+        @Test
+        void refusesContentProfileUpdate_whenCertificateIsBoundToRawProfile() throws Exception {
+            // given — defaultManagedStaticKeySigningProfile, a raw profile, holds defaultRawSigningCertificate
+            SigningProfileDto contentProfile = createManagedContentProfile("content-moving-onto-the-raw-key",
+                    defaultSigningCertificate.getUuid());
+            SigningProfileRequestDto ontoTheRawKey = aSigningProfileRequestFromExistingProfile(contentProfile)
+                    .withStaticKeyManagedSigning(defaultRawSigningCertificate.getUuid())
+                    .build();
+
+            // when
+            ThrowableAssert.ThrowingCallable update = () -> signingProfileService
+                    .updateSigningProfile(SecuredUUID.fromString(contentProfile.getUuid()), ontoTheRawKey);
+
+            // then
+            assertThatThrownBy(update)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("signs, or has signed, raw digests for Signing Profile(s)")
+                    .hasMessageContaining(defaultManagedStaticKeySigningProfile.getName());
+            assertThat(loadLatestCertificateUuid(contentProfile)).isEqualTo(defaultSigningCertificate.getUuid());
+        }
+
+        @Test
+        void refusesRawProfileUpdate_whenKeyIsBoundToTimestampingProfile() throws Exception {
+            // given — defaultTimestampingProfile signs with the key of a second certificate
+            Certificate secondCertificateOnTheKey = issueSigningCertificate(timestampingKeyPair,
+                    "Raw signing on the TSA key");
+            assertThat(loadKeyUuid(secondCertificateOnTheKey)).isEqualTo(loadKeyUuid(defaultTimestampingCertificate));
+            SigningProfileRequestDto ontoTheTsaKey = aSigningProfileRequestFromExistingProfile(
+                    defaultManagedStaticKeySigningProfile)
+                    .withStaticKeyManagedSigning(secondCertificateOnTheKey.getUuid())
+                    .build();
+
+            // when
+            ThrowableAssert.ThrowingCallable update = () -> signingProfileService
+                    .updateSigningProfile(SecuredUUID.fromString(defaultManagedStaticKeySigningProfile.getUuid()),
+                            ontoTheTsaKey);
+
+            // then
+            assertThatThrownBy(update)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("signs, or has signed, for Signing Profile(s) of another workflow")
+                    .hasMessageContaining(defaultTimestampingProfile.getName());
+            assertThat(loadLatestCertificateUuid(defaultManagedStaticKeySigningProfile))
+                    .isEqualTo(defaultRawSigningCertificate.getUuid());
+        }
+
+        @Test
+        void refusesRawProfileUpdate_whenKeyIsMlDsa() throws Exception {
+            // given
+            var signsItsOwnMessage = SignatureAlgorithm.ML_DSA_65;
+            Certificate mlDsaCertificate = issueMlDsa65SigningCertificate();
+            List<RequestAttribute> keyIntrinsicAlgorithm = null;
+            SigningProfileRequestDto ontoMlDsa = aSigningProfileRequestFromExistingProfile(
+                    defaultManagedStaticKeySigningProfile)
+                    .withStaticKeyManagedSigning(mlDsaCertificate.getUuid(), keyIntrinsicAlgorithm)
+                    .build();
+
+            // when
+            ThrowableAssert.ThrowingCallable update = () -> signingProfileService
+                    .updateSigningProfile(SecuredUUID.fromString(defaultManagedStaticKeySigningProfile.getUuid()),
+                            ontoMlDsa);
+
+            // then
+            assertThatThrownBy(update)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("cannot sign a data digest")
+                    .hasMessageContaining(signsItsOwnMessage.getCode());
+            assertThat(loadLatestCertificateUuid(defaultManagedStaticKeySigningProfile))
+                    .isEqualTo(defaultRawSigningCertificate.getUuid());
+        }
+
+        @Test
+        void refusesTheKey_whenOnlyASupersededVersionSignedWithIt() throws Exception {
+            // given — a content profile whose latest version left the certificate, and so the key, that version 1
+            // still names; the signatures version 1 made stay valid
+            SigningProfileDto movedAway = createManagedContentProfile("content-that-moved-away",
+                    defaultSigningCertificate.getUuid());
+            createSigningRecordFor(movedAway);
+            signingProfileService
+                    .updateSigningProfile(SecuredUUID.fromString(movedAway.getUuid()),
+                            aSigningProfileRequestFromExistingProfile(movedAway)
+                                    .withDelegatedSigning(signerConnector.getUuid())
+                                    .withDelegatedContentSigning()
+                                    .build());
+            assertThat(persistedVersion(movedAway.getUuid(), movedAway.getVersion()).getCertificateUuid())
+                    .isEqualTo(defaultSigningCertificate.getUuid());
+            SigningProfileRequestDto rawRequest = aSigningProfileRequest()
+                    .withName("raw-after-content-moved-away")
+                    .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
+                    .withRawSigning()
+                    .build();
+
+            // when
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService.createSigningProfile(rawRequest);
+
+            // then
+            assertThatThrownBy(create)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("signs, or has signed, for Signing Profile(s) of another workflow")
+                    .hasMessageContaining(movedAway.getName());
+            assertThat(signingProfileRepository.findByName(rawRequest.getName())).isEmpty();
+        }
+
+        @Test
+        void refusesTheSwitchToRaw_whenTheProfileHasSignedWithTheKey() throws Exception {
+            // given — the content profile's latest version has a signing record, so the update keeps it
+            SigningProfileDto signedContent = createManagedContentProfile("content-that-signed",
+                    defaultSigningCertificate.getUuid());
+            createSigningRecordFor(signedContent);
+            SigningProfileRequestDto toRaw = aSigningProfileRequestFromExistingProfile(signedContent)
+                    .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
+                    .withRawSigning()
+                    .build();
+
+            // when
+            ThrowableAssert.ThrowingCallable update = () -> signingProfileService
+                    .updateSigningProfile(SecuredUUID.fromString(signedContent.getUuid()), toRaw);
+
+            // then
+            assertThatThrownBy(update)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("signs, or has signed, for Signing Profile(s) of another workflow")
+                    .hasMessageContaining(signedContent.getName());
+        }
+
+        @Test
+        void refusesTheSwitchToRaw_whenTheUpdateKeepsTheContentVersion() throws Exception {
+            // given — no signing record, but a changed record policy makes the update keep the content version
+            SigningProfileDto unusedContent = createManagedContentProfile("content-changing-its-recording",
+                    defaultSigningCertificate.getUuid());
+            var recordingSignatures = aSigningRecordPolicyRequest().withRecordSignature(true).build();
+            SigningProfileRequestDto toRaw = aSigningProfileRequestFromExistingProfile(unusedContent)
+                    .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
+                    .withRawSigning()
+                    .withRecordPolicy(recordingSignatures)
+                    .build();
+
+            // when
+            ThrowableAssert.ThrowingCallable update = () -> signingProfileService
+                    .updateSigningProfile(SecuredUUID.fromString(unusedContent.getUuid()), toRaw);
+
+            // then
+            assertThatThrownBy(update)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("signs, or has signed, for Signing Profile(s) of another workflow")
+                    .hasMessageContaining(unusedContent.getName());
+        }
+
+        @Test
+        void throwsAccessDenied_whenRawProfileIsCreatedWithADeniedCertificate() {
+            // given — the binding rule would refuse the certificate, since a timestamping profile signs with its key
+            denyResourceAccess(Resource.CERTIFICATE, ResourceAction.DETAIL);
+            SigningProfileRequestDto rawRequest = aSigningProfileRequest()
+                    .withName("raw-on-a-hidden-certificate")
+                    .withStaticKeyManagedSigning(defaultTimestampingCertificate.getUuid())
+                    .withRawSigning()
+                    .build();
+
+            // when
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService.createSigningProfile(rawRequest);
+
+            // then
+            assertThatThrownBy(create).isInstanceOf(AccessDeniedException.class);
+            assertThat(signingProfileRepository.findByName(rawRequest.getName())).isEmpty();
+        }
+
+        @Test
+        void throwsAccessDenied_whenContentProfileIsCreatedWithADeniedCertificate() {
+            // given — the binding rule would refuse the certificate, since a raw profile signs with its key
+            denyResourceAccess(Resource.CERTIFICATE, ResourceAction.DETAIL);
+            SigningProfileRequestDto contentRequest = aSigningProfileRequest()
+                    .withName("content-on-a-hidden-certificate")
+                    .withStaticKeyManagedSigning(defaultRawSigningCertificate.getUuid())
+                    .withManagedContentSigning(UUID.fromString(contentSigningFormattingConnector.getUuid()))
+                    .build();
+
+            // when
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService.createSigningProfile(contentRequest);
+
+            // then
+            assertThatThrownBy(create).isInstanceOf(AccessDeniedException.class);
+            assertThat(signingProfileRepository.findByName(contentRequest.getName())).isEmpty();
+        }
+
+        @Test
+        void throwsAccessDenied_whenTimestampingProfileIsCreatedWithADeniedCertificate() {
+            // given — the binding rule would refuse the certificate, since a raw profile signs with its key
+            denyResourceAccess(Resource.CERTIFICATE, ResourceAction.DETAIL);
+            SigningProfileRequestDto timestampingRequest = aSigningProfileRequest()
+                    .withName("timestamping-on-a-hidden-certificate")
+                    .withStaticKeyManagedSigning(defaultRawSigningCertificate.getUuid())
+                    .withTimestamping(UUID.fromString(timestampingFormattingConnector.getUuid()))
+                    .build();
+
+            // when
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService
+                    .createSigningProfile(timestampingRequest);
+
+            // then
+            assertThatThrownBy(create).isInstanceOf(AccessDeniedException.class);
+            assertThat(signingProfileRepository.findByName(timestampingRequest.getName())).isEmpty();
+        }
+
+        @Test
+        void refusesTimestampingProfile_whenKeyIsBoundToRawProfile() throws Exception {
+            // given — defaultManagedStaticKeySigningProfile, a raw profile, signs with the key of a second certificate
+            Certificate timestampingCertificateOnTheKey = testCertificateAuthority
+                    .createTrustedCa("CN=TSA on the raw key Root")
+                    .issueTimestampingCertificate(rawSigningKeyPair, "CN=TSA on the raw key");
+            assertThat(loadKeyUuid(timestampingCertificateOnTheKey))
+                    .isEqualTo(loadKeyUuid(defaultRawSigningCertificate));
+            SigningProfileRequestDto timestampingRequest = aSigningProfileRequest()
+                    .withName("timestamping-on-the-raw-key")
+                    .withStaticKeyManagedSigning(timestampingCertificateOnTheKey.getUuid())
+                    .withTimestamping(aTimestampingWorkflow()
+                            .withSignatureFormattingConnector(
+                                    UUID.fromString(timestampingFormattingConnector.getUuid()))
+                            .build())
+                    .build();
+
+            // when
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService
+                    .createSigningProfile(timestampingRequest);
+
+            // then
+            assertThatThrownBy(create)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("signs, or has signed, raw digests for Signing Profile(s)")
+                    .hasMessageContaining(defaultManagedStaticKeySigningProfile.getName());
+            assertThat(signingProfileRepository.findByName(timestampingRequest.getName())).isEmpty();
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private SigningProfileDto createManagedContentProfile(String name, UUID certificateUuid)
+                throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            return signingProfileService
+                    .createSigningProfile(aSigningProfileRequest()
+                            .withName(name)
+                            .withStaticKeyManagedSigning(certificateUuid)
+                            .withManagedContentSigning(UUID.fromString(contentSigningFormattingConnector.getUuid()))
+                            .build());
+        }
+
+        private Certificate issueSigningCertificate(KeyPair keyPair, String commonName) throws Exception {
+            return testCertificateAuthority
+                    .createTrustedCa("CN=" + commonName + " Root")
+                    .issueSigningCertificate(keyPair, "CN=" + commonName);
+        }
+
+        private UUID loadKeyUuid(Certificate certificate) {
+            return certificateRepository
+                    .findByUuid(SecuredUUID.fromUUID(certificate.getUuid()))
+                    .orElseThrow()
+                    .getKeyUuid();
+        }
+
+        private UUID loadLatestCertificateUuid(SigningProfileDto profile) {
+            return signingProfileVersionRepository
+                    .findLatestByProfileUuid(UUID.fromString(profile.getUuid()))
+                    .orElseThrow()
+                    .getCertificateUuid();
+        }
+
+        private Certificate issueMlDsa65SigningCertificate() throws Exception {
+            KeyPair mlDsaKeyPair = CertificateGeneratorHelper
+                    .generateKeyPair(KeyAlgorithm.MLDSA, MLDSAParameterSpec.ml_dsa_65);
+            createTokenKey(mlDsaKeyPair, KeyAlgorithm.MLDSA, "ml-dsa-65-signing-key");
+            return testCertificateAuthority
+                    .createTrustedCa("CN=ML-DSA Root")
+                    .issueSigningCertificate(mlDsaKeyPair, "CN=ML-DSA Signing");
         }
     }
 
@@ -3121,7 +3758,44 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             assertThat(resolved.version()).isEqualTo(bumpedVersion);
         }
 
+        @Test
+        void refusesIlmNativeActivation_whenRawProfileKeyAlsoSignsForAnotherWorkflow() {
+            // given — a raw profile on the certificate of defaultTimestampingProfile, which a save refuses
+            SigningProfile rawProfile = seedRawProfile("raw-on-the-tsa-certificate", defaultTimestampingCertificate);
+            SecuredUUID uuid = SecuredUUID.fromUUID(rawProfile.getUuid());
+
+            // when
+            ThrowableAssert.ThrowingCallable activate = () -> signingProfileService.activateIlmNative(uuid);
+
+            // then
+            assertThatThrownBy(activate)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("signs, or has signed, for Signing Profile(s) of another workflow")
+                    .hasMessageContaining(defaultTimestampingProfile.getName());
+            assertThat(signingProfileRepository.findByUuid(uuid).orElseThrow().isIlmNativeEnabled()).isFalse();
+        }
+
         // ── Helpers ───────────────────────────────────────────────────────────
+
+        /**
+         * Saves the profile through the repositories, since a profile save refuses a key another workflow signs with.
+         */
+        private SigningProfile seedRawProfile(String name, Certificate certificate) {
+            var rawProfile = new SigningProfile();
+            rawProfile.setName(name);
+            rawProfile.setSigningScheme(SigningScheme.MANAGED);
+            rawProfile.setWorkflowType(SigningWorkflowType.RAW_SIGNING);
+            SigningProfile saved = signingProfileRepository.save(rawProfile);
+            var version = new SigningProfileVersion();
+            version.setSigningProfile(saved);
+            version.setVersion(saved.getLatestVersion());
+            version.setSigningScheme(SigningScheme.MANAGED);
+            version.setManagedSigningType(ManagedSigningType.STATIC_KEY);
+            version.setWorkflowType(SigningWorkflowType.RAW_SIGNING);
+            version.setCertificate(certificate);
+            signingProfileVersionRepository.save(version);
+            return saved;
+        }
 
         private SigningProfileDto createManagedContentProfile(String name)
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
@@ -3311,7 +3985,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                     .getObjectDataAttributesContent(ObjectAttributeContentInfo
                             .builder(Resource.SIGNING_PROFILE, UUID.fromString(created.getUuid()))
                             .operation(AttributeOperation.SIGN)
-                            .version(1)
+                            .version(updated.getVersion())
                             .build());
             assertTrue(remaining.isEmpty(),
                     "SIGN attributes should be cleared from the engine when scheme changes away from STATIC_KEY");
@@ -4439,14 +5113,16 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         }
 
         @Test
-        void rawSigningProfile_throwsIllegalArgumentException() {
-            // given: a pre-configured raw-signing profile — RAW_SIGNING has no model mapper yet (core#2004)
-            String rawProfileName = defaultRawSigningProfile.getName();
+        void returnsTypedModel_whenProfileIsRawSigning() throws Exception {
+            // given
+            String rawProfileName = defaultManagedStaticKeySigningProfile.getName();
 
-            // when / then
-            assertThatThrownBy(() -> signingProfileInternalService.getSigningProfileModel(rawProfileName))
-                    .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("does not support model retrieval yet");
+            // when
+            SigningProfileModel<?, ?> model = signingProfileInternalService.getSigningProfileModel(rawProfileName);
+
+            // then
+            assertThat(model.workflow()).isInstanceOf(ManagedRawSigningWorkflow.class);
+            assertThat(model.signingScheme()).isInstanceOf(StaticKeyManagedSigning.class);
         }
 
     }
@@ -4462,5 +5138,33 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
 
     private void createSigningRecordFor(SigningProfileDto profile) {
         signingRecordWriter.insertBatch(List.of(aSigningRecord().withSigningProfile(profile).build()));
+    }
+
+    /**
+     * The token reports the key pair's public key, so a certificate issued for the key pair is associated with the new
+     * key on upload.
+     */
+    private void createTokenKey(KeyPair tokenKeyPair, KeyAlgorithm algorithm, String name) throws Exception {
+        String base64Spki = Base64.getEncoder().encodeToString(tokenKeyPair.getPublic().getEncoded());
+        cryptographyProviderServerMock.stubKeyPairCreation(base64Spki, algorithm, UUID.randomUUID());
+        cryptographicKeyService
+                .createKey(UUID.fromString(tokenInstance.getUuid()),
+                        SecuredParentUUID.fromString(defaultTokenProfile.getUuid()), KeyRequestType.KEY_PAIR,
+                        aKeyPairRequest().withName(name).build());
+    }
+
+    private SigningProfileRequestDto buildIntrinsicAlgorithmRequestWithOmittedAttributes() throws Exception {
+        KeyAlgorithm intrinsicAlgorithm = KeyAlgorithm.FALCON;
+        KeyPair intrinsicKeyPair = CertificateGeneratorHelper.generateKeyPair(intrinsicAlgorithm, null);
+        createTokenKey(intrinsicKeyPair, intrinsicAlgorithm, "intrinsic-signing-key");
+        TestCertificateAuthority.TrustedCa trustedCa = testCertificateAuthority.createTrustedCa("CN=Intrinsic Root");
+        // A raw profile refuses an algorithm that cannot sign a data digest, so this profile timestamps.
+        Certificate certificate = trustedCa.issueTimestampingCertificate(intrinsicKeyPair, "CN=Intrinsic TSA");
+        List<RequestAttribute> omittedAttributes = null;
+        return aSigningProfileRequest()
+                .withName("intrinsic-signing-profile")
+                .withStaticKeyManagedSigning(certificate.getUuid(), omittedAttributes)
+                .withTimestamping(UUID.fromString(timestampingFormattingConnector.getUuid()))
+                .build();
     }
 }

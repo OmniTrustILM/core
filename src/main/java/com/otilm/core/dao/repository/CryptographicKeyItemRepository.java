@@ -97,6 +97,11 @@ public interface CryptographicKeyItemRepository extends ComplianceSubjectReposit
     @Query("SELECT i.keyReferenceUuid FROM CryptographicKeyItem i WHERE i.uuid = :uuid")
     Optional<UUID> findKeyReferenceUuidByUuid(@Param("uuid") UUID uuid);
 
+    /** Values the Parameter set filter offers. */
+    @Query("SELECT DISTINCT i.parameterSet FROM CryptographicKeyItem i WHERE i.parameterSet IS NOT NULL"
+            + " ORDER BY i.parameterSet")
+    List<String> findStoredParameterSets();
+
     /**
      * The fingerprints from {@code fingerprints} that inventory already holds.
      */
@@ -177,12 +182,12 @@ public interface CryptographicKeyItemRepository extends ComplianceSubjectReposit
             INSERT INTO {h-schema}cryptographic_key_item (
                 uuid, name, type, key_reference_uuid, key_uuid, key_algorithm, format, key_data,
                 state, enabled, length, fingerprint, reason, compliance_status, created_at, updated_at, usage,
-                exportable
+                exportable, parameter_set
             ) VALUES (
                 :#{#cki.uuid}, :#{#cki.name}, :#{#cki.type.name()}, :#{#cki.keyReferenceUuid}, :#{#cki.keyUuid},
                 :#{#cki.keyAlgorithm.name()}, :#{#cki.format?.name() ?: null}, :#{#cki.keyData}, :#{#cki.state.name()}, :#{#cki.enabled},
                 :#{#cki.length}, :#{#cki.fingerprint}, :#{#cki.reason?.name() ?: null}, :#{#cki.complianceStatus.name()}, :#{#cki.createdAt},
-                :#{#cki.updatedAt}, :#{#cki.usageBitmask}, :#{#cki.exportable}
+                :#{#cki.updatedAt}, :#{#cki.usageBitmask}, :#{#cki.exportable}, :#{#cki.parameterSet}
             ) ON CONFLICT (fingerprint) DO NOTHING
             """,
             nativeQuery = true)

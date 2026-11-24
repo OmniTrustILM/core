@@ -1696,6 +1696,9 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
                                 .prepareSearch(FilterField.CKI_USAGE,
                                         Arrays.stream(KeyUsage.values()).map(KeyUsage::getCode).toList()),
                         SearchHelper.prepareSearch(FilterField.CKI_LENGTH),
+                        SearchHelper
+                                .prepareSearch(FilterField.CKI_PARAMETER_SET,
+                                        cryptographicKeyItemRepository.findStoredParameterSets()),
                         SearchHelper.prepareSearch(FilterField.CKI_ENABLED),
                         SearchHelper.prepareSearch(FilterField.CKI_CREATED),
                         SearchHelper

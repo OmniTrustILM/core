@@ -31,12 +31,14 @@ import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.location.LocationDto;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
+import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
@@ -59,6 +61,7 @@ import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.EntityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.LocationRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
+import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -68,12 +71,15 @@ import com.otilm.core.service.LocationInternalService;
 import com.otilm.core.service.registration.RegistrationChallengeStore;
 import com.otilm.core.service.v2.impl.ClientOperationServiceImpl;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.SecretLeakProbe;
 import java.io.IOException;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
+import java.security.cert.X509Certificate;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 import java.util.function.Consumer;
@@ -112,6 +118,7 @@ class LocationServiceITest extends BaseSpringBootTest {
     private static final String PUSH_ATTRIBUTES_PATH = "/v1/entityProvider/entities/[^/]+/locations/push/attributes";
     private static final String CSR_ATTRIBUTES_PATH = "/v1/entityProvider/entities/[^/]+/locations/csr/attributes";
     private static final String CSR_PATH = "/v1/entityProvider/entities/[^/]+/locations/csr";
+    private static final String UNREADABLE_CERTIFICATE_DATA = "bm90LWEtY2VydGlmaWNhdGU=";
 
     @Autowired
     private LocationExternalService locationService;
@@ -733,20 +740,68 @@ class LocationServiceITest extends BaseSpringBootTest {
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("unreadableCertificateCalls")
-    void logsTheFailure_whenTheLocationHoldsAnUnreadableCertificate(String operation, String loggedFailure,
-            LocationCall call) {
+    void refusesNamingTheType_whenTheLocationHoldsAnUnreadableCertificate(String operation, LocationCall call) {
         // given
-        var unreadableCertificateData = "bm90LWEtY2VydGlmaWNhdGU=";
         stubConnectorAccepting();
-        stubLocationDetailHolding(unreadableCertificateData);
+        stubLocationDetailHolding(UNREADABLE_CERTIFICATE_DATA);
 
         // when
-        List<String> logged = logsDuring(() -> call.call(this));
+        ThrowingCallable callTheLocation = () -> call.call(this);
 
         // then
-        assertThat(logged)
-                .anyMatch(line -> line.contains(loggedFailure))
-                .anyMatch(line -> line.contains("CertificateException"));
+        assertThatThrownBy(callTheLocation)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining(CertificateType.X509.getLabel())
+                .hasMessageNotContaining(UNREADABLE_CERTIFICATE_DATA);
+    }
+
+    @Test
+    void rollsBackTheSync_whenTheLocationHoldsAnUnreadableCertificateAfterAReadableOne() throws Exception {
+        // given
+        X509Certificate storedBeforeTheRefusal = CertificateGeneratorHelper
+                .generateCACertificate(null, "CN=stored-before-the-unreadable");
+        stubConnectorAccepting();
+        stubLocationDetailHolding(Base64.getEncoder().encodeToString(storedBeforeTheRefusal.getEncoded()),
+                UNREADABLE_CERTIFICATE_DATA, CertificateType.X509);
+
+        // when
+        ThrowingCallable sync = () -> locationService.updateLocationContent(getEntityUuid(), location.getSecuredUuid());
+
+        // then
+        assertThatThrownBy(sync).isInstanceOf(ValidationException.class);
+        assertThat(certificateLocationRepository.findByCertificateUuidIn(List.of(certificate.getUuid())))
+                .as("links of the certificate the location held before the sync")
+                .extracting(link -> link.getLocation().getUuid())
+                .contains(location.getUuid());
+        assertThat(certificateRepository.findByFingerprint(CertificateUtil.getThumbprint(storedBeforeTheRefusal)))
+                .as("certificate the sync stored before the refusal")
+                .isEmpty();
+    }
+
+    @Test
+    void rollsBackTheSync_whenTheLocationHoldsACertificateOfATypeWithoutAHandler() throws Exception {
+        // given
+        var typeWithoutAHandler = CertificateType.SSH;
+        X509Certificate storedBeforeTheRefusal = CertificateGeneratorHelper
+                .generateCACertificate(null, "CN=stored-before-the-refusal");
+        stubConnectorAccepting();
+        var certificateData = Base64.getEncoder().encodeToString(storedBeforeTheRefusal.getEncoded());
+        stubLocationDetailHolding(certificateData, certificateData, typeWithoutAHandler);
+
+        // when
+        ThrowingCallable sync = () -> locationService.updateLocationContent(getEntityUuid(), location.getSecuredUuid());
+
+        // then
+        assertThatThrownBy(sync)
+                .isInstanceOf(UnsupportedCertificateTypeException.class)
+                .hasMessageContaining(typeWithoutAHandler.getCode());
+        assertThat(certificateLocationRepository.findByCertificateUuidIn(List.of(certificate.getUuid())))
+                .as("links of the certificate the location held before the sync")
+                .extracting(link -> link.getLocation().getUuid())
+                .contains(location.getUuid());
+        assertThat(certificateRepository.findByFingerprint(CertificateUtil.getThumbprint(storedBeforeTheRefusal)))
+                .as("certificate the sync stored before the refusal")
+                .isEmpty();
     }
 
     @Test
@@ -1646,19 +1701,17 @@ class LocationServiceITest extends BaseSpringBootTest {
     private static Stream<Arguments> unreadableCertificateCalls() {
         return Stream
                 .of(Arguments
-                        .of("add", "Failed to create Location",
+                        .of("add",
                                 (LocationCall) test -> test.locationService
                                         .addLocation(test.getEntityUuid(), test.addRequest("unreadable-location"))),
                         Arguments
-                                .of("edit", "Failed to update Location " + LOCATION_NAME,
+                                .of("edit",
                                         (LocationCall) test -> test.locationService
                                                 .editLocation(test.getEntityUuid(), test.location.getSecuredUuid(),
                                                         editRequest())),
                         Arguments
-                                .of("sync", "Failed to update Location " + LOCATION_NAME,
-                                        (LocationCall) test -> test.locationService
-                                                .updateLocationContent(test.getEntityUuid(),
-                                                        test.location.getSecuredUuid())));
+                                .of("sync", (LocationCall) test -> test.locationService
+                                        .updateLocationContent(test.getEntityUuid(), test.location.getSecuredUuid())));
     }
 
     private SecuredParentUUID getEntityUuid() {
@@ -1721,6 +1774,19 @@ class LocationServiceITest extends BaseSpringBootTest {
                   "multipleEntries": true,
                   "supportKeyManagement": true
                 }""".formatted(certificateData))));
+    }
+
+    private void stubLocationDetailHolding(String x509CertificateData, String dataOfTheSecondEntry,
+            CertificateType typeOfTheSecondEntry) {
+        mockServer.stubFor(WireMock.post(WireMock.urlPathMatching(LOCATIONS_PATH)).willReturn(WireMock.okJson("""
+                {
+                  "certificates": [
+                    {"certificateData": "%s", "withKey": true, "certificateType": "X.509"},
+                    {"certificateData": "%s", "withKey": true, "certificateType": "%s"}
+                  ],
+                  "multipleEntries": true,
+                  "supportKeyManagement": true
+                }""".formatted(x509CertificateData, dataOfTheSecondEntry, typeOfTheSecondEntry.getCode()))));
     }
 
     private void stubLocationRefusing(String path, String connectorText) {

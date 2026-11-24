@@ -50,11 +50,13 @@ class PropertyColumnDisplayabilityITest extends BaseSpringBootTest {
                                         FilterField.RENEWAL_WINDOW_START));
 
         offeredColumns
-                .put(Resource.CRYPTOGRAPHIC_KEY, EnumSet
-                        .of(FilterField.CKI_NAME, FilterField.CKI_TYPE, FilterField.CKI_FORMAT, FilterField.CKI_STATE,
-                                FilterField.CKI_CRYPTOGRAPHIC_ALGORITHM, FilterField.CKI_USAGE, FilterField.CKI_LENGTH,
-                                FilterField.CKI_ENABLED, FilterField.CKI_CREATED, FilterField.CK_TOKEN_PROFILE,
-                                FilterField.CK_TOKEN_INSTANCE, FilterField.CK_GROUP, FilterField.CK_OWNER));
+                .put(Resource.CRYPTOGRAPHIC_KEY,
+                        EnumSet
+                                .of(FilterField.CKI_NAME, FilterField.CKI_TYPE, FilterField.CKI_FORMAT,
+                                        FilterField.CKI_STATE, FilterField.CKI_CRYPTOGRAPHIC_ALGORITHM,
+                                        FilterField.CKI_USAGE, FilterField.CKI_LENGTH, FilterField.CKI_PARAMETER_SET,
+                                        FilterField.CKI_ENABLED, FilterField.CKI_CREATED, FilterField.CK_TOKEN_PROFILE,
+                                        FilterField.CK_TOKEN_INSTANCE, FilterField.CK_GROUP, FilterField.CK_OWNER));
 
         offeredColumns
                 .put(Resource.DISCOVERY,

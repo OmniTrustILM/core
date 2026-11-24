@@ -252,13 +252,10 @@ public class ResourceServiceImpl implements ResourceExternalService, ResourceInt
                 } else {
                     fieldDataDtos
                             .add(SearchHelper
-                                    .prepareSearch(filterField, FilterPredicatesBuilder
-                                            .getAllValuesOfProperty(
-                                                    FilterPredicatesBuilder
-                                                            .buildPathToProperty(filterField.getJoinAttributes(),
-                                                                    filterField.getFieldAttribute()),
-                                                    resource, entityManager)
-                                            .getResultList()));
+                                    .prepareSearch(filterField,
+                                            FilterPredicatesBuilder
+                                                    .getAllValuesOfProperty(filterField, resource, entityManager)
+                                                    .getResultList()));
                 }
             }
         }
