@@ -1555,7 +1555,9 @@ class AuthorityProviderV3AdapterTest {
             ThrowingCallable list = () -> adapter.listCertificateTypes(authority, raProfile);
 
             // then
-            assertThatThrownBy(list).isInstanceOf(ConnectorException.class).hasCause(connectorRefusal);
+            assertThatThrownBy(list)
+                    .isInstanceOfSatisfying(ConnectorException.class,
+                            failure -> assertThat(failure.getCause()).isSameAs(connectorRefusal));
         }
 
         @Test
