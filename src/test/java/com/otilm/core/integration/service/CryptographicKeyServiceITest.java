@@ -142,6 +142,7 @@ import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -790,93 +791,138 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
         Assertions.assertEquals(tokenListsKeys, created.isRemovableFromInventory());
     }
 
-    @Test
-    void createKey_storesTheDigestOfThePrivateKeysHandle_whenAV2TokenCreatesAKeyPair() throws Exception {
-        // given
-        configureV2Token();
-        stubV2KeyPairCreation(List.of());
-        var privateKeyHandle = new RemoteKeyReference.MetadataReference(List.of(providerHandle("private-handle")));
+    // ── PrivateKeyHandle ──────────────────────────────────────────────────────
 
-        // when
-        KeyDetailDto created = cryptographicKeyService
-                .createKey(tokenInstanceReference.getUuid(), tokenProfile.getSecuredParentUuid(),
-                        KeyRequestType.KEY_PAIR, keyCreationRequest("v2-handle-digest"));
+    @Nested
+    class PrivateKeyHandle {
 
-        // then
-        assertThat(storedHandleDigest(UUID.fromString(created.getUuid())))
-                .isNotNull()
-                .isEqualTo(privateKeyHandle.digest());
-    }
+        @Test
+        void storesTheDigestOfThePrivateKeysHandle_whenAV2TokenCreatesAKeyPair() throws Exception {
+            // given
+            configureV2Token();
+            stubV2KeyPairCreation(List.of());
+            var privateKeyHandle = new RemoteKeyReference.MetadataReference(List.of(providerHandle("private-handle")));
 
-    @Test
-    void destroyKey_releasesTheHandle_whenItDestroysThePrivateKey() throws Exception {
-        // given
-        KeyDetailDto created = aV2KeyPairCreated("v2-destroyed-handle");
-        UUID keyUuid = UUID.fromString(created.getUuid());
-        String privateKeyUuid = compromised(itemOfType(created, KeyType.PRIVATE_KEY));
+            // when
+            KeyDetailDto created = cryptographicKeyService
+                    .createKey(tokenInstanceReference.getUuid(), tokenProfile.getSecuredParentUuid(),
+                            KeyRequestType.KEY_PAIR, keyCreationRequest("v2-handle-digest"));
 
-        // when
-        cryptographicKeyService.destroyKey(keyUuid, List.of(privateKeyUuid));
+            // then
+            assertThat(readHandleDigest(UUID.fromString(created.getUuid())))
+                    .isNotNull()
+                    .isEqualTo(privateKeyHandle.digest());
+        }
 
-        // then
-        assertThat(storedHandleDigest(keyUuid)).isNull();
-    }
+        @Test
+        void releasesTheHandle_whenDestroyingThePrivateKey() throws Exception {
+            // given
+            KeyDetailDto created = createV2KeyPair("v2-destroyed-handle");
+            UUID keyUuid = UUID.fromString(created.getUuid());
+            String privateKeyUuid = compromise(findItemOfType(created, KeyType.PRIVATE_KEY));
 
-    @Test
-    void destroyKey_keepsTheHandle_whenItDestroysThePublicKeyAlone() throws Exception {
-        // given
-        KeyDetailDto created = aV2KeyPairCreated("v2-kept-handle");
-        UUID keyUuid = UUID.fromString(created.getUuid());
-        String handleDigest = storedHandleDigest(keyUuid);
-        String publicKeyUuid = compromised(itemOfType(created, KeyType.PUBLIC_KEY));
+            // when
+            cryptographicKeyService.destroyKey(keyUuid, List.of(privateKeyUuid));
 
-        // when
-        cryptographicKeyService.destroyKey(keyUuid, List.of(publicKeyUuid));
+            // then
+            assertThat(readHandleDigest(keyUuid)).isNull();
+        }
 
-        // then
-        assertThat(storedHandleDigest(keyUuid)).isEqualTo(handleDigest);
-    }
+        @Test
+        void keepsTheHandle_whenDestroyingThePublicKeyAlone() throws Exception {
+            // given
+            KeyDetailDto created = createV2KeyPair("v2-kept-handle");
+            UUID keyUuid = UUID.fromString(created.getUuid());
+            String handleDigest = readHandleDigest(keyUuid);
+            String publicKeyUuid = compromise(findItemOfType(created, KeyType.PUBLIC_KEY));
 
-    @Test
-    void deleteKey_releasesTheHandle_whenItDeletesThePrivateKey() throws Exception {
-        // given
-        KeyDetailDto created = aV2KeyPairCreated("v2-deleted-handle");
-        UUID keyUuid = UUID.fromString(created.getUuid());
+            // when
+            cryptographicKeyService.destroyKey(keyUuid, List.of(publicKeyUuid));
 
-        // when
-        cryptographicKeyService.deleteKey(keyUuid, List.of(itemOfType(created, KeyType.PRIVATE_KEY).getUuid()));
+            // then
+            assertThat(readHandleDigest(keyUuid)).isEqualTo(handleDigest);
+        }
 
-        // then
-        assertThat(storedHandleDigest(keyUuid)).isNull();
-    }
+        @Test
+        void releasesTheHandle_whenDeletingThePrivateKey() throws Exception {
+            // given
+            KeyDetailDto created = createV2KeyPair("v2-deleted-handle");
+            UUID keyUuid = UUID.fromString(created.getUuid());
 
-    @Test
-    void deleteKeyItems_releasesTheHandle_whenItDeletesThePrivateKey() throws Exception {
-        // given
-        KeyDetailDto created = aV2KeyPairCreated("v2-bulk-deleted-handle");
-        UUID keyUuid = UUID.fromString(created.getUuid());
+            // when
+            cryptographicKeyService.deleteKey(keyUuid, List.of(findItemOfType(created, KeyType.PRIVATE_KEY).getUuid()));
 
-        // when
-        cryptographicKeyService
-                .deleteKeyItems(SecurityFilter.create(), List.of(itemOfType(created, KeyType.PRIVATE_KEY).getUuid()));
+            // then
+            assertThat(readHandleDigest(keyUuid)).isNull();
+        }
 
-        // then
-        assertThat(storedHandleDigest(keyUuid)).isNull();
-    }
+        @Test
+        void releasesTheHandle_whenDeletingThePrivateKeyInBulk() throws Exception {
+            // given
+            KeyDetailDto created = createV2KeyPair("v2-bulk-deleted-handle");
+            UUID keyUuid = UUID.fromString(created.getUuid());
 
-    @Test
-    void deleteKeyItems_keepsTheHandle_whenItDeletesThePublicKeyAlone() throws Exception {
-        // given
-        KeyDetailDto created = aV2KeyPairCreated("v2-bulk-kept-handle");
-        UUID keyUuid = UUID.fromString(created.getUuid());
-        String handleDigest = storedHandleDigest(keyUuid);
+            // when
+            cryptographicKeyService
+                    .deleteKeyItems(SecurityFilter.create(),
+                            List.of(findItemOfType(created, KeyType.PRIVATE_KEY).getUuid()));
 
-        // when
-        cryptographicKeyService
-                .deleteKeyItems(SecurityFilter.create(), List.of(itemOfType(created, KeyType.PUBLIC_KEY).getUuid()));
+            // then
+            assertThat(readHandleDigest(keyUuid)).isNull();
+        }
 
-        // then
-        assertThat(storedHandleDigest(keyUuid)).isEqualTo(handleDigest);
+        @Test
+        void keepsTheHandle_whenDeletingThePublicKeyAloneInBulk() throws Exception {
+            // given
+            KeyDetailDto created = createV2KeyPair("v2-bulk-kept-handle");
+            UUID keyUuid = UUID.fromString(created.getUuid());
+            String handleDigest = readHandleDigest(keyUuid);
+
+            // when
+            cryptographicKeyService
+                    .deleteKeyItems(SecurityFilter.create(),
+                            List.of(findItemOfType(created, KeyType.PUBLIC_KEY).getUuid()));
+
+            // then
+            assertThat(readHandleDigest(keyUuid)).isEqualTo(handleDigest);
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        /** A key pair a v2 token created. The token destroys it on request. */
+        private KeyDetailDto createV2KeyPair(String name) throws Exception {
+            configureV2Token();
+            stubV2KeyPairCreation(List.of());
+            mockServer
+                    .stubFor(WireMock
+                            .post(WireMock.urlPathEqualTo("/v2/cryptographyProvider/keys/destroy"))
+                            .willReturn(WireMock.okJson("{}")));
+            KeyDetailDto created = cryptographicKeyService
+                    .createKey(tokenInstanceReference.getUuid(), tokenProfile.getSecuredParentUuid(),
+                            KeyRequestType.KEY_PAIR, keyCreationRequest(name));
+            assertThat(readHandleDigest(UUID.fromString(created.getUuid())))
+                    .as("handle digest of the created key")
+                    .isNotNull();
+            return created;
+        }
+
+        private String readHandleDigest(UUID keyUuid) {
+            return jdbcTemplate
+                    .queryForObject("SELECT handle_digest FROM " + dbSchema + ".cryptographic_key WHERE uuid = ?",
+                            String.class, keyUuid);
+        }
+
+        /** Makes the item eligible for destruction. */
+        private String compromise(KeyItemDetailDto item) throws NotFoundException {
+            cryptographicKeyWriter
+                    .setKeyItemCompromised(UUID.fromString(item.getUuid()),
+                            KeyCompromiseReason.UNAUTHORIZED_DISCLOSURE);
+            return item.getUuid();
+        }
+
+        private static KeyItemDetailDto findItemOfType(KeyDetailDto key, KeyType type) {
+            return key.getItems().stream().filter(item -> item.getType() == type).findFirst().orElseThrow();
+        }
     }
 
     @Test
@@ -932,40 +978,6 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
         UUID createdKeyUuid = UUID.fromString(created.getUuid());
         Assertions.assertTrue(cryptographicKeyRepository.existsById(createdKeyUuid));
         Assertions.assertEquals(1, cryptographicKeyItemRepository.findByKeyUuidIn(List.of(createdKeyUuid)).size());
-    }
-
-    /** A key pair a v2 token created. The token destroys it on request. */
-    private KeyDetailDto aV2KeyPairCreated(String name) throws Exception {
-        configureV2Token();
-        stubV2KeyPairCreation(List.of());
-        mockServer
-                .stubFor(WireMock
-                        .post(WireMock.urlPathEqualTo("/v2/cryptographyProvider/keys/destroy"))
-                        .willReturn(WireMock.okJson("{}")));
-        KeyDetailDto created = cryptographicKeyService
-                .createKey(tokenInstanceReference.getUuid(), tokenProfile.getSecuredParentUuid(),
-                        KeyRequestType.KEY_PAIR, keyCreationRequest(name));
-        assertThat(storedHandleDigest(UUID.fromString(created.getUuid())))
-                .as("handle digest of the created key")
-                .isNotNull();
-        return created;
-    }
-
-    private String storedHandleDigest(UUID keyUuid) {
-        return jdbcTemplate
-                .queryForObject("SELECT handle_digest FROM " + dbSchema + ".cryptographic_key WHERE uuid = ?",
-                        String.class, keyUuid);
-    }
-
-    /** Makes the item eligible for destruction. */
-    private String compromised(KeyItemDetailDto item) throws NotFoundException {
-        cryptographicKeyWriter
-                .setKeyItemCompromised(UUID.fromString(item.getUuid()), KeyCompromiseReason.UNAUTHORIZED_DISCLOSURE);
-        return item.getUuid();
-    }
-
-    private static KeyItemDetailDto itemOfType(KeyDetailDto key, KeyType type) {
-        return key.getItems().stream().filter(item -> item.getType() == type).findFirst().orElseThrow();
     }
 
     private void configureV2Token() {

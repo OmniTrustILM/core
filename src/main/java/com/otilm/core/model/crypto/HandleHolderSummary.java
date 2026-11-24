@@ -25,7 +25,7 @@ public record HandleHolderSummary(UUID keyUuid, String keyName, UUID tokenInstan
      * without one
      */
     public boolean agreesWith(ProviderKeyItem privateKey, String listedPublicKeyFingerprint) {
-        return privateKeyAlgorithm == privateKey.algorithm()
+        return knownValuesAgree(readable(privateKeyAlgorithm), readable(privateKey.algorithm()))
                 && knownValuesAgree(privateKeyParameterSet, privateKey.parameterSet())
                 && knownValuesAgree(privateKeyLength, privateKey.length())
                 && knownValuesAgree(publicKeyFingerprint, listedPublicKeyFingerprint);
@@ -34,6 +34,10 @@ public record HandleHolderSummary(UUID keyUuid, String keyName, UUID tokenInstan
     /** A value unknown on either side agrees. Only two known values can differ. */
     private static boolean knownValuesAgree(Object held, Object listed) {
         return held == null || listed == null || held.equals(listed);
+    }
+
+    private static KeyAlgorithm readable(KeyAlgorithm algorithm) {
+        return algorithm == KeyAlgorithm.UNKNOWN ? null : algorithm;
     }
 
     public PublicKeyHolderSummary asKeyPairHolder() {

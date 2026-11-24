@@ -23,7 +23,7 @@ class RemoteKeyReferenceDigestTest {
     @Test
     void returnsALowercaseSha256Hex() {
         // given
-        var handle = new MetadataReference(List.of(keyId("a1b2")));
+        var handle = new MetadataReference(List.of(buildKeyId("a1b2")));
 
         // when
         String digest = handle.digest();
@@ -35,8 +35,8 @@ class RemoteKeyReferenceDigestTest {
     @Test
     void returnsTheSameDigest_whenTheAttributesComeInAnotherOrder() {
         // given
-        var keyId = keyId("a1b2");
-        var objectClass = objectClass("CKO_PRIVATE_KEY");
+        var keyId = buildKeyId("a1b2");
+        var objectClass = buildObjectClass("CKO_PRIVATE_KEY");
         var handle = new MetadataReference(List.of(keyId, objectClass));
         var reordered = new MetadataReference(List.of(objectClass, keyId));
 
@@ -50,8 +50,8 @@ class RemoteKeyReferenceDigestTest {
     @Test
     void returnsTheSameDigest_whenOnlyTheDecorationOfAnAttributeDiffers() {
         // given
-        var handle = new MetadataReference(List.of(keyId("a1b2")));
-        var decorated = new MetadataReference(List.of(decoratedKeyId("a1b2")));
+        var handle = new MetadataReference(List.of(buildKeyId("a1b2")));
+        var decorated = new MetadataReference(List.of(buildDecoratedKeyId("a1b2")));
 
         // when
         String digest = decorated.digest();
@@ -69,8 +69,10 @@ class RemoteKeyReferenceDigestTest {
         var keyIdFirst = new LinkedHashMap<String, String>();
         keyIdFirst.put("keyId", "a1b2");
         keyIdFirst.put("slot", "1");
-        var handle = new MetadataReference(List.of(attribute("location", new ObjectAttributeContentV3(slotFirst))));
-        var reordered = new MetadataReference(List.of(attribute("location", new ObjectAttributeContentV3(keyIdFirst))));
+        var handle = new MetadataReference(
+                List.of(buildAttribute("location", new ObjectAttributeContentV3(slotFirst))));
+        var reordered = new MetadataReference(
+                List.of(buildAttribute("location", new ObjectAttributeContentV3(keyIdFirst))));
 
         // when
         String digest = reordered.digest();
@@ -82,8 +84,8 @@ class RemoteKeyReferenceDigestTest {
     @Test
     void returnsAnotherDigest_whenAValueDiffers() {
         // given
-        var handle = new MetadataReference(List.of(keyId("a1b2"), objectClass("CKO_PRIVATE_KEY")));
-        var otherKeyId = new MetadataReference(List.of(keyId("a1b3"), objectClass("CKO_PRIVATE_KEY")));
+        var handle = new MetadataReference(List.of(buildKeyId("a1b2"), buildObjectClass("CKO_PRIVATE_KEY")));
+        var otherKeyId = new MetadataReference(List.of(buildKeyId("a1b3"), buildObjectClass("CKO_PRIVATE_KEY")));
 
         // when
         String digest = otherKeyId.digest();
@@ -95,8 +97,8 @@ class RemoteKeyReferenceDigestTest {
     @Test
     void returnsAnotherDigest_whenANameDiffers() {
         // given
-        var handle = new MetadataReference(List.of(attribute("keyId", new StringAttributeContentV3("a1b2"))));
-        var otherName = new MetadataReference(List.of(attribute("alias", new StringAttributeContentV3("a1b2"))));
+        var handle = new MetadataReference(List.of(buildAttribute("keyId", new StringAttributeContentV3("a1b2"))));
+        var otherName = new MetadataReference(List.of(buildAttribute("alias", new StringAttributeContentV3("a1b2"))));
 
         // when
         String digest = otherName.digest();
@@ -108,8 +110,8 @@ class RemoteKeyReferenceDigestTest {
     @Test
     void returnsAnotherDigest_whenAValueHasAnotherType() {
         // given
-        var handle = new MetadataReference(List.of(attribute("slot", new StringAttributeContentV3("1"))));
-        var numericSlot = new MetadataReference(List.of(attribute("slot", new IntegerAttributeContentV3(1))));
+        var handle = new MetadataReference(List.of(buildAttribute("slot", new StringAttributeContentV3("1"))));
+        var numericSlot = new MetadataReference(List.of(buildAttribute("slot", new IntegerAttributeContentV3(1))));
 
         // when
         String digest = numericSlot.digest();
@@ -122,11 +124,11 @@ class RemoteKeyReferenceDigestTest {
     void returnsAnotherDigest_whenValuesMoveBetweenAttributes() {
         // given
         var handle = new MetadataReference(List
-                .of(attribute("first", new StringAttributeContentV3("a"), new StringAttributeContentV3("b")),
-                        attribute("second", new StringAttributeContentV3("c"))));
+                .of(buildAttribute("first", new StringAttributeContentV3("a"), new StringAttributeContentV3("b")),
+                        buildAttribute("second", new StringAttributeContentV3("c"))));
         var shifted = new MetadataReference(List
-                .of(attribute("first", new StringAttributeContentV3("a")),
-                        attribute("second", new StringAttributeContentV3("b"), new StringAttributeContentV3("c"))));
+                .of(buildAttribute("first", new StringAttributeContentV3("a")), buildAttribute("second",
+                        new StringAttributeContentV3("b"), new StringAttributeContentV3("c"))));
 
         // when
         String digest = shifted.digest();
@@ -139,9 +141,9 @@ class RemoteKeyReferenceDigestTest {
     void returnsAnotherDigest_whenTheValuesOfAnAttributeComeInAnotherOrder() {
         // given
         var handle = new MetadataReference(
-                List.of(attribute("path", new StringAttributeContentV3("a"), new StringAttributeContentV3("b"))));
+                List.of(buildAttribute("path", new StringAttributeContentV3("a"), new StringAttributeContentV3("b"))));
         var reordered = new MetadataReference(
-                List.of(attribute("path", new StringAttributeContentV3("b"), new StringAttributeContentV3("a"))));
+                List.of(buildAttribute("path", new StringAttributeContentV3("b"), new StringAttributeContentV3("a"))));
 
         // when
         String digest = reordered.digest();
@@ -164,18 +166,18 @@ class RemoteKeyReferenceDigestTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static MetadataAttribute keyId(String value) {
-        return attribute("keyId", new StringAttributeContentV3(value));
+    private static MetadataAttribute buildKeyId(String value) {
+        return buildAttribute("keyId", new StringAttributeContentV3(value));
     }
 
-    private static MetadataAttribute objectClass(String value) {
-        return attribute("pkcs11ObjectClass", new StringAttributeContentV3(value));
+    private static MetadataAttribute buildObjectClass(String value) {
+        return buildAttribute("pkcs11ObjectClass", new StringAttributeContentV3(value));
     }
 
     /**
      * The key ID as an older connector sends it: another attribute version, a UUID, a label and a content reference.
      */
-    private static MetadataAttribute decoratedKeyId(String value) {
+    private static MetadataAttribute buildDecoratedKeyId(String value) {
         var properties = new MetadataAttributeProperties();
         properties.setLabel("Key ID");
         properties.setVisible(false);
@@ -188,7 +190,7 @@ class RemoteKeyReferenceDigestTest {
         return attribute;
     }
 
-    private static MetadataAttribute attribute(String name, AttributeContent... content) {
+    private static MetadataAttribute buildAttribute(String name, AttributeContent... content) {
         var attribute = new MetadataAttributeV3();
         attribute.setUuid(UUID.randomUUID().toString());
         attribute.setName(name);

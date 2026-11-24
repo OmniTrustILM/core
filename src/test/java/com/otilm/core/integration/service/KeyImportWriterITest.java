@@ -115,6 +115,7 @@ import java.util.concurrent.TimeUnit;
 import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -925,38 +926,62 @@ class KeyImportWriterITest extends BaseSpringBootTest {
         assertThat(objectAssociationService.getOwner(Resource.CRYPTOGRAPHIC_KEY, recordUuid)).isNull();
     }
 
-    @Test
-    void complete_storesTheHandleOfThePrivateKey_whenItRegistersANewKey() throws Exception {
-        // given
-        TokenProfileFullModel profile = persistedProfile();
-        KeyPair pair = rsa();
-        KeyImportAttempt attempt = keyImportWriter.open(terms(profile, pair), "retry-handle", "imported key", SENT);
-        ImportedKeyRegistration registration = registration(profile, pair, attempt, Set.of());
+    // ── PrivateKeyHandle ──────────────────────────────────────────────────────
 
-        // when
-        ImportedKey imported = keyImportWriter.complete(attempt.uuid(), registration).orElseThrow();
+    @Nested
+    class PrivateKeyHandle {
 
-        // then
-        assertThat(storedHandleDigest(imported.key().uuid()))
-                .isNotNull()
-                .isEqualTo(privateKeyHandleDigest(registration));
-    }
+        @Test
+        void storesTheHandleOfThePrivateKey_whenCompletingANewKey() throws Exception {
+            // given
+            TokenProfileFullModel profile = persistedProfile();
+            KeyPair pair = rsa();
+            KeyImportAttempt attempt = keyImportWriter.open(terms(profile, pair), "retry-handle", "imported key", SENT);
+            ImportedKeyRegistration registration = registration(profile, pair, attempt, Set.of());
 
-    @Test
-    void complete_storesTheHandleOfThePrivateKey_whenItAdoptsARecord() throws Exception {
-        // given
-        TokenProfileFullModel profile = persistedProfile();
-        KeyPair pair = rsa();
-        UUID recordUuid = certificatePublicKey(pair);
-        KeyImportAttempt attempt = keyImportWriter
-                .open(terms(profile, pair), "retry-adopt-handle", "imported key", SENT);
-        ImportedKeyRegistration registration = registration(profile, pair, attempt, Set.of()).adopting(recordUuid);
+            // when
+            ImportedKey imported = keyImportWriter.complete(attempt.uuid(), registration).orElseThrow();
 
-        // when
-        keyImportWriter.complete(attempt.uuid(), registration).orElseThrow();
+            // then
+            assertThat(readHandleDigest(imported.key().uuid()))
+                    .isNotNull()
+                    .isEqualTo(digestPrivateKeyHandle(registration));
+        }
 
-        // then
-        assertThat(storedHandleDigest(recordUuid)).isNotNull().isEqualTo(privateKeyHandleDigest(registration));
+        @Test
+        void storesTheHandleOfThePrivateKey_whenCompletingAnAdoption() throws Exception {
+            // given
+            TokenProfileFullModel profile = persistedProfile();
+            KeyPair pair = rsa();
+            UUID recordUuid = certificatePublicKey(pair);
+            KeyImportAttempt attempt = keyImportWriter
+                    .open(terms(profile, pair), "retry-adopt-handle", "imported key", SENT);
+            ImportedKeyRegistration registration = registration(profile, pair, attempt, Set.of()).adopting(recordUuid);
+
+            // when
+            keyImportWriter.complete(attempt.uuid(), registration).orElseThrow();
+
+            // then
+            assertThat(readHandleDigest(recordUuid)).isNotNull().isEqualTo(digestPrivateKeyHandle(registration));
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private String readHandleDigest(UUID keyUuid) {
+            return jdbcTemplate
+                    .queryForObject("SELECT handle_digest FROM cryptographic_key WHERE uuid = ?", String.class,
+                            keyUuid);
+        }
+
+        private static String digestPrivateKeyHandle(ImportedKeyRegistration registration) {
+            return registration
+                    .items()
+                    .stream()
+                    .filter(item -> item.type() == KeyType.PRIVATE_KEY)
+                    .findFirst()
+                    .orElseThrow()
+                    .handleDigest();
+        }
     }
 
     /**
@@ -1819,21 +1844,6 @@ class KeyImportWriterITest extends BaseSpringBootTest {
                 fingerprintOf(pair), true,
                 new KeyImportMetadata("imported key", "imported for the test", groups, customAttributes),
                 new NameAndUuidDto(UUID.randomUUID().toString(), "requester"), false, null);
-    }
-
-    private String storedHandleDigest(UUID keyUuid) {
-        return jdbcTemplate
-                .queryForObject("SELECT handle_digest FROM cryptographic_key WHERE uuid = ?", String.class, keyUuid);
-    }
-
-    private static String privateKeyHandleDigest(ImportedKeyRegistration registration) {
-        return registration
-                .items()
-                .stream()
-                .filter(item -> item.type() == KeyType.PRIVATE_KEY)
-                .findFirst()
-                .orElseThrow()
-                .handleDigest();
     }
 
     private static KeyImportTerms secretKeyTerms(TokenProfileFullModel profile) {
