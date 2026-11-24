@@ -100,7 +100,10 @@ class TrustedCertificateProvisioningClientITest extends BaseSpringBootTest {
 
     @Test
     void retriesApplyOnce_whenTheConnectionClosesWithoutAnAnswer() {
-        // given — a pooled connection provisioning closed while idle answers nothing
+        // given — a pooled connection provisioning closed while idle answers nothing. An idempotent read first replaces
+        // any connection an earlier test class left stale, so the injected fault is the only failure the retry meets.
+        wireMockServer.stubFor(get(urlPathEqualTo(BASE_PATH + "/apply")).willReturn(okJson("{\"deploymentId\":1}")));
+        client.getApplyStatus();
         wireMockServer
                 .stubFor(post(urlPathEqualTo(BASE_PATH + "/apply"))
                         .inScenario("stale connection")
