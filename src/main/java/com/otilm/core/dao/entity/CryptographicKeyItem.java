@@ -203,6 +203,11 @@ public class CryptographicKeyItem extends UniquelyIdentified
                 .convertSetToBitMask(usage.isEmpty() ? EnumSet.noneOf(KeyUsage.class) : EnumSet.copyOf(usage));
     }
 
+    /** The key's format, or {@code CUSTOM} when its connector reported none. */
+    private KeyFormat responseFormat() {
+        return format == null ? KeyFormat.CUSTOM : format;
+    }
+
     @Override
     public KeyItemDetailDto mapToDto() {
         KeyItemDetailDto dto = new KeyItemDetailDto();
@@ -215,7 +220,7 @@ public class CryptographicKeyItem extends UniquelyIdentified
         dto.setParameterSet(parameterSet);
         dto.setType(type);
         dto.setLength(length);
-        dto.setFormat(format);
+        dto.setFormat(responseFormat());
         dto.setState(state);
         dto.setEnabled(enabled);
         dto.setUsage(getUsage());
@@ -237,7 +242,7 @@ public class CryptographicKeyItem extends UniquelyIdentified
         dto.setParameterSet(parameterSet);
         dto.setType(type);
         dto.setLength(length);
-        dto.setFormat(format);
+        dto.setFormat(responseFormat());
         dto.setState(state);
         dto.setEnabled(enabled);
         dto.setUsage(getUsage());

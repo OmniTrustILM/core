@@ -91,7 +91,6 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
             + "key pair. That key must be removed from the inventory to onboard this key pair.";
     static final String NOT_ACTIVE = "Key '%s' holds this public key without a token instance, but it is not active, so "
             + "the private key cannot join it.";
-    static final String PUBLIC_KEY_MISSING = "The key storage holds no public key for this key pair.";
     static final String UNADDRESSABLE_KEY = "The connector cannot address this key alone.";
     static final String REFUSED_KEY = "The connector refuses to let the platform onboard this key.";
     static final String UNSUPPORTED_KEY_TYPE = "The connector cannot operate a key of this type.";
@@ -104,11 +103,12 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
     static final String RECORD_CHANGED = "The key holding this public key changed while the private key was joining "
             + "it. List the key storage again.";
     static final String IMPORTING = "An import of this key pair is still in progress.";
+    static final String IMPORTING_ON_TOKEN = "An import of a key pair into this key storage is still in progress.";
     static final String PAGE_BEYOND_LAST_OFFSET = "The page must start at most " + Integer.MAX_VALUE
             + " entries into the listing.";
     static final String ONBOARDING_FAILED = "Failed to onboard the key pair.";
     private static final String FALLBACK_NAME = "Onboarded key";
-    private static final int FINGERPRINT_PREFIX_LENGTH = 8;
+    private static final int DIGEST_PREFIX_LENGTH = 8;
     private static final HolderReason HELD_BY_HANDLE = new HolderReason(HELD, HELD_UNNAMED);
     private static final HolderReason HELD_MEANWHILE_BY_HANDLE = HolderReason.fixed(HELD_MEANWHILE);
     private static final HolderReason HANDLE_REUSED_BY_TOKEN = new HolderReason(HANDLE_REUSED, HANDLE_REUSED_UNNAMED);
@@ -263,7 +263,7 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
 
     private TokenKeyDto describeKeyPair(ProviderKeyEntry entry, Inventory inventory) {
         ProviderKeyPair pair = entry.keyPair();
-        ProviderKeyItem describedHalf = pair.publicKey() == null ? pair.privateKey() : pair.publicKey();
+        ProviderKeyItem describedHalf = pair.isPrivateOnly() ? pair.privateKey() : pair.publicKey();
         Standing standing = withConnectorVerdict(standingOf(pair, inventory), entry);
         TokenKeyDto.TokenKeyDtoBuilder tokenKey = TokenKeyDto
                 .builder()
@@ -272,6 +272,7 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
                 .keyAlgorithm(describedHalf.algorithm())
                 .parameterSet(describedHalf.parameterSet())
                 .length(describedHalf.length())
+                .privateOnly(pair.isPrivateOnly())
                 .status(standing.status())
                 .fingerprint(standing.fingerprint())
                 .reason(standing.refusal())
@@ -281,7 +282,7 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
             tokenKey.inventoryKeyUuid(visibleHolder.keyUuid()).inventoryKeyName(visibleHolder.keyName());
         }
         if (standing.status() == TokenKeyStatus.ONBOARDABLE) {
-            tokenKey.suggestedName(inventory.suggestName(entry.storageName(), standing.fingerprint()));
+            tokenKey.suggestedName(inventory.reserveSuggestedName(entry.storageName(), nameDigestOf(pair)));
         }
         return tokenKey.build();
     }
@@ -350,13 +351,17 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
             Set<String> taken = Set.copyOf(cryptographicKeyRepository.findNamesIn(likelyNames));
             likelyNames.forEach(name -> nameTaken.put(name, taken.contains(name)));
         }
-        return new Inventory(handleHolders, publicKeyHolders, importing, nameTaken,
+        boolean keyPairImportOnToken = carryingKeyPair.stream().anyMatch(entry -> entry.keyPair().isPrivateOnly())
+                && keyImportRepository
+                        .existsByTokenInstanceUuidAndSpkiFingerprintIsNotNullAndStateIn(tokenInstanceUuid,
+                                KeyImportState.UNSETTLED);
+        return new Inventory(handleHolders, publicKeyHolders, importing, keyPairImportOnToken, nameTaken,
                 cryptographicKeyRepository::existsByName);
     }
 
     /**
-     * The key holding the pair's handle decides first, whatever the token lists of the public key. Otherwise the public
-     * key decides: whether the token lists one, then whether an unsettled import or a key holds it.
+     * The key holding the pair's handle decides first, whatever the token lists of the public key. A private key listed
+     * alone then waits for every unsettled key-pair import on its token, and a pair's public key decides the rest.
      */
     private Standing standingOf(ProviderKeyPair pair, Inventory inventory) {
         String fingerprint = publicKeyFingerprint(pair);
@@ -364,15 +369,17 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
         if (handleHolder != null) {
             return standingHeldByHandle(pair, fingerprint, handleHolder, HELD_BY_HANDLE);
         }
-        if (fingerprint == null) {
-            return new Standing(TokenKeyStatus.PUBLIC_KEY_UNAVAILABLE, null, null, false, PUBLIC_KEY_MISSING);
+        if (pair.isPrivateOnly()) {
+            return inventory.keyPairImportOnToken()
+                    ? new Standing(TokenKeyStatus.IMPORT_IN_PROGRESS, null, null, false, IMPORTING_ON_TOKEN)
+                    : Standing.onboardable(null);
         }
         if (inventory.importing().contains(fingerprint)) {
             return new Standing(TokenKeyStatus.IMPORT_IN_PROGRESS, fingerprint, null, false, IMPORTING);
         }
         PublicKeyHolderSummary holder = inventory.publicKeyHolders().get(fingerprint);
         if (holder == null) {
-            return new Standing(TokenKeyStatus.ONBOARDABLE, fingerprint, null, false, null);
+            return Standing.onboardable(fingerprint);
         }
         boolean visible = keyImportGates.maySeeInDetail(holder.keyUuid(), holder.tokenInstanceUuid());
         return switch (holder.holding()) {
@@ -441,24 +448,32 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
     }
 
     /**
-     * The names an entry's key pair is most likely suggested under: its storage name and its shortest fingerprinted
-     * name, or none when the pair has no public key.
+     * A key pair is usually suggested one of these names, so a listing checks them for all its pairs in one query. Only
+     * when they are taken does it check names with a longer digest prefix, one at a time.
      */
     private static Stream<String> likelyNamesOf(ProviderKeyEntry entry) {
-        String fingerprint = publicKeyFingerprint(entry);
-        if (fingerprint == null) {
-            return Stream.empty();
-        }
+        String nameDigest = nameDigestOf(entry.keyPair());
         String storageName = entry.storageName();
-        String shortestFingerprinted = withFingerprintPrefix(storageName, fingerprint, FINGERPRINT_PREFIX_LENGTH);
+        String shortestWithDigest = withDigestPrefix(storageName, nameDigest, DIGEST_PREFIX_LENGTH);
         return isGiven(storageName)
-                ? Stream.of(storageName.strip(), shortestFingerprinted)
-                : Stream.of(shortestFingerprinted);
+                ? Stream.of(storageName.strip(), shortestWithDigest)
+                : Stream.of(shortestWithDigest);
     }
 
-    private static String withFingerprintPrefix(String storageName, String fingerprint, int prefixLength) {
+    /**
+     * When the storage name is already taken, the suggested name adds the start of this digest. A private key listed
+     * alone has no public key to fingerprint, so its handle digest stands in.
+     */
+    private static String nameDigestOf(ProviderKeyPair pair) {
+        if (pair.isPrivateOnly()) {
+            return Objects.requireNonNull(pair.privateKey().handleDigest(), "A listed private key carries its handle.");
+        }
+        return publicKeyFingerprint(pair);
+    }
+
+    private static String withDigestPrefix(String storageName, String nameDigest, int prefixLength) {
         String base = isGiven(storageName) ? storageName.strip() : FALLBACK_NAME;
-        return "%s (%s)".formatted(base, fingerprint.substring(0, prefixLength));
+        return "%s (%s)".formatted(base, nameDigest.substring(0, prefixLength));
     }
 
     /**
@@ -501,7 +516,7 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
             throws AttributeException, NotFoundException {
         ProviderKeyPair pair = resolution.keyPair();
         String name = selection.getName() == null || selection.getName().isBlank()
-                ? onboarding.inventory().suggestedName(resolution.storageName(), standing.fingerprint())
+                ? onboarding.inventory().suggestedName(resolution.storageName(), nameDigestOf(pair))
                 : selection.getName().strip();
         if (cryptographicKeyRepository.existsByName(name)) {
             return nameTaken(result, CryptographicKeyWriter.NAME_TAKEN.formatted(name));
@@ -517,10 +532,11 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
                 throw e;
             }
             return blockedIfHandleHeldMeanwhile(profile, pair, standing.fingerprint(), result)
-                    .orElseGet(() -> afterLosingThePublicKey(result, standing.fingerprint()));
+                    .orElseGet(() -> afterLosingAUniqueValue(pair, result, standing.fingerprint()));
         }
         if (onboarded.isEmpty()) {
-            return blocked(result, TokenKeyStatus.IMPORT_IN_PROGRESS, IMPORTING);
+            String importing = pair.isPrivateOnly() ? IMPORTING_ON_TOKEN : IMPORTING;
+            return blocked(result, TokenKeyStatus.IMPORT_IN_PROGRESS, importing);
         }
         CryptographicKeyBasicModel key = onboarded.get();
         onboarding.registered(pair, heldAsKeyPair(key, profile, pair, standing.fingerprint()), false);
@@ -542,6 +558,15 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
                 .ofNullable(handleHolder)
                 .map(holder -> blockedByStanding(result,
                         standingHeldByHandle(pair, fingerprint, holder, HELD_MEANWHILE_BY_HANDLE)));
+    }
+
+    /**
+     * Runs once no key holds the pair's handle. A private key alone then fails for a retry to settle, and a pair defers
+     * to the key holding its public key.
+     */
+    private TokenKeyOnboardingResultDto afterLosingAUniqueValue(ProviderKeyPair pair,
+            TokenKeyOnboardingResultDto.TokenKeyOnboardingResultDtoBuilder result, String fingerprint) {
+        return pair.isPrivateOnly() ? failed(result, ONBOARDING_FAILED) : afterLosingThePublicKey(result, fingerprint);
     }
 
     /**
@@ -658,6 +683,10 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
             this(status, fingerprint, holder, holderVisible, refusal, false);
         }
 
+        static Standing onboardable(String fingerprint) {
+            return new Standing(TokenKeyStatus.ONBOARDABLE, fingerprint, null, false, null);
+        }
+
         boolean heldByKey() {
             return status == TokenKeyStatus.IN_INVENTORY && !handleReused;
         }
@@ -689,25 +718,29 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
     /**
      * What the inventory and the unsettled imports hold of the key pairs a token listed or resolved. Each key an
      * onboarding registers is added, so selecting its key pair again finds it held. Its name and each suggested name
-     * count as taken. A later key pair with the same storage name is then suggested that name with a prefix of its
-     * fingerprint, lengthened until no key has the name.
+     * count as taken. A later key pair with the same storage name is then suggested that name with a prefix of its name
+     * digest, lengthened while a key has the name, up to the whole digest.
      *
      * @param handleHolders the keys holding the pairs' private key handles, by handle digest
      * @param publicKeyHolders the keys holding the pairs' public keys, by fingerprint
      * @param importing the fingerprints of the pairs' public keys that an unsettled import holds
+     * @param keyPairImportOnToken whether a key-pair import on the token is unsettled, read only for a private key
+     * listed alone
      * @param nameTaken whether a key has the name or a listed key pair was suggested it, for each name checked
      * @param inInventory whether a key has a name not checked yet
      */
     private record Inventory(Map<String, HandleHolderSummary> handleHolders,
-            Map<String, PublicKeyHolderSummary> publicKeyHolders, Set<String> importing, Map<String, Boolean> nameTaken,
-            Predicate<String> inInventory) {
+            Map<String, PublicKeyHolderSummary> publicKeyHolders, Set<String> importing, boolean keyPairImportOnToken,
+            Map<String, Boolean> nameTaken, Predicate<String> inInventory) {
 
         void add(ProviderKeyPair pair, HandleHolderSummary holder) {
             String handleDigest = pair.privateKey().handleDigest();
             if (handleDigest != null) {
                 handleHolders.put(handleDigest, holder);
             }
-            publicKeyHolders.put(holder.publicKeyFingerprint(), holder.asKeyPairHolder());
+            if (holder.publicKeyFingerprint() != null) {
+                publicKeyHolders.put(holder.publicKeyFingerprint(), holder.asKeyPairHolder());
+            }
             nameTaken.put(holder.keyName(), true);
         }
 
@@ -717,22 +750,22 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
             return handleDigest == null ? null : handleHolders.get(handleDigest);
         }
 
-        String suggestName(String storageName, String fingerprint) {
-            String name = suggestedName(storageName, fingerprint);
+        String reserveSuggestedName(String storageName, String nameDigest) {
+            String name = suggestedName(storageName, nameDigest);
             nameTaken.put(name, true);
             return name;
         }
 
-        String suggestedName(String storageName, String fingerprint) {
+        String suggestedName(String storageName, String nameDigest) {
             if (isGiven(storageName) && isFree(storageName.strip())) {
                 return storageName.strip();
             }
             return IntStream
-                    .rangeClosed(FINGERPRINT_PREFIX_LENGTH, fingerprint.length())
-                    .mapToObj(prefixLength -> withFingerprintPrefix(storageName, fingerprint, prefixLength))
+                    .rangeClosed(DIGEST_PREFIX_LENGTH, nameDigest.length())
+                    .mapToObj(prefixLength -> withDigestPrefix(storageName, nameDigest, prefixLength))
                     .filter(this::isFree)
                     .findFirst()
-                    .orElseGet(() -> withFingerprintPrefix(storageName, fingerprint, fingerprint.length()));
+                    .orElseGet(() -> withDigestPrefix(storageName, nameDigest, nameDigest.length()));
         }
 
         private boolean isFree(String name) {

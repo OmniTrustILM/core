@@ -21,6 +21,7 @@ public final class ProviderKeyPairBuilder {
 
     private String keyId = UUID.randomUUID().toString();
     private PublicKey publicKey = TestPublicKeys.rsaPublicKey();
+    private boolean publicKeyOnToken = true;
 
     public static ProviderKeyPairBuilder aProviderKeyPair() {
         return new ProviderKeyPairBuilder();
@@ -36,9 +37,17 @@ public final class ProviderKeyPairBuilder {
         return this;
     }
 
+    public ProviderKeyPairBuilder withoutPublicKey() {
+        this.publicKeyOnToken = false;
+        return this;
+    }
+
     public ProviderKeyPair build() {
         RemoteKeyReference reference = new RemoteKeyReference.MetadataReference(keyIdMeta(keyId));
         ProviderKeyItem privateKeyItem = aProviderKeyItem().withReference(reference).build();
+        if (!publicKeyOnToken) {
+            return new ProviderKeyPair(keyIdMeta(keyId), privateKeyItem, null);
+        }
         ProviderKeyItem publicKeyItem = aProviderKeyItem()
                 .withType(KeyType.PUBLIC_KEY)
                 .withReference(reference)
