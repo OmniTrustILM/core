@@ -1280,6 +1280,22 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         }
 
         @Test
+        void onboardsTheKeyPair_whenAKeyOnAnotherTokenHoldsTheSameHandle() throws Exception {
+            // given
+            var keyId = "a1b2";
+            UUID elsewhere = createKeyPairOn(anotherToken(), aProviderKeyPair().withKeyId(keyId).build());
+            tokenLists(aListedKeyPair().withKeyId(keyId).build());
+            var selection = theFirstListedPair();
+
+            // when
+            TokenKeyOnboardingResultDto result = onboard(selection);
+
+            // then
+            assertThat(result.getOutcome()).isEqualTo(TokenKeyOnboardingOutcome.ONBOARDED);
+            assertThat(readHandleDigest(result.getKeyUuid())).isNotNull().isEqualTo(readHandleDigest(elsewhere));
+        }
+
+        @Test
         void keepsTheRecordsDescriptionOwnerGroupAndAttributes_whenItJoinsTheRecord() throws Exception {
             // given
             var publicKey = rsaPublicKey();
@@ -2606,13 +2622,14 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
     }
 
     /** Registers the pair on the token as key creation does. */
-    private void createKeyPairOn(V2TokenFixture.V2Token token, ProviderKeyPair pair) throws Exception {
+    private UUID createKeyPairOn(V2TokenFixture.V2Token token, ProviderKeyPair pair) throws Exception {
         TokenProfileFullModel profile = tokenProfileRepository
                 .findFullModelByUuidAndTokenInstanceReferenceUuid(token.profile().getUuid(), token.token().getUuid())
                 .orElseThrow();
-        cryptographicKeyWriter
+        return cryptographicKeyWriter
                 .createKeyWithItems(aKeyPairRequest().withName("elsewhere").build(), profile, profile.tokenInstance(),
-                        pair.toOnboardedItems("elsewhere"), false, true);
+                        pair.toOnboardedItems("elsewhere"), false, true)
+                .uuid();
     }
 
     private String readHandleDigest(UUID keyUuid) {
