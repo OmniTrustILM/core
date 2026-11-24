@@ -452,6 +452,21 @@ public class ComplianceServiceImpl implements ComplianceExternalService, Complia
     public void checkResourceObjectsComplianceValidation(Resource resource, List<UUID> objectUuids)
             throws ValidationException, NotFoundException {
         doCheckResourceObjectsComplianceValidation(resource, objectUuids);
+        if (resource == Resource.CERTIFICATE) {
+            requireACertificateWithComplianceCheck(objectUuids);
+        }
+    }
+
+    // A check that would skip every selected certificate is refused, as a selection with nothing to check is.
+    private void requireACertificateWithComplianceCheck(List<UUID> certificateUuids) {
+        List<Certificate> certificates = certificateRepository.findAllById(certificateUuids);
+        boolean noneSupported = certificates
+                .stream()
+                .noneMatch(certificate -> typeHandlerRegistry
+                        .supports(certificate, CertificateOperation.CHECK_COMPLIANCE));
+        if (!certificates.isEmpty() && noneSupported) {
+            typeHandlerRegistry.requireSupport(certificates.getFirst(), CertificateOperation.CHECK_COMPLIANCE);
+        }
     }
 
     @Override
@@ -574,12 +589,9 @@ public class ComplianceServiceImpl implements ComplianceExternalService, Complia
             case CERTIFICATE -> {
                 List<Certificate> certificates = certificateRepository.findByUuidInAndArchivedFalse(objectUuids);
                 for (Certificate certificate : certificates) {
-                    if (!supportsComplianceCheck(certificate)) {
-                        continue;
-                    }
                     boolean issued = certificate.getCertificateContentId() != null;
                     ComplianceSubject subject = issued ? certificate : certificate.getCertificateRequestEntity();
-                    if (subject == null) {
+                    if (subject == null || !supportsComplianceCheck(certificate)) {
                         continue;
                     }
                     Resource subjectResource = issued ? Resource.CERTIFICATE : Resource.CERTIFICATE_REQUEST;

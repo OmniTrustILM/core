@@ -720,10 +720,8 @@ public class CertificateServiceImpl
         Certificate certificate = getCertificateEntityWithAssociations(uuid);
         CertificateDetail dto = certificate.mapToDto();
         dto.setKeystoreAvailable(keystoreAvailability.of(certificate));
-        typeHandlerRegistry.find(dto.getCertificateType().getCode()).ifPresent(handler -> {
-            handler.presentDetail(dto);
-            dto.setSupportedOperations(handler.supportedOperations().stream().sorted().toList());
-        });
+        typeHandlerRegistry.find(dto.getCertificateType().getCode()).ifPresent(handler -> handler.presentDetail(dto));
+        typeHandlerRegistry.declareSupportedOperations(dto);
 
         if (certificate.getComplianceResult() != null) {
             ComplianceCheckResultDto complianceCheckResult = complianceService
@@ -2599,6 +2597,7 @@ public class CertificateServiceImpl
                 && takeOverReplayedRequestAttributes(predecessorCertificateUuid, certificateRequestEntity);
 
         CertificateDetail dto = certificate.mapToDto();
+        typeHandlerRegistry.declareSupportedOperations(dto);
         if (tookOverPredecessorAttributes) {
             setCertificateRequestAttributes(dto.getCertificateRequest(), certificateRequestEntity);
         } else {
@@ -2867,6 +2866,7 @@ public class CertificateServiceImpl
         log.info("Certificate was successfully issued. {}", certificate.getUuid());
 
         CertificateDetail dto = certificate.mapToDto();
+        typeHandlerRegistry.declareSupportedOperations(dto);
         if (dto.getCertificateRequest() != null) {
             setCertificateRequestAttributes(dto.getCertificateRequest(), certificate.getCertificateRequest());
         }

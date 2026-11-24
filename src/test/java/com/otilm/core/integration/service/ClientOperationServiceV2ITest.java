@@ -1801,7 +1801,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         try {
             assertThatThrownBy(operate)
                     .isInstanceOf(UnsupportedCertificateTypeException.class)
-                    .hasMessageContaining(unsupported.toString());
+                    .hasMessageContaining(unsupported.getLabel());
         } finally {
             clientOperationServiceImpl.setTypeHandlerRegistry(typeHandlerRegistry);
         }
@@ -6697,13 +6697,27 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                                                         test.certificate.getUuid().toString(),
                                                         new ClientCertificateRekeyRequestDto())),
                         Arguments
-                                .of(CertificateOperation.PUSH_TO_LOCATION,
+                                .of(named("renewal replacing in locations", CertificateOperation.PUSH_TO_LOCATION),
                                         (OperationOnACertificate) test -> test.clientOperationService
                                                 .renewCertificate(
                                                         test.authorityInstanceReference.getSecuredParentUuid(),
                                                         test.raProfile.getSecuredUuid(),
                                                         test.certificate.getUuid().toString(),
-                                                        renewalReplacingInLocations())));
+                                                        renewalReplacingInLocations())),
+                        Arguments
+                                .of(named("rekey replacing in locations", CertificateOperation.PUSH_TO_LOCATION),
+                                        (OperationOnACertificate) test -> test.clientOperationService
+                                                .rekeyCertificate(
+                                                        test.authorityInstanceReference.getSecuredParentUuid(),
+                                                        test.raProfile.getSecuredUuid(),
+                                                        test.certificate.getUuid().toString(),
+                                                        rekeyReplacingInLocations())));
+    }
+
+    private static ClientCertificateRekeyRequestDto rekeyReplacingInLocations() {
+        ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
+        request.setReplaceInLocations(true);
+        return request;
     }
 
     private static ClientCertificateRenewRequestDto renewalReplacingInLocations() {

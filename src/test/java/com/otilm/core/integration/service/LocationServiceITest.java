@@ -807,7 +807,7 @@ class LocationServiceITest extends BaseSpringBootTest {
         try {
             assertThatThrownBy(push)
                     .isInstanceOf(UnsupportedCertificateTypeException.class)
-                    .hasMessageContaining(unsupported.toString());
+                    .hasMessageContaining(unsupported.getLabel());
         } finally {
             locationServiceImpl.setTypeHandlerRegistry(typeHandlerRegistry);
         }
@@ -831,7 +831,7 @@ class LocationServiceITest extends BaseSpringBootTest {
         try {
             assertThatThrownBy(renew)
                     .isInstanceOf(UnsupportedCertificateTypeException.class)
-                    .hasMessageContaining(unsupported.toString());
+                    .hasMessageContaining(unsupported.getLabel());
         } finally {
             locationServiceImpl.setTypeHandlerRegistry(typeHandlerRegistry);
         }

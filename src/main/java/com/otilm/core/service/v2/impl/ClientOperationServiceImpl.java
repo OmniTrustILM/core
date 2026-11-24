@@ -3902,7 +3902,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         Certificate refreshed = certificateRepository
                 .findByUuid(certUuid)
                 .orElseThrow(() -> new NotFoundException(Certificate.class, certUuid));
-        return refreshed.mapToDto();
+        CertificateDetail detail = refreshed.mapToDto();
+        typeHandlerRegistry.declareSupportedOperations(detail);
+        return detail;
     }
 
     /**
@@ -4472,6 +4474,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             // post-cancel state (the locked `fresh`, not the stale pre-cancel `cert`) and its lazy
             // associations resolve here rather than after the session closes.
             CertificateDetail dto = fresh.mapToDto();
+            typeHandlerRegistry.declareSupportedOperations(dto);
             transactionManager.commit(cleanupTx);
             return dto;
         } catch (RuntimeException e) {

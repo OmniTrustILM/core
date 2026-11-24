@@ -65,7 +65,7 @@ class CertificateTypeHandlerRegistryTest {
         // then
         assertThatThrownBy(require)
                 .isInstanceOf(UnsupportedCertificateTypeException.class)
-                .hasMessageContaining(unsupported.toString())
+                .hasMessageContaining(unsupported.getLabel())
                 .hasMessageContaining(CertificateType.X509.getCode());
     }
 

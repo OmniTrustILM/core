@@ -1534,7 +1534,10 @@ class CertificateServiceITest extends BaseSpringBootTest {
 
         @Test
         void validatesTheCertificateWithoutItsChain_whenItsTypeDoesNotSupportChainValidation() throws Exception {
-            // given
+            // given — the issuer is in the inventory, so the chain of the certificate has two certificates
+            certificateService
+                    .createCertificate(Base64.getEncoder().encodeToString(issuerOfX509Cert().getEncoded()),
+                            CertificateType.X509);
             Certificate stored = certificateService
                     .createCertificate(Base64.getEncoder().encodeToString(x509Cert.getEncoded()), CertificateType.X509);
             ICertificateValidator validator = mock(ICertificateValidator.class);
@@ -1557,7 +1560,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
         }
 
         @ParameterizedTest(name = "{0}")
-        @MethodSource("com.otilm.core.integration.service.CertificateServiceITest#refusedReads")
+        @MethodSource("refusedReads")
         void refusesNamingTheOperation_whenTheTypeOfTheCertificateDoesNotSupportIt(CertificateOperation unsupported,
                 CertificateRead read) throws Exception {
             // given
@@ -1572,7 +1575,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
             try {
                 assertThatThrownBy(readTheCertificate)
                         .isInstanceOf(UnsupportedCertificateTypeException.class)
-                        .hasMessageContaining(unsupported.toString());
+                        .hasMessageContaining(unsupported.getLabel());
             } finally {
                 certificateService.setTypeHandlerRegistry(typeHandlerRegistry);
             }
@@ -1917,6 +1920,37 @@ class CertificateServiceITest extends BaseSpringBootTest {
         }
 
         // ── Helpers ───────────────────────────────────────────────────────────
+
+        private static X509Certificate issuerOfX509Cert() throws Exception {
+            KeyStore keyStore = KeyStore.getInstance("PKCS12");
+            try (InputStream keyStoreStream = CertificateServiceITest.class
+                    .getClassLoader()
+                    .getResourceAsStream("client1.p12")) {
+                keyStore.load(keyStoreStream, "123456".toCharArray());
+            }
+            return (X509Certificate) keyStore.getCertificateChain("1")[1];
+        }
+
+        private static Stream<Arguments> refusedReads() {
+            return Stream
+                    .of(Arguments
+                            .of(named("validation result", CertificateOperation.VALIDATE),
+                                    (CertificateRead) CertificateServiceImpl::getCertificateValidationResult),
+                            Arguments
+                                    .of(named("chain read", CertificateOperation.VALIDATE_CHAIN),
+                                            (CertificateRead) (service, uuid) -> service
+                                                    .getCertificateChain(uuid, true)),
+                            Arguments
+                                    .of(named("chain download", CertificateOperation.VALIDATE_CHAIN),
+                                            (CertificateRead) (service, uuid) -> service
+                                                    .downloadCertificateChain(uuid, CertificateFormat.RAW, true,
+                                                            CertificateFormatEncoding.PEM)));
+        }
+
+        @FunctionalInterface
+        private interface CertificateRead {
+            void read(CertificateServiceImpl service, SecuredUUID uuid) throws Exception;
+        }
 
         private X509CertificateTypeHandler createRawOnlyX509Handler() {
             X509CertificateTypeHandler handler = spy(x509Handler);
@@ -3903,25 +3937,5 @@ class CertificateServiceITest extends BaseSpringBootTest {
 
     private static AuthenticationInfo fakeAuth() {
         return new AuthenticationInfo(AuthMethod.CERTIFICATE, UUID.randomUUID().toString(), "test-user", List.of());
-    }
-
-    private static Stream<Arguments> refusedReads() {
-        return Stream
-                .of(Arguments
-                        .of(CertificateOperation.VALIDATE,
-                                (CertificateRead) CertificateServiceImpl::getCertificateValidationResult),
-                        Arguments
-                                .of(CertificateOperation.VALIDATE_CHAIN,
-                                        (CertificateRead) (service, uuid) -> service.getCertificateChain(uuid, true)),
-                        Arguments
-                                .of(named("chain download", CertificateOperation.VALIDATE_CHAIN),
-                                        (CertificateRead) (service, uuid) -> service
-                                                .downloadCertificateChain(uuid, CertificateFormat.RAW, true,
-                                                        CertificateFormatEncoding.PEM)));
-    }
-
-    @FunctionalInterface
-    private interface CertificateRead {
-        void read(CertificateServiceImpl service, SecuredUUID uuid) throws Exception;
     }
 }

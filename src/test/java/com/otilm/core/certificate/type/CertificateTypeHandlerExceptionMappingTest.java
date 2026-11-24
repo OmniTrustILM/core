@@ -29,13 +29,14 @@ class CertificateTypeHandlerExceptionMappingTest {
     @Test
     void namesTheTypeAndOperation_whenAnOperationIsNotSupported() {
         // given
-        var refusal = UnsupportedCertificateTypeException.unsupportedOperation("STUB", CertificateOperation.REVOKE);
+        var unsupported = CertificateOperation.REVOKE;
+        var refusal = UnsupportedCertificateTypeException.unsupportedOperation("STUB", unsupported);
 
         // when
         List<String> body = advice.handleValidationException(refusal);
 
         // then
-        assertThat(body).singleElement().asString().contains("STUB").contains("REVOKE");
+        assertThat(body).singleElement().asString().contains("STUB").contains(unsupported.getLabel());
     }
 
     @Test

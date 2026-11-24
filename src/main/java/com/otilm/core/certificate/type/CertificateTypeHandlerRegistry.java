@@ -1,5 +1,6 @@
 package com.otilm.core.certificate.type;
 
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateOperation;
 import com.otilm.core.dao.entity.Certificate;
 import java.util.LinkedHashMap;
@@ -32,6 +33,13 @@ public class CertificateTypeHandlerRegistry {
     /** @throws UnsupportedCertificateTypeException naming the type, when no handler is registered for it */
     public CertificateTypeHandler require(String typeCode) {
         return find(typeCode).orElseThrow(() -> UnsupportedCertificateTypeException.unknownType(typeCode));
+    }
+
+    /** Fills the detail with the operations its type declares; a type without a handler declares none. */
+    public void declareSupportedOperations(CertificateDetail detail) {
+        find(detail.getCertificateType().getCode())
+                .ifPresent(handler -> detail
+                        .setSupportedOperations(handler.supportedOperations().stream().sorted().toList()));
     }
 
     /** Whether the type of the certificate has a handler and that handler supports the operation. */
