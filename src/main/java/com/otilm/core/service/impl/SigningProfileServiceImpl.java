@@ -553,6 +553,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         if (bump) {
             profile.setLatestVersion(profile.getLatestVersion() + 1);
             version = new SigningProfileVersion();
+            copyRecordPolicy(currentVersion, version);
         } else {
             version = currentVersion;
         }
@@ -1274,6 +1275,18 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
                 || !Objects.equals(v.getRetentionDays(), p.getRetentionDays())
                 || v.isDeleteAfterRetrieval() != p.isDeleteAfterRetrieval()
                 || resolvePersistenceMode(p) != v.getPersistenceMode();
+    }
+
+    /** An update without a record policy keeps the current one, also when it writes a new version. */
+    private static void copyRecordPolicy(SigningProfileVersion from, SigningProfileVersion to) {
+        to.setRecordingEnabled(from.isRecordingEnabled());
+        to.setRecordRequestMetadata(from.isRecordRequestMetadata());
+        to.setRecordSignature(from.isRecordSignature());
+        to.setRecordSignedDocument(from.isRecordSignedDocument());
+        to.setRecordDtbs(from.isRecordDtbs());
+        to.setRetentionDays(from.getRetentionDays());
+        to.setDeleteAfterRetrieval(from.isDeleteAfterRetrieval());
+        to.setPersistenceMode(from.getPersistenceMode());
     }
 
     private void applyRecordPolicyToVersion(SigningProfileVersion v, SigningRecordPolicyRequestDto p) {

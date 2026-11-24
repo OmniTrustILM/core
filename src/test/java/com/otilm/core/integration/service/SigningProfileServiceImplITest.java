@@ -1181,6 +1181,8 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                     .isEmpty());
         }
 
+        // ── Helpers ───────────────────────────────────────────────────────────
+
         /**
          * Stores a definition of the connector's signature algorithm attribute as it was before Core presented the
          * fields, and states that algorithm beside them.
