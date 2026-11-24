@@ -203,6 +203,7 @@ import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
@@ -1559,17 +1560,22 @@ class CertificateServiceITest extends BaseSpringBootTest {
             verify(validator).validateCertificate(List.of(stored), incompleteChain);
         }
 
-        @Test
-        void selectsTheCertificateForTheScheduledValidation_whenItsTypeIsValidated() throws Exception {
+        @ParameterizedTest(name = "{0}")
+        @MethodSource("validatedTypeSelections")
+        void selectsForTheScheduledValidationOnlyCertificatesOfValidatedTypes(List<CertificateType> validatedTypes,
+                boolean selected) throws Exception {
             // given
-            certificateService
+            Certificate stored = certificateService
                     .createCertificate(Base64.getEncoder().encodeToString(x509Cert.getEncoded()), CertificateType.X509);
+            var platformValidationEnabled = true;
 
             // when
-            int selected = certificateService.updateCertificatesStatusScheduled();
+            List<UUID> toCheck = certificateRepository
+                    .findCertificatesToCheckStatus(OffsetDateTime.now(), List.of(), validatedTypes,
+                            platformValidationEnabled, PageRequest.of(0, 1000));
 
             // then
-            assertThat(selected).isPositive();
+            assertThat(toCheck.contains(stored.getUuid())).isEqualTo(selected);
         }
 
         @Test
@@ -1953,6 +1959,12 @@ class CertificateServiceITest extends BaseSpringBootTest {
         }
 
         // ── Helpers ───────────────────────────────────────────────────────────
+
+        private static Stream<Arguments> validatedTypeSelections() {
+            return Stream
+                    .of(Arguments.of(named("its type is validated", List.of(CertificateType.X509)), true),
+                            Arguments.of(named("only another type is validated", List.of(CertificateType.SSH)), false));
+        }
 
         private static X509Certificate issuerOfX509Cert() throws Exception {
             KeyStore keyStore = KeyStore.getInstance("PKCS12");

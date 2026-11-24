@@ -92,6 +92,10 @@ import static com.otilm.core.util.builders.CryptographicKeyBuilder.aCryptographi
 import static com.otilm.core.util.builders.CryptographicKeyItemBuilder.aKeyItem;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.when;
 
 class ComplianceServiceITest extends BaseComplianceTest {
@@ -784,6 +788,40 @@ class ComplianceServiceITest extends BaseComplianceTest {
         // then
         assertThat(certificateRepository.findByUuid(certificate.getUuid()).orElseThrow().getComplianceStatus())
                 .isEqualTo(statusBefore);
+    }
+
+    @Test
+    void checksTheSupportedCertificateAndLeavesTheOther_whenOnlyOneOfTheSelectionHasAComplianceCheck()
+            throws Exception {
+        // given — a profile without rules, which marks every certificate it checks compliant
+        ComplianceProfileFixtures
+                .associateNewComplianceProfile(complianceProfileRepository, complianceProfileAssociationRepository,
+                        Resource.RA_PROFILE, unassociatedRaProfileUuid);
+        Certificate supported = uploadCertificateWithStaleResult("CN=Test-Mixed-Supported", unassociatedRaProfileUuid);
+        Certificate unsupported = uploadCertificateWithStaleResult("CN=Test-Mixed-Unsupported",
+                unassociatedRaProfileUuid);
+        ComplianceStatus staleStatus = unsupported.getComplianceStatus();
+        CertificateTypeHandlerRegistry mixedSupport = spy(typeHandlerRegistry);
+        doReturn(false)
+                .when(mixedSupport)
+                .supports(argThat(certificate -> certificate.getUuid().equals(unsupported.getUuid())),
+                        eq(CertificateOperation.CHECK_COMPLIANCE));
+        complianceServiceImpl.setTypeHandlerRegistry(mixedSupport);
+        List<UUID> selection = List.of(supported.getUuid(), unsupported.getUuid());
+
+        // when
+        try {
+            complianceExternalService.checkResourceObjectsComplianceValidation(Resource.CERTIFICATE, selection);
+            complianceExternalService.checkResourceObjectsComplianceAsync(Resource.CERTIFICATE, selection);
+        } finally {
+            complianceServiceImpl.setTypeHandlerRegistry(typeHandlerRegistry);
+        }
+
+        // then
+        assertThat(certificateRepository.findByUuid(supported.getUuid()).orElseThrow().getComplianceStatus())
+                .isEqualTo(ComplianceStatus.OK);
+        assertThat(certificateRepository.findByUuid(unsupported.getUuid()).orElseThrow().getComplianceStatus())
+                .isEqualTo(staleStatus);
     }
 
     @Test
