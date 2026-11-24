@@ -1498,8 +1498,7 @@ public class CertificateServiceImpl
     @Override
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void validate(Certificate certificate) {
-        if (!typeHandlerRegistry.supports(certificate, CertificateOperation.VALIDATE)
-                || !certificateValidatorMap.containsKey(certificate.getCertificateType().getCode())) {
+        if (!isValidated(certificate.getCertificateType())) {
             log.debug("Skipping validation of certificate {}: its type has no validation", certificate.getUuid());
             return;
         }
@@ -2090,7 +2089,12 @@ public class CertificateServiceImpl
         boolean platformEnabled = certificateValidationSettings.getEnabled();
         List<CertificateValidationStatus> skipStatuses = List
                 .of(CertificateValidationStatus.REVOKED, CertificateValidationStatus.EXPIRED);
-        Long totalCertificates = certificateRepository.countCertificatesToCheckStatus(skipStatuses, platformEnabled);
+        List<CertificateType> validatedTypes = validatedTypes();
+        if (validatedTypes.isEmpty()) {
+            return 0;
+        }
+        Long totalCertificates = certificateRepository
+                .countCertificatesToCheckStatus(skipStatuses, validatedTypes, platformEnabled);
         int maxCertsToValidate = Math.max(100, Math.round(totalCertificates / (float) 24));
 
         OffsetDateTime before = null;
@@ -2100,7 +2104,7 @@ public class CertificateServiceImpl
 
         // process 1/24 of eligible certificates for status update
         final List<UUID> certificateUuids = certificateRepository
-                .findCertificatesToCheckStatus(before, skipStatuses, platformEnabled,
+                .findCertificatesToCheckStatus(before, skipStatuses, validatedTypes, platformEnabled,
                         PageRequest.of(0, maxCertsToValidate));
 
         log
@@ -2109,6 +2113,18 @@ public class CertificateServiceImpl
                         totalCertificates);
         sendValidationBatches(certificateUuids); // send in batches
         return certificateUuids.size();
+    }
+
+    private List<CertificateType> validatedTypes() {
+        return Arrays.stream(CertificateType.values()).filter(this::isValidated).toList();
+    }
+
+    // a type is validated when its handler declares validation and a validator exists for it
+    private boolean isValidated(CertificateType type) {
+        return typeHandlerRegistry
+                .find(type.getCode())
+                .filter(handler -> handler.supports(CertificateOperation.VALIDATE))
+                .isPresent() && certificateValidatorMap.containsKey(type.getCode());
     }
 
     private void sendValidationBatches(List<UUID> certificateUuids) {

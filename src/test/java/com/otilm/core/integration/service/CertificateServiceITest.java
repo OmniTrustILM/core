@@ -1559,6 +1559,39 @@ class CertificateServiceITest extends BaseSpringBootTest {
             verify(validator).validateCertificate(List.of(stored), incompleteChain);
         }
 
+        @Test
+        void selectsTheCertificateForTheScheduledValidation_whenItsTypeIsValidated() throws Exception {
+            // given
+            certificateService
+                    .createCertificate(Base64.getEncoder().encodeToString(x509Cert.getEncoded()), CertificateType.X509);
+
+            // when
+            int selected = certificateService.updateCertificatesStatusScheduled();
+
+            // then
+            assertThat(selected).isPositive();
+        }
+
+        @Test
+        void selectsNoCertificateForTheScheduledValidation_whenItsTypeDoesNotSupportValidation() throws Exception {
+            // given
+            certificateService
+                    .createCertificate(Base64.getEncoder().encodeToString(x509Cert.getEncoded()), CertificateType.X509);
+            certificateService
+                    .setTypeHandlerRegistry(registryWithX509Lacking(x509Handler, CertificateOperation.VALIDATE));
+
+            // when
+            int selected;
+            try {
+                selected = certificateService.updateCertificatesStatusScheduled();
+            } finally {
+                certificateService.setTypeHandlerRegistry(typeHandlerRegistry);
+            }
+
+            // then
+            assertThat(selected).isZero();
+        }
+
         @ParameterizedTest(name = "{0}")
         @MethodSource("refusedReads")
         void refusesNamingTheOperation_whenTheTypeOfTheCertificateDoesNotSupportIt(CertificateOperation unsupported,

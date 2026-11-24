@@ -3,6 +3,7 @@ package com.otilm.core.dao.repository;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.core.certificate.CertificateDto;
 import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.core.aop.CertificateRepositoryCacheEvictionAspect;
 import com.otilm.core.dao.entity.Certificate;
@@ -185,13 +186,16 @@ public interface CertificateRepository extends CertificateBaseRepository<Certifi
     @Query("""
              SELECT COUNT(*) FROM Certificate c LEFT JOIN c.raProfile rp
              WHERE c.certificateContentId IS NOT NULL AND c.validationStatus NOT IN :skipStatuses AND c.archived = false
+             AND c.certificateType IN :validatedTypes
              AND ((rp.validationEnabled is NULL AND :platformEnabled = true) OR (rp.validationEnabled = true))
             """)
     Long countCertificatesToCheckStatus(@Param("skipStatuses") List<CertificateValidationStatus> skipStatuses,
+            @Param("validatedTypes") List<CertificateType> validatedTypes,
             @Param("platformEnabled") boolean platformEnabled);
 
     // Select certificates which have content, and they are not revoked, expired (since these statuses cannot change) or
     // archived
+    // Select certificates of the types that are validated, since any other would be skipped and selected again
     // Select certificates according to platform settings, this applies to certificates which either do not have RA
     // Profile assigned or certificates which have RA Profile
     // assigned, validation for that RA Profile is null
@@ -199,6 +203,7 @@ public interface CertificateRepository extends CertificateBaseRepository<Certifi
     @Query("""
             SELECT c.uuid FROM Certificate c LEFT JOIN c.raProfile rp
                 WHERE c.certificateContentId IS NOT NULL AND c.validationStatus NOT IN :skipStatuses AND c.archived = false
+                    AND c.certificateType IN :validatedTypes
                     AND
                     (
                 ((rp.validationEnabled is NULL AND :platformEnabled = true) AND (c.statusValidationTimestamp IS NULL OR c.statusValidationTimestamp <= :statusValidityEndTimestamp))
@@ -209,6 +214,7 @@ public interface CertificateRepository extends CertificateBaseRepository<Certifi
     List<UUID> findCertificatesToCheckStatus(
             @Param("statusValidityEndTimestamp") OffsetDateTime statusValidityEndTimestamp,
             @Param("skipStatuses") List<CertificateValidationStatus> skipStatuses,
+            @Param("validatedTypes") List<CertificateType> validatedTypes,
             @Param("platformEnabled") boolean platformEnabled, Pageable pageable);
 
     /** Whether the certificate carries a pending-issue claim: its synchronous connector call is still running. */
