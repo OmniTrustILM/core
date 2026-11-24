@@ -2,6 +2,9 @@ package com.otilm.core.integration.service;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
+import com.github.tomakehurst.wiremock.extension.Parameters;
+import com.github.tomakehurst.wiremock.extension.ServeEventListener;
+import com.github.tomakehurst.wiremock.stubbing.ServeEvent;
 import com.otilm.api.exception.AlreadyExistException;
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorException;
@@ -77,6 +80,7 @@ import com.otilm.core.model.discovery.DiscoveryMessageCode;
 import com.otilm.core.model.discovery.DiscoveryWorkType;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
+import com.otilm.core.service.ConnectorInternalService;
 import com.otilm.core.service.DiscoveryExternalService;
 import com.otilm.core.service.DiscoveryInternalService;
 import com.otilm.core.service.handler.discovery.DiscoveryProviderAdapterFactory;
@@ -90,11 +94,17 @@ import com.otilm.core.util.DiscoveryCheckpointFixture;
 import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.MetaDefinitions;
 import com.otilm.core.util.RefusedDefinitionInserts;
+import com.otilm.core.util.RefusedDiscoveryDeletes;
+import com.otilm.core.util.SqlCapture;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.regex.Pattern;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -107,10 +117,19 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+import static com.otilm.core.util.builders.CertificateContentBuilder.aCertificateContent;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
 class DiscoveryServiceITest extends BaseSpringBootTest {
 
     private static final String DISCOVERY_NAME = "testDiscovery1";
     private static final String PROVIDER_DISCOVERY_UUID = "4bd64640-be29-4e14-aad8-5c0ffa55c5bd";
+    private static final Pattern RESULTS_DELETE = Pattern
+            .compile("^delete from \\S*discovery_certificate\\b", Pattern.CASE_INSENSITIVE);
+    private static final Pattern RESULTS_SELECT = Pattern
+            .compile("^select .* from \\S*discovery_certificate\\b", Pattern.CASE_INSENSITIVE);
     private static final String CERTIFICATE_BASE64 = "MIIDyjCCArKgAwIBAgIUULw4BO/gvFzW2wMYXRhmz1kPPdAwDQYJKoZIhvcNAQELBQAwZDEUMBIGA1UEAwwLdGVzdGNlcnQuY3oxCzAJBgNVBAYTAkNaMRgwFgYDVQQIDA9DZW50cmFsIEJvaGVtaWExDzANBgNVBAcMBlNsYW7DvTEUMBIGA1UECgwLM0tleUNvbXBhbnkwHhcNMjQxMDIxMTAzMDEyWhcNMjUxMDIxMTAzMDEyWjBkMRQwEgYDVQQDDAt0ZXN0Y2VydC5jejELMAkGA1UEBhMCQ1oxGDAWBgNVBAgMD0NlbnRyYWwgQm9oZW1pYTEPMA0GA1UEBwwGU2xhbsO9MRQwEgYDVQQKDAszS2V5Q29tcGFueTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAJ112/a4p9sZ4F2fABLGtSBrbp71n/0uG+H/3usEQU8/FIW644ly5hNl8+SloPWryCCxOl+saXTKv62h0HnE/HNFMKlps4wwWNMsTploFKiAW9AbaDtzNrMy9f/orMoZldDZt5dLX8UR3qMmdK8nlqiJOyCAxIS70OsEQC8fGuIMNYeW6eidXGHjvpqApWnGTyA4U1bJWsDWcOIh/LL2ae9nwTJjVrHthrM6Wq6PplaPxEKYABp51UAQLMzY+cJElcKmwQxiK+zOHns7/ocosZVqI2QyxSmG60icabyrIT6HQHKVNzZHkltmduyYun9YZ+nl68YOuNmtSNi1TLMlfGECAwEAAaN0MHIwHQYDVR0OBBYEFOWFJRXdCer5Bpj+9JrquuJ7e5eQMB8GA1UdIwQYMBaAFOWFJRXdCer5Bpj+9JrquuJ7e5eQMA4GA1UdDwEB/wQEAwIFoDAgBgNVHSUBAf8EFjAUBggrBgEFBQcDAQYIKwYBBQUHAwIwDQYJKoZIhvcNAQELBQADggEBAA6AWaBFDAWL8oSBCP3q1s2Gq9QhR2QEBZ5tPOMTN5GpIzXxXdm4nHHBK/pSFABUNmrwQMapvq/y6IZ7hNMdC89MTOsHLD0EVPmHHO4xhzMG08XpJdevTrvktjpt0+ju81ratLg34pvJLeLF7ZL5AxwOl6qKX6RgwHpdBUipAYeeVhTVtQ7FLvakKDwYLiN6YFXuM1+CDAK3fsJ6sZki3uRvLYsUi7bguIQCmCQ0/n+T62Driq6mh1FkFB3sgpSFjfEo3bEaaHzF1YZr6otTYPNzcLCStJ5SYNBXKbw7YKAcYavL6yMNTQ2CjmLVnwjjd3O/Sv1kEhZMu86mHeNZK0I=";
 
     @Autowired
@@ -132,6 +151,8 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
     private CertificateContentRepository certificateContentRepository;
     @Autowired
     private ConnectorRepository connectorRepository;
+    @Autowired
+    private ConnectorInternalService connectorService;
     @Autowired
     private ConnectorInterfaceRepository connectorInterfaceRepository;
     @Autowired
@@ -212,8 +233,9 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
 
     @AfterEach
     void tearDown() {
-        RefusedDefinitionInserts.remove(jdbcTemplate);
         mockServer.stop();
+        RefusedDefinitionInserts.remove(jdbcTemplate);
+        RefusedDiscoveryDeletes.remove(jdbcTemplate);
     }
 
     @Test
@@ -481,6 +503,160 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         discoveryService.bulkRemoveDiscovery(List.of(discovery.getSecuredUuid()));
         Assertions
                 .assertThrows(NotFoundException.class, () -> discoveryService.getDiscovery(discovery.getSecuredUuid()));
+    }
+
+    @Test
+    void hasCommittedTheLocalDelete_whenTheConnectorDeletesItsCopy() throws Exception {
+        // given
+        givenConnectorCopy();
+        CompletableFuture<Integer> runRowsVisibleToTheConnectorCall = countRunRowsWhenTheConnectorDeletesItsCopy();
+
+        // when
+        discoveryService.deleteDiscovery(discovery.getSecuredUuid());
+
+        // then
+        assertThat(runRowsVisibleToTheConnectorCall).succeedsWithin(Duration.ofSeconds(5)).isEqualTo(0);
+    }
+
+    @Test
+    void keepsTheConnectorCopy_whenTheLocalDeleteFails() {
+        // given
+        givenConnectorCopy();
+        stubConnectorCopyDeletion(HttpStatus.NO_CONTENT);
+        RefusedDiscoveryDeletes.install(jdbcTemplate, discovery.getUuid());
+
+        // when
+        ThrowingCallable delete = () -> discoveryService.deleteDiscovery(discovery.getSecuredUuid());
+
+        // then
+        assertThatThrownBy(delete).hasStackTraceContaining(RefusedDiscoveryDeletes.REASON);
+        WireMock.verify(0, WireMock.deleteRequestedFor(WireMock.urlPathEqualTo(connectorCopyPath())));
+    }
+
+    @Test
+    void leavesTheConnectorCopyAlone_whenTheConnectorIsNoLongerRegistered() throws Exception {
+        // given
+        givenConnectorCopy();
+        stubConnectorCopyDeletion(HttpStatus.NO_CONTENT);
+        connectorService.getConnectorForApiClient(connector.getUuid());
+        deregisterConnectorBehindTheRouteCache();
+
+        // when
+        discoveryService.deleteDiscovery(discovery.getSecuredUuid());
+
+        // then
+        WireMock.verify(0, WireMock.deleteRequestedFor(WireMock.urlPathEqualTo(connectorCopyPath())));
+    }
+
+    @Test
+    void deletesTheResultsInOneStatement_whenDeletingARun() throws Exception {
+        // given
+        for (int i = 0; i < 3; i++) {
+            stageResult(discovery, saveContent("fp-result-" + i).getId());
+        }
+
+        // when
+        List<String> statements = SqlCapture.during(() -> {
+            discoveryService.deleteDiscovery(discovery.getSecuredUuid());
+            return null;
+        }).statements();
+
+        // then
+        assertThat(statements).filteredOn(sql -> RESULTS_DELETE.matcher(sql).find()).hasSize(1);
+        assertThat(statements).noneMatch(sql -> RESULTS_SELECT.matcher(sql).find());
+    }
+
+    @Test
+    void deletesTheRun_whenTheConnectorFailsToDeleteItsCopy() throws Exception {
+        // given
+        givenConnectorCopy();
+        stubConnectorCopyDeletion(HttpStatus.INTERNAL_SERVER_ERROR);
+
+        // when
+        discoveryService.deleteDiscovery(discovery.getSecuredUuid());
+
+        // then
+        WireMock.verify(1, WireMock.deleteRequestedFor(WireMock.urlPathEqualTo(connectorCopyPath())));
+        assertThat(discoveryRepository.findByUuid(discovery.getUuid())).isEmpty();
+    }
+
+    @Test
+    void deletesTheOtherRunsOfABulkDelete_whenOneFailsToDelete() throws Exception {
+        // given
+        Discovery refusedByTheDatabase = saveEndedV1Run("refused-by-the-database");
+        CertificateContent foundOnlyByTheRefusedRun = saveContent("fp-found-only-by-the-refused-run");
+        DiscoveryCertificate refusedRunsResult = stageResult(refusedByTheDatabase, foundOnlyByTheRefusedRun.getId());
+        Discovery afterTheFailure = saveEndedV1Run("after-the-failure");
+        RefusedDiscoveryDeletes.install(jdbcTemplate, refusedByTheDatabase.getUuid());
+
+        // when
+        discoveryService
+                .bulkRemoveDiscovery(List
+                        .of(discovery.getSecuredUuid(), refusedByTheDatabase.getSecuredUuid(),
+                                afterTheFailure.getSecuredUuid()));
+
+        // then
+        assertThat(discoveryRepository.findByUuid(discovery.getUuid())).isEmpty();
+        assertThat(discoveryRepository.findByUuid(afterTheFailure.getUuid())).isEmpty();
+        assertThat(discoveryRepository.findByUuid(refusedByTheDatabase.getUuid())).isPresent();
+        assertThat(discoveryCertificateRepository.findByUuid(refusedRunsResult.getUuid())).isPresent();
+        assertThat(certificateContentRepository.findById(foundOnlyByTheRefusedRun.getId())).isPresent();
+    }
+
+    @Test
+    void keepsTheInventoryCertificateAndItsContent_whenDeletingARunThatFoundIt() throws Exception {
+        // given
+        Certificate inventoryCertificate = saveInventoryCertificate();
+        stageResult(discovery, inventoryCertificate.getCertificateContentId());
+
+        // when
+        discoveryService.deleteDiscovery(discovery.getSecuredUuid());
+
+        // then
+        assertThat(certificateRepository.findByUuid(inventoryCertificate.getUuid())).isPresent();
+        assertThat(certificateContentRepository.findById(inventoryCertificate.getCertificateContentId())).isPresent();
+    }
+
+    @Test
+    void deletesTheContent_whenOnlyTheDeletedRunReferencedIt() throws Exception {
+        // given
+        CertificateContent foundOnlyByThisRun = saveContent("fp-found-only-by-this-run");
+        stageResult(discovery, foundOnlyByThisRun.getId());
+
+        // when
+        discoveryService.deleteDiscovery(discovery.getSecuredUuid());
+
+        // then
+        assertThat(certificateContentRepository.findById(foundOnlyByThisRun.getId())).isEmpty();
+    }
+
+    @Test
+    void keepsTheResultsOfOtherRuns_whenDeletingARun() throws Exception {
+        // given
+        Discovery otherRun = saveEndedV1Run("other-run");
+        CertificateContent content = saveContent("fp-other-run");
+        DiscoveryCertificate otherRunsResult = stageResult(otherRun, content.getId());
+
+        // when
+        discoveryService.deleteDiscovery(discovery.getSecuredUuid());
+
+        // then
+        assertThat(discoveryCertificateRepository.findByUuid(otherRunsResult.getUuid())).isPresent();
+    }
+
+    @Test
+    void keepsTheContent_whenAnotherRunStillReferencesIt() throws Exception {
+        // given
+        Discovery otherRun = saveEndedV1Run("other-run");
+        CertificateContent foundByBothRuns = saveContent("fp-found-by-both-runs");
+        stageResult(discovery, foundByBothRuns.getId());
+        stageResult(otherRun, foundByBothRuns.getId());
+
+        // when
+        discoveryService.deleteDiscovery(discovery.getSecuredUuid());
+
+        // then
+        assertThat(certificateContentRepository.findById(foundByBothRuns.getId())).isPresent();
     }
 
     @Test
@@ -2132,5 +2308,104 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
                 .stream()
                 .map(MetadataAttribute::getName)
                 .toList();
+    }
+
+    private void givenConnectorCopy() {
+        discovery.setStatus(DiscoveryStatus.COMPLETED);
+        discovery.setConnectorStatus(DiscoveryStatus.COMPLETED);
+        discovery.setDiscoveryConnectorReference(PROVIDER_DISCOVERY_UUID);
+        discovery = discoveryRepository.saveAndFlush(discovery);
+    }
+
+    private static String connectorCopyPath() {
+        return "/v1/discoveryProvider/discover/" + PROVIDER_DISCOVERY_UUID;
+    }
+
+    /** Removes the connector as another replica would, leaving this replica's cached route to it in place. */
+    private void deregisterConnectorBehindTheRouteCache() {
+        jdbcTemplate.update("DELETE FROM connector_2_function_group WHERE connector_uuid = ?", connector.getUuid());
+        jdbcTemplate.update("DELETE FROM connector WHERE uuid = ?", connector.getUuid());
+    }
+
+    private void stubConnectorCopyDeletion(HttpStatus status) {
+        mockServer
+                .stubFor(WireMock
+                        .delete(WireMock.urlPathEqualTo(connectorCopyPath()))
+                        .willReturn(WireMock.status(status.value())));
+    }
+
+    /**
+     * Restarts the connector with a listener that counts the run's rows from a connection of its own while the
+     * connector is deleting its copy, which sees the local delete only once it has committed.
+     */
+    private CompletableFuture<Integer> countRunRowsWhenTheConnectorDeletesItsCopy() {
+        CompletableFuture<Integer> runRows = new CompletableFuture<>();
+        UUID runUuid = discovery.getUuid();
+        ServeEventListener listener = new ServeEventListener() {
+            @Override
+            public void beforeResponseSent(ServeEvent serveEvent, Parameters parameters) {
+                if (!serveEvent.getRequest().getUrl().equals(connectorCopyPath())) {
+                    return;
+                }
+                try {
+                    runRows
+                            .complete(jdbcTemplate
+                                    .queryForObject("SELECT count(*) FROM discovery WHERE uuid = ?", Integer.class,
+                                            runUuid));
+                } catch (Exception e) {
+                    runRows.completeExceptionally(e);
+                }
+            }
+
+            @Override
+            public String getName() {
+                return "count-run-rows-when-the-connector-deletes-its-copy";
+            }
+        };
+        mockServer.stop();
+        mockServer = new WireMockServer(LoopbackWireMock.options().extensions(listener));
+        mockServer.start();
+        WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
+        connector.setUrl(LoopbackWireMock.url(mockServer));
+        connector = connectorRepository.saveAndFlush(connector);
+        stubConnectorCopyDeletion(HttpStatus.NO_CONTENT);
+        return runRows;
+    }
+
+    private Discovery saveEndedV1Run(String name) {
+        Discovery run = new Discovery();
+        run.setName(name);
+        run.setConnectorUuid(connector.getUuid());
+        run.setConnectorName(connector.getName());
+        run.setStatus(DiscoveryStatus.COMPLETED);
+        run.setConnectorStatus(DiscoveryStatus.COMPLETED);
+        return discoveryRepository.saveAndFlush(run);
+    }
+
+    private CertificateContent saveContent(String fingerprint) {
+        CertificateContent content = aCertificateContent()
+                .withFingerprint(fingerprint)
+                .withContent(CERTIFICATE_BASE64)
+                .build();
+        return certificateContentRepository.saveAndFlush(content);
+    }
+
+    private Certificate saveInventoryCertificate() {
+        CertificateContent content = saveContent("fp-inventory");
+        Certificate inventoryCertificate = aCertificate()
+                .withFingerprint("fp-inventory")
+                .withCertificateContent(content)
+                .withCertificateContentId(content.getId())
+                .build();
+        return certificateRepository.saveAndFlush(inventoryCertificate);
+    }
+
+    private DiscoveryCertificate stageResult(Discovery run, Long certificateContentId) {
+        DiscoveryCertificate result = new DiscoveryCertificate();
+        result.setDiscoveryUuid(run.getUuid());
+        result.setCertificateContentId(certificateContentId);
+        result.setNewlyDiscovered(true);
+        result.setProcessed(true);
+        return discoveryCertificateRepository.saveAndFlush(result);
     }
 }

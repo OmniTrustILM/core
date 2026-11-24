@@ -1,6 +1,5 @@
 package com.otilm.core.integration.service;
 
-import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.connector.FunctionGroupCode;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
@@ -12,7 +11,6 @@ import com.otilm.core.messaging.jms.producers.NotificationProducer;
 import com.otilm.core.service.DiscoveryExternalService;
 import com.otilm.core.util.BaseMessagingIntTest;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,7 +20,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
-import static org.awaitility.Awaitility.await;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -74,18 +72,17 @@ class DiscoveryServiceMessagingITest extends BaseMessagingIntTest {
     }
 
     @Test
-    void testBulkRemove() throws NotFoundException {
+    void notifiesThatTheRunsAreDeleted_whenABulkDeleteSucceeds() throws Exception {
+        // given — a v1 run, which deletes in any state
+
+        // when
         discoveryService.bulkRemoveDiscovery(List.of(discovery.getSecuredUuid()));
 
-        // Verify that notification was sent via messaging
-        // Note: We verify the producer was called because the full messaging flow
-        // (producer -> broker -> listener -> database) is complex to test end-to-end
+        // then
         verify(notificationProducer, timeout(5000).atLeastOnce())
                 .produceInternalNotificationMessage(eq(Resource.DISCOVERY), isNull(), anyList(),
                         eq("Discovery histories have been deleted."), isNull());
 
-        // The @Async bulkRemoveDiscovery may not have committed by the time the
-        // notification producer was invoked, so poll for the deletion to become visible.
-        await().atMost(5, TimeUnit.SECONDS).until(() -> discoveryRepository.findByUuid(discovery.getUuid()).isEmpty());
+        assertThat(discoveryRepository.findByUuid(discovery.getUuid())).isEmpty();
     }
 }
