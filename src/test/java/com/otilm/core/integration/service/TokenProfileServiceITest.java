@@ -138,6 +138,16 @@ class TokenProfileServiceITest extends BaseSpringBootTest {
         Assertions.assertEquals(tokenProfile.getUuid().toString(), tokenProfiles.get(0).getUuid());
     }
 
+    @Test
+    void listTokenProfiles_keyListableExcludesProfileOnFirstVersionConnector() {
+        // when
+        List<TokenProfileDto> profiles = tokenProfileService
+                .listTokenProfiles(Optional.of(true), List.of(), true, SecurityFilter.create());
+
+        // then
+        Assertions.assertTrue(profiles.isEmpty());
+    }
+
     @ParameterizedTest
     @NullSource
     @ValueSource(booleans = {true, false})

@@ -24,10 +24,10 @@ class KeyListGatesTest {
     class IsAvailable {
 
         @Test
-        void offersListing_whenTheConnectorListsKeys() {
+        void offersListing_whenTheV2ConnectorDeclaresNoRestriction() {
             // given
             var profile = aTokenProfileSnapshot()
-                    .withTokenInstance(aTokenSnapshot().withConnectorFeatures(FeatureFlag.KEY_LIST).build())
+                    .withTokenInstance(aTokenSnapshot().withConnectorFeatures(FeatureFlag.KEY_IMPORT).build())
                     .build();
 
             // when
@@ -38,10 +38,12 @@ class KeyListGatesTest {
         }
 
         @Test
-        void withholdsListing_whenTheV2ConnectorLacksKeyListing() {
+        void withholdsListing_whenTheConnectorDeclaresAnUnlistableToken() {
             // given
             var profile = aTokenProfileSnapshot()
-                    .withTokenInstance(aTokenSnapshot().withConnectorFeatures(FeatureFlag.KEY_IMPORT).build())
+                    .withTokenInstance(aTokenSnapshot()
+                            .withConnectorFeatures(FeatureFlag.KEY_IMPORT, FeatureFlag.UNLISTABLE_TOKEN)
+                            .build())
                     .build();
 
             // when
@@ -72,9 +74,11 @@ class KeyListGatesTest {
     class RequireListable {
 
         @Test
-        void refusesListing_whenTheConnectorLacksKeyListing() throws Exception {
+        void refusesListing_whenTheConnectorDeclaresAnUnlistableToken() throws Exception {
             // given
-            var profile = aTokenProfileSnapshot().build();
+            var profile = aTokenProfileSnapshot()
+                    .withTokenInstance(aTokenSnapshot().withConnectorFeatures(FeatureFlag.UNLISTABLE_TOKEN).build())
+                    .build();
             when(keyImportGates.requireAccess(profile.tokenInstanceReferenceUuid(), profile.uuid()))
                     .thenReturn(profile);
             UUID tokenInstanceUuid = profile.tokenInstanceReferenceUuid();
@@ -89,10 +93,7 @@ class KeyListGatesTest {
         @Test
         void refusesListing_whenTheProfileIsDisabled() throws Exception {
             // given
-            var profile = aTokenProfileSnapshot()
-                    .withTokenInstance(aTokenSnapshot().withConnectorFeatures(FeatureFlag.KEY_LIST).build())
-                    .withEnabled(false)
-                    .build();
+            var profile = aTokenProfileSnapshot().withEnabled(false).build();
             when(keyImportGates.requireAccess(profile.tokenInstanceReferenceUuid(), profile.uuid()))
                     .thenReturn(profile);
             UUID tokenInstanceUuid = profile.tokenInstanceReferenceUuid();

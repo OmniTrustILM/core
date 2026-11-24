@@ -4,6 +4,7 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
+import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.model.connector.ImmutableConnectorInterface;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
@@ -11,8 +12,8 @@ import java.util.UUID;
 import org.springframework.stereotype.Component;
 
 /**
- * Key listing reaches past the inventory to the token itself. It needs a profile whose connector advertises it and a
- * caller who may see the token's members.
+ * Key listing reaches past the inventory to the token itself. It needs a profile on a v2 connector that keeps its
+ * tokens listable, and a caller who may see the token's members.
  */
 @Component
 public class KeyListGates {
@@ -35,20 +36,27 @@ public class KeyListGates {
 
     /** The same, for a profile read with its token's connector interface, as the profile list filter reads it. */
     public boolean isAvailable(TokenProfile profile) {
-        return connectorCapabilityService
-                .supports(profile.getTokenInstanceReference().getConnectorInterface(), FeatureFlag.KEY_LIST);
+        ConnectorInterfaceEntity tokenConnectorInterface = profile.getTokenInstanceReference().getConnectorInterface();
+        return isAvailable(
+                tokenConnectorInterface == null ? null : ImmutableConnectorInterface.from(tokenConnectorInterface));
     }
 
     /** The same, for the connector interface of a token, or null for a token on a connector of the first version. */
     public boolean isAvailable(ImmutableConnectorInterface tokenConnectorInterface) {
-        return connectorCapabilityService.supports(tokenConnectorInterface, FeatureFlag.KEY_LIST);
+        boolean onV2Connector = tokenConnectorInterface != null;
+        return onV2Connector && !declaresUnlistableToken(tokenConnectorInterface);
+    }
+
+    private boolean declaresUnlistableToken(ImmutableConnectorInterface connectorInterface) {
+        return connectorCapabilityService.supports(connectorInterface, FeatureFlag.UNLISTABLE_TOKEN);
     }
 
     /**
      * The token's profile, with access enforced as key import enforces it.
      *
      * @throws NotFoundException if the token has no such profile
-     * @throws ValidationException if the profile's connector lacks key listing, or the profile is disabled
+     * @throws ValidationException if the token is on a v1 connector or one declaring an unlistable token, or the
+     * profile is disabled
      */
     public TokenProfileFullModel requireListable(UUID tokenInstanceUuid, UUID tokenProfileUuid)
             throws NotFoundException {

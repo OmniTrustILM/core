@@ -812,8 +812,8 @@ class CryptographicKeyImportV2ITest extends BaseSpringBootTest {
     @ValueSource(booleans = {false, true})
     void importKey_reportsWhetherTheImportedKeyCanBeRemovedFromTheInventory(boolean tokenListsKeys) throws Exception {
         // given
-        if (tokenListsKeys) {
-            declare(FeatureFlag.STATELESS, FeatureFlag.KEY_IMPORT, FeatureFlag.KEY_LIST);
+        if (!tokenListsKeys) {
+            declare(FeatureFlag.STATELESS, FeatureFlag.KEY_IMPORT, FeatureFlag.UNLISTABLE_TOKEN);
         }
         connectorMock.stubImportKey(200, imported(pair.getPublic()));
 

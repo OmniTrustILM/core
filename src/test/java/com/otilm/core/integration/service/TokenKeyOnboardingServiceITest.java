@@ -189,7 +189,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
     @BeforeEach
     void startTokenThatListsKeys() {
         v2Token = v2TokenFixture.start();
-        v2TokenFixture.declare(v2Token, FeatureFlag.STATELESS, FeatureFlag.KEY_LIST);
+        v2TokenFixture.declare(v2Token, FeatureFlag.STATELESS);
         connectorMock = v2Token.connectorMock();
         tokenUuid = v2Token.token().getUuid();
         profileUuid = v2Token.profile().getUuid();
@@ -214,8 +214,8 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         connectorMock.stubKeyResolution(aKeyResolutionResponse().withAnswers(answers).build());
     }
 
-    private void connectorDropsKeyListing() {
-        v2TokenFixture.declare(v2Token, FeatureFlag.STATELESS);
+    private void connectorDeclaresAnUnlistableToken() {
+        v2TokenFixture.declare(v2Token, FeatureFlag.STATELESS, FeatureFlag.UNLISTABLE_TOKEN);
     }
 
     private TokenKeyListResponseDto firstPage() throws Exception {
@@ -2034,21 +2034,21 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         }
 
         @Test
-        void listsOnlyKeyListableProfiles_whenTheConnectorDropsKeyListing() {
+        void listsOnlyKeyListableProfiles_whenTheConnectorDeclaresAnUnlistableToken() {
             // when
             List<String> whileListing = keyListableProfiles();
-            connectorDropsKeyListing();
-            List<String> afterDropping = keyListableProfiles();
+            connectorDeclaresAnUnlistableToken();
+            List<String> afterDeclaring = keyListableProfiles();
 
             // then
             assertThat(whileListing).containsExactly(profileUuid.toString());
-            assertThat(afterDropping).isEmpty();
+            assertThat(afterDeclaring).isEmpty();
         }
 
         @Test
-        void refusesTheListing_whenTheConnectorLacksKeyListing() {
+        void refusesTheListing_whenTheConnectorDeclaresAnUnlistableToken() {
             // given
-            connectorDropsKeyListing();
+            connectorDeclaresAnUnlistableToken();
 
             // when / then
             assertThatThrownBy(() -> firstPage())
@@ -2254,10 +2254,10 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         }
 
         @Test
-        void refusesTheRemoval_whenItsConnectorListsNoKeys() throws Exception {
+        void refusesTheRemoval_whenItsConnectorDeclaresAnUnlistableToken() throws Exception {
             // given
             var created = keyPairThePlatformCreated("created");
-            connectorDropsKeyListing();
+            connectorDeclaresAnUnlistableToken();
 
             // when / then
             assertThatThrownBy(() -> removeFromInventory(created))
