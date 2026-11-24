@@ -23,6 +23,7 @@ import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRegistrationDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.certificate.type.AuthorityCertificateTypes;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.Connector;
@@ -99,6 +100,9 @@ class ClientOperationServiceRegisterCustomAttributeITest extends BaseSpringBootT
 
     @MockitoBean
     private AuthorityProviderAdapterFactory adapterFactory;
+    // the adapters here are mocks that report no certificate types, so the type check is taken out
+    @MockitoBean
+    private AuthorityCertificateTypes authorityCertificateTypes;
     @MockitoBean
     private ConnectorCapabilityService capabilityService;
     @MockitoBean

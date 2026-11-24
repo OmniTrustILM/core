@@ -18,7 +18,10 @@ import org.springframework.stereotype.Repository;
 public interface DiscoveryCertificateRepository extends SecurityFilterRepository<DiscoveryCertificate, Long> {
     Optional<DiscoveryCertificate> findByUuid(UUID uuid);
 
-    Long deleteByDiscovery(Discovery history);
+    /** One statement however many results the run has; a derived delete would load and remove them one at a time. */
+    @Modifying
+    @Query("DELETE FROM DiscoveryCertificate dc WHERE dc.discoveryUuid = :discoveryUuid")
+    int deleteByDiscoveryUuid(@Param("discoveryUuid") UUID discoveryUuid);
 
     List<DiscoveryCertificate> findByDiscovery(Discovery history, Pageable pagable);
 

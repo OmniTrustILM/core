@@ -9,8 +9,14 @@ import com.github.tomakehurst.wiremock.extension.Parameters;
 import com.github.tomakehurst.wiremock.extension.ResponseDefinitionTransformerV2;
 import com.github.tomakehurst.wiremock.http.ResponseDefinition;
 import com.github.tomakehurst.wiremock.stubbing.ServeEvent;
+import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.SignatureInputMode;
 import java.security.PrivateKey;
 import java.security.Signature;
+import java.security.spec.AlgorithmParameterSpec;
+import java.security.spec.MGF1ParameterSpec;
+import java.security.spec.PSSParameterSpec;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
@@ -20,11 +26,18 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.bouncycastle.asn1.ASN1Encoding;
+import org.bouncycastle.asn1.ASN1ObjectIdentifier;
+import org.bouncycastle.asn1.DERNull;
+import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
+import org.bouncycastle.asn1.x509.DigestInfo;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 
 /**
  * WireMock extension answering every item of a sign request with a <em>real</em> signature under the item's identifier.
- * A stub names the signing key by {@link #KEY_REFERENCE}, and a v1 sign URL by its key-reference UUID.
+ * A stub names the signing key by {@link #KEY_REFERENCE}, and a v1 sign URL by its key-reference UUID. A v2 request
+ * whose {@code signatureInputMode} is {@code dataDigest} has each item signed as the digest it is, as a provider
+ * implementing that mode does, so Core's check of each signature against its digest passes.
  */
 class RealSignerTransformer implements ResponseDefinitionTransformerV2 {
 
@@ -41,6 +54,7 @@ class RealSignerTransformer implements ResponseDefinitionTransformerV2 {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final Pattern KEY_REF_UUID_PATTERN = Pattern.compile("/keys/([^/]+)/sign");
+    private static final String DATA_DIGEST = SignatureInputMode.DATA_DIGEST.getCode();
 
     private final Map<String, KeyEntry> keysByReferenceUuid = new ConcurrentHashMap<>();
 
@@ -56,10 +70,13 @@ class RealSignerTransformer implements ResponseDefinitionTransformerV2 {
         try {
             Parameters parameters = serveEvent.getTransformerParameters();
             KeyEntry key = registeredKeyFor(serveEvent.getRequest().getUrl(), parameters);
-            JsonNode items = OBJECT_MAPPER.readTree(serveEvent.getRequest().getBodyAsString()).path("data");
+            JsonNode body = OBJECT_MAPPER.readTree(serveEvent.getRequest().getBodyAsString());
+            boolean dataDigest = DATA_DIGEST.equals(body.path("signatureInputMode").asText());
             List<ObjectNode> signatures = new ArrayList<>();
-            for (JsonNode item : items) {
-                signatures.add(signatureOf(key, item, parameters.getBoolean(WITHOUT_IDENTIFIERS, false)));
+            for (JsonNode item : body.path("data")) {
+                signatures
+                        .add(buildSignatureResponse(key, item, dataDigest,
+                                parameters.getBoolean(WITHOUT_IDENTIFIERS, false)));
             }
             if (parameters.getBoolean(REVERSED_ORDER, false)) {
                 Collections.reverse(signatures);
@@ -90,10 +107,12 @@ class RealSignerTransformer implements ResponseDefinitionTransformerV2 {
         return entry;
     }
 
-    private static ObjectNode signatureOf(KeyEntry key, JsonNode item, boolean withoutIdentifier) throws Exception {
-        byte[] dtbs = Base64.getDecoder().decode(item.path("data").asText());
+    private static ObjectNode buildSignatureResponse(KeyEntry key, JsonNode item, boolean dataDigest,
+            boolean withoutIdentifier) throws Exception {
+        byte[] itemBytes = Base64.getDecoder().decode(item.path("data").asText());
+        byte[] signatureValue = dataDigest ? signDigest(key, itemBytes) : sign(key, itemBytes);
         ObjectNode signature = OBJECT_MAPPER.createObjectNode();
-        signature.put("data", Base64.getEncoder().encodeToString(sign(key, dtbs)));
+        signature.put("data", Base64.getEncoder().encodeToString(signatureValue));
         JsonNode identifier = item.path("identifier");
         if (!withoutIdentifier && identifier.isTextual()) {
             signature.put("identifier", identifier.asText());
@@ -102,10 +121,47 @@ class RealSignerTransformer implements ResponseDefinitionTransformerV2 {
     }
 
     private static byte[] sign(KeyEntry key, byte[] dtbs) throws Exception {
-        Signature signature = Signature.getInstance(key.jcaSignatureAlgorithm(), BouncyCastleProvider.PROVIDER_NAME);
-        signature.initSign(key.privateKey());
-        signature.update(dtbs);
+        return signRaw(key.privateKey(), key.jcaSignatureAlgorithm(), null, dtbs);
+    }
+
+    /**
+     * Signs the bytes as the digest the key's algorithm fixes, without hashing them again: PKCS#1 v1.5 over a
+     * DigestInfo with NULL parameters, PSS with the digest's own MGF1 and salt length, and ECDSA over the digest.
+     */
+    private static byte[] signDigest(KeyEntry key, byte[] digest) throws Exception {
+        SignatureAlgorithm algorithm = SignatureAlgorithm.findByCode(key.jcaSignatureAlgorithm());
+        ASN1ObjectIdentifier digestOid = algorithm.getDigestAlgorithmIdentifier().getAlgorithm();
+        return switch (algorithm) {
+            case SHA256_WITH_RSA, SHA384_WITH_RSA, SHA512_WITH_RSA ->
+                signRaw(key.privateKey(), "NONEwithRSA", null, encodeDigestInfo(digestOid, digest));
+            case SHA256_WITH_RSA_PSS, SHA384_WITH_RSA_PSS, SHA512_WITH_RSA_PSS ->
+                signRaw(key.privateKey(), "RAWRSASSA-PSS", buildPssParameters(digestOid), digest);
+            case SHA256_WITH_ECDSA, SHA384_WITH_ECDSA, SHA512_WITH_ECDSA ->
+                signRaw(key.privateKey(), "NONEwithECDSA", null, digest);
+            default -> throw new IllegalStateException(algorithm.getCode() + " cannot sign a data digest");
+        };
+    }
+
+    private static byte[] signRaw(PrivateKey privateKey, String jcaAlgorithm, AlgorithmParameterSpec parameters,
+            byte[] input) throws Exception {
+        Signature signature = Signature.getInstance(jcaAlgorithm, BouncyCastleProvider.PROVIDER_NAME);
+        if (parameters != null) {
+            signature.setParameter(parameters);
+        }
+        signature.initSign(privateKey);
+        signature.update(input);
         return signature.sign();
+    }
+
+    private static byte[] encodeDigestInfo(ASN1ObjectIdentifier digestOid, byte[] digest) throws Exception {
+        return new DigestInfo(new AlgorithmIdentifier(digestOid, DERNull.INSTANCE), digest)
+                .getEncoded(ASN1Encoding.DER);
+    }
+
+    private static PSSParameterSpec buildPssParameters(ASN1ObjectIdentifier digestOid) {
+        DigestAlgorithm digest = DigestAlgorithm.findByOid(digestOid.getId());
+        return new PSSParameterSpec(digest.getCode(), "MGF1", new MGF1ParameterSpec(digest.getCode()),
+                digest.getDigestSizeBytes(), PSSParameterSpec.TRAILER_FIELD_BC);
     }
 
     /**

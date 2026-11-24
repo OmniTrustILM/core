@@ -11,6 +11,7 @@ import com.otilm.core.model.signing.SigningProfileGateRow;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.scheme.StaticKeyManagedSigning;
 import com.otilm.core.model.signing.workflow.ManagedContentSigningWorkflow;
+import com.otilm.core.model.signing.workflow.ManagedRawSigningWorkflow;
 import com.otilm.core.service.SigningProfileInternalService;
 import java.util.List;
 import java.util.Optional;
@@ -128,11 +129,34 @@ class IlmNativeProfileResolverTest {
                 .hasMessageContaining("Signing Profile not found: " + PROFILE);
     }
 
+    @Test
+    void returnsLoadedRawModel_whenIlmNativeIsActive() throws Exception {
+        // given
+        stubStoredRecord(true, SigningScheme.MANAGED, SigningWorkflowType.RAW_SIGNING);
+        SigningProfileModel<?, ?> rawModel = aSigningProfile()
+                .withName(NAME)
+                .withUuid(PROFILE)
+                .withEnabledProtocols(List.of(SigningProtocol.ILM_NATIVE))
+                .withWorkflow(new ManagedRawSigningWorkflow(null))
+                .withSigningScheme(new StaticKeyManagedSigning(UUID.randomUUID(), List.of()))
+                .build();
+        doReturn(rawModel).when(signingProfileService).loadSigningProfileModel(NAME);
+
+        // when
+        SigningProfileModel<?, ?> resolved = resolver.resolve(PROFILE, NativeOperation.SIGN_HASH);
+
+        // then
+        assertThat(resolved).isSameAs(rawModel);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private void stubStoredRecord(boolean ilmNativeEnabled, SigningScheme scheme) {
-        var profile = new SigningProfileGateRow(NAME, ilmNativeEnabled, true, SigningWorkflowType.CONTENT_SIGNING,
-                scheme);
+        stubStoredRecord(ilmNativeEnabled, scheme, SigningWorkflowType.CONTENT_SIGNING);
+    }
+
+    private void stubStoredRecord(boolean ilmNativeEnabled, SigningScheme scheme, SigningWorkflowType workflowType) {
+        var profile = new SigningProfileGateRow(NAME, ilmNativeEnabled, true, workflowType, scheme);
         when(signingProfileRepository.findGateRowByUuid(PROFILE)).thenReturn(Optional.of(profile));
     }
 

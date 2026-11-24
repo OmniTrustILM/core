@@ -5,6 +5,7 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
+import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
@@ -12,6 +13,7 @@ import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Common authority-provider operations supported by every interface version (v1 not implemented). Methods take Core's
@@ -124,6 +126,14 @@ public interface AuthorityProviderAdapter {
      * semantics as {@link #listCertificateRequestAttributes}.
      */
     List<BaseAttribute> listIdentifyAttributes(AuthorityInstanceReference authority, RaProfile raProfile)
+            throws ConnectorException;
+
+    /**
+     * The certificate types the authority issues through the RA profile, never empty. v3 asks the connector and
+     * resolves a connector that does not offer the operation, or lists nothing, to X.509 only; v2 has no such operation
+     * and always answers X.509 only.
+     */
+    Set<CertificateType> listCertificateTypes(AuthorityInstanceReference authority, RaProfile raProfile)
             throws ConnectorException;
 
     /**

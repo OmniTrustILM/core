@@ -9,6 +9,7 @@ import com.otilm.api.model.client.cryptography.operations.SignDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.SignDataResponseDto;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.SignatureInputMode;
+import com.otilm.api.model.core.logging.Sensitive;
 import com.otilm.core.model.crypto.AttributesWithOwner;
 import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.security.authz.SecuredParentUUID;
@@ -86,7 +87,7 @@ public interface CryptographicOperationInternalService {
      * @throws NotFoundException when the token instance with the specified UUID is not found
      */
     SignDataResponseDto signDataWithoutEventHistory(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUUID,
-            UUID uuid, UUID keyItemUuid, SignDataRequestDto request, SignatureInputMode inputMode)
+            UUID uuid, UUID keyItemUuid, @Sensitive SignDataRequestDto request, SignatureInputMode inputMode)
             throws ConnectorException, NotFoundException;
 
     /**
