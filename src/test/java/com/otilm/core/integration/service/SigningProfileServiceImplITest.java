@@ -1168,7 +1168,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                             .build());
 
             // when
-            signingProfileService
+            SigningProfileDto updated = signingProfileService
                     .updateSigningProfile(SecuredUUID.fromString(created.getUuid()),
                             aSigningProfileRequestFromExistingProfile(created)
                                     .withDelegatedSigning(signerConnector.getUuid())
@@ -1177,7 +1177,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             // then
             assertTrue(attributeContent2ObjectRepository
                     .getObjectDataAttributesContent(AttributeType.DATA, v2Connector.getUuid(), AttributeOperation.SIGN,
-                            null, Resource.SIGNING_PROFILE, UUID.fromString(created.getUuid()), created.getVersion())
+                            null, Resource.SIGNING_PROFILE, UUID.fromString(created.getUuid()), updated.getVersion())
                     .isEmpty());
         }
 
@@ -2600,6 +2600,78 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         }
 
         @Test
+        void refusesContentProfile_whenARawProfileWithNoRecordsMovedOffTheKey() throws Exception {
+            // given — defaultManagedStaticKeySigningProfile, a raw profile with no signing record, moves to another key
+            signingProfileService
+                    .updateSigningProfile(SecuredUUID.fromString(defaultManagedStaticKeySigningProfile.getUuid()),
+                            aSigningProfileRequestFromExistingProfile(defaultManagedStaticKeySigningProfile)
+                                    .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
+                                    .build());
+            SigningProfileRequestDto contentRequest = aSigningProfileRequest()
+                    .withName("content-on-the-abandoned-raw-key")
+                    .withStaticKeyManagedSigning(defaultRawSigningCertificate.getUuid())
+                    .withManagedContentSigning(UUID.fromString(contentSigningFormattingConnector.getUuid()))
+                    .build();
+
+            // when
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService.createSigningProfile(contentRequest);
+
+            // then
+            assertThatThrownBy(create)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("signs, or has signed, raw digests for Signing Profile(s)")
+                    .hasMessageContaining(defaultManagedStaticKeySigningProfile.getName());
+            assertThat(signingProfileRepository.findByName(contentRequest.getName())).isEmpty();
+        }
+
+        @Test
+        void refusesRawProfile_whenAContentProfileWithNoRecordsMovedOffTheKey() throws Exception {
+            // given — a content profile with no signing record leaves its key for a delegated scheme
+            SigningProfileDto movedAway = createManagedContentProfile("unrecorded-content-that-moved-away",
+                    defaultSigningCertificate.getUuid());
+            signingProfileService
+                    .updateSigningProfile(SecuredUUID.fromString(movedAway.getUuid()),
+                            aSigningProfileRequestFromExistingProfile(movedAway)
+                                    .withDelegatedSigning(signerConnector.getUuid())
+                                    .withDelegatedContentSigning()
+                                    .build());
+            SigningProfileRequestDto rawRequest = aSigningProfileRequest()
+                    .withName("raw-after-unrecorded-content-moved-away")
+                    .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
+                    .withRawSigning()
+                    .build();
+
+            // when
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService.createSigningProfile(rawRequest);
+
+            // then
+            assertThatThrownBy(create)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("signs, or has signed, for Signing Profile(s) of another workflow")
+                    .hasMessageContaining(movedAway.getName());
+            assertThat(signingProfileRepository.findByName(rawRequest.getName())).isEmpty();
+        }
+
+        @Test
+        void overwritesTheVersion_whenTheNewCertificateCarriesTheSameKey() throws Exception {
+            // given — a renewed certificate on the key of defaultManagedStaticKeySigningProfile, which has no record
+            Certificate renewedOnTheSameKey = issueSigningCertificate(rawSigningKeyPair, "Renewed Raw Signing");
+            assertThat(loadKeyUuid(renewedOnTheSameKey)).isEqualTo(loadKeyUuid(defaultRawSigningCertificate));
+            SigningProfileRequestDto ontoTheRenewal = aSigningProfileRequestFromExistingProfile(
+                    defaultManagedStaticKeySigningProfile)
+                    .withStaticKeyManagedSigning(renewedOnTheSameKey.getUuid())
+                    .build();
+
+            // when
+            SigningProfileDto updated = signingProfileService
+                    .updateSigningProfile(SecuredUUID.fromString(defaultManagedStaticKeySigningProfile.getUuid()),
+                            ontoTheRenewal);
+
+            // then
+            assertThat(updated.getVersion()).isEqualTo(defaultManagedStaticKeySigningProfile.getVersion());
+        }
+
+        @Test
         void refusesContentProfileUpdate_whenCertificateIsBoundToRawProfile() throws Exception {
             // given — defaultManagedStaticKeySigningProfile, a raw profile, holds defaultRawSigningCertificate
             SigningProfileDto contentProfile = createManagedContentProfile("content-moving-onto-the-raw-key",
@@ -3911,7 +3983,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                     .getObjectDataAttributesContent(ObjectAttributeContentInfo
                             .builder(Resource.SIGNING_PROFILE, UUID.fromString(created.getUuid()))
                             .operation(AttributeOperation.SIGN)
-                            .version(1)
+                            .version(updated.getVersion())
                             .build());
             assertTrue(remaining.isEmpty(),
                     "SIGN attributes should be cleared from the engine when scheme changes away from STATIC_KEY");

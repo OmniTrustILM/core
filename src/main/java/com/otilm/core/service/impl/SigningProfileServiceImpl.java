@@ -1162,15 +1162,32 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     }
 
     /**
-     * Whether an update writes its change as a new version instead of overwriting {@code current} in place. A workflow
-     * change always keeps the old version: a profile can sign without leaving a record, and the key binding reads what
-     * a key signed for from the stored versions.
+     * Whether an update writes its change as a new version instead of overwriting {@code current} in place. A change of
+     * workflow or signing key always keeps the old version: a profile can sign without leaving a record, and the key
+     * binding reads what a key signed for from the stored versions.
      */
     private boolean updateKeepsVersion(UUID profileUuid, SigningProfileVersion current,
-            SigningProfileRequestDto request) {
+            SigningProfileRequestDto request) throws NotFoundException {
         return current.getWorkflowType() != request.getWorkflow().getType()
+                || leavesSigningKey(current, request.getSigningScheme())
                 || signingRecordInternalService.doesSigningRecordExistInternal(profileUuid, current.getVersion())
                 || recordPolicyDiffersFromVersion(current, request.getRecordPolicy());
+    }
+
+    /** Whether {@code scheme} moves the profile off the key {@code current} signs with, to another key or to none. */
+    private boolean leavesSigningKey(SigningProfileVersion current, SigningSchemeRequestDto scheme)
+            throws NotFoundException {
+        Certificate currentCertificate = current.getCertificate();
+        if (currentCertificate == null || currentCertificate.getKeyUuid() == null) {
+            return false;
+        }
+        if (!(scheme instanceof StaticKeyManagedSigningRequestDto staticKey)) {
+            return true;
+        }
+        UUID requestedKeyUuid = certificateService
+                .getCertificateEntity(SecuredUUID.fromUUID(staticKey.getCertificateUuid()))
+                .getKeyUuid();
+        return !currentCertificate.getKeyUuid().equals(requestedKeyUuid);
     }
 
     /**
