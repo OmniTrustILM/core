@@ -15,6 +15,7 @@ import jakarta.persistence.criteria.Join;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import jakarta.persistence.criteria.Subquery;
+import java.time.Instant;
 
 /** The certificates that are still to be renewed. */
 public final class RenewalEligibility {
@@ -44,6 +45,14 @@ public final class RenewalEligibility {
         return cb
                 .and(live(certificate, cb),
                         cb.or(cb.not(cb.exists(issuedSuccessor(certificate, cb, query))), cb.exists(openLocation)));
+    }
+
+    /**
+     * Whether the certificate is issued, unarchived and unexpired, as the queries require of a certificate to renew.
+     */
+    public static boolean isLive(Certificate certificate, Instant now) {
+        return certificate.getState() == CertificateState.ISSUED && !certificate.isArchived()
+                && certificate.getNotAfter() != null && certificate.getNotAfter().toInstant().isAfter(now);
     }
 
     private static Predicate live(Root<Certificate> certificate, CriteriaBuilder cb) {

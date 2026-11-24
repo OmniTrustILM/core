@@ -29,6 +29,7 @@ import com.otilm.core.dao.entity.X509CertificateRequestEntity;
 import com.otilm.core.mapper.crypto.CryptographicKeyDtoMapper;
 import com.otilm.core.model.crypto.ImmutableCryptographicKeyFullModel;
 import com.otilm.core.model.crypto.ImmutableCryptographicKeyListModel;
+import com.otilm.core.service.renewal.RenewalEligibility;
 import com.otilm.core.service.renewal.auto.AutoRenewalModeResolver;
 import com.otilm.core.service.renewal.auto.AutoRenewalModeResolver.ModeDecision;
 import com.otilm.core.util.CertificateUtil;
@@ -169,9 +170,11 @@ public class CertificateDetailDtoMapper {
         dto.setExplanationUrl(renewalInfo.getExplanationUrl());
         dto.setSource(renewalInfo.getSource());
         dto.setUpdatedAt(Date.from(renewalInfo.getUpdatedAt()));
-        boolean renewed = hasIssuedSuccessor(certificate);
-        dto.setDue(!renewalInfo.getWindowStart().isAfter(Instant.now()) && !renewed);
-        if (!renewed && certificate.getRaProfile() != null && certificate.getRaProfile().isAutoRenewalEnabled()) {
+        Instant now = Instant.now();
+        boolean awaitingRenewal = RenewalEligibility.isLive(certificate, now) && !hasIssuedSuccessor(certificate);
+        dto.setDue(awaitingRenewal && !renewalInfo.getWindowStart().isAfter(now));
+        if (awaitingRenewal && certificate.getRaProfile() != null
+                && certificate.getRaProfile().isAutoRenewalEnabled()) {
             dto.setAutoRenewal(toAutoRenewalDto(certificate, renewalInfo));
         }
         return dto;

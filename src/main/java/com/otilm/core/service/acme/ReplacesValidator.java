@@ -107,8 +107,8 @@ public class ReplacesValidator {
     }
 
     /**
-     * Whether a DNS or IP identifier of the order is one of the certificate's subject alternative names of that type or
-     * its common name. Names compare ignoring case, addresses by their octets.
+     * Whether a DNS or IP identifier of the order is one of the certificate's subject alternative names of that type. A
+     * DNS identifier may also be the common name. Names compare ignoring case, addresses by their octets.
      */
     private static boolean sharesIdentifier(Certificate certificate, List<Identifier> identifiers) {
         X509CertificateEntity x509 = X509CertificateEntity.fromOrNull(certificate);
@@ -116,17 +116,12 @@ public class ReplacesValidator {
             return false;
         }
         Map<String, List<String>> sans = CertificateUtil.deserializeSans(x509.getSubjectAlternativeNames());
-        List<String> names = namesOfType(sans, DNS_NAME, certificate.getCommonName());
-        List<String> addresses = namesOfType(sans, IP_ADDRESS, certificate.getCommonName());
-        return identifiers.stream().anyMatch(identifier -> matchesAny(identifier, names, addresses));
-    }
-
-    private static List<String> namesOfType(Map<String, List<String>> sans, String type, String commonName) {
-        List<String> values = new ArrayList<>(sans.getOrDefault(type, List.of()));
-        if (commonName != null) {
-            values.add(commonName);
+        List<String> names = new ArrayList<>(sans.getOrDefault(DNS_NAME, List.of()));
+        if (certificate.getCommonName() != null) {
+            names.add(certificate.getCommonName());
         }
-        return values;
+        List<String> addresses = sans.getOrDefault(IP_ADDRESS, List.of());
+        return identifiers.stream().anyMatch(identifier -> matchesAny(identifier, names, addresses));
     }
 
     private static boolean matchesAny(Identifier identifier, List<String> names, List<String> addresses) {

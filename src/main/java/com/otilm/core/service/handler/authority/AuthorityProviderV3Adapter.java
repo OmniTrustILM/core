@@ -485,7 +485,7 @@ public class AuthorityProviderV3Adapter extends AbstractAuthorityProviderAdapter
     private static RenewalInfoCallResult renewalInfoProblem(String authorityName, ConnectorProblemException e) {
         ErrorCode code = e.getProblemDetail().getErrorCode();
         int status = e.getProblemDetail().getStatus();
-        boolean notServed = code == ErrorCode.OPERATION_NOT_SUPPORTED
+        boolean notServed = code == ErrorCode.OPERATION_NOT_SUPPORTED || status == HttpStatus.NOT_IMPLEMENTED.value()
                 || status == HttpStatus.NOT_FOUND.value() && (code == null || code == ErrorCode.RESOURCE_NOT_FOUND);
         if (notServed) {
             return new RenewalInfoCallResult.Suspend(authorityName,

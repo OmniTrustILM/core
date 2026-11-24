@@ -6,6 +6,7 @@ import com.otilm.api.model.core.acme.Problem;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.acme.AcmeAccount;
 import com.otilm.core.dao.repository.CertificateRelationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
@@ -51,7 +52,7 @@ class ReplacesValidatorTest {
     private ReplacesValidator validator;
     private AcmeAccount account;
     private RaProfile raProfile;
-    private Certificate predecessor;
+    private X509CertificateEntity predecessor;
 
     @BeforeEach
     void createValidator() {
@@ -112,6 +113,33 @@ class ReplacesValidatorTest {
 
         // then
         assertThat(validated).isSameAs(predecessor);
+    }
+
+    @Test
+    void acceptsAnIpIdentifier_whenItSpellsTheAddressSubjectAlternativeNameDifferently() throws Exception {
+        // given
+        predecessor.setSubjectAlternativeNames("{\"iPAddress\":[\"2001:DB8:0:0:0:0:0:1\"]}");
+        var compressedSpelling = ip("2001:db8::1");
+
+        // when
+        Certificate validated = validator.validate(CERT_ID, account, List.of(compressedSpelling), raProfile);
+
+        // then
+        assertThat(validated).isSameAs(predecessor);
+    }
+
+    @Test
+    void refusesAsMalformed_whenTheIpIdentifierIsOnlyTheCommonName() {
+        // given
+        var addressInCommonNameOnly = "192.0.2.9";
+        predecessor.setCommonName(addressInCommonNameOnly);
+
+        // when
+        ThrowingCallable validate = () -> validator
+                .validate(CERT_ID, account, List.of(ip(addressInCommonNameOnly)), raProfile);
+
+        // then
+        assertRefused(validate);
     }
 
     @ParameterizedTest

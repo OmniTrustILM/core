@@ -51,6 +51,7 @@ import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.api.model.core.search.SearchFieldDataDto;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
+import com.otilm.api.model.core.v2.ClientCertificateRekeyRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
@@ -1303,26 +1304,38 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
         return clientCertificateDataResponseDto;
     }
 
+    /**
+     * Renews the certificate with the request the location generated, or rekeys it when that request carries a new key,
+     * as a location that generates its own key does.
+     */
     private UUID renewCertificate(CertificateLocation certificateLocation, String csr, Consumer<UUID> beforeDispatch)
             throws LocationException {
-        ClientCertificateRenewRequestDto clientCertificateRenewRequestDto = ClientCertificateRenewRequestDto
-                .builder()
-                .build();
-        clientCertificateRenewRequestDto.setRequest(csr);
-        clientCertificateRenewRequestDto.setReplaceInLocations(false);
+        Certificate current = certificateLocation.getCertificate();
+        SecuredParentUUID authorityUuid = SecuredParentUUID
+                .fromUUID(current.getRaProfile().getAuthorityInstanceReferenceUuid());
+        SecuredUUID raProfileUuid = current.getRaProfile().getSecuredUuid();
+        String certificateUuid = current.getSecuredUuid().toString();
 
         ClientCertificateDataResponseDto clientCertificateDataResponseDto;
         try {
-            clientCertificateDataResponseDto = clientOperationService
-                    .renewCertificate(
-                            SecuredParentUUID
-                                    .fromUUID(certificateLocation
-                                            .getCertificate()
-                                            .getRaProfile()
-                                            .getAuthorityInstanceReferenceUuid()),
-                            certificateLocation.getCertificate().getRaProfile().getSecuredUuid(),
-                            certificateLocation.getCertificate().getSecuredUuid().toString(),
-                            clientCertificateRenewRequestDto, null, beforeDispatch);
+            ResourceAction operation = clientOperationService
+                    .renewalFor(authorityUuid, raProfileUuid, current.getUuid(), csr, CertificateRequestFormat.PKCS10)
+                    .orElse(ResourceAction.RENEW);
+            if (operation == ResourceAction.REKEY) {
+                ClientCertificateRekeyRequestDto rekeyRequest = ClientCertificateRekeyRequestDto.builder().build();
+                rekeyRequest.setRequest(csr);
+                rekeyRequest.setReplaceInLocations(false);
+                clientCertificateDataResponseDto = clientOperationService
+                        .rekeyCertificate(authorityUuid, raProfileUuid, certificateUuid, rekeyRequest, null,
+                                beforeDispatch);
+            } else {
+                ClientCertificateRenewRequestDto renewRequest = ClientCertificateRenewRequestDto.builder().build();
+                renewRequest.setRequest(csr);
+                renewRequest.setReplaceInLocations(false);
+                clientCertificateDataResponseDto = clientOperationService
+                        .renewCertificate(authorityUuid, raProfileUuid, certificateUuid, renewRequest, null,
+                                beforeDispatch);
+            }
         } catch (NotFoundException | IOException | java.security.cert.CertificateException
                 | CertificateOperationException | CertificateRequestException | NoSuchAlgorithmException
                 | InvalidKeyException | ConnectorException | AttributeException e) {

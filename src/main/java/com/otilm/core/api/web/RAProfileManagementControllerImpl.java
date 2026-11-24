@@ -138,8 +138,10 @@ public class RAProfileManagementControllerImpl implements RAProfileManagementCon
     @Override
     @AuditLogged(module = Module.CERTIFICATES, resource = Resource.RA_PROFILE, affiliatedResource = Resource.AUTHORITY,
             operation = Operation.UPDATE)
-    public RaProfileDto updateRaProfileRenewalSettings(String authorityUuid, String raProfileUuid,
-            RaProfileRenewalSettingsUpdateDto request) throws NotFoundException {
+    public RaProfileDto updateRaProfileRenewalSettings(
+            @LogResource(uuid = true, affiliated = true) String authorityUuid,
+            @LogResource(uuid = true) String raProfileUuid, RaProfileRenewalSettingsUpdateDto request)
+            throws NotFoundException {
         return raProfileService
                 .updateRaProfileRenewalSettings(SecuredParentUUID.fromString(authorityUuid),
                         SecuredUUID.fromString(raProfileUuid), request);

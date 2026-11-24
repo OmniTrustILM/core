@@ -81,6 +81,7 @@ import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
@@ -103,6 +104,9 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -1289,6 +1293,34 @@ class LocationServiceITest extends BaseSpringBootTest {
         assertThat(successorUuid).isEqualTo(renewedCertificate.getUuid());
         assertThat(certificateLocationRepository
                 .findById(new CertificateLocationId(location.getUuid(), renewedCertificate.getUuid()))).isPresent();
+    }
+
+    @Test
+    void rekeysTheCertificate_whenTheLocationGeneratesARequestWithANewKey() throws Exception {
+        // given
+        stubConnectorAccepting();
+        prepareCertificateForRenewalInLocation();
+        X509CertificateEntity rekeyedCertificate = aCertificate().build();
+        certificateRepository.save(rekeyedCertificate);
+        ClientCertificateDataResponseDto responseDto = new ClientCertificateDataResponseDto();
+        responseDto.setUuid(rekeyedCertificate.getUuid().toString());
+        when(clientOperationService.renewalFor(any(), any(), eq(certificate.getUuid()), any(), any()))
+                .thenReturn(Optional.of(ResourceAction.REKEY));
+        when(clientOperationService.rekeyCertificate(any(), any(), any(), any(), any(), any())).thenReturn(responseDto);
+        Consumer<UUID> beforeDispatch = successorUuid -> {
+        };
+
+        // when
+        UUID successorUuid = locationService
+                .renewCertificateInLocationForSuccessor(entityInstanceReference.getSecuredParentUuid(),
+                        location.getSecuredUuid(), certificate.getUuid(), beforeDispatch);
+
+        // then
+        assertThat(successorUuid).isEqualTo(rekeyedCertificate.getUuid());
+        verify(clientOperationService)
+                .rekeyCertificate(any(), any(), eq(certificate.getUuid().toString()), any(), isNull(),
+                        same(beforeDispatch));
+        verify(clientOperationService, never()).renewCertificate(any(), any(), any(), any(), any(), any());
     }
 
     @Test

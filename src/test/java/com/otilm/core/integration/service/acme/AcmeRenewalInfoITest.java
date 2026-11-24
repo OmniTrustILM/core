@@ -146,6 +146,25 @@ class AcmeRenewalInfoITest extends BaseSpringBootTest {
     }
 
     @Test
+    void keepsFractionalSeconds_whenTheWindowIsShorterThanASecond() throws Exception {
+        // given
+        Certificate certificate = issuedCertificate(new BigInteger("8a02", 16), issuerKeyIdentifier);
+        CertificateRenewalInfo info = window(certificate, RenewalWindowSource.POLICY, null);
+        var subSecondStart = Instant.parse("2026-03-09T10:00:00.670Z");
+        var subSecondEnd = Instant.parse("2026-03-09T10:00:00.800Z");
+        info.setWindowStart(subSecondStart);
+        info.setWindowEnd(subSecondEnd);
+        renewalInfoRepository.save(info);
+
+        // when
+        ResponseEntity<RenewalInfo> response = acmeController.getRenewalInfo(PROFILE_NAME, idOf(certificate));
+
+        // then
+        assertThat(response.getBody().getSuggestedWindow().getStart()).isEqualTo("2026-03-09T10:00:00.670Z");
+        assertThat(response.getBody().getSuggestedWindow().getEnd()).isEqualTo("2026-03-09T10:00:00.800Z");
+    }
+
+    @Test
     void capsRetryAfterAtAnHourForAForcedWindow() throws Exception {
         Certificate certificate = issuedCertificate(BigInteger.valueOf(77), issuerKeyIdentifier);
         window(certificate, RenewalWindowSource.FORCED, null);

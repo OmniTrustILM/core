@@ -14,8 +14,8 @@ public final class RefreshSchedule {
     }
 
     /**
-     * The next refresh after an answer: the item's retry-after, else the response's, else the default interval, clamped
-     * to the configured bounds and spread by up to 10 % either way.
+     * The next refresh after an answer: the item's retry-after, else the response's, else the default interval, spread
+     * by up to 10 % either way and then clamped to the configured bounds.
      *
      * @param random a source of numbers in [0, 1)
      */
@@ -27,9 +27,11 @@ public final class RefreshSchedule {
         } else if (responseRetryAfter != null) {
             seconds = responseRetryAfter;
         }
-        int clamped = Math.clamp(seconds, settings.minIntervalSeconds(), settings.maxIntervalSeconds());
         double factor = 1 + (random.getAsDouble() * 2 - 1) * JITTER;
-        return now.plusMillis(Math.round(clamped * 1000 * factor));
+        long jitteredMillis = Math.round(seconds * 1000L * factor);
+        long delayMillis = Math
+                .clamp(jitteredMillis, settings.minIntervalSeconds() * 1000L, settings.maxIntervalSeconds() * 1000L);
+        return now.plusMillis(delayMillis);
     }
 
     /**

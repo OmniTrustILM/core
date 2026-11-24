@@ -16,13 +16,18 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Date;
 import java.util.UUID;
+import java.util.function.Consumer;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Named.named;
 
 class CertificateDetailDtoMapperRenewalTest {
 
@@ -178,6 +183,24 @@ class CertificateDetailDtoMapperRenewalTest {
         assertThat(dto.getRenewalInfo().getAutoRenewal()).isNull();
     }
 
+    @ParameterizedTest
+    @MethodSource("certificatesNoLongerToRenew")
+    void marksTheCertificateNotDueWithoutAutomaticRenewal_whenItIsNoLongerLive(
+            Consumer<X509CertificateEntity> endOfLife) {
+        // given
+        Instant startedWindow = Instant.now().minus(Duration.ofHours(1));
+        certificate.setRenewalInfo(renewalInfo(startedWindow, startedWindow.plus(Duration.ofDays(1))));
+        certificate.setRaProfile(raProfile(true));
+        endOfLife.accept(certificate);
+
+        // when
+        CertificateDetail dto = CertificateDetailDtoMapper.toDetailDto(certificate);
+
+        // then
+        assertThat(dto.getRenewalInfo().isDue()).isFalse();
+        assertThat(dto.getRenewalInfo().getAutoRenewal()).isNull();
+    }
+
     @Test
     void listsTheWindowStart_whenTheCertificateHasAWindow() {
         // given
@@ -204,10 +227,24 @@ class CertificateDetailDtoMapperRenewalTest {
 
     @BeforeEach
     void createCertificate() {
-        certificate = aCertificate().withUuid(UUID.randomUUID()).withState(CertificateState.ISSUED).build();
+        certificate = aCertificate()
+                .withUuid(UUID.randomUUID())
+                .withState(CertificateState.ISSUED)
+                .withNotAfter(Date.from(Instant.now().plus(Duration.ofDays(30))))
+                .build();
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static Stream<Arguments> certificatesNoLongerToRenew() {
+        Consumer<X509CertificateEntity> revoke = certificate -> certificate.setState(CertificateState.REVOKED);
+        Consumer<X509CertificateEntity> expire = certificate -> certificate
+                .setNotAfter(Date.from(Instant.now().minus(Duration.ofMinutes(1))));
+        Consumer<X509CertificateEntity> archive = certificate -> certificate.setArchived(true);
+        return Stream
+                .of(Arguments.of(named("revoked", revoke)), Arguments.of(named("expired", expire)),
+                        Arguments.of(named("archived", archive)));
+    }
 
     private static CertificateRenewalInfo renewalInfo(Instant start, Instant end) {
         CertificateRenewalInfo renewalInfo = new CertificateRenewalInfo();

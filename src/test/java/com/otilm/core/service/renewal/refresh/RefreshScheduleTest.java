@@ -4,8 +4,10 @@ import com.otilm.api.model.core.settings.CertificateRenewalInfoSettingsDto;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.function.DoubleSupplier;
 import org.junit.jupiter.api.Test;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class RefreshScheduleTest {
@@ -38,6 +40,32 @@ class RefreshScheduleTest {
     @Test
     void retryAfterAboveMaximumIsLoweredToMaximum() {
         assertEquals(NOW.plusSeconds(86400), RefreshSchedule.next(NOW, 999999, null, SETTINGS, () -> 0.5));
+    }
+
+    @Test
+    void keepsTheMinimum_whenJitterWouldShortenAClampedRetryAfter() {
+        // given
+        var belowMinimum = 10;
+        DoubleSupplier lowestJitter = () -> 0.0;
+
+        // when
+        Instant next = RefreshSchedule.next(NOW, belowMinimum, null, SETTINGS, lowestJitter);
+
+        // then
+        assertThat(next).isEqualTo(NOW.plusSeconds(SETTINGS.minIntervalSeconds()));
+    }
+
+    @Test
+    void keepsTheMaximum_whenJitterWouldLengthenAClampedRetryAfter() {
+        // given
+        var aboveMaximum = 999999;
+        DoubleSupplier highestJitter = () -> 1.0;
+
+        // when
+        Instant next = RefreshSchedule.next(NOW, aboveMaximum, null, SETTINGS, highestJitter);
+
+        // then
+        assertThat(next).isEqualTo(NOW.plusSeconds(SETTINGS.maxIntervalSeconds()));
     }
 
     @Test

@@ -15,7 +15,6 @@ import com.otilm.core.service.acme.AriCertId;
 import com.otilm.core.service.acme.AriCertificateLookup;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -133,8 +132,9 @@ public class AcmeRenewalInfoServiceImpl implements AcmeRenewalInfoExternalServic
                 .body(body);
     }
 
+    /** RFC 3339 in UTC, keeping fractional seconds so a window shorter than a second keeps its end after its start. */
     private static String rfc3339(Instant instant) {
-        return instant.truncatedTo(ChronoUnit.SECONDS).toString();
+        return instant.toString();
     }
 
     private record ServingProfile(AcmeProfile acmeProfile, UUID raProfileUuid) {

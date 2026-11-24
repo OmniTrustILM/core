@@ -24,11 +24,15 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.NullSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.mockito.ArgumentMatchers.any;
@@ -131,6 +135,23 @@ class AuthorityProviderV3AdapterRenewalInfoTest {
                 .thenThrow(new ConnectorServerException("not implemented", HttpStatus.NOT_IMPLEMENTED));
 
         assertInstanceOf(RenewalInfoCallResult.Suspend.class, adapter.renewalInfo(authority, raProfile, items));
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = ErrorCode.class, names = {"INTERNAL_SERVER_ERROR", "BAD_REQUEST"})
+    @NullSource
+    void suspends_whenTheProblemDocumentHasStatusNotImplemented(ErrorCode genericOrMissingCode)
+            throws ConnectorException {
+        // given
+        var notImplemented = HttpStatus.NOT_IMPLEMENTED.value();
+        when(certClient.renewalInfo(any(), any()))
+                .thenThrow(ConnectorFailureFixtures.problemRefusal(genericOrMissingCode, notImplemented));
+
+        // when
+        RenewalInfoCallResult result = adapter.renewalInfo(authority, raProfile, items);
+
+        // then
+        assertThat(result).isInstanceOf(RenewalInfoCallResult.Suspend.class);
     }
 
     @Test
