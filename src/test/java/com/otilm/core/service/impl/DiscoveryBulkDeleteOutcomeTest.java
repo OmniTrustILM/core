@@ -13,7 +13,7 @@ class DiscoveryBulkDeleteOutcomeTest {
 
     @ParameterizedTest
     @MethodSource("outcomes")
-    void namesWhatTheBulkDeleteLeftBehind(int stillRunning, int failed, String expected) {
+    void describesTheOutcome_whenTheBulkDeleteEnds(int stillRunning, int failed, String expected) {
         // given — the counts of runs the bulk delete refused and failed to delete
 
         // when

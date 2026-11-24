@@ -511,7 +511,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
     }
 
     @Test
-    void commitsTheLocalDelete_beforeTheConnectorDeletesItsCopy() throws Exception {
+    void hasCommittedTheLocalDelete_whenTheConnectorDeletesItsCopy() throws Exception {
         // given
         givenConnectorCopy();
         CompletableFuture<Integer> runRowsVisibleToTheConnectorCall = countRunRowsWhenTheConnectorDeletesItsCopy();
@@ -556,6 +556,8 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
     void deletesTheOtherRunsOfABulkDelete_whenOneFailsToDelete() throws Exception {
         // given
         Discovery refusedByTheDatabase = saveEndedV1Run("refused-by-the-database");
+        CertificateContent foundOnlyByTheRefusedRun = saveContent("fp-found-only-by-the-refused-run");
+        DiscoveryCertificate refusedRunsResult = stageResult(refusedByTheDatabase, foundOnlyByTheRefusedRun.getId());
         Discovery afterTheFailure = saveEndedV1Run("after-the-failure");
         RefusedDiscoveryDeletes.install(jdbcTemplate, refusedByTheDatabase.getUuid());
 
@@ -569,6 +571,8 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         assertThat(discoveryRepository.findByUuid(discovery.getUuid())).isEmpty();
         assertThat(discoveryRepository.findByUuid(afterTheFailure.getUuid())).isEmpty();
         assertThat(discoveryRepository.findByUuid(refusedByTheDatabase.getUuid())).isPresent();
+        assertThat(discoveryCertificateRepository.findByUuid(refusedRunsResult.getUuid())).isPresent();
+        assertThat(certificateContentRepository.findById(foundOnlyByTheRefusedRun.getId())).isPresent();
     }
 
     @Test
