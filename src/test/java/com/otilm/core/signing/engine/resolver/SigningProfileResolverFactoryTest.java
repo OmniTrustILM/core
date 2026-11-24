@@ -5,19 +5,25 @@ import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.core.model.signing.CertificatePurposeRequirements;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.SigningRecordPolicyModelBuilder;
+import com.otilm.core.model.signing.resolved.ResolvedManagedRawSigningProfile;
+import com.otilm.core.model.signing.resolved.ResolvedManagedScheme;
 import com.otilm.core.model.signing.resolved.ResolvedManagedTimestampingProfile;
 import com.otilm.core.model.signing.resolved.ResolvedSigningProfile;
 import com.otilm.core.model.signing.scheme.StaticKeyManagedSigning;
 import com.otilm.core.model.signing.workflow.ManagedContentSigningWorkflow;
+import com.otilm.core.model.signing.workflow.ManagedRawSigningWorkflow;
 import com.otilm.core.model.signing.workflow.ManagedTimestampingWorkflow;
 import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
+import com.otilm.core.signing.rawsigning.resolver.StaticKeyManagedRawSigningResolver;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 import static com.otilm.core.util.builders.ResolvedManagedContentSigningProfileBuilder.aResolvedContentSigningProfile;
+import static com.otilm.core.util.builders.ResolvedManagedRawSigningProfileBuilder.aResolvedRawSigningProfile;
+import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningProfile;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
@@ -129,5 +135,28 @@ class SigningProfileResolverFactoryTest {
         // then
         assertThat(result).isSameAs(resolved);
         assertThat(result.workflowType()).isEqualTo(SigningWorkflowType.CONTENT_SIGNING);
+    }
+
+    @Test
+    void resolvesThroughTheRawResolver_whenModelIsRaw() throws Exception {
+        // given
+        SigningProfileModel<?, ?> rawModel = aSigningProfile()
+                .withName("raw-profile")
+                .withEnabledProtocols(List.of(SigningProtocol.ILM_NATIVE))
+                .withWorkflow(new ManagedRawSigningWorkflow(null))
+                .build();
+        var schemeResolver = mock(ManagedSchemeResolver.class);
+        ResolvedManagedScheme resolvedScheme = aResolvedRawSigningProfile().build().resolvedScheme();
+        given(schemeResolver.resolve("raw-profile", rawModel.signingScheme())).willReturn(resolvedScheme);
+        var rawResolver = new StaticKeyManagedRawSigningResolver(schemeResolver);
+        var otherResolver = mock(SigningProfileResolver.class);
+
+        // when
+        ResolvedSigningProfile result = new SigningProfileResolverFactory(List.of(otherResolver, rawResolver))
+                .resolve(rawModel);
+
+        // then
+        assertThat(result).isInstanceOf(ResolvedManagedRawSigningProfile.class);
+        assertThat(result.workflowType()).isEqualTo(SigningWorkflowType.RAW_SIGNING);
     }
 }

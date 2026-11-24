@@ -158,7 +158,8 @@ public class CrmfKurMessageHandler implements MessageHandler<ClientCertificateDa
             RaProfile raProfile = configuration.getRaProfile();
             // -- (1)certification request (ask for issue)
             return clientOperationService
-                    .rekeyCertificate(SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
+                    .rekeyCertificateThroughProtocol(
+                            SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
                             raProfile.getSecuredUuid(), certificateUUID, dtoBuilder.build());
         } catch (ValidationException e) {
             // Gate/completion denial (e.g. the authorization expired or locked between the protection-layer

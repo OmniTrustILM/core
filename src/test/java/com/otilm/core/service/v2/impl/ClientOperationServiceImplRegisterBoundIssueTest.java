@@ -166,7 +166,7 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
         var typeHandlerRegistry = new CertificateTypeHandlerRegistry(List.of(new X509CertificateTypeHandler()));
         service.setRequestFormatResolver(new RequestFormatResolver(typeHandlerRegistry));
         service.setTypeHandlerRegistry(typeHandlerRegistry);
-        service.setAuthorityCertificateTypes(new AuthorityCertificateTypes());
+        service.setAuthorityCertificateTypes(mock(AuthorityCertificateTypes.class));
         service.setCertificateRegistrationRepository(certificateRegistrationRepository);
         service.setCertificateLocationRepository(mock(CertificateLocationRepository.class));
         service.setCertificateRegistrationWriter(certificateRegistrationWriter);
