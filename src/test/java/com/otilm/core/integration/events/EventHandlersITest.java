@@ -55,6 +55,9 @@ import com.otilm.api.model.core.workflows.TriggerRequestDto;
 import com.otilm.api.model.core.workflows.TriggerType;
 import com.otilm.api.model.scheduler.SchedulerJobExecutionStatus;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
+import com.otilm.core.certificate.type.X509CertificateTypeHandler;
+import com.otilm.core.certificate.type.stub.StubCertificateTypeHandler;
 import com.otilm.core.dao.entity.Approval;
 import com.otilm.core.dao.entity.ApprovalProfile;
 import com.otilm.core.dao.entity.Certificate;
@@ -78,6 +81,7 @@ import com.otilm.core.dao.repository.ApprovalRepository;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
+import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.DiscoveryCertificateRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.dao.repository.GroupAssociationRepository;
@@ -127,7 +131,9 @@ import com.otilm.core.tasks.ScheduledJobInfo;
 import com.otilm.core.util.AuthHelper;
 import com.otilm.core.util.AuthServiceWireMockStubs;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.CertificateTestUtil;
 import com.otilm.core.util.CertificateUtil;
+import com.otilm.core.util.StubCertificateFixtures;
 import com.otilm.core.util.WireMockPorts;
 import com.otilm.core.util.X509ObjectToString;
 import java.math.BigInteger;
@@ -156,11 +162,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.argThat;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 
 class EventHandlersITest extends BaseSpringBootTest {
@@ -178,6 +186,8 @@ class EventHandlersITest extends BaseSpringBootTest {
     private RaProfileRepository raProfileRepository;
     @Autowired
     private CertificateRepository certificateRepository;
+    @Autowired
+    private CryptographicKeyRepository cryptographicKeyRepository;
     @Autowired
     private CertificateContentRepository certificateContentRepository;
     @Autowired
@@ -230,6 +240,12 @@ class EventHandlersITest extends BaseSpringBootTest {
     private TriggerAssociationRepository triggerAssociationRepository;
     @Autowired
     private EventHistoryRepository eventHistoryRepository;
+
+    @Autowired
+    private X509CertificateTypeHandler x509Handler;
+
+    @Autowired
+    private CertificateTypeHandlerRegistry typeHandlerRegistry;
     @Autowired
     private TriggerHistoryRepository triggerHistoryRepository;
 
@@ -563,6 +579,85 @@ class EventHandlersITest extends BaseSpringBootTest {
         Assertions.assertEquals(1, histories.size());
         Assertions.assertTrue(histories.getFirst().isConditionsMatched());
         Assertions.assertTrue(histories.getFirst().isActionsPerformed());
+    }
+
+    @Test
+    void storesTheCertificateThroughItsHandler_whenAHandlerRecognisesTheUploadedContent() throws Exception {
+        // given
+        X509Certificate uploaded = CertificateGeneratorHelper.generateCACertificate(null, "CN=through-the-handler");
+        X509CertificateTypeHandler recognisingHandler = spy(x509Handler);
+        certificateUploadedEventHandler
+                .setTypeHandlerRegistry(new CertificateTypeHandlerRegistry(List.of(recognisingHandler)));
+        EventMessage uploadEvent = createUploadEvent(Base64.getEncoder().encodeToString(uploaded.getEncoded()));
+
+        // when
+        try {
+            certificateUploadedEventHandler.handleEvent(uploadEvent);
+        } finally {
+            certificateUploadedEventHandler.setTypeHandlerRegistry(typeHandlerRegistry);
+        }
+
+        // then
+        verify(recognisingHandler).newCertificate();
+        verify(recognisingHandler).stampIssued(any(), any());
+        verify(recognisingHandler).contentToStore(any());
+        assertThat(certificateRepository.findByFingerprint(CertificateUtil.getThumbprint(uploaded))).isPresent();
+    }
+
+    @Test
+    void linksTheAlternativeKey_whenTheUploadedCertificateIsHybrid() throws Exception {
+        // given
+        X509Certificate hybrid = CertificateTestUtil.createHybridCertificate();
+        EventMessage uploadEvent = createUploadEvent(Base64.getEncoder().encodeToString(hybrid.getEncoded()));
+
+        // when
+        certificateUploadedEventHandler.handleEvent(uploadEvent);
+
+        // then
+        Certificate stored = certificateRepository
+                .findByFingerprint(CertificateUtil.getThumbprint(hybrid))
+                .orElseThrow();
+        assertThat(stored.getAltKeyUuid()).isNotNull();
+        assertThat(cryptographicKeyRepository.findByUuid(stored.getAltKeyUuid())).isPresent();
+    }
+
+    @Test
+    void recordsAFailedEvent_whenTheTypeOfTheUploadedCertificateCannotBeStored() throws Exception {
+        // given
+        certificateUploadedEventHandler
+                .setTypeHandlerRegistry(new CertificateTypeHandlerRegistry(List.of(new StubCertificateTypeHandler())));
+        EventMessage uploadEvent = createUploadEvent(
+                Base64.getEncoder().encodeToString(StubCertificateFixtures.certificate("stub-1", "holder")));
+        long certificatesBefore = certificateRepository.count();
+
+        // when
+        try {
+            certificateUploadedEventHandler.handleEvent(uploadEvent);
+        } finally {
+            certificateUploadedEventHandler.setTypeHandlerRegistry(typeHandlerRegistry);
+        }
+
+        // then
+        assertThat(eventHistoryRepository.findAll())
+                .extracting(EventHistory::getStatus)
+                .containsExactly(EventStatus.FAILED);
+        assertThat(certificateRepository.count()).isEqualTo(certificatesBefore);
+    }
+
+    @Test
+    void recordsAFailedEvent_whenTheUploadEventCarriesNoContent() throws Exception {
+        // given
+        EventMessage uploadEvent = createUploadEvent(null);
+        long certificatesBefore = certificateRepository.count();
+
+        // when
+        certificateUploadedEventHandler.handleEvent(uploadEvent);
+
+        // then
+        assertThat(eventHistoryRepository.findAll())
+                .extracting(EventHistory::getStatus)
+                .containsExactly(EventStatus.FAILED);
+        assertThat(certificateRepository.count()).isEqualTo(certificatesBefore);
     }
 
     @Test
@@ -1843,5 +1938,13 @@ class EventHandlersITest extends BaseSpringBootTest {
                         UUID.fromString(notificationProfileDetailDto4.getUuid()),
                         UUID.fromString(notificationProfileDetailDto5.getUuid()));
 
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static EventMessage createUploadEvent(String certificateContent) {
+        return CertificateUploadedEventHandler
+                .constructEventMessage(
+                        CertificateUploadEventMessageData.builder().certificateContent(certificateContent).build());
     }
 }

@@ -418,10 +418,8 @@ public class CertificateUtil {
     }
 
     /**
-     * Sets certificate data fields only; does NOT advance state. Callers routing PENDING_ISSUE-&gt;ISSUED through
-     * {@link com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine} call this before the SM
-     * transition; callers creating new certificate rows that bypass the SM use {@link #prepareIssuedCertificate}
-     * instead.
+     * Sets certificate data fields only and leaves the state as it is: the caller sets it on a new certificate or moves
+     * it through {@link com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine}.
      */
     public static void stampIssuedFields(X509CertificateEntity modal, X509Certificate certificate) {
         modal.setComplianceStatus(ComplianceStatus.NOT_CHECKED);

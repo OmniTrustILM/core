@@ -15,6 +15,7 @@ import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.core.certificate.type.stub.StubCertificateTypeHandler;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.helpers.CertificateGeneratorHelper.CertificateChainInfo;
 import com.otilm.core.oid.OidHandler;
@@ -22,7 +23,6 @@ import com.otilm.core.oid.OidRecord;
 import com.otilm.core.service.CryptographicOperationInternalService;
 import com.otilm.core.util.CertificateTestUtil;
 import com.otilm.core.util.CertificateUtil;
-import com.otilm.core.util.X509ObjectToString;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -807,6 +807,18 @@ class X509CertificateTypeHandlerTest {
     }
 
     @Test
+    void createsAnEmptyX509Entity_whenAskedForANewCertificate() {
+        // given — the X.509 type stores its certificates in the X.509 entity
+
+        // when
+        Certificate created = handler.newCertificate();
+
+        // then
+        assertThat(created).isInstanceOf(X509CertificateEntity.class);
+        assertThat(created.getState()).isNull();
+    }
+
+    @Test
     void fillsTheX509Fields_whenStampingAnIssuedCertificate() throws Exception {
         // given
         X509Certificate issuedCertificate = chain.getEndEntityCertificate();
@@ -824,15 +836,16 @@ class X509CertificateTypeHandlerTest {
     }
 
     @Test
-    void returnsThePemOfTheCertificate_whenAskedForTheContentToStore() throws Exception {
+    void returnsTheBase64OfTheCertificateWithoutPemLines_whenAskedForTheContentToStore() throws Exception {
         // given
         X509Certificate issuedCertificate = chain.getEndEntityCertificate();
+        var storedText = Base64.getEncoder().encodeToString(issuedCertificate.getEncoded());
 
         // when
         String content = handler.contentToStore(parsedCertificate(issuedCertificate));
 
         // then
-        assertThat(content).isEqualTo(X509ObjectToString.toPem(issuedCertificate));
+        assertThat(content).isEqualTo(storedText);
     }
 
     @Test
