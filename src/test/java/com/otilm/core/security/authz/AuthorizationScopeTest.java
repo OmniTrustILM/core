@@ -166,14 +166,15 @@ class AuthorizationScopeTest {
     @Test
     void endsTheBatch_whenTheBodyThrows() {
         // given — the administrator's batch, whose body throws
+        String bodyFailure = "body failed";
 
         // when
         ThrowingCallable failingBatch = () -> scope.batched(administrator, Resource.CERTIFICATE, List.of(), () -> {
-            throw new IllegalStateException("body failed");
+            throw new IllegalStateException(bodyFailure);
         });
 
         // then
-        assertThatThrownBy(failingBatch).isInstanceOf(IllegalStateException.class).hasMessageContaining("body failed");
+        assertThatThrownBy(failingBatch).isInstanceOf(IllegalStateException.class).hasMessageContaining(bodyFailure);
         assertThat(scope.grantFor(administrator)).isEqualTo(AllResourcesGrant.NONE);
     }
 

@@ -225,26 +225,28 @@ class AuthorizationEnforcerImplTest {
     void runsTheBodyAsABatch_whenTheCallerIsAPlatformUser() {
         // given
         UUID objectUuid = UUID.randomUUID();
+        String batchResult = "batched";
         when(scope.<String>batched(any(), eq(Resource.CERTIFICATE), eq(List.of(objectUuid)), any()))
-                .thenReturn("batched");
+                .thenReturn(batchResult);
 
         // when
         String result = enforcer.batched(Resource.CERTIFICATE, List.of(objectUuid), () -> "direct");
 
         // then
-        assertThat(result).isEqualTo("batched");
+        assertThat(result).isEqualTo(batchResult);
     }
 
     @Test
     void runsTheBodyDirectly_whenTheCallerIsNotAPlatformUser() {
         // given
         SecurityContextHolder.clearContext();
+        String bodyResult = "direct";
 
         // when
-        String result = enforcer.batched(Resource.CERTIFICATE, List.of(UUID.randomUUID()), () -> "direct");
+        String result = enforcer.batched(Resource.CERTIFICATE, List.of(UUID.randomUUID()), () -> bodyResult);
 
         // then
-        assertThat(result).isEqualTo("direct");
+        assertThat(result).isEqualTo(bodyResult);
         verifyNoInteractions(scope);
     }
 
