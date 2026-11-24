@@ -920,8 +920,8 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
     void asksAboutEveryGroupOfTheCertificate_whenItBelongsToSeveralGroups() {
         // given
         UUID certificate = saveCertificate(saveRaProfile());
-        List<String> certificateGroups = List.of(saveGroup().toString(), saveGroup().toString());
-        certificateGroups.forEach(group -> assignToGroup(Resource.CERTIFICATE, certificate, UUID.fromString(group)));
+        List<UUID> certificateGroups = List.of(saveGroup(), saveGroup());
+        certificateGroups.forEach(group -> assignToGroup(Resource.CERTIFICATE, certificate, group));
         denyEveryCheckOn(Resource.CERTIFICATE);
 
         // when
@@ -935,8 +935,8 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
         assertThat(asked.getAllValues())
                 .filteredOn(req -> isFor(req, Resource.GROUP, ResourceAction.MEMBERS))
                 .isNotEmpty()
-                .allSatisfy(
-                        req -> assertThat(req.getObjectUUIDs()).containsExactlyInAnyOrderElementsOf(certificateGroups));
+                .allSatisfy(req -> assertThat(req.getObjectUUIDs())
+                        .containsExactlyInAnyOrderElementsOf(certificateGroups.stream().map(UUID::toString).toList()));
     }
 
     @Test
@@ -946,7 +946,7 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
         assignToGroup(Resource.CERTIFICATE, certificate, saveGroup());
         denyEveryCheckOn(Resource.CERTIFICATE);
         HikariPoolMXBean pool = dataSource.unwrap(HikariDataSource.class).getHikariPoolMXBean();
-        int idleBaseline = pool.getActiveConnections();
+        int activeBefore = pool.getActiveConnections();
         List<Integer> activeDuringMembersCheck = new ArrayList<>();
         when(opaClient
                 .checkResourceAccess(Mockito.any(),
@@ -962,7 +962,7 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
 
         // then
         assertThat(items).extracting(ObjectAllowedActionsDto::getUuid).containsExactly(certificate);
-        assertThat(activeDuringMembersCheck).isNotEmpty().containsOnly(idleBaseline);
+        assertThat(activeDuringMembersCheck).isNotEmpty().containsOnly(activeBefore);
     }
 
     @Test
