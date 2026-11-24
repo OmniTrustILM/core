@@ -29,6 +29,7 @@ import com.otilm.core.model.signing.scheme.ManagedSigning;
 import com.otilm.core.model.signing.scheme.OneTimeKeyManagedSigning;
 import com.otilm.core.model.signing.scheme.StaticKeyManagedSigning;
 import com.otilm.core.model.signing.workflow.ManagedContentSigningWorkflow;
+import com.otilm.core.model.signing.workflow.ManagedRawSigningWorkflow;
 import com.otilm.core.model.signing.workflow.ManagedTimestampingWorkflow;
 import com.otilm.core.util.TspProtocolUrlFactory;
 import java.util.ArrayList;
@@ -39,6 +40,8 @@ import java.util.function.Consumer;
 import org.jspecify.annotations.NonNull;
 
 public class SigningProfileMapper {
+
+    private static final String NOT_A_MANAGED_SCHEME = "Signing Profile '%s' does not use a managed signing scheme";
 
     private SigningProfileMapper() {
     }
@@ -105,7 +108,7 @@ public class SigningProfileMapper {
         dto.setWorkflow(switch (version.getWorkflowType()) {
             case CONTENT_SIGNING -> buildContentSigningWorkflowDto(version, signatureFormattingConnectorAttributes,
                     timestampSourceProfileName);
-            case RAW_SIGNING -> new RawSigningWorkflowDto();
+            case RAW_SIGNING -> buildRawSigningWorkflowDto(version);
             case TIMESTAMPING -> buildTimestampingWorkflowDto(header, version, signatureFormattingConnectorAttributes);
         });
 
@@ -171,8 +174,7 @@ public class SigningProfileMapper {
                     "Signing Profile '%s' does not use a timestamping workflow".formatted(header.getName()));
         }
         if (version.getSigningScheme() != SigningScheme.MANAGED) {
-            throw new IllegalArgumentException(
-                    "Signing Profile '%s' does not use a managed signing scheme".formatted(header.getName()));
+            throw new IllegalArgumentException(NOT_A_MANAGED_SCHEME.formatted(header.getName()));
         }
 
         return new SigningProfileModel<>(header.getUuid(), header.getName(), header.getDescription(),
@@ -198,8 +200,7 @@ public class SigningProfileMapper {
                     "Signing Profile '%s' does not use a content-signing workflow".formatted(header.getName()));
         }
         if (version.getSigningScheme() != SigningScheme.MANAGED) {
-            throw new IllegalArgumentException(
-                    "Signing Profile '%s' does not use a managed signing scheme".formatted(header.getName()));
+            throw new IllegalArgumentException(NOT_A_MANAGED_SCHEME.formatted(header.getName()));
         }
 
         return new SigningProfileModel<>(header.getUuid(), header.getName(), header.getDescription(),
@@ -208,6 +209,29 @@ public class SigningProfileMapper {
                         cacheSafeList(signatureFormattingConnectorAttributes), version.getSignatureFamily(),
                         version.getSignatureLevel(), version.getTimestampSourceProfileUuid(),
                         toCertificatePurpose(version), Set.copyOf(safeList(version.getAllowedRequestAttributes()))),
+                buildManagedSchemeModel(version, signingOperationAttributes), buildRecordPolicyModel(version));
+    }
+
+    /**
+     * Maps a managed raw-signing profile version to its cacheable model. Reads UUID columns only, so it is safe on a
+     * detached entity. A raw profile has no formatting connector, so no formatting attributes are read.
+     *
+     * @throws IllegalArgumentException if the profile's workflow type is not {@code RAW_SIGNING} or its signing scheme
+     * is not {@code MANAGED}
+     */
+    public static SigningProfileModel<ManagedRawSigningWorkflow, ManagedSigning> toManagedRawSigningModel(
+            SigningProfile header, SigningProfileVersion version, List<RequestAttribute> signingOperationAttributes) {
+        if (version.getWorkflowType() != SigningWorkflowType.RAW_SIGNING) {
+            throw new IllegalArgumentException(
+                    "Signing Profile '%s' does not use a raw-signing workflow".formatted(header.getName()));
+        }
+        if (version.getSigningScheme() != SigningScheme.MANAGED) {
+            throw new IllegalArgumentException(NOT_A_MANAGED_SCHEME.formatted(header.getName()));
+        }
+
+        return new SigningProfileModel<>(header.getUuid(), header.getName(), header.getDescription(),
+                version.getVersion(), header.isEnabled(), detectEnabledProtocols(header), header.getTspProfileUuid(),
+                new ManagedRawSigningWorkflow(toCertificatePurpose(version)),
                 buildManagedSchemeModel(version, signingOperationAttributes), buildRecordPolicyModel(version));
     }
 
@@ -252,6 +276,13 @@ public class SigningProfileMapper {
     // ──────────────────────────────────────────────────────────────────────────
     // DTO builders (read from version)
     // ──────────────────────────────────────────────────────────────────────────
+
+    private static RawSigningWorkflowDto buildRawSigningWorkflowDto(SigningProfileVersion version) {
+        RawSigningWorkflowDto wf = new RawSigningWorkflowDto();
+        wf.setRequireNonRepudiation(version.isRequireNonRepudiation());
+        wf.setRequiredExtendedKeyUsageOids(new LinkedHashSet<>(safeList(version.getRequiredExtendedKeyUsageOids())));
+        return wf;
+    }
 
     private static ContentSigningWorkflowDto buildContentSigningWorkflowDto(SigningProfileVersion version,
             List<ResponseAttribute> signatureFormattingConnectorAttributes, String timestampSourceProfileName) {

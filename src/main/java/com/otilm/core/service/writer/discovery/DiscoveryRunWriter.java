@@ -2,6 +2,7 @@ package com.otilm.core.service.writer.discovery;
 
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.discovery.DiscoveryDetailDto;
 import com.otilm.api.model.client.discovery.DiscoveryDto;
@@ -12,8 +13,12 @@ import com.otilm.api.model.core.other.ResourceEvent;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.Discovery;
+import com.otilm.core.dao.repository.CertificateContentRepository;
+import com.otilm.core.dao.repository.DiscoveryCertificateRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.mapper.discovery.DiscoveryDtoMapper;
+import com.otilm.core.model.discovery.DiscoveryRunLifecycle;
+import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CommentInternalService;
 import com.otilm.core.service.TriggerExternalService;
 import com.otilm.core.service.TriggerInternalService;
@@ -21,12 +26,15 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * The one transaction that creates a discovery run.
+ * The transactions that create and delete a discovery run.
  *
  * <p>
  * The caller reads everything the connector has to say first, since a connector call must never hold a transaction
@@ -39,7 +47,11 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class DiscoveryRunWriter {
 
+    private static final Logger logger = LoggerFactory.getLogger(DiscoveryRunWriter.class);
+
     private final DiscoveryRepository discoveryRepository;
+    private final DiscoveryCertificateRepository discoveryCertificateRepository;
+    private final CertificateContentRepository certificateContentRepository;
     private final AttributeEngine attributeEngine;
     private final TriggerExternalService triggerService;
     private final TriggerInternalService triggerInternalService;
@@ -50,14 +62,22 @@ public class DiscoveryRunWriter {
 
     // Constructed rather than set, unlike the services that hold this same collaborator: a writer bean may expose no
     // public method that is not a REQUIRED transaction, which a setter would be.
-    public DiscoveryRunWriter(DiscoveryRepository discoveryRepository, AttributeEngine attributeEngine,
+    public DiscoveryRunWriter(DiscoveryRepository discoveryRepository,
+            DiscoveryCertificateRepository discoveryCertificateRepository,
+            CertificateContentRepository certificateContentRepository, AttributeEngine attributeEngine,
             TriggerExternalService triggerService, TriggerInternalService triggerInternalService,
             CommentInternalService commentService) {
         this.discoveryRepository = discoveryRepository;
+        this.discoveryCertificateRepository = discoveryCertificateRepository;
+        this.certificateContentRepository = certificateContentRepository;
         this.attributeEngine = attributeEngine;
         this.triggerService = triggerService;
         this.triggerInternalService = triggerInternalService;
         this.commentService = commentService;
+    }
+
+    /** Where a v1 run's connector keeps its own copy of the run; only the v1 adapter records one. */
+    public record ConnectorCopyV1(UUID connectorUuid, String reference) {
     }
 
     /**
@@ -144,5 +164,49 @@ public class DiscoveryRunWriter {
         commentService.removeObjectComments(Resource.DISCOVERY, discoveryUuid);
         triggerInternalService.deleteTriggerAssociations(Resource.DISCOVERY, discoveryUuid);
         discoveryRepository.delete(run);
+    }
+
+    /**
+     * Deletes a run with its results, attributes, comments and trigger associations, and sweeps every certificate
+     * content that no certificate and no discovery result references.
+     *
+     * <p>
+     * A v2 run that has not ended is refused: this delete would cascade away the agenda rows that drive it or, while it
+     * is PROCESSING, the rows Core's import runs on. A v1 run has no agenda, so it deletes in any state.
+     *
+     * @return the run's copy at its connector, which the caller deletes once this has committed; empty when the
+     * connector keeps none
+     * @throws ValidationException when the run is a v2 run that has not ended
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public Optional<ConnectorCopyV1> deleteRun(SecuredUUID uuid) throws NotFoundException {
+        Discovery run = discoveryRepository
+                .findByUuid(uuid)
+                .orElseThrow(() -> new NotFoundException(Discovery.class, uuid));
+        if (run.getConnectorInterfaceUuid() != null && !DiscoveryRunLifecycle.isTerminal(run.getStatus())) {
+            // A PROCESSING run has already left the connector, so cancel refuses it too: waiting is the only way out.
+            String remedy = DiscoveryRunLifecycle.hasLeftTheConnector(run.getStatus())
+                    ? "wait for it to end"
+                    : "cancel it first";
+            throw new ValidationException("Discovery " + uuid.getValue() + " is " + run.getStatus().getLabel()
+                    + " and cannot be deleted; " + remedy);
+        }
+        UUID runUuid = run.getUuid();
+        int resultsDeleted = discoveryCertificateRepository.deleteByDiscoveryUuid(runUuid);
+        Integer contentsDeleted = certificateContentRepository.deleteUnusedCertificateContents();
+        logger
+                .debug("Deleting discovery {}: {} results and {} unused certificate contents deleted", runUuid,
+                        resultsDeleted, contentsDeleted);
+
+        attributeEngine.deleteObjectAttributeContent(Resource.DISCOVERY, runUuid);
+        commentService.removeObjectComments(Resource.DISCOVERY, runUuid);
+        discoveryRepository.delete(run);
+        triggerInternalService.deleteTriggerAssociations(Resource.DISCOVERY, runUuid);
+
+        String reference = run.getDiscoveryConnectorReference();
+        if (reference == null || reference.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(new ConnectorCopyV1(run.getConnectorUuid(), reference));
     }
 }

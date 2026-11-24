@@ -128,6 +128,16 @@ public interface ClientOperationInternalService {
             CertificateOperationException, CertificateRequestException, ConnectorException, AttributeException;
 
     /**
+     * As {@link #rekeyCertificate(SecuredParentUUID, SecuredUUID, String, ClientCertificateRekeyRequestDto)}, for a
+     * rekey a protocol requests while leaving the attribution of the new certificate to be inherited. Like every
+     * protocol request it is submitted without asking the authority which certificate types it issues.
+     */
+    ClientCertificateDataResponseDto rekeyCertificateThroughProtocol(SecuredParentUUID authorityUuid,
+            SecuredUUID raProfileUuid, String certificateUuid, ClientCertificateRekeyRequestDto request)
+            throws NotFoundException, CertificateException, IOException, NoSuchAlgorithmException, InvalidKeyException,
+            CertificateOperationException, CertificateRequestException, ConnectorException, AttributeException;
+
+    /**
      * As {@link #rekeyCertificate(SecuredParentUUID, SecuredUUID, String, ClientCertificateRekeyRequestDto)},
      * attributing the new certificate to the protocol and running {@code beforeDispatch} with its UUID once its request
      * is stored and before the rekey action is queued. If the step fails, the new certificate is marked failed and the

@@ -13,7 +13,6 @@ import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.client.signing.profile.SigningProfileDto;
 import com.otilm.api.model.client.signing.profile.SigningProfileRequestDto;
 import com.otilm.api.model.client.signing.profile.scheme.DelegatedSigningRequestDto;
-import com.otilm.api.model.client.signing.profile.scheme.OneTimeKeyManagedSigningRequestDto;
 import com.otilm.api.model.client.signing.profile.scheme.StaticKeyManagedSigningRequestDto;
 import com.otilm.api.model.client.signing.profile.workflow.RawSigningWorkflowRequestDto;
 import com.otilm.api.model.client.signing.profile.workflow.TimestampingWorkflowRequestDto;
@@ -41,7 +40,6 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.CryptographicKey;
-import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.entity.X509CertificateEntity;
@@ -53,7 +51,6 @@ import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
-import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.dao.repository.signing.SigningProfileRepository;
@@ -142,18 +139,10 @@ public abstract class SigningProfileTestBase extends BaseSpringBootTest {
     @Autowired
     protected ConnectorInterfaceRepository connectorInterfaceRepository;
 
-    @Autowired
-    protected RaProfileRepository raProfileRepository;
-
     /**
      * Pre-existing signing profile created via service in setUp; used as shared test fixture.
      */
     protected SigningProfile savedProfile;
-
-    /**
-     * A minimal RaProfile used as FK reference in ONE_TIME_KEY managed signing scheme requests.
-     */
-    protected RaProfile raProfile;
 
     /**
      * A token profile used as an FK reference in static-key managed signing scheme requests.
@@ -161,8 +150,7 @@ public abstract class SigningProfileTestBase extends BaseSpringBootTest {
     protected TokenProfile tokenProfile;
 
     /**
-     * A CryptographicKey backed by an MLDSA key item (empty signing operation attribute definitions). Used for generic
-     * static-key scheme tests that do not exercise signing operation attributes.
+     * A CryptographicKey backed by an MLDSA key item (empty signing operation attribute definitions).
      */
     protected CryptographicKey cryptographicKey;
 
@@ -171,12 +159,6 @@ public abstract class SigningProfileTestBase extends BaseSpringBootTest {
      * specifically exercise signing operation attribute storage and retrieval.
      */
     protected CryptographicKey rsaCryptographicKey;
-
-    /**
-     * A Certificate associated with {@link #cryptographicKey} (MLDSA key). Satisfies all conditions of
-     * constructQueryDigitalSigningCertAcceptable, including the digitalSignature key usage the purpose rule demands.
-     */
-    protected X509CertificateEntity certificate;
 
     /**
      * A Certificate associated with {@link #rsaCryptographicKey} (RSA key).
@@ -237,18 +219,8 @@ public abstract class SigningProfileTestBase extends BaseSpringBootTest {
         tokenProfile.setTokenInstanceName("test-token-instance");
         tokenProfile = tokenProfileRepository.saveAndFlush(tokenProfile);
 
-        // MLDSA key — produces empty attribute definitions; used by generic scheme tests
         cryptographicKey = cryptographicKeySeeder
                 .seedKey("test-key-mldsa", tokenProfile, tokenInstanceRef, signingPrivateKey(KeyAlgorithm.MLDSA));
-
-        // Certificate associated with the MLDSA key; satisfies constructQueryDigitalSigningCertAcceptable conditions
-        certificate = aCertificate().build();
-        certificate.setKey(cryptographicKey);
-        certificate.setState(CertificateState.ISSUED);
-        certificate.setValidationStatus(CertificateValidationStatus.VALID);
-        certificate.setUsage(List.of(CertificateKeyUsage.DIGITAL_SIGNATURE));
-        certificate = certificateRepository.saveAndFlush(certificate);
-        attachSelfSignedContent(certificate);
 
         // RSA key — produces RSA attribute definitions; used by attribute-persistence tests
         rsaCryptographicKey = cryptographicKeySeeder
@@ -283,10 +255,6 @@ public abstract class SigningProfileTestBase extends BaseSpringBootTest {
         dc.setVersion(ConnectorVersion.V1);
         dc.setStatus(ConnectorStatus.CONNECTED);
         delegatedConnector = connectorRepository.save(dc);
-
-        raProfile = new RaProfile();
-        raProfile.setName("test-ra-profile");
-        raProfile = raProfileRepository.save(raProfile);
 
         // Register a custom attribute available for Signing Profile resources
         CustomAttributeV3 attrDef = new CustomAttributeV3();
@@ -343,38 +311,6 @@ public abstract class SigningProfileTestBase extends BaseSpringBootTest {
         request.setName(name);
         request.setDescription("Test description for " + name);
         request.setSigningScheme(buildDelegatedScheme());
-        request.setWorkflow(new RawSigningWorkflowRequestDto());
-        return request;
-    }
-
-    /**
-     * Builds a request using a MANAGED/STATIC_KEY scheme and RAW_SIGNING workflow. Uses the shared MLDSA
-     * {@link #cryptographicKey} so no signing-operation-attribute definitions are produced and no attribute content
-     * needs to be provided.
-     */
-    protected SigningProfileRequestDto buildManagedStaticKeyRawRequest(String name) {
-        SigningProfileRequestDto request = new SigningProfileRequestDto();
-        request.setName(name);
-        request.setDescription("Test description for " + name);
-        StaticKeyManagedSigningRequestDto scheme = new StaticKeyManagedSigningRequestDto();
-        scheme.setCertificateUuid(certificate.getUuid());
-        request.setSigningScheme(scheme);
-        request.setWorkflow(new RawSigningWorkflowRequestDto());
-        return request;
-    }
-
-    /**
-     * Builds a request using a MANAGED/ONE_TIME_KEY scheme and RAW_SIGNING workflow.
-     */
-    protected SigningProfileRequestDto buildManagedOneTimeKeyRawRequest(String name) {
-        OneTimeKeyManagedSigningRequestDto scheme = new OneTimeKeyManagedSigningRequestDto();
-        scheme.setTokenProfileUuid(tokenProfile.getUuid());
-        scheme.setRaProfileUuid(raProfile.getUuid());
-        scheme.setCsrTemplateUuid(UUID.randomUUID());
-        SigningProfileRequestDto request = new SigningProfileRequestDto();
-        request.setName(name);
-        request.setDescription("Test description for " + name);
-        request.setSigningScheme(scheme);
         request.setWorkflow(new RawSigningWorkflowRequestDto());
         return request;
     }
