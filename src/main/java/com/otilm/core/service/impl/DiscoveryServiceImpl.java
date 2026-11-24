@@ -75,13 +75,11 @@ import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.CommentInternalService;
 import com.otilm.core.service.ConnectorInternalService;
 import com.otilm.core.service.CredentialInternalService;
 import com.otilm.core.service.DiscoveryExternalService;
 import com.otilm.core.service.DiscoveryInternalService;
 import com.otilm.core.service.ResourceInternalService;
-import com.otilm.core.service.TriggerInternalService;
 import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.handler.discovery.DiscoveryDetailCounts;
 import com.otilm.core.service.handler.discovery.DiscoveryProviderAdapter;
@@ -145,7 +143,6 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
 
     private ListingSortResolver listingSortResolver;
 
-    private TriggerInternalService triggerInternalService;
     private DiscoveryRepository discoveryRepository;
     private ConnectorApiFactory connectorApiFactory;
     private ConnectorInternalService connectorService;
@@ -160,7 +157,6 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     private EventProducer eventProducer;
     private NotificationProducer notificationProducer;
 
-    private CommentInternalService commentService;
     private DiscoveryMessageRepository discoveryMessageRepository;
     private ConnectorInterfaceRepository connectorInterfaceRepository;
     private DiscoveryItemRepository discoveryItemRepository;
@@ -179,11 +175,6 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     @Autowired
     public void setConnectorInterfaceRepository(ConnectorInterfaceRepository connectorInterfaceRepository) {
         this.connectorInterfaceRepository = connectorInterfaceRepository;
-    }
-
-    @Autowired
-    public void setCommentService(CommentInternalService commentService) {
-        this.commentService = commentService;
     }
 
     @Autowired
@@ -224,11 +215,6 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     @Autowired
     public void setDiscoveryProviderAdapterFactory(DiscoveryProviderAdapterFactory discoveryProviderAdapterFactory) {
         this.discoveryProviderAdapterFactory = discoveryProviderAdapterFactory;
-    }
-
-    @Autowired
-    public void setTriggerInternalService(TriggerInternalService triggerInternalService) {
-        this.triggerInternalService = triggerInternalService;
     }
 
     @Autowired
@@ -874,25 +860,25 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
                         bulkDeleteOutcome(refused.size(), failed.size()), null);
     }
 
-    static String bulkDeleteOutcome(int stillRunning, int failed) {
+    static String bulkDeleteOutcome(int refused, int failed) {
         String deleted = "Discovery histories have been deleted";
-        if (stillRunning == 0 && failed == 0) {
+        if (refused == 0 && failed == 0) {
             return deleted + ".";
         }
         if (failed == 0) {
-            return deleted + ", except " + stillRunning + " that are still running. Cancel those first.";
+            return deleted + ", except " + refused + " that are still running. Cancel those first.";
         }
-        if (stillRunning == 0) {
+        if (refused == 0) {
             return deleted + ", except " + failed + " that could not be deleted.";
         }
-        return deleted + ", except " + stillRunning + " that are still running and " + failed
+        return deleted + ", except " + refused + " that are still running and " + failed
                 + " that could not be deleted. Cancel the running ones first.";
     }
 
     /**
      * Commits the local delete before the connector is asked to delete its copy: a slow connector then holds no lock or
      * connection, and a local delete that fails leaves the connector's copy alone. A connector that fails to delete its
-     * copy no longer changes the outcome, since Core's run is already gone.
+     * copy does not change the outcome, since Core's run is already gone.
      */
     private void deleteRunAndConnectorCopy(SecuredUUID uuid) throws NotFoundException {
         discoveryRunWriter.deleteRun(uuid).ifPresent(this::deleteConnectorCopy);

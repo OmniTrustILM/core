@@ -77,7 +77,7 @@ public class DiscoveryRunWriter {
         this.commentService = commentService;
     }
 
-    /** Where a run's connector keeps its own copy of the run, for the caller to delete after the local delete. */
+    /** Where a run's connector keeps its own copy of the run. */
     public record ConnectorCopy(UUID connectorUuid, String reference) {
     }
 
@@ -168,8 +168,9 @@ public class DiscoveryRunWriter {
     }
 
     /**
-     * Deletes a run with its results, the certificate contents nothing else references, its attributes, comments and
-     * trigger associations. An inventory certificate references its content, so the content outlives the run.
+     * Deletes a run with its results, attributes, comments and trigger associations, and sweeps every certificate
+     * content that no certificate and no discovery result references. An inventory certificate references its content,
+     * so the content outlives the run.
      *
      * <p>
      * A v2 run still at its connector is driven by agenda rows this delete would cascade away, so nothing would ever

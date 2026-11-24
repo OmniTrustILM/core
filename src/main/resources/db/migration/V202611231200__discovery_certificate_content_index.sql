@@ -1,5 +1,6 @@
--- The unused-content cleanup that runs on every discovery delete looks each certificate content up among the discovery
--- results, which had no index leading with the content, so every delete scanned all of discovery_certificate.
+-- Deleting a certificate content checks the foreign key from discovery_certificate. Without an index leading with the
+-- content, each check scanned the whole table, so a discovery delete that removes thousands of unused contents scanned
+-- it thousands of times.
 --
 -- CREATE INDEX blocks writes to discovery_certificate while it builds; Flyway's transaction rules out CONCURRENTLY.
 CREATE INDEX "idx_discovery_certificate_content"

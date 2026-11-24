@@ -116,6 +116,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+import static com.otilm.core.util.builders.CertificateContentBuilder.aCertificateContent;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -585,7 +586,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
     }
 
     @Test
-    void deletesTheContentOnlyTheDeletedRunReferenced() throws Exception {
+    void deletesTheContent_whenOnlyTheDeletedRunReferencedIt() throws Exception {
         // given
         CertificateContent foundOnlyByThisRun = saveContent("fp-found-only-by-this-run");
         stageResult(discovery, foundOnlyByThisRun.getId());
@@ -598,18 +599,31 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
     }
 
     @Test
-    void keepsTheResultsAndContentOfOtherRuns_whenDeletingARun() throws Exception {
+    void keepsTheResultsOfOtherRuns_whenDeletingARun() throws Exception {
         // given
         Discovery otherRun = saveEndedV1Run("other-run");
-        CertificateContent foundByBothRuns = saveContent("fp-found-by-both-runs");
-        stageResult(discovery, foundByBothRuns.getId());
-        DiscoveryCertificate otherRunsResult = stageResult(otherRun, foundByBothRuns.getId());
+        CertificateContent content = saveContent("fp-other-run");
+        DiscoveryCertificate otherRunsResult = stageResult(otherRun, content.getId());
 
         // when
         discoveryService.deleteDiscovery(discovery.getSecuredUuid());
 
         // then
         assertThat(discoveryCertificateRepository.findByUuid(otherRunsResult.getUuid())).isPresent();
+    }
+
+    @Test
+    void keepsTheContent_whenAnotherRunStillReferencesIt() throws Exception {
+        // given
+        Discovery otherRun = saveEndedV1Run("other-run");
+        CertificateContent foundByBothRuns = saveContent("fp-found-by-both-runs");
+        stageResult(discovery, foundByBothRuns.getId());
+        stageResult(otherRun, foundByBothRuns.getId());
+
+        // when
+        discoveryService.deleteDiscovery(discovery.getSecuredUuid());
+
+        // then
         assertThat(certificateContentRepository.findById(foundByBothRuns.getId())).isPresent();
     }
 
@@ -2510,9 +2524,10 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
     }
 
     private CertificateContent saveContent(String fingerprint) {
-        CertificateContent content = new CertificateContent();
-        content.setFingerprint(fingerprint);
-        content.setContent(CERTIFICATE_BASE64);
+        CertificateContent content = aCertificateContent()
+                .withFingerprint(fingerprint)
+                .withContent(CERTIFICATE_BASE64)
+                .build();
         return certificateContentRepository.saveAndFlush(content);
     }
 

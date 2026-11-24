@@ -12,7 +12,6 @@ import com.otilm.core.messaging.jms.producers.NotificationProducer;
 import com.otilm.core.service.DiscoveryExternalService;
 import com.otilm.core.util.BaseMessagingIntTest;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,7 +21,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
-import static org.awaitility.Awaitility.await;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -84,8 +83,6 @@ class DiscoveryServiceMessagingITest extends BaseMessagingIntTest {
                 .produceInternalNotificationMessage(eq(Resource.DISCOVERY), isNull(), anyList(),
                         eq("Discovery histories have been deleted."), isNull());
 
-        // The @Async bulkRemoveDiscovery may not have committed by the time the
-        // notification producer was invoked, so poll for the deletion to become visible.
-        await().atMost(5, TimeUnit.SECONDS).until(() -> discoveryRepository.findByUuid(discovery.getUuid()).isEmpty());
+        assertThat(discoveryRepository.findByUuid(discovery.getUuid())).isEmpty();
     }
 }
