@@ -30,6 +30,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.filter.annotation.TypeExcludeFilters;
 import org.springframework.context.annotation.Import;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -60,6 +63,8 @@ class TrustedCertificateWriterITest extends BaseSpringBootTest {
     private ValidationProducer validationProducer;
     @Autowired
     private SettingsCache settingsCache;
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     @BeforeEach
     void enablePlatformValidation() {
@@ -229,6 +234,31 @@ class TrustedCertificateWriterITest extends BaseSpringBootTest {
         assertThat(reloaded.getPlatformState()).isEqualTo(TrustedCertificatePlatformState.FAILED);
         assertThat(reloaded.getPlatformStateMessage()).isEqualTo("Deployment failed");
         assertThat(reloaded.getPlatformStateCheckedAt().toInstant()).isEqualTo(checkedAt.toInstant());
+    }
+
+    @Test
+    void keepsAConcurrentObservation_whenTheRowIsSavedFromAnEarlierRead() {
+        // given
+        TrustedCertificate row = writer.insert(persistCa(false), false, true, TrustedCertificatePlatformState.PENDING);
+        var outer = new TransactionTemplate(transactionManager);
+        var concurrent = new TransactionTemplate(transactionManager);
+        concurrent.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        // when
+        outer.executeWithoutResult(status -> {
+            TrustedCertificate readBefore = trustedCertificateRepository.findById(row.getUuid()).orElseThrow();
+            concurrent
+                    .executeWithoutResult(inner -> writer
+                            .recordObserved(row.getUuid(), TrustedCertificatePlatformState.APPLIED, null,
+                                    OffsetDateTime.now()));
+            readBefore.setPlatformUuid("p1");
+            trustedCertificateRepository.saveAndFlush(readBefore);
+        });
+
+        // then
+        TrustedCertificate reloaded = trustedCertificateRepository.findById(row.getUuid()).orElseThrow();
+        assertThat(reloaded.getPlatformState()).isEqualTo(TrustedCertificatePlatformState.APPLIED);
+        assertThat(reloaded.getPlatformUuid()).isEqualTo("p1");
     }
 
     @Test

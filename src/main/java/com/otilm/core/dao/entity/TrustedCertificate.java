@@ -15,6 +15,7 @@ import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
 import org.hibernate.annotations.Check;
+import org.hibernate.annotations.DynamicUpdate;
 
 /**
  * What ILM trusts an inventory certificate for, and what the platform last reported about it.
@@ -29,6 +30,8 @@ import org.hibernate.annotations.Check;
 @Entity
 @Table(name = "trusted_certificate")
 @Check(name = "ck_trusted_certificate_purpose", constraints = "validation OR platform OR platform_removal_pending")
+// Intent and observation are written by different actors; a save writes only the columns it changed.
+@DynamicUpdate
 public class TrustedCertificate extends UniquelyIdentified {
 
     @Column(name = "certificate_uuid", nullable = false, unique = true)
