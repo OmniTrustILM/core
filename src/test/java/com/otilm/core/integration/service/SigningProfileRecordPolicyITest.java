@@ -2,12 +2,14 @@ package com.otilm.core.integration.service;
 
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.client.signing.profile.SigningProfileRequestDto;
+import com.otilm.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
 import com.otilm.api.model.client.signing.profile.record.SigningRecordPolicyRequestDto;
 import com.otilm.api.model.client.signing.profile.scheme.DelegatedSigningRequestDto;
 import com.otilm.api.model.client.signing.profile.workflow.RawSigningWorkflowRequestDto;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.core.dao.entity.Connector;
+import com.otilm.core.dao.entity.signing.SigningProfileVersion;
 import com.otilm.core.dao.entity.signing.SigningRecord;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.signing.SigningProfileRepository;
@@ -22,6 +24,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -159,5 +162,34 @@ class SigningProfileRecordPolicyITest extends BaseSpringBootTest {
                 .filter(v -> v.getSigningProfileUuid().equals(profileUuid))
                 .count();
         assertEquals(2, versionCount);
+    }
+
+    @Test
+    void keepsTheRecordPolicy_whenAnUpdateWithoutOneCreatesAVersion() throws Exception {
+        // given — a profile that records nothing, with a signing record on version 1 so the update writes version 2
+        SigningProfileRequestDto createReq = buildRequest("policy-kept-" + System.nanoTime());
+        SigningRecordPolicyRequestDto notRecording = new SigningRecordPolicyRequestDto();
+        notRecording.setRecordingEnabled(false);
+        notRecording.setRetentionDays(30);
+        notRecording.setPersistenceMode(SigningRecordPersistenceMode.IMMEDIATE);
+        createReq.setRecordPolicy(notRecording);
+        UUID profileUuid = UUID.fromString(service.createSigningProfile(createReq).getUuid());
+        var profile = profileRepo.findById(profileUuid).orElseThrow();
+        SigningRecord rec = new SigningRecord();
+        rec.setSigningProfile(profile);
+        rec.setSigningProfileVersion(1);
+        rec.setProtocol(SigningProtocol.TSP);
+        rec.setSigningTime(Instant.now());
+        recordRepo.saveAndFlush(rec);
+        SigningProfileRequestDto withoutPolicy = buildRequest(profile.getName());
+
+        // when
+        service.updateSigningProfile(SecuredUUID.fromUUID(profileUuid), withoutPolicy);
+
+        // then
+        SigningProfileVersion v2 = versionRepo.findBySigningProfileUuidAndVersion(profileUuid, 2).orElseThrow();
+        assertThat(v2.isRecordingEnabled()).isFalse();
+        assertThat(v2.getRetentionDays()).isEqualTo(notRecording.getRetentionDays());
+        assertThat(v2.getPersistenceMode()).isEqualTo(notRecording.getPersistenceMode());
     }
 }

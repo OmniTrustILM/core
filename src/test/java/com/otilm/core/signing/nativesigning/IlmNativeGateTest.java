@@ -129,7 +129,7 @@ class IlmNativeGateTest {
                 .withUuid(PROFILE)
                 .withEnabled(false)
                 .withEnabledProtocols(List.of(SigningProtocol.ILM_NATIVE))
-                .withWorkflow(new ManagedRawSigningWorkflow())
+                .withWorkflow(new ManagedRawSigningWorkflow(CertificatePurposeRequirements.NONE))
                 .withSigningScheme(new StaticKeyManagedSigning(UUID.randomUUID(), List.of()))
                 .build();
 
@@ -289,7 +289,7 @@ class IlmNativeGateTest {
                 .withName("invoices")
                 .withUuid(uuid)
                 .withEnabledProtocols(protocols)
-                .withWorkflow(new ManagedRawSigningWorkflow())
+                .withWorkflow(new ManagedRawSigningWorkflow(CertificatePurposeRequirements.NONE))
                 .withSigningScheme(new StaticKeyManagedSigning(UUID.randomUUID(), List.of()))
                 .build();
     }

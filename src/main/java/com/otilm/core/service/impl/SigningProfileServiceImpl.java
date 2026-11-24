@@ -110,6 +110,7 @@ import com.otilm.core.signing.engine.resolver.ManagedSchemeResolver;
 import com.otilm.core.signing.engine.signer.SignerFactory;
 import com.otilm.core.signing.formatting.FormattingAttributeDefinitions;
 import com.otilm.core.signing.formatting.FormattingAttributesCheck;
+import com.otilm.core.signing.rawsigning.RawSigningProfileRules;
 import com.otilm.core.util.CertificateEligibilityUtil;
 import com.otilm.core.util.FilterPredicatesBuilder;
 import com.otilm.core.util.RequestValidatorHelper;
@@ -386,9 +387,8 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
             case CONTENT_SIGNING -> SigningProfileMapper
                     .toManagedContentSigningModel(profile, currentVersion, signingOperationAttributes,
                             signatureFormattingConnectorAttributes);
-            case RAW_SIGNING -> throw new IllegalArgumentException(
-                    "Signing Profile '%s' uses the RAW_SIGNING workflow, which does not support model retrieval yet"
-                            .formatted(name));
+            case RAW_SIGNING ->
+                SigningProfileMapper.toManagedRawSigningModel(profile, currentVersion, signingOperationAttributes);
         };
     }
 
@@ -458,6 +458,8 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         validateSigningSchemeCoherence(request.getSigningScheme());
         attributeEngine.validateCustomAttributesContent(Resource.SIGNING_PROFILE, request.getCustomAttributes());
         validateContentSigningWorkflow(request, null);
+        validateRawSigningWorkflow(request);
+        validateSigningKeyWorkflowBinding(request);
         List<BaseAttribute> formattingDefinitions = fetchFormattingAttributeDefinitions(request.getWorkflow(),
                 request.getSigningScheme().getSigningScheme());
         AttributesWithOwner signingSchema = fetchValidatedSigningOperationSchema(request.getSigningScheme());
@@ -510,6 +512,8 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         validateSigningSchemeCoherence(request.getSigningScheme());
         attributeEngine.validateCustomAttributesContent(Resource.SIGNING_PROFILE, request.getCustomAttributes());
         validateContentSigningWorkflow(request, uuid.getValue());
+        validateRawSigningWorkflow(request);
+        validateSigningKeyWorkflowBinding(request);
         List<BaseAttribute> formattingDefinitions = fetchFormattingAttributeDefinitions(request.getWorkflow(),
                 request.getSigningScheme().getSigningScheme());
         AttributesWithOwner signingSchema = fetchValidatedSigningOperationSchema(request.getSigningScheme());
@@ -539,21 +543,17 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         profile.setName(request.getName());
         profile.setDescription(request.getDescription());
 
-        // Lenient version bump: bump if signing records exist for the current version, or if record policy fields
-        // changed.
         int latestVersion = profile.getLatestVersion();
         SigningProfileVersion currentVersion = signingProfileVersionRepository
                 .findBySigningProfileUuidAndVersion(profile.getUuid(), latestVersion)
                 .orElseThrow(() -> new NotFoundException("Signing Profile version " + latestVersion + " not found"));
-        boolean recordsExist = signingRecordInternalService
-                .doesSigningRecordExistInternal(profile.getUuid(), latestVersion);
-        boolean policyRecordDifferent = recordPolicyDiffersFromVersion(currentVersion, request.getRecordPolicy());
-        boolean bump = recordsExist || policyRecordDifferent;
+        boolean bump = updateKeepsVersion(profile.getUuid(), currentVersion, request);
 
         SigningProfileVersion version;
         if (bump) {
             profile.setLatestVersion(profile.getLatestVersion() + 1);
             version = new SigningProfileVersion();
+            copyRecordPolicy(currentVersion, version);
         } else {
             version = currentVersion;
         }
@@ -823,6 +823,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
                     "Signing profile '%s' uses delegated signing; ILM_NATIVE needs a key ILM signs with."
                             .formatted(profile.getName()));
         }
+        refuseSharedRawSigningKey(profile);
         profile.setIlmNativeEnabled(true);
         signingProfileRepository.save(profile);
         evictSigningProfileCache(profile.getName());
@@ -879,6 +880,25 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
             throw new ValidationException(
                     protocol.getCode() + " is not supported for workflow type " + workflowType.getCode());
         }
+    }
+
+    /**
+     * A raw profile saved before keys were bound to one workflow can still share its key with a content-signing or
+     * timestamping profile, and ILM_NATIVE would let it sign raw digests with that key.
+     */
+    private void refuseSharedRawSigningKey(SigningProfile profile) {
+        if (profile.getWorkflowType() != SigningWorkflowType.RAW_SIGNING) {
+            return;
+        }
+        Certificate certificate = signingProfileVersionRepository
+                .findLatestByProfileUuid(profile.getUuid())
+                .map(SigningProfileVersion::getCertificate)
+                .orElse(null);
+        if (certificate == null || certificate.getKeyUuid() == null) {
+            // Only a static-key scheme names a key ILM signs with.
+            return;
+        }
+        refuseSharedSigningKey(SigningWorkflowType.RAW_SIGNING, certificate.getUuid(), certificate.getKeyUuid());
     }
 
     /** An update may move a profile to a workflow or scheme that cannot carry a protocol it had enabled. */
@@ -993,8 +1013,14 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
             case ContentSigningWorkflowRequestDto ignored -> {
                 // Delegated signing keeps the content-signing fields at the values reset above.
             }
+            case RawSigningWorkflowRequestDto w when signingScheme == SigningScheme.MANAGED -> {
+                version.setRequireNonRepudiation(Boolean.TRUE.equals(w.getRequireNonRepudiation()));
+                version
+                        .setRequiredExtendedKeyUsageOids(new ArrayList<>(
+                                Objects.requireNonNullElse(w.getRequiredExtendedKeyUsageOids(), Set.of())));
+            }
             case RawSigningWorkflowRequestDto ignored -> {
-                // RawSigningWorkflowRequestDto has no signatureFormattingConnectorUuid field — no formatting is allowed
+                // Delegated signing keeps the purpose columns at the values reset above.
             }
             case TimestampingWorkflowRequestDto w -> {
                 if (w.getSignatureFormattingConnectorUuid() == null) {
@@ -1053,7 +1079,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         contentSigningWorkflowValidator.validate(w, formattingConnector, signatureAlgorithm, targetProfileUuid);
     }
 
-    /** Signer resolution reads the certificate and its key items without access checks, so the caller's comes first. */
+    /** The certificate's signing snapshot and key items are read without access checks, so the caller's comes first. */
     private void requireCertificateAccess(UUID certificateUuid) throws NotFoundException {
         certificateService.getCertificateEntity(SecuredUUID.fromUUID(certificateUuid));
     }
@@ -1091,6 +1117,78 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
                     "Signature formatting connector is required for an ILM-managed content signing workflow");
         }
         return w.getSignatureFormattingConnectorUuid();
+    }
+
+    /**
+     * Runs outside the persistence transaction, beside {@code validateContentSigningWorkflow}. A delegated raw profile
+     * names no certificate, since its signer connector holds the key, so the algorithm rule does not apply to it.
+     */
+    private void validateRawSigningWorkflow(SigningProfileRequestDto request) throws NotFoundException {
+        if (!(request.getWorkflow() instanceof RawSigningWorkflowRequestDto)) {
+            return;
+        }
+        SigningSchemeRequestDto scheme = request.getSigningScheme();
+        RawSigningProfileRules.refuseOneTimeKey(scheme);
+        if (!(scheme instanceof StaticKeyManagedSigningRequestDto staticKeyScheme)) {
+            return;
+        }
+        requireCertificateAccess(staticKeyScheme.getCertificateUuid());
+        RawSigningProfileRules.requireDataDigestSigning(signatureAlgorithmOf(request.getName(), staticKeyScheme));
+    }
+
+    /**
+     * Refuses a key that a profile of a {@link RawSigningProfileRules#conflictingWorkflows conflicting workflow} signs,
+     * or once signed, with, through any certificate. Runs outside the persistence transaction; only a static-key
+     * profile names a key ILM signs with.
+     */
+    private void validateSigningKeyWorkflowBinding(SigningProfileRequestDto request) throws NotFoundException {
+        if (!(request.getSigningScheme() instanceof StaticKeyManagedSigningRequestDto scheme)) {
+            return;
+        }
+        UUID certificateUuid = scheme.getCertificateUuid();
+        requireCertificateAccess(certificateUuid);
+        UUID keyUuid = certificateService.getSigningCertificate(certificateUuid).keyUuid();
+        if (keyUuid == null) {
+            // The eligibility check refuses a certificate without a key.
+            return;
+        }
+        refuseSharedSigningKey(request.getWorkflow().getType(), certificateUuid, keyUuid);
+    }
+
+    private void refuseSharedSigningKey(SigningWorkflowType workflowType, UUID certificateUuid, UUID keyUuid) {
+        List<String> conflictingProfileNames = signingProfileVersionRepository
+                .findProfileNamesBySigningKeyAndWorkflowIn(keyUuid,
+                        RawSigningProfileRules.conflictingWorkflows(workflowType));
+        RawSigningProfileRules.refuseSharedSigningKey(workflowType, certificateUuid, conflictingProfileNames);
+    }
+
+    /**
+     * Whether an update writes its change as a new version instead of overwriting {@code current} in place. A change of
+     * workflow or signing key always keeps the old version: a profile can sign without leaving a record, and the key
+     * binding reads what a key signed for from the stored versions.
+     */
+    private boolean updateKeepsVersion(UUID profileUuid, SigningProfileVersion current,
+            SigningProfileRequestDto request) throws NotFoundException {
+        return current.getWorkflowType() != request.getWorkflow().getType()
+                || leavesSigningKey(current, request.getSigningScheme())
+                || signingRecordInternalService.doesSigningRecordExistInternal(profileUuid, current.getVersion())
+                || recordPolicyDiffersFromVersion(current, request.getRecordPolicy());
+    }
+
+    /** Whether {@code scheme} moves the profile off the key {@code current} signs with, to another key or to none. */
+    private boolean leavesSigningKey(SigningProfileVersion current, SigningSchemeRequestDto scheme)
+            throws NotFoundException {
+        Certificate currentCertificate = current.getCertificate();
+        if (currentCertificate == null || currentCertificate.getKeyUuid() == null) {
+            return false;
+        }
+        if (!(scheme instanceof StaticKeyManagedSigningRequestDto staticKey)) {
+            return true;
+        }
+        UUID requestedKeyUuid = certificateService
+                .getCertificateEntity(SecuredUUID.fromUUID(staticKey.getCertificateUuid()))
+                .getKeyUuid();
+        return !currentCertificate.getKeyUuid().equals(requestedKeyUuid);
     }
 
     /**
@@ -1177,6 +1275,18 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
                 || !Objects.equals(v.getRetentionDays(), p.getRetentionDays())
                 || v.isDeleteAfterRetrieval() != p.isDeleteAfterRetrieval()
                 || resolvePersistenceMode(p) != v.getPersistenceMode();
+    }
+
+    /** An update without a record policy keeps the current one, also when it writes a new version. */
+    private static void copyRecordPolicy(SigningProfileVersion from, SigningProfileVersion to) {
+        to.setRecordingEnabled(from.isRecordingEnabled());
+        to.setRecordRequestMetadata(from.isRecordRequestMetadata());
+        to.setRecordSignature(from.isRecordSignature());
+        to.setRecordSignedDocument(from.isRecordSignedDocument());
+        to.setRecordDtbs(from.isRecordDtbs());
+        to.setRetentionDays(from.getRetentionDays());
+        to.setDeleteAfterRetrieval(from.isDeleteAfterRetrieval());
+        to.setPersistenceMode(from.getPersistenceMode());
     }
 
     private void applyRecordPolicyToVersion(SigningProfileVersion v, SigningRecordPolicyRequestDto p) {
