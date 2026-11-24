@@ -51,7 +51,7 @@ class BackfillKeyHandleDigestsMigrationITest extends BaseMigrationTest {
         migrate();
 
         // then
-        assertThat(handleDigestOf(key)).isNotNull().isEqualTo(new MetadataReference(keyIdMeta(keyId)).digest());
+        assertThat(readHandleDigest(key)).isNotNull().isEqualTo(new MetadataReference(keyIdMeta(keyId)).digest());
     }
 
     @Test
@@ -65,7 +65,7 @@ class BackfillKeyHandleDigestsMigrationITest extends BaseMigrationTest {
         migrate();
 
         // then
-        assertThat(handleDigestOf(key)).isNotNull().isEqualTo(handleDigestOf(keyElsewhere));
+        assertThat(readHandleDigest(key)).isNotNull().isEqualTo(readHandleDigest(keyElsewhere));
     }
 
     @Test
@@ -80,7 +80,7 @@ class BackfillKeyHandleDigestsMigrationITest extends BaseMigrationTest {
         migrate();
 
         // then
-        assertThat(handleDigestOf(key)).isNull();
+        assertThat(readHandleDigest(key)).isNull();
     }
 
     @Test
@@ -94,7 +94,7 @@ class BackfillKeyHandleDigestsMigrationITest extends BaseMigrationTest {
         migrate();
 
         // then
-        assertThat(handleDigestOf(key)).isNull();
+        assertThat(readHandleDigest(key)).isNull();
     }
 
     @Test
@@ -110,7 +110,24 @@ class BackfillKeyHandleDigestsMigrationITest extends BaseMigrationTest {
         migrate();
 
         // then
-        assertThat(handleDigestOf(key)).isNull();
+        assertThat(readHandleDigest(key)).isNull();
+    }
+
+    @Test
+    void leavesTheDigestUnset_whenAKeyWithTwoHandlesAlsoNamesIt() throws Exception {
+        // given
+        var sharedKeyId = "a1b2";
+        keySeeder
+                .seedKey("two-handles", token, token.getTokenInstanceReference(),
+                        signingPrivateKey(KeyAlgorithm.RSA).withKeyMeta(keyIdMeta(sharedKeyId)),
+                        signingPrivateKey(KeyAlgorithm.RSA).withKeyMeta(keyIdMeta("c3d4")));
+        UUID key = seedKeyPair(token, sharedKeyId);
+
+        // when
+        migrate();
+
+        // then
+        assertThat(readHandleDigest(key)).isNull();
     }
 
     @Test
@@ -124,8 +141,8 @@ class BackfillKeyHandleDigestsMigrationITest extends BaseMigrationTest {
         migrate();
 
         // then
-        assertThat(handleDigestOf(key)).isNull();
-        assertThat(handleDigestOf(twin)).isNull();
+        assertThat(readHandleDigest(key)).isNull();
+        assertThat(readHandleDigest(twin)).isNull();
     }
 
     @Test
@@ -141,8 +158,8 @@ class BackfillKeyHandleDigestsMigrationITest extends BaseMigrationTest {
         migrate();
 
         // then
-        assertThat(handleDigestOf(key)).isNull();
-        assertThat(handleDigestOf(holder)).isEqualTo(heldDigest);
+        assertThat(readHandleDigest(key)).isNull();
+        assertThat(readHandleDigest(holder)).isEqualTo(heldDigest);
     }
 
     @Test
@@ -150,13 +167,13 @@ class BackfillKeyHandleDigestsMigrationITest extends BaseMigrationTest {
         // given
         UUID key = seedKeyPair(token, "a1b2");
         migrate();
-        String storedDigest = handleDigestOf(key);
+        String storedDigest = readHandleDigest(key);
 
         // when
         migrate();
 
         // then
-        assertThat(handleDigestOf(key)).isNotNull().isEqualTo(storedDigest);
+        assertThat(readHandleDigest(key)).isNotNull().isEqualTo(storedDigest);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -169,7 +186,7 @@ class BackfillKeyHandleDigestsMigrationITest extends BaseMigrationTest {
         return key.getUuid();
     }
 
-    private String handleDigestOf(UUID keyUuid) {
+    private String readHandleDigest(UUID keyUuid) {
         return jdbcTemplate
                 .queryForObject("SELECT handle_digest FROM cryptographic_key WHERE uuid = ?", String.class, keyUuid);
     }

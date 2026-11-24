@@ -20,6 +20,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.flywaydb.core.api.migration.BaseJavaMigration;
 import org.flywaydb.core.api.migration.Context;
 import org.slf4j.Logger;
@@ -27,8 +29,8 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Stores the handle digest of each key whose token still holds its private key, so the token's key list recognizes keys
- * created before Core recorded handles. A digest that a key on the same token already holds, or that two keys there
- * would share, stays unset and is logged: the migration cannot tell which key the token holds under that handle.
+ * created before Core recorded handles. A handle that another key on the same token holds or also names stays unassigned
+ * and is logged: the migration cannot tell which key the token holds under that handle.
  */
 // Flyway mandates the V<version>__<Description> class-name format, which cannot match Sonar's S101 identifier pattern.
 @SuppressWarnings("java:S101")
@@ -77,15 +79,19 @@ public class V202611241200__BackfillKeyHandleDigests extends BaseJavaMigration {
             statement.execute(LOCK_KEYS);
         }
         Set<TokenHandle> heldHandles = readHeldHandles(connection);
-        Map<TokenHandle, List<UUID>> keysByHandle = readKeysByHandle(connection);
+        Map<UUID, Set<TokenHandle>> handlesByKey = readHandlesByKey(connection);
+        Map<TokenHandle, Long> namingKeyCounts = countNamingKeys(handlesByKey);
         List<KeyDigest> digests = new ArrayList<>();
-        keysByHandle.forEach((handle, keyUuids) -> {
-            if (heldHandles.contains(handle) || keyUuids.size() > 1) {
+        handlesByKey.forEach((keyUuid, handles) -> {
+            TokenHandle handle = handles.iterator().next();
+            if (handles.size() > 1) {
+                logger.warn("Key {} keeps no handle digest: its private keys name {} handles", keyUuid, handles.size());
+            } else if (heldHandles.contains(handle) || namingKeyCounts.get(handle) > 1) {
                 logger
-                        .warn("Keys {} on token instance {} keep no handle digest: another key on the token holds or"
-                                + " shares the handle of their private key", keyUuids, handle.tokenInstanceUuid());
+                        .warn("Key {} on token instance {} keeps no handle digest: another key on the token holds or"
+                                + " names the handle of its private key", keyUuid, handle.tokenInstanceUuid());
             } else {
-                digests.add(new KeyDigest(keyUuids.getFirst(), handle.digest()));
+                digests.add(new KeyDigest(keyUuid, handle.digest()));
             }
         });
         storeDigests(connection, digests);
@@ -104,8 +110,7 @@ public class V202611241200__BackfillKeyHandleDigests extends BaseJavaMigration {
         return held;
     }
 
-    /** Groups the keys by the handle of their live private key; a key whose private keys name two handles has none. */
-    private static Map<TokenHandle, List<UUID>> readKeysByHandle(Connection connection) throws SQLException {
+    private static Map<UUID, Set<TokenHandle>> readHandlesByKey(Connection connection) throws SQLException {
         Map<UUID, Set<TokenHandle>> handlesByKey = new LinkedHashMap<>();
         try (PreparedStatement statement = connection.prepareStatement(READ_PRIVATE_KEY_HANDLES);
                 ResultSet rows = statement.executeQuery()) {
@@ -121,15 +126,16 @@ public class V202611241200__BackfillKeyHandleDigests extends BaseJavaMigration {
                 }
             }
         }
-        Map<TokenHandle, List<UUID>> keysByHandle = new LinkedHashMap<>();
-        handlesByKey.forEach((keyUuid, handles) -> {
-            if (handles.size() > 1) {
-                logger.warn("Key {} keeps no handle digest: its private keys name {} handles", keyUuid, handles.size());
-            } else {
-                keysByHandle.computeIfAbsent(handles.iterator().next(), handle -> new ArrayList<>()).add(keyUuid);
-            }
-        });
-        return keysByHandle;
+        return handlesByKey;
+    }
+
+    /** Counts every live handle of every key, so a key that names two handles still makes each of them ambiguous. */
+    private static Map<TokenHandle, Long> countNamingKeys(Map<UUID, Set<TokenHandle>> handlesByKey) {
+        return handlesByKey
+                .values()
+                .stream()
+                .flatMap(Set::stream)
+                .collect(Collectors.groupingBy(Function.identity(), Collectors.counting()));
     }
 
     private static String digestOf(UUID keyUuid, String keyMeta) {

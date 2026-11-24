@@ -34,6 +34,7 @@ com/otilm/core/integration/messaging/jms/listeners/poll/PendingIssueReaperITest.
 com/otilm/core/integration/messaging/proxy/ProxyClientITest.java
 com/otilm/core/integration/messaging/proxy/ProxyMessageCorrelatorITest.java
 com/otilm/core/integration/messaging/proxy/ProxyRequestExpiryITest.java
+com/otilm/core/integration/migration/BackfillKeyHandleDigestsMigrationITest.java
 com/otilm/core/integration/migration/CbomSyncSkipRetentionMigrationITest.java
 com/otilm/core/integration/migration/CertificateProtocolAssociationUniqueMigrationITest.java
 com/otilm/core/integration/migration/CertificateRequestPerCertificateMigrationITest.java
