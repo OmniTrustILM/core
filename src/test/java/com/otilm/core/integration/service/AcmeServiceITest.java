@@ -36,10 +36,13 @@ import com.otilm.api.model.core.acme.Order;
 import com.otilm.api.model.core.acme.OrderStatus;
 import com.otilm.api.model.core.acme.Problem;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateOperation;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.enums.CertificateProtocol;
+import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
+import com.otilm.core.certificate.type.X509CertificateTypeHandler;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
@@ -71,6 +74,8 @@ import com.otilm.core.security.authz.opa.dto.OpaResourceAccessResult;
 import com.otilm.core.service.acme.AcmeConstants;
 import com.otilm.core.service.acme.AcmeExternalService;
 import com.otilm.core.service.acme.ChallengeValidationResult;
+import com.otilm.core.service.acme.impl.AcmeServiceImpl;
+import com.otilm.core.service.v2.impl.ClientOperationServiceImpl;
 import com.otilm.core.service.writer.AcmeChallengeWriter;
 import com.otilm.core.service.writer.AcmeOrderWriter;
 import com.otilm.core.util.AcmeCommonHelper;
@@ -127,6 +132,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.orm.jpa.EntityManagerHolder;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import static com.otilm.core.util.RestrictedTypeHandlerFixtures.registryWithX509Lacking;
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -158,6 +164,14 @@ class AcmeServiceITest extends BaseSpringBootTest {
     private static final String AUTHORIZATION_ID_PENDING = "auth123";
     private static final String ORDER_ID_VALID = "order123";
 
+    @Autowired
+    private AcmeServiceImpl acmeServiceImpl;
+    @Autowired
+    private ClientOperationServiceImpl clientOperationServiceImpl;
+    @Autowired
+    private X509CertificateTypeHandler x509Handler;
+    @Autowired
+    private CertificateTypeHandlerRegistry typeHandlerRegistry;
     @Autowired
     private RaProfileRepository raProfileRepository;
     @Autowired
@@ -1064,6 +1078,29 @@ class AcmeServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void refusesAsBadCsrNamingTheOperation_whenTheTypeCannotBeEnrolledThroughAcme() throws Exception {
+        // given
+        var unsupported = CertificateOperation.ENROLL_ACME;
+        detachCertificateAndMakeReady(order1);
+        clientOperationServiceImpl.setTypeHandlerRegistry(registryWithX509Lacking(x509Handler, unsupported));
+
+        // when
+        ThrowingCallable finalizeOrder = this::finalizeOrder1;
+
+        // then
+        try {
+            assertThatThrownBy(finalizeOrder).isInstanceOfSatisfying(AcmeProblemDocumentException.class, e -> {
+                assertThat(e.getProblemDocument().getType()).isEqualTo(Problem.BAD_CSR.getType());
+                assertThat(e.getMessage()).contains(unsupported.toString());
+            });
+        } finally {
+            clientOperationServiceImpl.setTypeHandlerRegistry(typeHandlerRegistry);
+        }
+        assertThat(acmeOrderRepository.findByOrderId(ORDER_ID_VALID).orElseThrow().getStatus())
+                .isEqualTo(OrderStatus.INVALID);
+    }
+
+    @Test
     void refusesAsNotReady_whenFinalizingAValidOrderThroughTheRaProfileUrl() throws Exception {
         // given — the seeded order is already valid
         String baseUri = RA_BASE_URI + RA_PROFILE_NAME;
@@ -1227,6 +1264,29 @@ class AcmeServiceITest extends BaseSpringBootTest {
                     .isInstanceOfSatisfying(AcmeProblemDocumentException.class,
                             AcmeServiceITest::assertRefusedAsNotFound);
             certificates.verify(() -> CertificateUtil.getX509Certificate(any(byte[].class)), never());
+        }
+    }
+
+    @Test
+    void refusesAsMalformedNamingTheOperation_whenTheTypeOfTheCertificateCannotBeRevoked() throws Exception {
+        // given
+        var unsupported = CertificateOperation.REVOKE;
+        acmeServiceImpl.setTypeHandlerRegistry(registryWithX509Lacking(x509Handler, unsupported));
+        URI requestUri = new URI(BASE_URI + ACME_PROFILE_NAME + "/revoke-cert");
+        String requestJson = buildRevokeCertRequestJSON_withPrivateKey(requestUri);
+
+        // when
+        ThrowingCallable revoke = () -> acmeService
+                .revokeCertificate(ACME_PROFILE_NAME, requestJson, requestUri, false);
+
+        // then
+        try {
+            assertThatThrownBy(revoke).isInstanceOfSatisfying(AcmeProblemDocumentException.class, e -> {
+                assertThat(e.getProblemDocument().getType()).isEqualTo(Problem.MALFORMED.getType());
+                assertThat(e.getMessage()).contains(unsupported.toString());
+            });
+        } finally {
+            acmeServiceImpl.setTypeHandlerRegistry(typeHandlerRegistry);
         }
     }
 

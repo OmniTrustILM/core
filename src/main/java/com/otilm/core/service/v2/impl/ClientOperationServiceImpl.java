@@ -712,6 +712,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             final SecuredUUID raProfileUuid, final ClientCertificateIssueRequestDto request,
             final CertificateProtocolInfo protocolInfo, final Consumer<UUID> beforeDispatch)
             throws NotFoundException, CertificateOperationException {
+        requireEnrollmentSupport(request.getCertificateType(), protocolInfo);
         request.setFormat(requestFormatResolver.resolve(request.getFormat(), request.getCertificateType()));
         // validate RA profile
         RaProfile raProfile = raProfileRepository
@@ -723,7 +724,6 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             throw new ValidationException(String
                     .format("Cannot issue certificate with disabled RA profile. Ra Profile: %s", raProfile.getName()));
         }
-        requireEnrollmentSupport(request.getCertificateType(), protocolInfo);
         authorityCertificateTypes.requireSupport(request.getCertificateType(), raProfile);
 
         ClientCertificateRequestDto certificateRequestDto = new ClientCertificateRequestDto();

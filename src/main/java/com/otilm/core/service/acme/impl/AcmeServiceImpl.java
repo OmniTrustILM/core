@@ -33,6 +33,7 @@ import com.otilm.api.model.core.acme.ProblemDocument;
 import com.otilm.api.model.core.authority.CertificateRevocationReason;
 import com.otilm.api.model.core.certificate.CertificateChainResponseDto;
 import com.otilm.api.model.core.certificate.CertificateDetail;
+import com.otilm.api.model.core.certificate.CertificateOperation;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
@@ -44,6 +45,7 @@ import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.certificate.request.ProtocolRequestAttributeValidator;
 import com.otilm.core.certificate.request.RequestAttributePolicyViolationException;
+import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
 import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
@@ -171,6 +173,13 @@ public class AcmeServiceImpl implements AcmeExternalService {
 
     private AttributeEngine attributeEngine;
     private ProtocolRequestAttributeValidator protocolRequestAttributeValidator;
+
+    private CertificateTypeHandlerRegistry typeHandlerRegistry;
+
+    @Autowired
+    public void setTypeHandlerRegistry(CertificateTypeHandlerRegistry typeHandlerRegistry) {
+        this.typeHandlerRegistry = typeHandlerRegistry;
+    }
 
     @Autowired
     public void setAcmeChallengeWriter(AcmeChallengeWriter acmeChallengeWriter) {
@@ -928,6 +937,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
 
         revokeRequest.setReason(reason);
         revokeRequest.setAttributes(getClientOperationAttributes(true, acmeAccount, isRaProfileBased));
+        requireRevocable(cert);
 
         try {
             clientOperationService
@@ -939,8 +949,6 @@ public class AcmeServiceImpl implements AcmeExternalService {
                     .header(AcmeConstants.NONCE_HEADER_NAME, generateNonce())
                     .header(AcmeConstants.LINK_HEADER_NAME, generateLinkHeader(acmeProfileName, isRaProfileBased))
                     .build();
-        } catch (UnsupportedCertificateTypeException e) {
-            throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.MALFORMED, e.getMessage());
         } catch (NotFoundException | AttributeException e) {
             return ResponseEntity
                     .badRequest()
@@ -1814,6 +1822,15 @@ public class AcmeServiceImpl implements AcmeExternalService {
      * signed with the key of the certificate needs no account, and parsing builds the public key of the certificate,
      * which costs seconds for a large key.
      */
+    // checked here and not left to the revocation itself, whose refusal would roll back the answer to the client
+    private void requireRevocable(Certificate certificate) throws AcmeProblemDocumentException {
+        try {
+            typeHandlerRegistry.requireSupport(certificate, CertificateOperation.REVOKE);
+        } catch (UnsupportedCertificateTypeException e) {
+            throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.MALFORMED, e.getMessage());
+        }
+    }
+
     private Certificate loadCertificateToRevoke(byte[] certificateDer) throws AcmeProblemDocumentException {
         try {
             return certificateService.getCertificateEntityByFingerprint(CertificateUtil.getThumbprint(certificateDer));
