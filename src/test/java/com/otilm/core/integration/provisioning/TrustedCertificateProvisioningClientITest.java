@@ -50,7 +50,20 @@ class TrustedCertificateProvisioningClientITest extends BaseSpringBootTest {
     private TrustedCertificateProvisioningApiClient client;
 
     @Test
-    void sendsDeferApplyAndDoesNotRetry_whenCreateConflicts() {
+    void sendsDeferApply_whenCreating() {
+        // given
+        wireMockServer.stubFor(post(urlPathEqualTo(BASE_PATH)).willReturn(okJson("{\"uuid\":\"p1\"}").withStatus(201)));
+
+        // when
+        client.createTrustedCertificate(new TrustedCertificateProvisioningRequestDTO(PEM_BYTES), true);
+
+        // then
+        wireMockServer
+                .verify(1, postRequestedFor(urlPathEqualTo(BASE_PATH)).withQueryParam("deferApply", equalTo("true")));
+    }
+
+    @Test
+    void doesNotRetry_whenCreateConflicts() {
         // given
         wireMockServer
                 .stubFor(post(urlPathEqualTo(BASE_PATH))
@@ -65,8 +78,7 @@ class TrustedCertificateProvisioningClientITest extends BaseSpringBootTest {
 
         // then
         assertThatThrownBy(create).isInstanceOf(HttpClientErrorException.Conflict.class);
-        wireMockServer
-                .verify(1, postRequestedFor(urlPathEqualTo(BASE_PATH)).withQueryParam("deferApply", equalTo("true")));
+        wireMockServer.verify(1, postRequestedFor(urlPathEqualTo(BASE_PATH)));
     }
 
     @Test

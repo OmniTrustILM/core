@@ -62,6 +62,8 @@ class TrustedCertificateMigrationITest extends BaseMigrationTest {
                 .isFalse();
     }
 
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
     private void runMigration() throws Exception {
         String migration = new ClassPathResource(MIGRATION_RESOURCE).getContentAsString(StandardCharsets.UTF_8);
         try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {

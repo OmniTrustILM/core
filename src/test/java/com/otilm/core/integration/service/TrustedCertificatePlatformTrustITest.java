@@ -1,10 +1,12 @@
 package com.otilm.core.integration.service;
 
 import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
+import com.otilm.api.model.client.trustedcertificate.PlatformBundleCertificateDto;
 import com.otilm.api.model.client.trustedcertificate.TrustedCertificatePlatformSource;
 import com.otilm.api.model.client.trustedcertificate.TrustedCertificatePlatformState;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.provisioning.ProvisioningApplyResponseDTO;
+import com.otilm.core.provisioning.ProvisioningApplyStatusDTO;
 import com.otilm.core.provisioning.ProvisioningException;
 import com.otilm.core.service.trust.PlatformApplyResult;
 import com.otilm.core.service.trust.PlatformRecord;
@@ -17,6 +19,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.cert.X509Certificate;
 import java.util.Base64;
 import java.util.List;
+import java.util.Optional;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -59,7 +62,7 @@ class TrustedCertificatePlatformTrustITest extends BaseSpringBootTest {
     }
 
     @Test
-    void isManagedFromProvisioning_whenTheSwitchIsOn() {
+    void isManaged_whenTheSwitchIsOn() {
         // given — the test configuration sets provisioning.trusted-certificates.enabled
 
         // when
@@ -67,8 +70,28 @@ class TrustedCertificatePlatformTrustITest extends BaseSpringBootTest {
 
         // then
         assertThat(managed).isTrue();
-        assertThat(manager.source()).isEqualTo(TrustedCertificatePlatformSource.PROVISIONING);
-        assertThat(manager.bundle()).isEmpty();
+    }
+
+    @Test
+    void reportsProvisioningAsTheSource_whenTheSwitchIsOn() {
+        // given — the test configuration sets provisioning.trusted-certificates.enabled
+
+        // when
+        TrustedCertificatePlatformSource source = manager.source();
+
+        // then
+        assertThat(source).isEqualTo(TrustedCertificatePlatformSource.PROVISIONING);
+    }
+
+    @Test
+    void listsNoBundle_whenTheSwitchIsOn() {
+        // given — the test configuration sets provisioning.trusted-certificates.enabled
+
+        // when
+        List<PlatformBundleCertificateDto> bundle = manager.bundle();
+
+        // then
+        assertThat(bundle).isEmpty();
     }
 
     @Test
@@ -94,7 +117,8 @@ class TrustedCertificatePlatformTrustITest extends BaseSpringBootTest {
                                 .withStatus(409)
                                 .withHeader("Content-Type", "application/json")
                                 .withBody("{\"error\":\"Certificate already exists\",\"uuid\":\"p1\"}")));
-        wireMockServer.stubFor(get(urlPathEqualTo(BASE_PATH)).willReturn(okJson("[" + item("p1", "applied") + "]")));
+        wireMockServer
+                .stubFor(get(urlPathEqualTo(BASE_PATH)).willReturn(okJson("[" + listItemJson("p1", "applied") + "]")));
 
         // when
         PlatformRecord adopted = manager.create(pem);
@@ -150,7 +174,7 @@ class TrustedCertificatePlatformTrustITest extends BaseSpringBootTest {
         wireMockServer.stubFor(get(urlPathEqualTo(BASE_PATH + "/apply")).willReturn(aResponse().withStatus(404)));
 
         // when
-        var status = manager.applyStatus();
+        Optional<ProvisioningApplyStatusDTO> status = manager.applyStatus();
 
         // then
         assertThat(status).isEmpty();
@@ -177,7 +201,8 @@ class TrustedCertificatePlatformTrustITest extends BaseSpringBootTest {
     void mapsRemovalFailed_whenListing() {
         // given
         wireMockServer
-                .stubFor(get(urlPathEqualTo(BASE_PATH)).willReturn(okJson("[" + item("p1", "removalFailed") + "]")));
+                .stubFor(get(urlPathEqualTo(BASE_PATH))
+                        .willReturn(okJson("[" + listItemJson("p1", "removalFailed") + "]")));
 
         // when
         List<PlatformRecord> listed = manager.list();
@@ -187,6 +212,49 @@ class TrustedCertificatePlatformTrustITest extends BaseSpringBootTest {
             assertThat(record.state()).isEqualTo(TrustedCertificatePlatformState.REMOVAL_FAILED);
             assertThat(record.message()).isNull();
         });
+    }
+
+    @Test
+    void mapsAStateIlmDoesNotKnowToUnknownWithAReason_whenListing() {
+        // given
+        String newerProvisioningState = "rollingBack";
+        wireMockServer
+                .stubFor(get(urlPathEqualTo(BASE_PATH))
+                        .willReturn(okJson("[" + listItemJson("p1", newerProvisioningState) + "]")));
+
+        // when
+        List<PlatformRecord> listed = manager.list();
+
+        // then
+        assertThat(listed).singleElement().satisfies(record -> {
+            assertThat(record.state()).isEqualTo(TrustedCertificatePlatformState.UNKNOWN);
+            assertThat(record.message()).isEqualTo("Platform reports a state ILM does not know");
+        });
+    }
+
+    @Test
+    void listsTheOtherItems_whenSomeContentIsNotACertificate() {
+        // given
+        String malformedPem = Base64
+                .getEncoder()
+                .encodeToString("-----BEGIN CERTIFICATE-----\n!!!\n-----END CERTIFICATE-----\n"
+                        .getBytes(StandardCharsets.US_ASCII));
+        String notACertificate = Base64.getEncoder().encodeToString("plain text".getBytes(StandardCharsets.US_ASCII));
+        wireMockServer
+                .stubFor(get(urlPathEqualTo(BASE_PATH))
+                        .willReturn(okJson("[" + listItemJson("p1", "applied") + ","
+                                + "{\"uuid\":\"p2\",\"certificateContent\":\"" + malformedPem
+                                + "\",\"state\":\"applied\"}," + "{\"uuid\":\"p3\",\"certificateContent\":\""
+                                + notACertificate + "\",\"state\":\"applied\"}]")));
+
+        // when
+        List<PlatformRecord> listed = manager.list();
+
+        // then
+        assertThat(listed).extracting(PlatformRecord::uuid).containsExactly("p1", "p2", "p3");
+        assertThat(listed.get(0).fingerprintSha256()).isNotNull();
+        assertThat(listed.get(1).fingerprintSha256()).isNull();
+        assertThat(listed.get(2).fingerprintSha256()).isNull();
     }
 
     @Test
@@ -215,7 +283,7 @@ class TrustedCertificatePlatformTrustITest extends BaseSpringBootTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private String item(String uuid, String state) {
+    private String listItemJson(String uuid, String state) {
         return "{\"uuid\":\"%s\",\"certificateContent\":\"%s\",\"state\":\"%s\"}".formatted(uuid, contentBase64, state);
     }
 }

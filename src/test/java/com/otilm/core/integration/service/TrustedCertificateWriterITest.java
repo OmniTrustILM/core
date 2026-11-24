@@ -7,11 +7,13 @@ import com.otilm.api.model.core.settings.CertificateValidationSettingsDto;
 import com.otilm.api.model.core.settings.PlatformSettingsDto;
 import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.core.dao.entity.CertificateContent;
+import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.TrustedCertificate;
 import com.otilm.core.dao.entity.TrustedCertificateSync;
 import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
+import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.dao.repository.TrustedCertificateRepository;
 import com.otilm.core.dao.repository.TrustedCertificateSyncRepository;
 import com.otilm.core.dao.repository.X509CertificateRepository;
@@ -60,6 +62,8 @@ class TrustedCertificateWriterITest extends BaseSpringBootTest {
     @Autowired
     private CertificateContentRepository certificateContentRepository;
     @Autowired
+    private RaProfileRepository raProfileRepository;
+    @Autowired
     private ValidationProducer validationProducer;
     @Autowired
     private SettingsCache settingsCache;
@@ -68,13 +72,7 @@ class TrustedCertificateWriterITest extends BaseSpringBootTest {
 
     @BeforeEach
     void enablePlatformValidation() {
-        CertificateValidationSettingsDto validation = new CertificateValidationSettingsDto();
-        validation.setEnabled(true);
-        CertificateSettingsDto certificates = new CertificateSettingsDto();
-        certificates.setValidation(validation);
-        PlatformSettingsDto platform = new PlatformSettingsDto();
-        platform.setCertificates(certificates);
-        settingsCache.cacheSettings(SettingsSection.PLATFORM, platform);
+        cachePlatformValidation(true);
     }
 
     @Test
@@ -136,6 +134,24 @@ class TrustedCertificateWriterITest extends BaseSpringBootTest {
         // then
         assertThat(x509CertificateRepository.findByUuid(endEntity.getUuid()).orElseThrow().getTrustedCa()).isNull();
         verify(validationProducer, never()).produceMessage(any());
+    }
+
+    @Test
+    void queuesRevalidation_whenTheCaBelongsToAnRaProfile() {
+        // given — validation is enabled on the RA profile only, so the revalidation depends on reading it
+        cachePlatformValidation(false);
+        RaProfile raProfile = new RaProfile();
+        raProfile.setName("rp-" + UUID.randomUUID());
+        raProfile.setValidationEnabled(true);
+        raProfile = raProfileRepository.saveAndFlush(raProfile);
+        X509CertificateEntity caUnderRaProfile = persistCa(false, raProfile.getUuid());
+
+        // when
+        writer.insert(caUnderRaProfile, true, false, null);
+
+        // then
+        verify(validationProducer)
+                .produceMessage(argThat(message -> message.getUuids().contains(caUnderRaProfile.getUuid())));
     }
 
     @Test
@@ -219,18 +235,29 @@ class TrustedCertificateWriterITest extends BaseSpringBootTest {
     }
 
     @Test
-    void storesThePlatformIdentityAndObservation_whenRecorded() {
+    void storesThePlatformUuid_whenRecorded() {
+        // given
+        TrustedCertificate row = writer.insert(persistCa(false), false, true, TrustedCertificatePlatformState.PENDING);
+
+        // when
+        writer.recordPlatformUuid(row.getUuid(), "p1");
+
+        // then
+        assertThat(trustedCertificateRepository.findById(row.getUuid()).orElseThrow().getPlatformUuid())
+                .isEqualTo("p1");
+    }
+
+    @Test
+    void storesTheObservedState_whenRecorded() {
         // given
         TrustedCertificate row = writer.insert(persistCa(false), false, true, TrustedCertificatePlatformState.PENDING);
         var checkedAt = OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.SECONDS);
 
         // when
-        writer.recordPlatformUuid(row.getUuid(), "p1");
         writer.recordObserved(row.getUuid(), TrustedCertificatePlatformState.FAILED, "Deployment failed", checkedAt);
 
         // then
         TrustedCertificate reloaded = trustedCertificateRepository.findById(row.getUuid()).orElseThrow();
-        assertThat(reloaded.getPlatformUuid()).isEqualTo("p1");
         assertThat(reloaded.getPlatformState()).isEqualTo(TrustedCertificatePlatformState.FAILED);
         assertThat(reloaded.getPlatformStateMessage()).isEqualTo("Deployment failed");
         assertThat(reloaded.getPlatformStateCheckedAt().toInstant()).isEqualTo(checkedAt.toInstant());
@@ -280,7 +307,21 @@ class TrustedCertificateWriterITest extends BaseSpringBootTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
+    private void cachePlatformValidation(boolean enabled) {
+        CertificateValidationSettingsDto validation = new CertificateValidationSettingsDto();
+        validation.setEnabled(enabled);
+        CertificateSettingsDto certificates = new CertificateSettingsDto();
+        certificates.setValidation(validation);
+        PlatformSettingsDto platform = new PlatformSettingsDto();
+        platform.setCertificates(certificates);
+        settingsCache.cacheSettings(SettingsSection.PLATFORM, platform);
+    }
+
     private X509CertificateEntity persistCa(boolean trustedCa) {
+        return persistCa(trustedCa, null);
+    }
+
+    private X509CertificateEntity persistCa(boolean trustedCa, UUID raProfileUuid) {
         CertificateContent content = new CertificateContent();
         content.setFingerprint(UUID.randomUUID().toString());
         content.setContent("ca-content");
@@ -289,6 +330,7 @@ class TrustedCertificateWriterITest extends BaseSpringBootTest {
                 .withFingerprint(UUID.randomUUID().toString())
                 .withValidationStatus(CertificateValidationStatus.VALID)
                 .withTrustedCa(trustedCa)
+                .withRaProfileUuid(raProfileUuid)
                 .build();
         ca.setCertificateContentId(content.getId());
         return certificateRepository.saveAndFlush(ca);
