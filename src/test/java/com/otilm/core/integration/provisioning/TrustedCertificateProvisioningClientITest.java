@@ -1,6 +1,8 @@
 package com.otilm.core.integration.provisioning;
 
+import com.github.tomakehurst.wiremock.http.Fault;
 import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
+import com.github.tomakehurst.wiremock.stubbing.Scenario;
 import com.otilm.core.provisioning.ProvisioningApplyResponseDTO;
 import com.otilm.core.provisioning.ProvisioningApplyStatusDTO;
 import com.otilm.core.provisioning.TrustedCertificateProvisioningApiClient;
@@ -18,6 +20,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.web.client.ResourceAccessException;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.delete;
@@ -93,6 +96,44 @@ class TrustedCertificateProvisioningClientITest extends BaseSpringBootTest {
         wireMockServer
                 .verify(1, deleteRequestedFor(urlPathEqualTo(BASE_PATH + "/p1"))
                         .withQueryParam("deferApply", equalTo("true")));
+    }
+
+    @Test
+    void retriesApplyOnce_whenTheConnectionClosesWithoutAnAnswer() {
+        // given — a pooled connection provisioning closed while idle answers nothing
+        wireMockServer
+                .stubFor(post(urlPathEqualTo(BASE_PATH + "/apply"))
+                        .inScenario("stale connection")
+                        .whenScenarioStateIs(Scenario.STARTED)
+                        .willReturn(aResponse().withFault(Fault.EMPTY_RESPONSE))
+                        .willSetStateTo("fresh connection"));
+        wireMockServer
+                .stubFor(post(urlPathEqualTo(BASE_PATH + "/apply"))
+                        .inScenario("stale connection")
+                        .whenScenarioStateIs("fresh connection")
+                        .willReturn(okJson("{\"deploymentId\":42,\"configurationVersion\":\"v7\"}").withStatus(202)));
+
+        // when
+        ResponseEntity<ProvisioningApplyResponseDTO> response = client.apply();
+
+        // then
+        assertThat(response.getBody()).isEqualTo(new ProvisioningApplyResponseDTO(42, "v7"));
+        wireMockServer.verify(2, postRequestedFor(urlPathEqualTo(BASE_PATH + "/apply")));
+    }
+
+    @Test
+    void doesNotRetryApply_whenTheAnswerTimesOut() {
+        // given — provisioning may have queued the deployment before the read timeout of the test configuration
+        wireMockServer
+                .stubFor(post(urlPathEqualTo(BASE_PATH + "/apply"))
+                        .willReturn(okJson("{\"deploymentId\":42}").withStatus(202).withFixedDelay(2_000)));
+
+        // when
+        ThrowingCallable apply = () -> client.apply();
+
+        // then
+        assertThatThrownBy(apply).isInstanceOf(ResourceAccessException.class);
+        wireMockServer.verify(1, postRequestedFor(urlPathEqualTo(BASE_PATH + "/apply")));
     }
 
     @Test

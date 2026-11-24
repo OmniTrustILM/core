@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.service.annotation.DeleteExchange;
 import org.springframework.web.service.annotation.GetExchange;
@@ -61,10 +62,20 @@ public interface TrustedCertificateProvisioningApiClient {
 
     /**
      * Starts one tenant deployment carrying the deferred changes. An older provisioning without this endpoint answers
-     * 404; 204 means there was nothing to deploy. Not retried: an answer lost after provisioning queued the deployment
-     * would make a retry queue a second one.
+     * 404; 204 means there was nothing to deploy.
+     * <p>
+     * Retried only when the request cannot have reached provisioning: a pooled connection it closed while idle, which
+     * answers nothing, or a refused connection. A timeout or an error status is not retried, since provisioning may
+     * already have queued the deployment and a retry would queue a second one.
      */
     @PostExchange("/apply")
+    @Retryable(retryFor = ResourceAccessException.class,
+            exceptionExpression = "cause instanceof T(org.apache.hc.core5.http.NoHttpResponseException)"
+                    + " || cause instanceof T(java.net.ConnectException)",
+            maxAttemptsExpression = "${provisioning.api.retry.max-attempts}",
+            backoff = @Backoff(delayExpression = "${provisioning.api.retry.delay}",
+                    maxDelayExpression = "${provisioning.api.retry.max-delay}",
+                    multiplierExpression = "${provisioning.api.retry.multiplier}"))
     ResponseEntity<ProvisioningApplyResponseDTO> apply();
 
     /**
