@@ -2489,6 +2489,24 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         }
 
         @Test
+        void storesTheTransferModesInDeclarationOrder_whenTheConnectorAnswersSeveral() throws Exception {
+            // given — the mock declares xades with both transfer modes
+            var bothModes = Set.of(DocumentTransferMode.DIGEST_ONLY, DocumentTransferMode.INLINE);
+            contentSigningFormattingMock.stubValidateProfileAnswering(bothModes);
+
+            // when
+            SigningProfileDto created = signingProfileService
+                    .createSigningProfile(aManagedContentSigningProfile("ct-validate-modes-in-order")
+                            .withContentSigning(
+                                    aManagedContentSigningWorkflow().withFamily(SignatureFamilyFixtures.XADES).build())
+                            .build());
+
+            // then
+            assertThat(persistedVersion(created.getUuid(), created.getVersion()).getTransferModes())
+                    .containsExactly(DocumentTransferMode.INLINE, DocumentTransferMode.DIGEST_ONLY);
+        }
+
+        @Test
         void storesTheAnsweredTransferModes_whenAManagedContentSigningProfileIsUpdated() throws Exception {
             // given — the mock declares xades with both transfer modes
             var xades = aManagedContentSigningWorkflow().withFamily(SignatureFamilyFixtures.XADES).build();

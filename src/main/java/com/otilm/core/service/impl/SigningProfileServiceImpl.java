@@ -1123,7 +1123,11 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         version
                 .setAllowedRequestAttributes(
                         new ArrayList<>(Objects.requireNonNullElse(w.getAllowedRequestAttributes(), Set.of())));
-        version.setTransferModes(new ArrayList<>(transferModes));
+        List<DocumentTransferMode> modesInDeclarationOrder = transferModes
+                .stream()
+                .sorted()
+                .collect(Collectors.toCollection(ArrayList::new));
+        version.setTransferModes(modesInDeclarationOrder);
     }
 
     /**
