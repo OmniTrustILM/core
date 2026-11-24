@@ -230,7 +230,7 @@ class RenewalInfoRefreshITest extends BaseSpringBootTest {
         Set<UUID> afterRecheck = claimedCertificates(claimer.claim(now.plus(RECHECK).plus(SLACK)));
 
         // then
-        assertThat(beforeRecheck).doesNotContain(certificate.getUuid());
+        assertThat(beforeRecheck).isEmpty();
         assertThat(afterRecheck).containsExactly(certificate.getUuid());
     }
 

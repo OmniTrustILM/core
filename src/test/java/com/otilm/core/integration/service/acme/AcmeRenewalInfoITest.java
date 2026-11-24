@@ -279,7 +279,7 @@ class AcmeRenewalInfoITest extends BaseSpringBootTest {
 
     @Test
     void picksTheCandidateWhoseIssuerMatches_whenSerialNumbersCollideAcrossIssuers() throws Exception {
-        byte[] otherKeyIdentifier = new byte[]{9, 9, 9, 9};
+        byte[] otherKeyIdentifier = {9, 9, 9, 9};
         Certificate other = issuedCertificate(BigInteger.valueOf(86), otherKeyIdentifier);
         Certificate wanted = issuedCertificate(BigInteger.valueOf(86), issuerKeyIdentifier);
         window(other, RenewalWindowSource.FORCED, "https://ca.example/other");

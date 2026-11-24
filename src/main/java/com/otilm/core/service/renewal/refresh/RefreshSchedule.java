@@ -21,10 +21,13 @@ public final class RefreshSchedule {
      */
     public static Instant next(Instant now, Integer itemRetryAfter, Integer responseRetryAfter,
             RenewalInfoSettings settings, DoubleSupplier random) {
-        int seconds = itemRetryAfter != null
-                ? itemRetryAfter
-                : responseRetryAfter != null ? responseRetryAfter : settings.defaultIntervalSeconds();
-        int clamped = Math.max(settings.minIntervalSeconds(), Math.min(settings.maxIntervalSeconds(), seconds));
+        int seconds = settings.defaultIntervalSeconds();
+        if (itemRetryAfter != null) {
+            seconds = itemRetryAfter;
+        } else if (responseRetryAfter != null) {
+            seconds = responseRetryAfter;
+        }
+        int clamped = Math.clamp(seconds, settings.minIntervalSeconds(), settings.maxIntervalSeconds());
         double factor = 1 + (random.getAsDouble() * 2 - 1) * JITTER;
         return now.plusMillis(Math.round(clamped * 1000 * factor));
     }
@@ -34,7 +37,7 @@ public final class RefreshSchedule {
      * of the ramp; beyond its end the last delay repeats.
      */
     public static Instant backoff(Instant now, int attempt, List<Duration> ramp) {
-        int index = Math.max(0, Math.min(attempt - 1, ramp.size() - 1));
+        int index = Math.clamp(attempt - 1, 0, ramp.size() - 1);
         return now.plus(ramp.get(index));
     }
 }

@@ -119,7 +119,7 @@ class AutoRenewalActionITest extends BaseSpringBootTest {
                 .of(fire(association, certificate), fire(association, certificate), fire(association, certificate));
 
         // then
-        assertThat(histories).allSatisfy(history -> assertThat(history.getRecords()).isEmpty());
+        assertThat(histories).isNotEmpty().allSatisfy(history -> assertThat(history.getRecords()).isEmpty());
         assertThat(seeder.renewalRow(certificate.getUuid()).getRenewBlockedReason())
                 .isEqualTo(AutoRenewalModeResolver.NO_KEY);
         assertThat(renewHistory(certificate))
@@ -190,7 +190,7 @@ class AutoRenewalActionITest extends BaseSpringBootTest {
         }
 
         // then
-        assertThat(histories).allSatisfy(history -> assertThat(history.getRecords()).isEmpty());
+        assertThat(histories).isNotEmpty().allSatisfy(history -> assertThat(history.getRecords()).isEmpty());
         assertThat(certificateRepository.findById(certificate.getUuid()).orElseThrow().getRaProfileUuid()).isNull();
         assertThat(seeder.renewalRow(certificate.getUuid()).getRenewStartedAt()).isNull();
     }

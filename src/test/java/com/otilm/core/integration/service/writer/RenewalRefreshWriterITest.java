@@ -69,8 +69,8 @@ class RenewalRefreshWriterITest extends BaseSpringBootTest {
         UUID certificateUuid = rowFor();
         writer.schedule(certificateUuid, DUE, 0, true);
 
-        writer.backOff(certificateUuid, attempt -> DUE.plusSeconds(attempt));
-        writer.backOff(certificateUuid, attempt -> DUE.plusSeconds(attempt));
+        writer.backOff(certificateUuid, DUE::plusSeconds);
+        writer.backOff(certificateUuid, DUE::plusSeconds);
 
         CertificateRenewalInfo row = renewalInfoRepository.findByCertificateUuid(certificateUuid).orElseThrow();
         assertThat(row.getRefreshAttempt()).isEqualTo(2);

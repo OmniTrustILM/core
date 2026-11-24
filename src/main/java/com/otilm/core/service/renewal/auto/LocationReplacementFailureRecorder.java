@@ -7,6 +7,7 @@ import com.otilm.core.dao.repository.CertificateLocationRepository;
 import com.otilm.core.dao.repository.CertificateRenewalInfoRepository;
 import com.otilm.core.service.CertificateEventHistoryInternalService;
 import com.otilm.core.service.TriggerInternalService;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
@@ -52,16 +53,18 @@ public class LocationReplacementFailureRecorder {
      *
      * @param reason why the replacement failed, as shaped for the history
      */
-    public void record(UUID predecessorUuid, UUID successorUuid, String reason) {
+    public void recordFailure(UUID predecessorUuid, UUID successorUuid, String reason) {
         String message;
         UUID triggerHistoryUuid;
         UUID executionUuid;
         try {
-            RenewalInfoSnapshot snapshot = newTransaction
-                    .execute(status -> recordHistory(predecessorUuid, successorUuid, reason));
-            if (snapshot == null) {
+            Optional<RenewalInfoSnapshot> recorded = Optional
+                    .ofNullable(
+                            newTransaction.execute(status -> recordHistory(predecessorUuid, successorUuid, reason)));
+            if (recorded.isEmpty()) {
                 return;
             }
+            RenewalInfoSnapshot snapshot = recorded.get();
             message = snapshot.message();
             triggerHistoryUuid = snapshot.triggerHistoryUuid();
             executionUuid = snapshot.executionUuid();

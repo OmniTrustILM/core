@@ -189,7 +189,7 @@ class FilterFieldRenewalITest extends BaseSpringBootTest {
         return certificateRepository.save(certificate);
     }
 
-    private List<UUID> search(SearchFilterRequestDto... filters) throws Exception {
+    private List<UUID> search(SearchFilterRequestDto... filters) {
         CertificateSearchRequestDto request = new CertificateSearchRequestDto();
         request.setFilters(List.of(filters));
         CertificateResponseDto response = certificateService.listCertificates(new SecurityFilter(), request);

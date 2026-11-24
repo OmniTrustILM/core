@@ -2915,7 +2915,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                 replaceInLocations(oldCertificate, certificate, "renew");
             } catch (CertificateOperationException e) {
                 locationReplacementFailureRecorder
-                        .record(oldCertificate.getUuid(), certificate.getUuid(), e.getMessage());
+                        .recordFailure(oldCertificate.getUuid(), certificate.getUuid(), e.getMessage());
                 throw e;
             }
         } else {

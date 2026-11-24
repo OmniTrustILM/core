@@ -26,10 +26,11 @@ public final class RenewalWindowRules {
 
     public static RuleOutcome apply(RenewalState current, WindowWrite write, Instant now) {
         RenewalState candidate = switch (write) {
-            case Policy policy -> applyPolicy(current, policy.window());
+            case Policy(Window window) -> applyPolicy(current, window);
             case Authority authority -> applyAuthority(current, authority);
             case AuthorityNoAdvice ignored -> removeIfSource(current, RenewalWindowSource.AUTHORITY);
-            case Forced forced -> window(forced.window(), forced.explanationUrl(), RenewalWindowSource.FORCED);
+            case Forced(Window window, String explanationUrl) ->
+                window(window, explanationUrl, RenewalWindowSource.FORCED);
             case RaProfileReset ignored -> current.source() == RenewalWindowSource.FORCED ? current : RenewalState.NONE;
         };
         if (candidate.sameWindowAs(current)) {

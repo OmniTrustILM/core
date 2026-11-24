@@ -40,6 +40,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 
 class AutoRenewalConcurrencyITest extends BaseSpringBootTest {
 
@@ -252,12 +253,11 @@ class AutoRenewalConcurrencyITest extends BaseSpringBootTest {
         return null;
     }
 
-    private static void awaitOneDone(List<Future<?>> firings) throws InterruptedException {
-        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(WAIT_SECONDS);
-        while (firings.stream().noneMatch(Future::isDone) && System.nanoTime() < deadline) {
-            Thread.sleep(20);
-        }
-        assertThat(firings).anyMatch(Future::isDone);
+    private static void awaitOneDone(List<Future<?>> firings) {
+        await()
+                .atMost(WAIT_SECONDS, TimeUnit.SECONDS)
+                .pollInterval(20, TimeUnit.MILLISECONDS)
+                .until(() -> firings.stream().anyMatch(Future::isDone));
     }
 
     /** Renews by holding the firing until released, so a concurrent firing meets the in-flight marker. */

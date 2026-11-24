@@ -9,6 +9,7 @@ import com.otilm.api.model.core.certificate.EarlyRenewalRequestDto;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.Certificate_;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.UniquelyIdentifiedAndAudited_;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.model.auth.ResourceAction;
@@ -78,7 +79,7 @@ public class EarlyRenewalServiceImpl implements EarlyRenewalExternalService {
         filter.setParentRefProperty(Certificate_.raProfileUuid.getName());
         List<UUID> requestedUuids = request.getUuids().stream().distinct().toList();
         List<UUID> eligibleUuids = findAwaitingRenewal(filter,
-                (root, cb) -> root.get(Certificate_.uuid).in(requestedUuids));
+                (root, cb) -> root.get(UniquelyIdentifiedAndAudited_.uuid).in(requestedUuids));
         forceWindow(eligibleUuids, request);
         int skipped = requestedUuids.size() - eligibleUuids.size();
         logger

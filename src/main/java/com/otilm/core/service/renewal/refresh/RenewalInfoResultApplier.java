@@ -66,18 +66,16 @@ public class RenewalInfoResultApplier {
     public void apply(Map<String, UUID> referenceToCertificate, RenewalInfoCallResult result, Instant now) {
         RenewalInfoSettings settings = settings();
         switch (result) {
-            case RenewalInfoCallResult.Answered answered ->
-                applyAnswer(referenceToCertificate, answered.response(), settings, now);
-            case RenewalInfoCallResult.BackOff backOff -> {
+            case RenewalInfoCallResult.Answered(var response) ->
+                applyAnswer(referenceToCertificate, response, settings, now);
+            case RenewalInfoCallResult.BackOff(var reason) -> {
                 logger
                         .warn("Renewal information refresh of {} certificates backs off: {}",
-                                referenceToCertificate.size(), backOff.reason());
+                                referenceToCertificate.size(), reason);
                 backOffAll(referenceToCertificate.values(), now);
             }
-            case RenewalInfoCallResult.Suspend suspend -> {
-                logger
-                        .warn("Renewal information refresh for authority {} suspended: {}", suspend.authority(),
-                                suspend.reason());
+            case RenewalInfoCallResult.Suspend(var authority, var reason) -> {
+                logger.warn("Renewal information refresh for authority {} suspended: {}", authority, reason);
                 refreshWriter
                         .postpone(referenceToCertificate.values(), now.plusSeconds(settings.recheckIntervalSeconds()));
             }

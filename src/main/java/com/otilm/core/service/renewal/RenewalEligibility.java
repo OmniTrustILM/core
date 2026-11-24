@@ -8,6 +8,7 @@ import com.otilm.core.dao.entity.CertificateRelation_;
 import com.otilm.core.dao.entity.CertificateRenewalLocation;
 import com.otilm.core.dao.entity.CertificateRenewalLocation_;
 import com.otilm.core.dao.entity.Certificate_;
+import com.otilm.core.dao.entity.UniquelyIdentifiedAndAudited_;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Join;
@@ -38,7 +39,7 @@ public final class RenewalEligibility {
                 .select(cb.literal(1))
                 .where(cb
                         .equal(location.get(CertificateRenewalLocation_.certificateUuid),
-                                certificate.get(Certificate_.uuid)),
+                                certificate.get(UniquelyIdentifiedAndAudited_.uuid)),
                         cb.isNull(location.get(CertificateRenewalLocation_.completedAt)));
         return cb
                 .and(live(certificate, cb),
@@ -63,7 +64,7 @@ public final class RenewalEligibility {
                         .equal(relation
                                 .get(CertificateRelation_.id)
                                 .get(CertificateRelationId_.predecessorCertificateUuid),
-                                certificate.get(Certificate_.uuid)),
+                                certificate.get(UniquelyIdentifiedAndAudited_.uuid)),
                         cb.equal(successor.get(Certificate_.state), CertificateState.ISSUED));
         return issuedSuccessor;
     }

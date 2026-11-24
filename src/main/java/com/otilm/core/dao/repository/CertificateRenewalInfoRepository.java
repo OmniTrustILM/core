@@ -303,8 +303,8 @@ public interface CertificateRenewalInfoRepository extends JpaRepository<Certific
     @Modifying(flushAutomatically = true)
     @Query(value = RESET_REFRESH + """
             WHERE r.next_refresh_at <= :now
-              AND NOT EXISTS (SELECT 1 FROM\s""" + REFRESH_ELIGIBLE_JOINS + """
-            WHERE c.uuid = r.certificate_uuid AND\s""" + REFRESH_ELIGIBLE + ")", nativeQuery = true)
+              AND NOT EXISTS (SELECT 1 FROM\s""" + REFRESH_ELIGIBLE_JOINS + " WHERE c.uuid = r.certificate_uuid AND "
+            + REFRESH_ELIGIBLE + ")", nativeQuery = true)
     int resetIneligibleDue(@Param("now") Instant now);
 
     /**

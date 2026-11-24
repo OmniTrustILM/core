@@ -67,17 +67,17 @@ class SettingServiceRenewalInfoITest extends BaseSpringBootTest {
         renewalInfo.setRefreshMinInterval(7200);
         renewalInfo.setRefreshDefaultInterval(3600);
         renewalInfo.setRefreshMaxInterval(86400);
+        PlatformSettingsUpdateDto update = update(renewalInfo);
 
-        assertThatThrownBy(() -> settingService.updatePlatformSettings(update(renewalInfo)))
-                .isInstanceOf(ValidationException.class);
+        assertThatThrownBy(() -> settingService.updatePlatformSettings(update)).isInstanceOf(ValidationException.class);
     }
 
     @Test
     void rejectsABatchSizeAboveTheLimit() {
         CertificateRenewalInfoSettingsUpdateDto renewalInfo = new CertificateRenewalInfoSettingsUpdateDto();
         renewalInfo.setRefreshBatchSize(51);
+        PlatformSettingsUpdateDto update = update(renewalInfo);
 
-        assertThatThrownBy(() -> settingService.updatePlatformSettings(update(renewalInfo)))
-                .isInstanceOf(ValidationException.class);
+        assertThatThrownBy(() -> settingService.updatePlatformSettings(update)).isInstanceOf(ValidationException.class);
     }
 }

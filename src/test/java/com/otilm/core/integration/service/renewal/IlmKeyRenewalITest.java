@@ -265,10 +265,10 @@ class IlmKeyRenewalITest extends BaseSpringBootTest {
                 .asString()
                 .contains("The renewed certificate is in no location; the old certificate is still in mail, web");
         List<TriggerHistoryRecord> records = triggerHistoryRecordRepository.findAll();
-        assertThat(records).singleElement().satisfies(record -> {
-            assertThat(record.getTriggerHistoryUuid()).isEqualTo(firing.getUuid());
-            assertThat(record.getExecutionUuid()).isEqualTo(trigger.executionUuid());
-            assertThat(record.getMessage()).startsWith(expected);
+        assertThat(records).singleElement().satisfies(historyRecord -> {
+            assertThat(historyRecord.getTriggerHistoryUuid()).isEqualTo(firing.getUuid());
+            assertThat(historyRecord.getExecutionUuid()).isEqualTo(trigger.executionUuid());
+            assertThat(historyRecord.getMessage()).startsWith(expected);
         });
         assertThat(triggerHistoryRepository.findById(firing.getUuid()).orElseThrow().isActionsPerformed()).isFalse();
         assertThat(next).isNull();

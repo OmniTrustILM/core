@@ -90,14 +90,14 @@ public class AutoRenewalAction {
         UUID certificateUuid = certificate.getUuid();
         Claim claim = newTransaction.execute(status -> claim(certificateUuid, context, Instant.now()));
         switch (Objects.requireNonNull(claim)) {
-            case Skip skip -> logger
+            case Skip(String reason) -> logger
                     .debug("Automatic renewal of certificate {} by trigger {} skipped: {}", certificateUuid,
-                            context.triggerUuid(), skip.reason());
-            case Failure failure -> {
+                            context.triggerUuid(), reason);
+            case Failure(String message) -> {
                 logger
                         .info("Automatic renewal of certificate {} by trigger {} failed: {}", certificateUuid,
-                                context.triggerUuid(), failure.message());
-                throw new RuleException(failure.message());
+                                context.triggerUuid(), message);
+                throw new RuleException(message);
             }
             case Start start -> renew(certificateUuid, context, start);
         }
@@ -216,11 +216,11 @@ public class AutoRenewalAction {
      * in a short transaction too and handed over detached, so no lazy load holds a connection across a call.
      */
     private void runHandler(AutoRenewalHandler handler, UUID certificateUuid, RenewalContext renewalContext) {
-        Certificate certificate = readOnlyTransaction
-                .execute(status -> entityManager.find(Certificate.class, certificateUuid));
-        if (certificate == null) {
-            throw new IllegalStateException("Certificate %s no longer exists".formatted(certificateUuid));
-        }
+        Certificate certificate = Optional
+                .ofNullable(
+                        readOnlyTransaction.execute(status -> entityManager.find(Certificate.class, certificateUuid)))
+                .orElseThrow(
+                        () -> new IllegalStateException("Certificate %s no longer exists".formatted(certificateUuid)));
         try {
             handler.renew(certificate, renewalContext);
         } catch (AutoRenewalException e) {
