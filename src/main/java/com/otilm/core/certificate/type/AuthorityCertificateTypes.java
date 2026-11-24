@@ -45,8 +45,7 @@ public class AuthorityCertificateTypes {
         }
         try {
             return adapterFactory.forAuthority(authority).listCertificateTypes(authority, raProfile);
-        } catch (ConnectorException | ValidationException e) {
-            // a connector may refuse the request as invalid in its own words, which are kept from the caller as well
+        } catch (ConnectorException e) {
             throw new CertificateTypesUnavailableException(raProfile.getName(), authority.getConnector(), e);
         }
     }

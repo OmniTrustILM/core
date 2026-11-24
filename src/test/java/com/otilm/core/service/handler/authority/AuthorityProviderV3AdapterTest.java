@@ -1546,6 +1546,19 @@ class AuthorityProviderV3AdapterTest {
         }
 
         @Test
+        void throwsAConnectorFailure_whenTheConnectorRefusesTheRequestAsInvalid() throws Exception {
+            // given
+            var connectorRefusal = new ValidationException("text written by the connector");
+            when(authorityClientV3.listCertificateTypes(eq(connectorInfo), any())).thenThrow(connectorRefusal);
+
+            // when
+            ThrowingCallable list = () -> adapter.listCertificateTypes(authority, raProfile);
+
+            // then
+            assertThatThrownBy(list).isInstanceOf(ConnectorException.class).hasCause(connectorRefusal);
+        }
+
+        @Test
         void returnsX509Only_whenTheConnectorAnswersWithoutABody() throws Exception {
             // given
             when(authorityClientV3.listCertificateTypes(eq(connectorInfo), any())).thenReturn(null);

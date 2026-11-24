@@ -284,9 +284,17 @@ public class AuthorityProviderV3Adapter extends AbstractAuthorityProviderAdapter
         List<SupportedCertificateTypeDtoV3> x509Only = List.of(SupportedCertificateTypeDtoV3.of(CertificateType.X509));
         List<SupportedCertificateTypeDtoV3> listed;
         try {
-            listed = offeredOr(() -> connectorApiFactory
-                    .getAuthorityInstanceApiClientV3(connectorDto)
-                    .listCertificateTypes(connectorDto, request), x509Only, "the supported certificate types");
+            listed = offeredOr(() -> {
+                try {
+                    return connectorApiFactory
+                            .getAuthorityInstanceApiClientV3(connectorDto)
+                            .listCertificateTypes(connectorDto, request);
+                } catch (ValidationException e) {
+                    // Only the connector's refusal is turned into a connector failure, whose text is kept from the
+                    // caller; a validation error of resolving the attributes above names what the operator has to fix.
+                    throw new ConnectorException("Connector refused the certificate types request", e, connectorDto);
+                }
+            }, x509Only, "the supported certificate types");
         } catch (ConnectorProblemException e) {
             // this operation documents 501 as declining it, whatever error code the problem carries
             if (e.getProblemDetail().getStatus() != HttpStatus.NOT_IMPLEMENTED.value()) {
