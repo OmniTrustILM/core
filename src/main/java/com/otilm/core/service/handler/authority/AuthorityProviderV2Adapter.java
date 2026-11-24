@@ -16,6 +16,7 @@ import com.otilm.api.model.connector.v2.CertificateRenewRequestDto;
 import com.otilm.api.model.connector.v2.CertificateSignRequestDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.authority.CertificateRevocationReason;
+import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
@@ -27,7 +28,9 @@ import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.service.v2.ConnectorInternalService;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
@@ -193,6 +196,11 @@ public class AuthorityProviderV2Adapter extends AbstractAuthorityProviderAdapter
     public List<BaseAttribute> listCertificateRequestAttributes(AuthorityInstanceReference authority,
             RaProfile raProfile) {
         return List.of();
+    }
+
+    @Override
+    public Set<CertificateType> listCertificateTypes(AuthorityInstanceReference authority, RaProfile raProfile) {
+        return EnumSet.of(CertificateType.X509);
     }
 
     @Override

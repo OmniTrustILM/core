@@ -27,12 +27,14 @@ import com.otilm.api.model.common.ErrorMessageDto;
 import com.otilm.api.model.core.acme.ProblemDocument;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.attribute.engine.ReferenceAccessDeniedException;
+import com.otilm.core.certificate.type.CertificateTypesUnavailableException;
 import com.otilm.core.dao.CryptoAssetConstraintTranslator;
 import com.otilm.core.exception.DanglingReferenceException;
 import com.otilm.core.exception.PreconditionFailedException;
 import com.otilm.core.exception.UnsupportedAuthorityVersionException;
 import com.otilm.core.exception.UnsupportedCryptographyProviderVersionException;
 import com.otilm.core.exception.UnsupportedDiscoveryVersionException;
+import com.otilm.core.logging.RedactedFailure;
 import com.otilm.core.security.authn.PlatformAuthenticationException;
 import com.otilm.core.security.exception.AuthenticationServiceException;
 import com.otilm.core.util.AuthHelper;
@@ -332,6 +334,13 @@ public class ExceptionHandlingAdvice {
 
         LOG.info("HTTP 502: {}", messageBuilder);
         return ErrorMessageDto.getInstance(messageBuilder.toString());
+    }
+
+    @ExceptionHandler(CertificateTypesUnavailableException.class)
+    @ResponseStatus(HttpStatus.BAD_GATEWAY)
+    public ErrorMessageDto handleCertificateTypesUnavailableException(CertificateTypesUnavailableException ex) {
+        LOG.info("HTTP 502: {}", ex.getMessage(), RedactedFailure.forLog(ex));
+        return ErrorMessageDto.getInstance(ex.getMessage());
     }
 
     /**
