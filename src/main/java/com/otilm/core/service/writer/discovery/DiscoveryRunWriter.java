@@ -39,8 +39,7 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>
  * The caller reads everything the connector has to say first, since a connector call must never hold a transaction
  * open, and hands it here as data, so the run, its attributes and its triggers commit as one unit; filed separately, a
- * later failure leaves an {@code IN_PROGRESS} run missing part of its configuration. A delete commits here before the
- * caller asks the connector to delete its copy, for the same reason.
+ * later failure leaves an {@code IN_PROGRESS} run missing part of its configuration.
  *
  * <p>
  * The detail is mapped here because the caller runs {@code NOT_SUPPORTED} and cannot load the lazy associations.
@@ -169,13 +168,11 @@ public class DiscoveryRunWriter {
 
     /**
      * Deletes a run with its results, attributes, comments and trigger associations, and sweeps every certificate
-     * content that no certificate and no discovery result references. An inventory certificate references its content,
-     * so the content outlives the run.
+     * content that no certificate and no discovery result references.
      *
      * <p>
-     * A v2 run still at its connector is driven by agenda rows this delete would cascade away, so nothing would ever
-     * end it. PROCESSING is refused too: the connector is done but Core's import runs on those same rows. A v1 run has
-     * no agenda and its provider call is over, so it deletes directly.
+     * A v2 run that has not ended is refused: this delete would cascade away the agenda rows that drive it or, while it
+     * is PROCESSING, the rows Core's import runs on. A v1 run has no agenda, so it deletes in any state.
      *
      * @return the run's copy at its connector, which the caller deletes once this has committed; empty when the
      * connector keeps none

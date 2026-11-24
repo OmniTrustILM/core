@@ -876,9 +876,9 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     }
 
     /**
-     * Commits the local delete before the connector is asked to delete its copy: a slow connector then holds no lock or
-     * connection, and a local delete that fails leaves the connector's copy alone. A connector that fails to delete its
-     * copy does not change the outcome, since Core's run is already gone.
+     * Commits the local delete before asking the connector to delete its copy, so a slow connector holds no lock or
+     * connection and a failed local delete leaves the copy alone. A failed connector delete is only logged, since
+     * Core's run is already gone.
      */
     private void deleteRunAndConnectorCopy(SecuredUUID uuid) throws NotFoundException {
         discoveryRunWriter.deleteRun(uuid).ifPresent(this::deleteConnectorCopy);
