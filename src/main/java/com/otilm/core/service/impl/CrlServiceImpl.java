@@ -152,9 +152,8 @@ public class CrlServiceImpl implements CrlService {
     }
 
     /**
-     * Reports a failure remembered for the CRL the validation would download first without waiting for a download
-     * permit, since no download is made for it: the base CRL when none is stored or the stored one is due, otherwise
-     * the delta CRL.
+     * A remembered failure needs no permit. Only the first required download matters here because a due base CRL must
+     * be refreshed even when the delta CRL has a remembered failure.
      */
     private void rethrowRecentFailureOfFirstDownload(X509Certificate certificate, Crl storedCrl, String issuerDn,
             String issuerSerialNumber) throws IOException {

@@ -25,8 +25,8 @@ import org.springframework.util.unit.DataSize;
 
 /**
  * Downloads CRLs within a size limit and a deadline, since a CRL is held whole in memory and the read timeout bounds
- * each read only. The caller stops waiting for an HTTP download at the deadline. The download also checks the deadline
- * after each read, as the interrupt that ends it once given up on ends only a read that blocks.
+ * each read only. The caller interrupts the HTTP download at the deadline. The worker also checks the deadline between
+ * reads because buffered reads can finish without blocking.
  */
 @Component
 public class CrlDownloader {
@@ -117,6 +117,12 @@ public class CrlDownloader {
             throw new InterruptedIOException("Interrupted while reading a CRL");
         } catch (ExecutionException e) {
             if (e.getCause() instanceof IOException failure) {
+                throw failure;
+            }
+            if (e.getCause() instanceof RuntimeException failure) {
+                throw failure;
+            }
+            if (e.getCause() instanceof Error failure) {
                 throw failure;
             }
             throw new IllegalStateException("The CRL download failed unexpectedly", e.getCause());

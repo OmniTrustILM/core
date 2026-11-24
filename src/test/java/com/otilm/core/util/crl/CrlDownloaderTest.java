@@ -63,6 +63,24 @@ class CrlDownloaderTest {
     }
 
     @Test
+    void propagatesWorkerRuntimeException() {
+        var failure = new IllegalArgumentException("worker failure");
+        var downloader = new CrlDownloader(url -> {
+            throw failure;
+        }, CONNECT_TIMEOUT_MILLIS, READ_TIMEOUT_MILLIS, SIZE_LIMIT, DOWNLOAD_TIMEOUT);
+        assertThatThrownBy(() -> downloader.download(crlUrl())).isSameAs(failure);
+    }
+
+    @Test
+    void propagatesWorkerError() {
+        var failure = new AssertionError("worker failure");
+        var downloader = new CrlDownloader(url -> {
+            throw failure;
+        }, CONNECT_TIMEOUT_MILLIS, READ_TIMEOUT_MILLIS, SIZE_LIMIT, DOWNLOAD_TIMEOUT);
+        assertThatThrownBy(() -> downloader.download(crlUrl())).isSameAs(failure);
+    }
+
+    @Test
     void returnsBody_whenCrlFitsSizeLimit() throws Exception {
         // given
         byte[] crlWithinLimit = bytes((int) SIZE_LIMIT.toBytes());

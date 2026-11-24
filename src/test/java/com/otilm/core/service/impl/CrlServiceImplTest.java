@@ -42,6 +42,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
@@ -79,6 +80,7 @@ import static com.otilm.core.util.builders.CrlBuilder.aCrl;
 import static com.otilm.core.util.builders.X509CrlBuilder.anX509Crl;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertTimeout;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -126,7 +128,7 @@ class CrlServiceImplTest {
 
     private final AtomicReference<Crl> storedRow = new AtomicReference<>();
     private final AtomicReference<Crl> rowStoredAfterNextRead = new AtomicReference<>();
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
     private final CountDownLatch releasePermit = new CountDownLatch(1);
     private CrlDownloadGuard crlDownloadGuard;
     private CrlServiceImpl crlService;
@@ -157,7 +159,7 @@ class CrlServiceImplTest {
     }
 
     @BeforeEach
-    void wireServiceWithOneDownloadPermit() {
+    void wireService() {
         crlDownloadGuard = new CrlDownloadGuard(1, SHORT_DOWNLOAD_TIMEOUT, Duration.ofMinutes(1));
         crlService = new CrlServiceImpl();
         crlService.setX509CertificateRepository(x509CertificateRepository);
@@ -191,7 +193,7 @@ class CrlServiceImplTest {
             X509Certificate certificate = selfSignedCertificate(true);
             storedRow.set(currentBaseCrlWithDueDeltaCrl());
             when(crlEntryRepository.findById(any(CrlEntryId.class))).thenReturn(Optional.of(new CrlEntry()));
-            holdTheOnlyDownloadPermit();
+            holdDownloadPermit(releasePermit);
 
             // when
             UUID crlUuid = crlService.getCurrentCrl(certificate, certificate);
@@ -206,7 +208,7 @@ class CrlServiceImplTest {
             // given
             X509Certificate certificate = selfSignedCertificate(true);
             storedRow.set(currentBaseCrlWithDueDeltaCrl());
-            holdTheOnlyDownloadPermit();
+            holdDownloadPermit(releasePermit);
 
             // when
             ThrowingCallable check = () -> crlService.getCurrentCrl(certificate, certificate);
@@ -253,7 +255,7 @@ class CrlServiceImplTest {
             CountDownLatch downloading = new CountDownLatch(1);
             when(crlDownloader.download(eq(BASE_CRL_URL), anyLong())).thenAnswer(invocation -> {
                 downloading.countDown();
-                awaitRelease();
+                awaitRelease(releasePermit);
                 throw new IOException("The test ended");
             });
             executor.submit(() -> crlService.getCurrentCrl(certificate, certificate));
@@ -480,6 +482,11 @@ class CrlServiceImplTest {
 
     @Nested
     class DownloadFailureMemory {
+        @BeforeEach
+        void configureTwoPermits() {
+            crlDownloadGuard = new CrlDownloadGuard(2, Duration.ofSeconds(3), Duration.ofMinutes(1));
+            crlService.setCrlDownloadGuard(crlDownloadGuard);
+        }
 
         @Test
         void downloadsOtherDistributionPoint_whenOneOfTheIssuerFailedJustBefore() throws Exception {
@@ -510,15 +517,17 @@ class CrlServiceImplTest {
             when(crlDownloader.download(eq(BASE_CRL_URL), anyLong())).thenThrow(new IOException("Connection refused"));
             ThrowingCallable failingCheck = () -> crlService.getCurrentCrl(certificate, certificate);
             assertThatThrownBy(failingCheck).isInstanceOf(IOException.class);
-            holdTheOnlyDownloadPermit();
+            holdDownloadPermit(releasePermit);
+            holdDownloadPermit(releasePermit);
 
             // when
             ThrowingCallable check = () -> crlService.getCurrentCrl(certificate, certificate);
 
             // then
-            assertThatThrownBy(check)
-                    .isInstanceOf(IOException.class)
-                    .hasMessageContaining("Failed to read a usable CRL from 1 available URL(s)");
+            assertTimeout(Duration.ofSeconds(1),
+                    () -> assertThatThrownBy(check)
+                            .isInstanceOf(IOException.class)
+                            .hasMessageContaining("Failed to read a usable CRL from 1 available URL(s)"));
             verify(crlDownloader, times(1)).download(eq(BASE_CRL_URL), anyLong());
         }
 
@@ -530,15 +539,17 @@ class CrlServiceImplTest {
             when(crlDownloader.download(eq(DELTA_CRL_URL), anyLong())).thenThrow(new IOException("Connection refused"));
             ThrowingCallable failingCheck = () -> crlService.getCurrentCrl(certificate, certificate);
             assertThatThrownBy(failingCheck).isInstanceOf(IOException.class);
-            holdTheOnlyDownloadPermit();
+            holdDownloadPermit(releasePermit);
+            holdDownloadPermit(releasePermit);
 
             // when
             ThrowingCallable check = () -> crlService.getCurrentCrl(certificate, certificate);
 
             // then
-            assertThatThrownBy(check)
-                    .isInstanceOf(IOException.class)
-                    .hasMessageContaining("Failed to read a usable delta CRL from 1 available URL(s)");
+            assertTimeout(Duration.ofSeconds(1),
+                    () -> assertThatThrownBy(check)
+                            .isInstanceOf(IOException.class)
+                            .hasMessageContaining("Failed to read a usable delta CRL from 1 available URL(s)"));
             verify(crlDownloader, times(1)).download(eq(DELTA_CRL_URL), anyLong());
         }
 
@@ -553,14 +564,28 @@ class CrlServiceImplTest {
             Crl dueBaseCrl = currentBaseCrl();
             dueBaseCrl.setNextUpdate(Date.from(Instant.now().minus(Duration.ofDays(1))));
             storedRow.set(dueBaseCrl);
-            holdTheOnlyDownloadPermit();
+            holdDownloadPermit(releasePermit);
+            CountDownLatch releaseSecond = new CountDownLatch(1);
+            holdDownloadPermit(releaseSecond);
+            when(crlDownloader.download(eq(BASE_CRL_URL), anyLong())).thenThrow(new IOException("Connection refused"));
 
             // when
-            ThrowingCallable check = () -> crlService.getCurrentCrl(certificate, certificate);
+            CountDownLatch started = new CountDownLatch(1);
+            var check = executor.submit(() -> {
+                started.countDown();
+                return crlService.getCurrentCrl(certificate, certificate);
+            });
 
             // then
-            assertThatThrownBy(check).isInstanceOf(IOException.class).hasMessageContaining("Too many CRLs");
-            verify(crlDownloader, never()).download(eq(BASE_CRL_URL), anyLong());
+            try {
+                assertThat(started.await(1, TimeUnit.SECONDS)).isTrue();
+                assertThatThrownBy(() -> check.get(200, TimeUnit.MILLISECONDS)).isInstanceOf(TimeoutException.class);
+                verify(crlDownloader, never()).download(eq(BASE_CRL_URL), anyLong());
+            } finally {
+                releaseSecond.countDown();
+            }
+            assertThatThrownBy(() -> check.get(2, TimeUnit.SECONDS)).hasCauseInstanceOf(IOException.class);
+            verify(crlDownloader).download(eq(BASE_CRL_URL), anyLong());
         }
     }
 
@@ -723,18 +748,18 @@ class CrlServiceImplTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private void holdTheOnlyDownloadPermit() throws InterruptedException {
+    private void holdDownloadPermit(CountDownLatch release) throws InterruptedException {
         CountDownLatch permitHeld = new CountDownLatch(1);
         executor.submit(() -> crlDownloadGuard.withDownloadPermit(() -> {
             permitHeld.countDown();
-            return awaitRelease();
+            return awaitRelease(release);
         }));
         assertThat(permitHeld.await(5, TimeUnit.SECONDS)).isTrue();
     }
 
-    private boolean awaitRelease() throws IOException {
+    private boolean awaitRelease(CountDownLatch release) throws IOException {
         try {
-            return releasePermit.await(10, TimeUnit.SECONDS);
+            return release.await(10, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IOException(e);
