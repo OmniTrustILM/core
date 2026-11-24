@@ -2903,8 +2903,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private ClientCertificateDataResponseDto submitAndQueueRekey(SecuredParentUUID authorityUuid,
             SecuredUUID raProfileUuid, String certificateUuid, ClientCertificateRekeyRequestDto request,
             CertificateProtocolInfo protocolInfo, Consumer<UUID> beforeDispatch, boolean throughProtocol)
-            throws NotFoundException, CertificateException, CertificateOperationException, CertificateRequestException,
-            ConnectorException, AttributeException {
+            throws NotFoundException, CertificateOperationException, CertificateRequestException, ConnectorException,
+            AttributeException {
         Certificate oldCertificate = validateOldCertificateForOperation(certificateUuid, raProfileUuid.toString(),
                 ResourceAction.REKEY, authorityUuid);
         requireAuthoritySupport(oldCertificate.getCertificateType(), oldCertificate.getRaProfile(), throughProtocol);
@@ -3554,6 +3554,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
     public void validateRevokeCertificateAttributes(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid,
             List<RequestAttribute> attributes) throws ConnectorException, ValidationException, NotFoundException {
+        Objects.requireNonNull(raProfileUuid, "raProfileUuid");
         RaProfile raProfile = raProfileRepository
                 .findByUuidAndEnabledIsTrue(raProfileUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
