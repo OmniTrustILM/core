@@ -44,6 +44,7 @@ import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.certificate.request.ProtocolRequestAttributeValidator;
 import com.otilm.core.certificate.request.RequestAttributePolicyViolationException;
+import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.X509CertificateEntity;
@@ -938,6 +939,8 @@ public class AcmeServiceImpl implements AcmeExternalService {
                     .header(AcmeConstants.NONCE_HEADER_NAME, generateNonce())
                     .header(AcmeConstants.LINK_HEADER_NAME, generateLinkHeader(acmeProfileName, isRaProfileBased))
                     .build();
+        } catch (UnsupportedCertificateTypeException e) {
+            throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.MALFORMED, e.getMessage());
         } catch (NotFoundException | AttributeException e) {
             return ResponseEntity
                     .badRequest()
@@ -1505,7 +1508,8 @@ public class AcmeServiceImpl implements AcmeExternalService {
      * once the submission returns. A queued one is not checked again: a failure then would fail the order of a
      * certificate still being issued.
      */
-    private AcmeOrder createCert(AcmeOrder order, ClientCertificateIssueRequestDto certificateIssueRequestDto) {
+    private AcmeOrder createCert(AcmeOrder order, ClientCertificateIssueRequestDto certificateIssueRequestDto)
+            throws AcmeProblemDocumentException {
         String certificateId = AcmeRandomGeneratorAndValidator.generateRandomId();
         AtomicReference<UUID> linkedBeforeDispatch = new AtomicReference<>();
         Consumer<UUID> linkToOrder = submittedUuid -> {
@@ -1530,6 +1534,9 @@ public class AcmeServiceImpl implements AcmeExternalService {
             certificateUuid = linkedBeforeDispatch.get() != null
                     ? linkedBeforeDispatch.get()
                     : readableCertificateUuid(UUID.fromString(certificateOutput.getUuid()));
+        } catch (UnsupportedCertificateTypeException e) {
+            acmeChallengeWriter.failFinalizeSubmission(order.getUuid());
+            throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.BAD_CSR, e.getMessage());
         } catch (Exception e) {
             logger.error("Issue Certificate failed. Exception: {}", e.getMessage());
             return acmeChallengeWriter.failFinalizeSubmission(order.getUuid());

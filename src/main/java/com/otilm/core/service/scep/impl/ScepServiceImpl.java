@@ -30,6 +30,7 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.certificate.request.RequestAttributePolicyViolationException;
+import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
@@ -728,7 +729,7 @@ public class ScepServiceImpl implements ScepExternalService {
                     .issueCertificate(raProfile.getAuthorityInstanceReference().getSecuredParentUuid(),
                             raProfile.getSecuredUuid(), requestDto,
                             CertificateProtocolInfo.Scep(scepProfile.getUuid()));
-        } catch (RequestAttributePolicyViolationException e) {
+        } catch (RequestAttributePolicyViolationException | UnsupportedCertificateTypeException e) {
             throw new ScepException(e.getMessage(), e, FailInfo.BAD_REQUEST); // platform-authored, safe
         } catch (CertificateException | NotFoundException | CertificateOperationException e) {
             throw new ScepException("Unable to issue certificate", e, FailInfo.BAD_REQUEST);
@@ -794,7 +795,7 @@ public class ScepServiceImpl implements ScepExternalService {
         try {
             response = clientOperationService
                     .submitCertificateRequest(requestDto, CertificateProtocolInfo.Scep(scepProfile.getUuid()));
-        } catch (RequestAttributePolicyViolationException e) {
+        } catch (RequestAttributePolicyViolationException | UnsupportedCertificateTypeException e) {
             throw new ScepException(e.getMessage(), e, FailInfo.BAD_REQUEST); // platform-authored, safe
         } catch (CertificateException | NotFoundException | NoSuchAlgorithmException | AttributeException
                 | ConnectorException | CertificateRequestException e) {

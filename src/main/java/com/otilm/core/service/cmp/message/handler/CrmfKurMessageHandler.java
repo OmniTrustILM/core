@@ -14,6 +14,7 @@ import com.otilm.api.model.core.cmp.CmpTransactionState;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.api.model.core.v2.ClientCertificateRekeyRequestDto;
+import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.X509CertificateEntity;
@@ -160,6 +161,9 @@ public class CrmfKurMessageHandler implements MessageHandler<ClientCertificateDa
             return clientOperationService
                     .rekeyCertificate(SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
                             raProfile.getSecuredUuid(), certificateUUID, dtoBuilder.build());
+        } catch (UnsupportedCertificateTypeException e) {
+            // before the catch below, which would report it as a registration rejection
+            throw new CmpProcessingException(tid, PKIFailureInfo.badRequest, e.getMessage());
         } catch (ValidationException e) {
             // Gate/completion denial (e.g. the authorization expired or locked between the protection-layer
             // MAC check and this re-gate) — surface the single generic rejection, as ir/cr does.

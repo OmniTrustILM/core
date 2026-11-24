@@ -13,6 +13,7 @@ import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.core.certificate.request.RequestAttributePolicyViolationException;
+import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
@@ -128,6 +129,8 @@ public class CrmfIrCrMessageHandler implements MessageHandler<ClientCertificateD
         } catch (RequestAttributePolicyViolationException e) {
             throw new CmpCrmfValidationException(tid, request.getBody().getType(), PKIFailureInfo.badCertTemplate,
                     e.getMessage());
+        } catch (UnsupportedCertificateTypeException e) {
+            throw new CmpProcessingException(tid, PKIFailureInfo.badRequest, e.getMessage());
         } catch (CertificateRequestException | NotFoundException | CertificateException | IOException
                 | NoSuchAlgorithmException | InvalidKeyException | CertificateOperationException e) {
             throw new CmpProcessingException(tid, PKIFailureInfo.systemFailure, "cannot issue certificate", e);

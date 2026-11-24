@@ -3,6 +3,7 @@ package com.otilm.core.service.est.enrollment;
 import com.otilm.api.exception.CertificateOperationException;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.core.certificate.request.RequestAttributePolicyViolationException;
+import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.EstRequestedCertificate;
 import com.otilm.core.model.request.Pkcs10CertificateRequest;
@@ -133,6 +134,9 @@ class EstAnswers {
     EstException submissionFailed(EstRoute route, UUID submittedUuid, String what, Exception failure) {
         if (failure instanceof RequestAttributePolicyViolationException violation) {
             return new EstException(EstError.POLICY_VIOLATION, route.realm()).withDetail(violation.getMessage());
+        }
+        if (failure instanceof UnsupportedCertificateTypeException unsupported) {
+            return new EstException(EstError.REQUEST_REJECTED, route.realm()).withDetail(unsupported.getMessage());
         }
         if (submittedUuid != null) {
             logFailure(what + " could not be queued for certificate " + submittedUuid, failure);

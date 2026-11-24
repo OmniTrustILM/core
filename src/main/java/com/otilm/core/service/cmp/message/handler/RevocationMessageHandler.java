@@ -10,6 +10,7 @@ import com.otilm.api.model.core.authority.CertificateRevocationReason;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.cmp.CmpTransactionState;
 import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
+import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.X509CertificateEntity;
@@ -283,6 +284,8 @@ public class RevocationMessageHandler implements MessageHandler<PKIMessage> {
                     .revokeCertificate(SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
                             certificate.getRaProfile().getSecuredUuid(), certificate.getUuid().toString(), dto);
             LOG.trace("TID={}, SN={} | revocation request (  end)", tid, sn);
+        } catch (UnsupportedCertificateTypeException e) {
+            throw new CmpProcessingException(tid, PKIFailureInfo.badRequest, "SN=" + sn + " | " + e.getMessage());
         } catch (ConnectorException e) {
             throw new CmpProcessingException(tid, PKIFailureInfo.systemFailure,
                     "SN=" + sn + " | cannot revoke certificate", e);

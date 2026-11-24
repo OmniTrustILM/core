@@ -703,6 +703,31 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         verify(actionProducer, never()).produceMessage(any());
     }
 
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("protocolEnrollments")
+    void refusesNamingTheOperation_whenTheTypeCannotBeEnrolledThroughTheProtocol(CertificateOperation unsupported,
+            CertificateProtocolInfo protocolInfo) throws Exception {
+        // given
+        stubIssueEndpoints();
+        long certificatesBefore = certificateRepository.count();
+        clientOperationServiceImpl.setTypeHandlerRegistry(registryWithX509Lacking(x509Handler, unsupported));
+
+        // when
+        ThrowingCallable issue = () -> clientOperationInternalService
+                .issueCertificate(authorityInstanceReference.getSecuredParentUuid(), raProfile.getSecuredUuid(),
+                        issueRequest(), protocolInfo);
+
+        // then
+        try {
+            assertThatThrownBy(issue)
+                    .isInstanceOf(UnsupportedCertificateTypeException.class)
+                    .hasMessageContaining(unsupported.toString());
+        } finally {
+            clientOperationServiceImpl.setTypeHandlerRegistry(typeHandlerRegistry);
+        }
+        assertThat(certificateRepository.count()).isEqualTo(certificatesBefore);
+    }
+
     @Test
     void issueCertificate_commitsTheStore_whenTheProtocolInfoHasNoOnStoredHook() throws Exception {
         // given
@@ -6671,6 +6696,16 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static Stream<Arguments> protocolEnrollments() {
+        return Stream
+                .of(Arguments
+                        .of(CertificateOperation.ENROLL_ACME,
+                                CertificateProtocolInfo.Acme(UUID.randomUUID(), UUID.randomUUID())),
+                        Arguments.of(CertificateOperation.ENROLL_SCEP, CertificateProtocolInfo.Scep(UUID.randomUUID())),
+                        Arguments.of(CertificateOperation.ENROLL_CMP, CertificateProtocolInfo.Cmp(UUID.randomUUID())),
+                        Arguments.of(CertificateOperation.ENROLL_EST, CertificateProtocolInfo.est(UUID.randomUUID())));
+    }
 
     private static Stream<Arguments> operationsOnACertificate() {
         return Stream

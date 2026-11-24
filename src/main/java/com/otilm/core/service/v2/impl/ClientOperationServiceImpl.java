@@ -189,6 +189,10 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.DefaultTransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import static com.otilm.api.model.core.certificate.CertificateOperation.ENROLL_ACME;
+import static com.otilm.api.model.core.certificate.CertificateOperation.ENROLL_CMP;
+import static com.otilm.api.model.core.certificate.CertificateOperation.ENROLL_EST;
+import static com.otilm.api.model.core.certificate.CertificateOperation.ENROLL_SCEP;
 import static com.otilm.api.model.core.certificate.CertificateOperation.PUSH_TO_LOCATION;
 import static com.otilm.api.model.core.certificate.CertificateOperation.REKEY;
 import static com.otilm.api.model.core.certificate.CertificateOperation.RENEW;
@@ -561,6 +565,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         // Issue/renew/rekey reach this body by self-invocation, bypassing the annotation above, so without this probe
         // a platform key signs a CSR before the nested CREATE gate can deny. Denies nobody that gate would admit.
         certificateService.checkCreatePermissions();
+        requireEnrollmentSupport(certificateType, protocolInfo);
         request.setFormat(requestFormatResolver.resolve(request.getFormat(), certificateType));
         boolean createCustomAttributes = !AuthHelper.isLoggedProtocolUser();
         if (createCustomAttributes) {
@@ -718,6 +723,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             throw new ValidationException(String
                     .format("Cannot issue certificate with disabled RA profile. Ra Profile: %s", raProfile.getName()));
         }
+        requireEnrollmentSupport(request.getCertificateType(), protocolInfo);
         authorityCertificateTypes.requireSupport(request.getCertificateType(), raProfile);
 
         ClientCertificateRequestDto certificateRequestDto = new ClientCertificateRequestDto();
@@ -2609,6 +2615,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         Certificate oldCertificate = validateOldCertificateForOperation(certificateUuid, raProfileUuid.toString(),
                 ResourceAction.RENEW, authorityUuid);
         typeHandlerRegistry.requireSupport(oldCertificate, RENEW);
+        requireEnrollmentSupport(oldCertificate.getCertificateType(), protocolInfo);
         authorityCertificateTypes.requireSupport(oldCertificate.getCertificateType(), oldCertificate.getRaProfile());
         if (request != null) {
             // the old certificate is removed from its locations before the new one is pushed, so a type that cannot
@@ -2879,6 +2886,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         Certificate oldCertificate = validateOldCertificateForOperation(certificateUuid, raProfileUuid.toString(),
                 ResourceAction.REKEY, authorityUuid);
         typeHandlerRegistry.requireSupport(oldCertificate, REKEY);
+        requireEnrollmentSupport(oldCertificate.getCertificateType(), protocolInfo);
         authorityCertificateTypes.requireSupport(oldCertificate.getCertificateType(), oldCertificate.getRaProfile());
         if (request != null) {
             // the old certificate is removed from its locations before the new one is pushed, so a type that cannot
@@ -3575,6 +3583,19 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         return handler
                 .readRequest(certificate.getCertificateRequest().getContent(),
                         certificate.getCertificateRequest().getCertificateRequestFormat());
+    }
+
+    // a request that arrives through an enrollment protocol needs a type that can be enrolled through that protocol
+    private void requireEnrollmentSupport(CertificateType certificateType, CertificateProtocolInfo protocolInfo) {
+        if (protocolInfo == null) {
+            return;
+        }
+        handlerOf(certificateType).requireSupport(switch (protocolInfo.getProtocol()) {
+            case ACME -> ENROLL_ACME;
+            case SCEP -> ENROLL_SCEP;
+            case CMP -> ENROLL_CMP;
+            case EST -> ENROLL_EST;
+        });
     }
 
     private CertificateTypeHandler handlerOf(CertificateType certificateType) {

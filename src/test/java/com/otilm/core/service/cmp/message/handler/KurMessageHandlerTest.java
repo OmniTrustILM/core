@@ -3,8 +3,11 @@ package com.otilm.core.service.cmp.message.handler;
 import com.otilm.api.interfaces.core.cmp.error.CmpProcessingException;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.core.certificate.CertificateOperation;
 import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
+import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
@@ -219,4 +222,27 @@ public class KurMessageHandlerTest {
                 .rekeyCertificate(any(), any(), eq(issuedCertificated.getUuid().toString()), any());
     }
 
+    @Test
+    void rejectsWithBadRequestNamingTheOperation_whenTheTypeOfTheCertificateCannotBeRekeyed() throws Exception {
+        // given
+        var refusal = UnsupportedCertificateTypeException
+                .unsupportedOperation(CertificateType.X509.getCode(), CertificateOperation.REKEY);
+        PKIMessage request = CmpTestUtil
+                .createKur("780", x509Certificate.getSerialNumber(), CmpTestUtil.generateKeyPairEC())
+                .toASN1Structure();
+        ConfigurationContext configuration = new Mobile3gppProfileContext(cmpProfile, raProfile, request,
+                certificateKeyService, null, null);
+        configuration.setProtectionCertificate(issuedCertificated);
+        given(certificateRepository.findBySerialNumberIgnoreCase(any())).willReturn(Optional.of(issuedCertificated));
+        given(clientOperationService.rekeyCertificate(any(), any(), any(), any())).willThrow(refusal);
+
+        // when
+        ThrowingCallable handle = () -> tested.handle(request, configuration);
+
+        // then
+        assertThatThrownBy(handle)
+                .isInstanceOfSatisfying(CmpProcessingException.class,
+                        e -> assertThat(e.getFailureInfo()).isEqualTo(PKIFailureInfo.badRequest))
+                .hasMessageContaining(refusal.getMessage());
+    }
 }
