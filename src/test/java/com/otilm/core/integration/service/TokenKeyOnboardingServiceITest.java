@@ -2116,10 +2116,11 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
 
         /** Registers a key holding only the private key under the handle, within the caller's transaction. */
         private void registerPrivateKeyMeanwhile(String keyId) {
-            ProviderKeyItem listed = aProviderKeyPair().withKeyId(keyId).build().privateKey();
-            var privateKey = new ProviderKeyItem(ProviderKeyPair.privateKeyName(REGISTERED_MEANWHILE), listed.type(),
-                    listed.algorithm(), listed.length(), listed.reference(), listed.material(), listed.metadata(),
-                    listed.association());
+            ProviderKeyItem privateKey = aProviderKeyPair()
+                    .withKeyId(keyId)
+                    .build()
+                    .toOnboardedItems(REGISTERED_MEANWHILE)
+                    .getLast();
             try {
                 TokenProfileFullModel profile = profileModel();
                 cryptographicKeyWriter
