@@ -1562,8 +1562,8 @@ class CertificateServiceITest extends BaseSpringBootTest {
 
         @ParameterizedTest(name = "{0}")
         @MethodSource("validatedTypeSelections")
-        void selectsForTheScheduledValidationOnlyCertificatesOfValidatedTypes(List<CertificateType> validatedTypes,
-                boolean selected) throws Exception {
+        void selectsOnlyCertificatesOfValidatedTypes_whenSelectingForTheScheduledValidation(
+                List<CertificateType> validatedTypes, boolean selected) throws Exception {
             // given
             Certificate stored = certificateService
                     .createCertificate(Base64.getEncoder().encodeToString(x509Cert.getEncoded()), CertificateType.X509);
@@ -1574,8 +1574,12 @@ class CertificateServiceITest extends BaseSpringBootTest {
                     .findCertificatesToCheckStatus(OffsetDateTime.now(), List.of(), validatedTypes,
                             platformValidationEnabled, PageRequest.of(0, 1000));
 
+            Long counted = certificateRepository
+                    .countCertificatesToCheckStatus(List.of(), validatedTypes, platformValidationEnabled);
+
             // then
             assertThat(toCheck.contains(stored.getUuid())).isEqualTo(selected);
+            assertThat(counted > 0).as("certificates counted for the selection").isEqualTo(selected);
         }
 
         @Test
