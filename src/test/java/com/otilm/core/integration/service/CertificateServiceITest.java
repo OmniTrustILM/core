@@ -42,6 +42,7 @@ import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.otilm.api.model.core.certificate.CertificateFormat;
 import com.otilm.api.model.core.certificate.CertificateFormatEncoding;
 import com.otilm.api.model.core.certificate.CertificateKeyUsage;
+import com.otilm.api.model.core.certificate.CertificateOperation;
 import com.otilm.api.model.core.certificate.CertificateQcStatementsDto;
 import com.otilm.api.model.core.certificate.CertificateRegistrationState;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
@@ -181,6 +182,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.operator.OperatorCreationException;
 import org.jetbrains.annotations.NotNull;
@@ -190,6 +192,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
@@ -201,6 +204,7 @@ import org.springframework.cache.CacheManager;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
+import static com.otilm.core.util.RestrictedTypeHandlerFixtures.registryWithX509Lacking;
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static com.otilm.core.util.builders.CertificateContentBuilder.aCertificateContent;
 import static com.otilm.core.util.builders.CertificateRequestEntityBuilder.aCertificateRequest;
@@ -214,6 +218,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
+import static org.junit.jupiter.api.Named.named;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
@@ -1498,6 +1503,71 @@ class CertificateServiceITest extends BaseSpringBootTest {
             assertThat(created.getCertificateType()).isEqualTo(namedType);
             assertThat(created.getState()).isEqualTo(CertificateState.ISSUED);
             assertThat(created.getCertificateContent().getContent()).isNotBlank();
+        }
+
+        @Test
+        void leavesTheValidationStatusAsItIs_whenTheTypeOfTheCertificateDoesNotSupportValidation() throws Exception {
+            // given
+            Certificate stored = certificateService
+                    .createCertificate(Base64.getEncoder().encodeToString(x509Cert.getEncoded()), CertificateType.X509);
+            CertificateValidationStatus statusBefore = stored.getValidationStatus();
+            certificateService
+                    .setTypeHandlerRegistry(registryWithX509Lacking(x509Handler, CertificateOperation.VALIDATE));
+
+            // when
+            try {
+                certificateService.validate(stored);
+            } finally {
+                certificateService.setTypeHandlerRegistry(typeHandlerRegistry);
+            }
+
+            // then
+            assertThat(certificateRepository.findByUuid(stored.getUuid()).orElseThrow().getValidationStatus())
+                    .isEqualTo(statusBefore);
+        }
+
+        @ParameterizedTest(name = "{0}")
+        @MethodSource("com.otilm.core.integration.service.CertificateServiceITest#refusedReads")
+        void refusesNamingTheOperation_whenTheTypeOfTheCertificateDoesNotSupportIt(CertificateOperation unsupported,
+                CertificateRead read) throws Exception {
+            // given
+            Certificate stored = certificateService
+                    .createCertificate(Base64.getEncoder().encodeToString(x509Cert.getEncoded()), CertificateType.X509);
+            certificateService.setTypeHandlerRegistry(registryWithX509Lacking(x509Handler, unsupported));
+
+            // when
+            ThrowingCallable readTheCertificate = () -> read.read(certificateService, stored.getSecuredUuid());
+
+            // then
+            try {
+                assertThatThrownBy(readTheCertificate)
+                        .isInstanceOf(UnsupportedCertificateTypeException.class)
+                        .hasMessageContaining(unsupported.toString());
+            } finally {
+                certificateService.setTypeHandlerRegistry(typeHandlerRegistry);
+            }
+        }
+
+        @Test
+        void listsTheOperationsOfItsType_whenReadingTheDetailOfACertificate() throws Exception {
+            // given
+            var unsupported = CertificateOperation.REVOKE;
+            Certificate stored = certificateService
+                    .createCertificate(Base64.getEncoder().encodeToString(x509Cert.getEncoded()), CertificateType.X509);
+            certificateService.setTypeHandlerRegistry(registryWithX509Lacking(x509Handler, unsupported));
+
+            // when
+            CertificateDetail detail;
+            try {
+                detail = certificateService.getCertificate(stored.getSecuredUuid());
+            } finally {
+                certificateService.setTypeHandlerRegistry(typeHandlerRegistry);
+            }
+
+            // then
+            assertThat(detail.getSupportedOperations())
+                    .contains(CertificateOperation.RENEW, CertificateOperation.VALIDATE)
+                    .doesNotContain(unsupported);
         }
 
         @Test
@@ -3803,5 +3873,25 @@ class CertificateServiceITest extends BaseSpringBootTest {
 
     private static AuthenticationInfo fakeAuth() {
         return new AuthenticationInfo(AuthMethod.CERTIFICATE, UUID.randomUUID().toString(), "test-user", List.of());
+    }
+
+    private static Stream<Arguments> refusedReads() {
+        return Stream
+                .of(Arguments
+                        .of(CertificateOperation.VALIDATE,
+                                (CertificateRead) CertificateServiceImpl::getCertificateValidationResult),
+                        Arguments
+                                .of(CertificateOperation.VALIDATE_CHAIN,
+                                        (CertificateRead) (service, uuid) -> service.getCertificateChain(uuid, true)),
+                        Arguments
+                                .of(named("chain download", CertificateOperation.VALIDATE_CHAIN),
+                                        (CertificateRead) (service, uuid) -> service
+                                                .downloadCertificateChain(uuid, CertificateFormat.RAW, true,
+                                                        CertificateFormatEncoding.PEM)));
+    }
+
+    @FunctionalInterface
+    private interface CertificateRead {
+        void read(CertificateServiceImpl service, SecuredUUID uuid) throws Exception;
     }
 }

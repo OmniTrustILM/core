@@ -1,7 +1,10 @@
 package com.otilm.core.certificate.type;
 
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.core.certificate.CertificateOperation;
+import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.core.certificate.type.stub.StubCertificateTypeHandler;
+import com.otilm.core.dao.entity.Certificate;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Optional;
@@ -9,8 +12,10 @@ import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
+import static com.otilm.core.util.RestrictedTypeHandlerFixtures.registryWithX509Lacking;
 import static com.otilm.core.util.StubCertificateFixtures.certificate;
 import static com.otilm.core.util.StubCertificateFixtures.request;
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -45,6 +50,49 @@ class CertificateTypeHandlerRegistryTest {
                 .isInstanceOf(UnsupportedCertificateTypeException.class)
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining(UNKNOWN_TYPE);
+    }
+
+    @Test
+    void throwsUnsupportedNamingTheOperation_whenTheTypeOfTheCertificateDoesNotSupportIt() {
+        // given
+        var unsupported = CertificateOperation.REVOKE;
+        var registry = registryWithX509Lacking(new X509CertificateTypeHandler(), unsupported);
+        Certificate certificate = aCertificate().build();
+
+        // when
+        ThrowingCallable require = () -> registry.requireSupport(certificate, unsupported);
+
+        // then
+        assertThatThrownBy(require)
+                .isInstanceOf(UnsupportedCertificateTypeException.class)
+                .hasMessageContaining(unsupported.toString())
+                .hasMessageContaining(CertificateType.X509.getCode());
+    }
+
+    @Test
+    void supportsTheOperation_whenTheTypeOfTheCertificateDeclaresIt() {
+        // given
+        var registry = registryWithX509Lacking(new X509CertificateTypeHandler(), CertificateOperation.REVOKE);
+        Certificate certificate = aCertificate().build();
+
+        // when
+        boolean supported = registry.supports(certificate, CertificateOperation.RENEW);
+
+        // then
+        assertThat(supported).isTrue();
+    }
+
+    @Test
+    void supportsNoOperation_whenTheTypeOfTheCertificateHasNoHandler() {
+        // given
+        var registry = new CertificateTypeHandlerRegistry(List.of(stub));
+        Certificate certificate = aCertificate().build();
+
+        // when
+        boolean supported = registry.supports(certificate, CertificateOperation.VALIDATE);
+
+        // then
+        assertThat(supported).isFalse();
     }
 
     @Test

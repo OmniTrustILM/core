@@ -5,9 +5,11 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.common.enums.IPlatformEnum;
 import com.otilm.api.model.connector.compliance.v2.ComplianceRuleResponseDto;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateOperation;
 import com.otilm.api.model.core.compliance.ComplianceRuleStatus;
 import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.api.model.core.compliance.v2.ComplianceCheckResultDto;
+import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
@@ -105,6 +107,13 @@ public class ComplianceServiceImpl implements ComplianceExternalService, Complia
     private ComplianceSubjectWriter complianceSubjectWriter;
 
     private EntityManager entityManager;
+
+    private CertificateTypeHandlerRegistry typeHandlerRegistry;
+
+    @Autowired
+    public void setTypeHandlerRegistry(CertificateTypeHandlerRegistry typeHandlerRegistry) {
+        this.typeHandlerRegistry = typeHandlerRegistry;
+    }
 
     @Autowired
     public void setEntityManager(EntityManager entityManager) {
@@ -565,6 +574,9 @@ public class ComplianceServiceImpl implements ComplianceExternalService, Complia
             case CERTIFICATE -> {
                 List<Certificate> certificates = certificateRepository.findByUuidInAndArchivedFalse(objectUuids);
                 for (Certificate certificate : certificates) {
+                    if (!supportsComplianceCheck(certificate)) {
+                        continue;
+                    }
                     boolean issued = certificate.getCertificateContentId() != null;
                     ComplianceSubject subject = issued ? certificate : certificate.getCertificateRequestEntity();
                     if (subject == null) {
@@ -617,7 +629,10 @@ public class ComplianceServiceImpl implements ComplianceExternalService, Complia
                         continue;
                     }
                     List<Certificate> certificates = certificateRepository
-                            .findByRaProfileUuidAndCertificateContentIdNotNullAndArchivedFalse(associationObjectUuid);
+                            .findByRaProfileUuidAndCertificateContentIdNotNullAndArchivedFalse(associationObjectUuid)
+                            .stream()
+                            .filter(this::supportsComplianceCheck)
+                            .toList();
                     loadComplianceProfilesWithSubjects(complianceProfilesMap, complianceProfileSubjectsMap,
                             Resource.RA_PROFILE, associationObjectUuid, Resource.CERTIFICATE,
                             new ArrayList<>(certificates));
@@ -750,13 +765,27 @@ public class ComplianceServiceImpl implements ComplianceExternalService, Complia
         };
     }
 
+    // a certificate whose type has no compliance check is left out of a check instead of failing it
+    private boolean supportsComplianceCheck(Certificate certificate) {
+        boolean supported = typeHandlerRegistry.supports(certificate, CertificateOperation.CHECK_COMPLIANCE);
+        if (!supported) {
+            logger
+                    .debug("Skipping compliance check of certificate {}: its type does not support it",
+                            certificate.getUuid());
+        }
+        return supported;
+    }
+
     private <T extends ComplianceSubject> List<T> getComplianceSubjects(Resource associationResource,
             UUID associationObjectUuid) {
         // Filter by access control or if user can check compliance, allow listing of objects as subjects for compliance
         // check?
         return (List<T>) switch (associationResource) {
             case CERTIFICATE -> certificateRepository
-                    .findByUuidInAndCertificateContentIdNotNullAndArchivedFalse(List.of(associationObjectUuid));
+                    .findByUuidInAndCertificateContentIdNotNullAndArchivedFalse(List.of(associationObjectUuid))
+                    .stream()
+                    .filter(this::supportsComplianceCheck)
+                    .toList();
             case CERTIFICATE_REQUEST -> certificateRequestRepository
                     .findByUuidIn(List.of(associationObjectUuid))
                     .map(List::of)
@@ -766,7 +795,10 @@ public class ComplianceServiceImpl implements ComplianceExternalService, Complia
                 cryptographicKeyItemRepository.findByUuid(associationObjectUuid).map(List::of).orElse(List.of());
             case SECRET -> secretRepository.findByUuidIn(List.of(associationObjectUuid));
             case RA_PROFILE -> certificateRepository
-                    .findByRaProfileUuidAndCertificateContentIdNotNullAndArchivedFalse(associationObjectUuid);
+                    .findByRaProfileUuidAndCertificateContentIdNotNullAndArchivedFalse(associationObjectUuid)
+                    .stream()
+                    .filter(this::supportsComplianceCheck)
+                    .toList();
             case TOKEN_PROFILE -> cryptographicKeyItemRepository.findByKeyTokenProfileUuid(associationObjectUuid);
             case VAULT_PROFILE -> secretRepository.findBySourceVaultProfileUuid(associationObjectUuid);
             default -> List.of();

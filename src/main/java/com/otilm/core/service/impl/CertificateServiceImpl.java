@@ -44,6 +44,7 @@ import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.otilm.api.model.core.certificate.CertificateFormat;
 import com.otilm.api.model.core.certificate.CertificateFormatEncoding;
 import com.otilm.api.model.core.certificate.CertificateKeyUsage;
+import com.otilm.api.model.core.certificate.CertificateOperation;
 import com.otilm.api.model.core.certificate.CertificateRegistrationDetailDto;
 import com.otilm.api.model.core.certificate.CertificateRegistrationState;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
@@ -719,7 +720,10 @@ public class CertificateServiceImpl
         Certificate certificate = getCertificateEntityWithAssociations(uuid);
         CertificateDetail dto = certificate.mapToDto();
         dto.setKeystoreAvailable(keystoreAvailability.of(certificate));
-        typeHandlerRegistry.find(dto.getCertificateType().getCode()).ifPresent(handler -> handler.presentDetail(dto));
+        typeHandlerRegistry.find(dto.getCertificateType().getCode()).ifPresent(handler -> {
+            handler.presentDetail(dto);
+            dto.setSupportedOperations(handler.supportedOperations().stream().sorted().toList());
+        });
 
         if (certificate.getComplianceResult() != null) {
             ComplianceCheckResultDto complianceCheckResult = complianceService
@@ -1388,6 +1392,7 @@ public class CertificateServiceImpl
         Certificate certificate = withEndCertificate
                 ? getCertificateEntityWithChainAssociations(uuid)
                 : getCertificateEntity(uuid);
+        typeHandlerRegistry.requireSupport(certificate, CertificateOperation.VALIDATE_CHAIN);
 
         CertificateChainResponseDto certificateChainResponseDto = new CertificateChainResponseDto();
         if (certificate.getCertificateContent() != null) {
@@ -1495,11 +1500,19 @@ public class CertificateServiceImpl
     @Override
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void validate(Certificate certificate) {
+        if (!typeHandlerRegistry.supports(certificate, CertificateOperation.VALIDATE)
+                || !certificateValidatorMap.containsKey(certificate.getCertificateType().getCode())) {
+            log.debug("Skipping validation of certificate {}: its type has no validation", certificate.getUuid());
+            return;
+        }
         performValidation(certificate);
     }
 
     private void performValidation(Certificate certificate) {
-        List<Certificate> certificateChain = chainService.getCertificateChainInternal(certificate, true);
+        List<Certificate> certificateChain = typeHandlerRegistry
+                .supports(certificate, CertificateOperation.VALIDATE_CHAIN)
+                        ? chainService.getCertificateChainInternal(certificate, true)
+                        : List.of();
         boolean isCompleteChain = !certificateChain.isEmpty()
                 && chainService.completeCertificateChain(certificateChain.getLast(), certificateChain);
         List<Certificate> validatedChain = certificateChain.isEmpty() ? List.of(certificate) : certificateChain;
@@ -1532,6 +1545,7 @@ public class CertificateServiceImpl
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public CertificateValidationResultDto getCertificateValidationResult(SecuredUUID uuid) throws NotFoundException {
         Certificate certificate = getCertificateEntityWithAssociations(uuid);
+        typeHandlerRegistry.requireSupport(certificate, CertificateOperation.VALIDATE);
         CertificateValidationResultDto resultDto = new CertificateValidationResultDto();
         if (CertificateUtil.isValidationEnabled(certificate, resultDto)) {
             performValidation(certificate);

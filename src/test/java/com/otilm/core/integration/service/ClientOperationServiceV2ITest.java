@@ -50,6 +50,7 @@ import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
+import com.otilm.api.model.core.certificate.CertificateOperation;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateType;
@@ -76,7 +77,9 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.certificate.type.AuthorityCertificateTypes;
+import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
 import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
+import com.otilm.core.certificate.type.X509CertificateTypeHandler;
 import com.otilm.core.config.CustomAuditAware;
 import com.otilm.core.dao.entity.Approval;
 import com.otilm.core.dao.entity.ApprovalProfileVersion;
@@ -238,6 +241,7 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import static com.otilm.core.util.RestrictedTypeHandlerFixtures.registryWithX509Lacking;
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static com.otilm.core.util.builders.CertificateContentBuilder.aCertificateContent;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -299,6 +303,12 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
     @Autowired
     private ClientOperationInternalService clientOperationInternalService;
+    @Autowired
+    private ClientOperationServiceImpl clientOperationServiceImpl;
+    @Autowired
+    private X509CertificateTypeHandler x509Handler;
+    @Autowired
+    private CertificateTypeHandlerRegistry typeHandlerRegistry;
 
     @Autowired
     private ApprovalProfileExternalService approvalProfileService;
@@ -1774,6 +1784,29 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
         // then
         assertThat(loadStoredRequestFormat(renewed)).isEqualTo(CertificateRequestFormat.PKCS10);
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("operationsOnACertificate")
+    void refusesNamingTheOperation_whenTheTypeOfTheCertificateDoesNotSupportIt(CertificateOperation unsupported,
+            OperationOnACertificate operation) {
+        // given
+        long certificatesBefore = certificateRepository.count();
+        clientOperationServiceImpl.setTypeHandlerRegistry(registryWithX509Lacking(x509Handler, unsupported));
+
+        // when
+        ThrowingCallable operate = () -> operation.run(this);
+
+        // then
+        try {
+            assertThatThrownBy(operate)
+                    .isInstanceOf(UnsupportedCertificateTypeException.class)
+                    .hasMessageContaining(unsupported.toString());
+        } finally {
+            clientOperationServiceImpl.setTypeHandlerRegistry(typeHandlerRegistry);
+        }
+        assertThat(certificateRepository.count()).isEqualTo(certificatesBefore);
+        mockServer.verify(0, WireMock.anyRequestedFor(WireMock.anyUrl()));
     }
 
     @Test
@@ -6638,6 +6671,51 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static Stream<Arguments> operationsOnACertificate() {
+        return Stream
+                .of(Arguments
+                        .of(CertificateOperation.REVOKE,
+                                (OperationOnACertificate) test -> test.clientOperationService
+                                        .revokeCertificate(test.authorityInstanceReference.getSecuredParentUuid(),
+                                                test.raProfile.getSecuredUuid(), test.certificate.getUuid().toString(),
+                                                new ClientCertificateRevocationDto())),
+                        Arguments
+                                .of(CertificateOperation.RENEW,
+                                        (OperationOnACertificate) test -> test.clientOperationService
+                                                .renewCertificate(
+                                                        test.authorityInstanceReference.getSecuredParentUuid(),
+                                                        test.raProfile.getSecuredUuid(),
+                                                        test.certificate.getUuid().toString(),
+                                                        new ClientCertificateRenewRequestDto())),
+                        Arguments
+                                .of(CertificateOperation.REKEY,
+                                        (OperationOnACertificate) test -> test.clientOperationService
+                                                .rekeyCertificate(
+                                                        test.authorityInstanceReference.getSecuredParentUuid(),
+                                                        test.raProfile.getSecuredUuid(),
+                                                        test.certificate.getUuid().toString(),
+                                                        new ClientCertificateRekeyRequestDto())),
+                        Arguments
+                                .of(CertificateOperation.PUSH_TO_LOCATION,
+                                        (OperationOnACertificate) test -> test.clientOperationService
+                                                .renewCertificate(
+                                                        test.authorityInstanceReference.getSecuredParentUuid(),
+                                                        test.raProfile.getSecuredUuid(),
+                                                        test.certificate.getUuid().toString(),
+                                                        renewalReplacingInLocations())));
+    }
+
+    private static ClientCertificateRenewRequestDto renewalReplacingInLocations() {
+        ClientCertificateRenewRequestDto request = new ClientCertificateRenewRequestDto();
+        request.setReplaceInLocations(true);
+        return request;
+    }
+
+    @FunctionalInterface
+    private interface OperationOnACertificate {
+        void run(ClientOperationServiceV2ITest test) throws Exception;
+    }
 
     private void stubRenewalReturningX509ContentLabelled(CertificateType statedType) throws Exception {
         String certificateData = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
