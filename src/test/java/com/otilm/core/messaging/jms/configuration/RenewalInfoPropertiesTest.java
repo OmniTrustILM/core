@@ -4,33 +4,45 @@ import java.time.Duration;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.assertj.core.api.Assertions.assertThat;
 
 class RenewalInfoPropertiesTest {
 
     @Test
-    void unsetValuesTakeTheirDefaults() {
-        RenewalInfoProperties props = new RenewalInfoProperties(0, 0, 0, null, null, 0);
+    void appliesDefaults_whenValuesAreUnset() {
+        // given
+        int unsetNumber = 0;
 
-        assertEquals(60_000, props.sweepIntervalMs());
-        assertEquals(200, props.maxPerAuthority());
-        assertEquals(500, props.enrolPerSweep());
-        assertEquals(List.of(Duration.ofMinutes(5), Duration.ofMinutes(15), Duration.ofHours(1), Duration.ofHours(6)),
-                props.backoff());
-        assertEquals(Duration.ofMinutes(15), props.lease());
-        assertEquals(4, props.executorThreads());
+        // when
+        RenewalInfoProperties props = new RenewalInfoProperties(unsetNumber, unsetNumber, unsetNumber, null, null,
+                unsetNumber);
+
+        // then
+        assertThat(props.sweepIntervalMs()).isEqualTo(60_000);
+        assertThat(props.maxPerAuthority()).isEqualTo(200);
+        assertThat(props.enrolPerSweep()).isEqualTo(500);
+        assertThat(props.backoff())
+                .isEqualTo(List
+                        .of(Duration.ofMinutes(5), Duration.ofMinutes(15), Duration.ofHours(1), Duration.ofHours(6)));
+        assertThat(props.lease()).isEqualTo(Duration.ofMinutes(15));
+        assertThat(props.executorThreads()).isEqualTo(4);
     }
 
     @Test
-    void configuredValuesAreKept() {
-        RenewalInfoProperties props = new RenewalInfoProperties(1000, 10, 20, List.of(Duration.ofSeconds(1)),
-                Duration.ofMinutes(1), 2);
+    void keepsValues_whenConfigured() {
+        // given
+        List<Duration> configuredBackoff = List.of(Duration.ofSeconds(1));
 
-        assertEquals(1000, props.sweepIntervalMs());
-        assertEquals(10, props.maxPerAuthority());
-        assertEquals(20, props.enrolPerSweep());
-        assertEquals(List.of(Duration.ofSeconds(1)), props.backoff());
-        assertEquals(Duration.ofMinutes(1), props.lease());
-        assertEquals(2, props.executorThreads());
+        // when
+        RenewalInfoProperties props = new RenewalInfoProperties(1000, 10, 20, configuredBackoff, Duration.ofMinutes(1),
+                2);
+
+        // then
+        assertThat(props.sweepIntervalMs()).isEqualTo(1000);
+        assertThat(props.maxPerAuthority()).isEqualTo(10);
+        assertThat(props.enrolPerSweep()).isEqualTo(20);
+        assertThat(props.backoff()).isEqualTo(configuredBackoff);
+        assertThat(props.lease()).isEqualTo(Duration.ofMinutes(1));
+        assertThat(props.executorThreads()).isEqualTo(2);
     }
 }

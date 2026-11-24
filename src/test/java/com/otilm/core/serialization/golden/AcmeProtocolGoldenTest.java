@@ -56,7 +56,8 @@ class AcmeProtocolGoldenTest {
     }
 
     @Test
-    void directoryWithRenewalInfoKeepsItsWireShape() {
+    void keepsRenewalInfoInWireShape_whenDirectoryAdvertisesRenewalInfo() {
+        // given
         Directory directory = new Directory();
         directory.setNewNonce("https://acme.example/acme/new-nonce");
         directory.setNewAccount("https://acme.example/acme/new-account");
@@ -73,7 +74,11 @@ class AcmeProtocolGoldenTest {
         meta.setCaaIdentities(new String[]{"acme.example"});
         directory.setMeta(meta);
 
-        GoldenJson.assertMatchesGoldenAndRoundTrips("acme-directory-renewal-info", mapper, directory, Directory.class);
+        // when
+        String goldenName = "acme-directory-renewal-info";
+
+        // then
+        GoldenJson.assertMatchesGoldenAndRoundTrips(goldenName, mapper, directory, Directory.class);
     }
 
     @Test

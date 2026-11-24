@@ -12,26 +12,36 @@ class CertificateRenewalInfoTest {
         // given
         CertificateRenewalInfo info = anInfoWithUuid(UUID.randomUUID());
 
+        // when
+        boolean equal = info.equals(info);
+
         // then
-        assertThat(info.equals(info)).isTrue();
+        assertThat(equal).isTrue();
     }
 
     @Test
-    void isNotEqualToNull() {
+    void isNotEqual_whenComparedToNull() {
         // given
         CertificateRenewalInfo info = anInfoWithUuid(UUID.randomUUID());
 
+        // when
+        boolean equal = info.equals(null);
+
         // then
-        assertThat(info.equals(null)).isFalse();
+        assertThat(equal).isFalse();
     }
 
     @Test
-    void isNotEqualToAnObjectOfAnotherClass() {
+    void isNotEqual_whenComparedToAnObjectOfAnotherClass() {
         // given
         CertificateRenewalInfo info = anInfoWithUuid(UUID.randomUUID());
+        Object anotherClass = "not a renewal info";
+
+        // when
+        boolean equal = info.equals(anotherClass);
 
         // then
-        assertThat(info.equals("not a renewal info")).isFalse();
+        assertThat(equal).isFalse();
     }
 
     @Test
@@ -41,19 +51,27 @@ class CertificateRenewalInfoTest {
         CertificateRenewalInfo first = anInfoWithUuid(uuid);
         CertificateRenewalInfo second = anInfoWithUuid(uuid);
 
+        // when
+        boolean equal = first.equals(second);
+        int firstHash = first.hashCode();
+        int secondHash = second.hashCode();
+
         // then
-        assertThat(first).isEqualTo(second);
-        assertThat(first).hasSameHashCodeAs(second);
+        assertThat(equal).isTrue();
+        assertThat(firstHash).isEqualTo(secondHash);
     }
 
     @Test
-    void isNotEqualToAnotherInstance_whenUuidIsNull() {
+    void isNotEqual_whenBothUuidsAreNull() {
         // given
         CertificateRenewalInfo first = new CertificateRenewalInfo();
         CertificateRenewalInfo second = new CertificateRenewalInfo();
 
+        // when
+        boolean equal = first.equals(second);
+
         // then
-        assertThat(first.equals(second)).isFalse();
+        assertThat(equal).isFalse();
     }
 
     @Test
@@ -62,9 +80,14 @@ class CertificateRenewalInfoTest {
         CertificateRenewalInfo first = anInfoWithUuid(UUID.randomUUID());
         CertificateRenewalInfo second = anInfoWithUuid(UUID.randomUUID());
 
+        // when
+        boolean equal = first.equals(second);
+
         // then
-        assertThat(first.equals(second)).isFalse();
+        assertThat(equal).isFalse();
     }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static CertificateRenewalInfo anInfoWithUuid(UUID uuid) {
         CertificateRenewalInfo info = new CertificateRenewalInfo();

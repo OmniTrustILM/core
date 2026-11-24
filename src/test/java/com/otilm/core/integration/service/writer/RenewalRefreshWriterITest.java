@@ -31,12 +31,15 @@ class RenewalRefreshWriterITest extends BaseSpringBootTest {
     private TransactionTemplate transactionTemplate;
 
     @Test
-    void scheduleSetsTheRefreshStateOfOneRow() {
+    void setsRefreshStateOfOnlyTheScheduledRow_whenSchedulingOneCertificate() {
+        // given
         UUID certificateUuid = rowFor();
         UUID other = rowFor();
 
+        // when
         writer.schedule(certificateUuid, DUE, 3, true);
 
+        // then
         CertificateRenewalInfo row = renewalInfoRepository.findByCertificateUuid(certificateUuid).orElseThrow();
         assertThat(row.getNextRefreshAt()).isEqualTo(DUE);
         assertThat(row.getRefreshAttempt()).isEqualTo(3);
@@ -48,30 +51,37 @@ class RenewalRefreshWriterITest extends BaseSpringBootTest {
     }
 
     @Test
-    void postponeMovesOnlyTheDueTimeOfTheGivenRows() {
+    void movesOnlyTheDueTimeOfTheGivenRows_whenPostponingSelectedCertificates() {
+        // given
         UUID first = rowFor();
         UUID second = rowFor();
         UUID other = rowFor();
         writer.schedule(first, DUE, 2, false);
+        Instant postponedTo = DUE.plusSeconds(600);
 
-        writer.postpone(List.of(first, second), DUE.plusSeconds(600));
+        // when
+        writer.postpone(List.of(first, second), postponedTo);
 
+        // then
         CertificateRenewalInfo moved = renewalInfoRepository.findByCertificateUuid(first).orElseThrow();
-        assertThat(moved.getNextRefreshAt()).isEqualTo(DUE.plusSeconds(600));
+        assertThat(moved.getNextRefreshAt()).isEqualTo(postponedTo);
         assertThat(moved.getRefreshAttempt()).isEqualTo(2);
         assertThat(renewalInfoRepository.findByCertificateUuid(second).orElseThrow().getNextRefreshAt())
-                .isEqualTo(DUE.plusSeconds(600));
+                .isEqualTo(postponedTo);
         assertThat(renewalInfoRepository.findByCertificateUuid(other).orElseThrow().getNextRefreshAt()).isNull();
     }
 
     @Test
-    void backOffCountsEachFailureAndSetsTheTimeFromTheNewCount() {
+    void countsEachFailureAndDerivesTheTimeFromTheNewCount_whenBackingOffRepeatedly() {
+        // given
         UUID certificateUuid = rowFor();
         writer.schedule(certificateUuid, DUE, 0, true);
 
+        // when
         writer.backOff(certificateUuid, DUE::plusSeconds);
         writer.backOff(certificateUuid, DUE::plusSeconds);
 
+        // then
         CertificateRenewalInfo row = renewalInfoRepository.findByCertificateUuid(certificateUuid).orElseThrow();
         assertThat(row.getRefreshAttempt()).isEqualTo(2);
         assertThat(row.getNextRefreshAt()).isEqualTo(DUE.plusSeconds(2));
@@ -105,6 +115,8 @@ class RenewalRefreshWriterITest extends BaseSpringBootTest {
         // then
         assertThat(renewalInfoRepository.findByCertificateUuid(existing).orElseThrow().getNextRefreshAt()).isNull();
     }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private UUID rowFor() {
         Certificate certificate = certificateRepository.save(aCertificate().build());

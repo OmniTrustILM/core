@@ -3,10 +3,12 @@ package com.otilm.core.integration.service;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.core.settings.CertificateRenewalInfoSettingsDto;
 import com.otilm.api.model.core.settings.CertificateRenewalInfoSettingsUpdateDto;
+import com.otilm.api.model.core.settings.CertificateSettingsDto;
 import com.otilm.api.model.core.settings.CertificateSettingsUpdateDto;
 import com.otilm.api.model.core.settings.PlatformSettingsUpdateDto;
 import com.otilm.core.service.SettingExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -18,21 +20,17 @@ class SettingServiceRenewalInfoITest extends BaseSpringBootTest {
     @Autowired
     private SettingExternalService settingService;
 
-    private static PlatformSettingsUpdateDto update(CertificateRenewalInfoSettingsUpdateDto renewalInfo) {
-        CertificateSettingsUpdateDto certificates = new CertificateSettingsUpdateDto();
-        certificates.setRenewalInfo(renewalInfo);
-        PlatformSettingsUpdateDto update = new PlatformSettingsUpdateDto();
-        update.setCertificates(certificates);
-        return update;
-    }
-
     @Test
-    void reportsTheDefaultsWhenNothingWasStored() {
+    void reportsTheDefaults_whenNothingWasStored() {
+        // given — no renewal-info settings stored
+
+        // when
         CertificateRenewalInfoSettingsDto settings = settingService
                 .getPlatformSettings()
                 .getCertificates()
                 .getRenewalInfo();
 
+        // then
         assertThat(settings.getRefreshMinInterval()).isEqualTo(3600);
         assertThat(settings.getRefreshMaxInterval()).isEqualTo(86400);
         assertThat(settings.getRefreshDefaultInterval()).isEqualTo(21600);
@@ -41,7 +39,8 @@ class SettingServiceRenewalInfoITest extends BaseSpringBootTest {
     }
 
     @Test
-    void storesAnUpdateAndLeavesTheOtherCertificateSettings() {
+    void storesTheUpdateAndKeepsOtherCertificateSettings_whenUpdatingRenewalInfo() {
+        // given
         CertificateRenewalInfoSettingsUpdateDto renewalInfo = new CertificateRenewalInfoSettingsUpdateDto();
         renewalInfo.setRefreshMinInterval(600);
         renewalInfo.setRefreshDefaultInterval(1200);
@@ -49,9 +48,11 @@ class SettingServiceRenewalInfoITest extends BaseSpringBootTest {
         renewalInfo.setRefreshBatchSize(50);
         renewalInfo.setRefreshRecheckInterval(86400);
 
+        // when
         settingService.updatePlatformSettings(update(renewalInfo));
 
-        var certificates = settingService.getPlatformSettings().getCertificates();
+        // then
+        CertificateSettingsDto certificates = settingService.getPlatformSettings().getCertificates();
         assertThat(certificates.getRenewalInfo().getRefreshMinInterval()).isEqualTo(600);
         assertThat(certificates.getRenewalInfo().getRefreshDefaultInterval()).isEqualTo(1200);
         assertThat(certificates.getRenewalInfo().getRefreshMaxInterval()).isEqualTo(7200);
@@ -62,22 +63,42 @@ class SettingServiceRenewalInfoITest extends BaseSpringBootTest {
     }
 
     @Test
-    void rejectsIntervalsOutOfOrder() {
+    void rejectsTheUpdate_whenIntervalsAreOutOfOrder() {
+        // given
         CertificateRenewalInfoSettingsUpdateDto renewalInfo = new CertificateRenewalInfoSettingsUpdateDto();
         renewalInfo.setRefreshMinInterval(7200);
         renewalInfo.setRefreshDefaultInterval(3600);
         renewalInfo.setRefreshMaxInterval(86400);
         PlatformSettingsUpdateDto update = update(renewalInfo);
 
-        assertThatThrownBy(() -> settingService.updatePlatformSettings(update)).isInstanceOf(ValidationException.class);
+        // when
+        ThrowingCallable updateSettings = () -> settingService.updatePlatformSettings(update);
+
+        // then
+        assertThatThrownBy(updateSettings).isInstanceOf(ValidationException.class);
     }
 
     @Test
-    void rejectsABatchSizeAboveTheLimit() {
+    void rejectsTheUpdate_whenBatchSizeIsAboveTheLimit() {
+        // given
         CertificateRenewalInfoSettingsUpdateDto renewalInfo = new CertificateRenewalInfoSettingsUpdateDto();
         renewalInfo.setRefreshBatchSize(51);
         PlatformSettingsUpdateDto update = update(renewalInfo);
 
-        assertThatThrownBy(() -> settingService.updatePlatformSettings(update)).isInstanceOf(ValidationException.class);
+        // when
+        ThrowingCallable updateSettings = () -> settingService.updatePlatformSettings(update);
+
+        // then
+        assertThatThrownBy(updateSettings).isInstanceOf(ValidationException.class);
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static PlatformSettingsUpdateDto update(CertificateRenewalInfoSettingsUpdateDto renewalInfo) {
+        CertificateSettingsUpdateDto certificates = new CertificateSettingsUpdateDto();
+        certificates.setRenewalInfo(renewalInfo);
+        PlatformSettingsUpdateDto update = new PlatformSettingsUpdateDto();
+        update.setCertificates(certificates);
+        return update;
     }
 }

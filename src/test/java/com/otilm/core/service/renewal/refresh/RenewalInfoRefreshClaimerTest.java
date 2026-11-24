@@ -44,7 +44,7 @@ class RenewalInfoRefreshClaimerTest {
     private RenewalInfoRefreshClaimer claimer;
 
     @BeforeEach
-    void setUp() {
+    void wireClaimerWithSettings() {
         CertificateRenewalInfoSettingsDto renewalInfo = new CertificateRenewalInfoSettingsDto();
         renewalInfo.setRefreshBatchSize(20);
         renewalInfo.setRefreshDefaultInterval(7200);
@@ -87,7 +87,7 @@ class RenewalInfoRefreshClaimerTest {
     }
 
     @Test
-    void splitsTheCertificatesOfAnRaProfileIntoBatchesOfTheBatchSize() {
+    void splitsCertificatesIntoBatchesOfTheBatchSize_whenRaProfileHasMoreThanOneBatch() {
         // given
         UUID authority = UUID.randomUUID();
         UUID raProfile = UUID.randomUUID();
@@ -110,7 +110,7 @@ class RenewalInfoRefreshClaimerTest {
     }
 
     @Test
-    void keepsRaProfilesAndAuthoritiesApart() {
+    void keepsRaProfilesAndAuthoritiesApart_whenClaimsOfAuthoritiesAreInterleaved() {
         // given
         UUID authorityA = UUID.randomUUID();
         UUID authorityB = UUID.randomUUID();
@@ -134,6 +134,8 @@ class RenewalInfoRefreshClaimerTest {
                 .singleElement()
                 .satisfies(batch -> assertThat(batch.certificateUuids()).hasSize(2));
     }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static List<RefreshClaim> claims(UUID authority, UUID raProfile, int count) {
         return IntStream

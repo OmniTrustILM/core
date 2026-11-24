@@ -6,6 +6,7 @@ import java.security.KeyPairGenerator;
 import java.security.cert.X509Certificate;
 import java.util.Base64;
 import java.util.Date;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.AuthorityKeyIdentifier;
 import org.bouncycastle.asn1.x509.Extension;
@@ -18,36 +19,51 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class AriCertIdTest {
 
     private static final String RFC_EXAMPLE = "aYhba4dGQEHhs3uEe6CuLN4ByNQ.AIdlQyE";
 
     @Test
-    void parsesRfcExample() {
-        AriCertId id = AriCertId.parse(RFC_EXAMPLE);
+    void parsesKeyIdentifierAndSerial_whenGivenRfcExample() {
+        // given
+        String certId = RFC_EXAMPLE;
 
-        assertArrayEquals(Base64.getUrlDecoder().decode("aYhba4dGQEHhs3uEe6CuLN4ByNQ"), id.keyIdentifier());
-        assertEquals("87654321", id.serialHex());
+        // when
+        AriCertId id = AriCertId.parse(certId);
+
+        // then
+        assertThat(id.keyIdentifier()).isEqualTo(Base64.getUrlDecoder().decode("aYhba4dGQEHhs3uEe6CuLN4ByNQ"));
+        assertThat(id.serialHex()).isEqualTo("87654321");
     }
 
     @Test
-    void parsesSerialWithLeadingZeroByte() {
+    void keepsSerialWithoutSignOctet_whenSerialStartsWithLeadingZeroByte() {
+        // given
         // DER INTEGER 0x00 0x8A 0x01 keeps the sign octet that the high bit of 0x8A requires
-        String certId = "AQID."
+        String withLeadingZeroByte = "AQID."
                 + Base64.getUrlEncoder().withoutPadding().encodeToString(new byte[]{0x00, (byte) 0x8A, 0x01});
 
-        assertEquals("8a01", AriCertId.parse(certId).serialHex());
+        // when
+        AriCertId id = AriCertId.parse(withLeadingZeroByte);
+
+        // then
+        assertThat(id.serialHex()).isEqualTo("8a01");
     }
 
     @Test
-    void serialWithoutSignOctetMapsToTheSameHex() {
-        String certId = "AQID." + Base64.getUrlEncoder().withoutPadding().encodeToString(new byte[]{0x0A, 0x01});
+    void mapsToTheSameHex_whenSerialHasNoSignOctet() {
+        // given
+        String withoutSignOctet = "AQID."
+                + Base64.getUrlEncoder().withoutPadding().encodeToString(new byte[]{0x0A, 0x01});
 
-        assertEquals("a01", AriCertId.parse(certId).serialHex());
+        // when
+        AriCertId id = AriCertId.parse(withoutSignOctet);
+
+        // then
+        assertThat(id.serialHex()).isEqualTo("a01");
     }
 
     @ParameterizedTest
@@ -63,17 +79,31 @@ class AriCertIdTest {
             "AQID.AI/lQyE",
             "AQ ID.AIdlQyE",
             "A.AIdlQyE"})
-    void rejectsMalformedIds(String certId) {
-        assertThrows(IllegalArgumentException.class, () -> AriCertId.parse(certId));
+    void rejectsId_whenMalformed(String malformedCertId) {
+        // given — a certId that is not two base64url segments separated by a single dot
+
+        // when
+        ThrowingCallable parse = () -> AriCertId.parse(malformedCertId);
+
+        // then
+        assertThatThrownBy(parse).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
-    void rejectsNull() {
-        assertThrows(IllegalArgumentException.class, () -> AriCertId.parse(null));
+    void rejectsId_whenNull() {
+        // given
+        String nullCertId = null;
+
+        // when
+        ThrowingCallable parse = () -> AriCertId.parse(nullCertId);
+
+        // then
+        assertThatThrownBy(parse).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
-    void buildsTheIdOfACertificate() throws Exception {
+    void roundTripsKeyIdentifierAndSerial_whenBuildingIdOfCertificate() throws Exception {
+        // given
         KeyPair issuerKeys = keyPair();
         byte[] keyIdentifier = new JcaX509ExtensionUtils()
                 .createAuthorityKeyIdentifier(issuerKeys.getPublic())
@@ -81,18 +111,27 @@ class AriCertIdTest {
         X509Certificate certificate = certificate(issuerKeys, new BigInteger("8a01", 16),
                 new AuthorityKeyIdentifier(keyIdentifier));
 
+        // when
         AriCertId parsed = AriCertId.parse(AriCertId.of(certificate));
 
-        assertArrayEquals(keyIdentifier, parsed.keyIdentifier());
-        assertEquals("8a01", parsed.serialHex());
+        // then
+        assertThat(parsed.keyIdentifier()).isEqualTo(keyIdentifier);
+        assertThat(parsed.serialHex()).isEqualTo("8a01");
     }
 
     @Test
-    void refusesACertificateWithoutAuthorityKeyIdentifier() throws Exception {
-        X509Certificate certificate = certificate(keyPair(), BigInteger.TEN, null);
+    void refusesId_whenCertificateHasNoAuthorityKeyIdentifier() throws Exception {
+        // given
+        X509Certificate withoutAuthorityKeyIdentifier = certificate(keyPair(), BigInteger.TEN, null);
 
-        assertThrows(IllegalArgumentException.class, () -> AriCertId.of(certificate));
+        // when
+        ThrowingCallable buildId = () -> AriCertId.of(withoutAuthorityKeyIdentifier);
+
+        // then
+        assertThatThrownBy(buildId).isInstanceOf(IllegalArgumentException.class);
     }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static KeyPair keyPair() throws Exception {
         KeyPairGenerator generator = KeyPairGenerator.getInstance("EC");
