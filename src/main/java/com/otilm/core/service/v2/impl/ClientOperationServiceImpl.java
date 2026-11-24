@@ -486,6 +486,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     }
 
     @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.ANY,
             parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
     public List<SupportedCertificateTypeDto> listSupportedCertificateTypes(SecuredParentUUID authorityUuid,

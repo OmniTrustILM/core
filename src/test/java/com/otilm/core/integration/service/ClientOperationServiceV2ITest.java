@@ -1869,6 +1869,28 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
+    void renewsWithoutAskingTheAuthorityForItsTypes_whenAProtocolRequestsTheRenewal() throws Exception {
+        // given
+        stubAuthorityProviderAttributesEndpoints();
+        doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedTypes(any());
+        var subjectDn = "CN=renew-through-protocol";
+        KeyPair currentKeys = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+        storeAsCurrentCertificate(currentKeys, subjectDn);
+        ClientCertificateRenewRequestDto request = new ClientCertificateRenewRequestDto();
+        request.setRequest(generatePkcs10(currentKeys, subjectDn));
+        CertificateProtocolInfo protocolInfo = CertificateProtocolInfo.est(UUID.randomUUID());
+
+        // when
+        ClientCertificateDataResponseDto renewed = clientOperationInternalService
+                .renewCertificate(authorityInstanceReference.getSecuredParentUuid(), raProfile.getSecuredUuid(),
+                        certificate.getUuid().toString(), request, protocolInfo, null);
+
+        // then
+        assertThat(certificateRepository.findByUuid(UUID.fromString(renewed.getUuid()))).isPresent();
+        verify(authorityCertificateTypes, never()).requireSupport(any(), any());
+    }
+
+    @Test
     void refusesToRekey_whenTheAuthorityDoesNotIssueTheTypeOfTheCertificate() throws Exception {
         // given
         doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedTypes(any());

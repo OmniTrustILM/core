@@ -728,6 +728,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
     }
 
     @Override
+    @OutsideTransaction
     @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.ANY,
             parentResource = Resource.AUTHORITY, parentAction = ResourceAction.ANY)
     public List<SupportedCertificateTypeDto> listSupportedCertificateTypes(SecuredParentUUID authorityUuid,

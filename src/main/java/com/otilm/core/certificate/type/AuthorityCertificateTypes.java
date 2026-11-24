@@ -33,7 +33,7 @@ public class AuthorityCertificateTypes {
 
     /**
      * @throws NotFoundException when the RA profile does not exist or its authority has no connector
-     * @throws CertificateTypesUnavailableException when the authority could not be asked
+     * @throws CertificateTypesUnavailableException when the connector fails or its answer cannot be used
      */
     public Set<CertificateType> supportedTypes(UUID raProfileUuid) throws NotFoundException {
         RaProfile raProfile = raProfileRepository
@@ -46,14 +46,14 @@ public class AuthorityCertificateTypes {
         try {
             return adapterFactory.forAuthority(authority).listCertificateTypes(authority, raProfile);
         } catch (ConnectorException e) {
-            throw new CertificateTypesUnavailableException(raProfile.getName(), e);
+            throw new CertificateTypesUnavailableException(raProfile.getName(), authority.getConnector(), e);
         }
     }
 
     /**
      * Refuses a type the authority of the RA profile does not issue; a missing type is X.509.
      *
-     * @throws CertificateTypesUnavailableException when the authority could not be asked
+     * @throws CertificateTypesUnavailableException when the connector fails or its answer cannot be used
      */
     public void requireSupport(CertificateType type, RaProfile raProfile) {
         CertificateType effectiveType = type != null ? type : CertificateType.X509;

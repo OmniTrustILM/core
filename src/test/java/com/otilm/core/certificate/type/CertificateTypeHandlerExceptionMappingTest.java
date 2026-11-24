@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.ResponseStatus;
 
+import static com.otilm.core.util.builders.ConnectorBuilder.aConnector;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class CertificateTypeHandlerExceptionMappingTest {
@@ -54,11 +55,12 @@ class CertificateTypeHandlerExceptionMappingTest {
     }
 
     @Test
-    void answersWithBadGatewayNamingTheRaProfile_whenTheAuthorityCannotSayWhichTypesItIssues() throws Exception {
+    void answersWithBadGatewayNamingTheRaProfileAndConnector_whenTheCertificateTypesCannotBeRead() throws Exception {
         // given
         var raProfileName = "ssh-profile";
+        var connector = aConnector().withName("ssh-connector").build();
         var connectorText = "text written by the connector";
-        var unavailable = new CertificateTypesUnavailableException(raProfileName,
+        var unavailable = new CertificateTypesUnavailableException(raProfileName, connector,
                 new ConnectorException(connectorText));
         var handlerMethod = ExceptionHandlingAdvice.class
                 .getMethod("handleCertificateTypesUnavailableException", CertificateTypesUnavailableException.class);
@@ -67,7 +69,9 @@ class CertificateTypeHandlerExceptionMappingTest {
         ErrorMessageDto body = advice.handleCertificateTypesUnavailableException(unavailable);
 
         // then
-        assertThat(body.getMessage()).contains(raProfileName).doesNotContain(connectorText);
+        assertThat(body.getMessage())
+                .contains(raProfileName, connector.getName(), connector.getUuid().toString())
+                .doesNotContain(connectorText);
         assertThat(handlerMethod.getAnnotation(ResponseStatus.class).value()).isEqualTo(HttpStatus.BAD_GATEWAY);
     }
 }
