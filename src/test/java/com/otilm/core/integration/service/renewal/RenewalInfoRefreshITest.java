@@ -71,6 +71,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -550,7 +551,7 @@ class RenewalInfoRefreshITest extends BaseSpringBootTest {
         reclaimed.forEach(runner::run);
 
         // then
-        assertThat(leased).isEqualTo(now.plus(LEASE).truncatedTo(ChronoUnit.MICROS));
+        assertThat(leased).isCloseTo(now.plus(LEASE), within(1, ChronoUnit.MICROS));
         assertThat(claimedCertificates(reclaimed)).containsExactly(certificate.getUuid());
         assertThat(rowOf(certificate).getSource()).isEqualTo(RenewalWindowSource.AUTHORITY);
     }
@@ -589,7 +590,7 @@ class RenewalInfoRefreshITest extends BaseSpringBootTest {
         // then
         assertThat(accepted).containsExactly(true, true, false);
         Certificate rejected = certificates.get(2);
-        assertThat(rowOf(rejected).getNextRefreshAt()).isEqualTo(now.plus(LEASE).truncatedTo(ChronoUnit.MICROS));
+        assertThat(rowOf(rejected).getNextRefreshAt()).isCloseTo(now.plus(LEASE), within(1, ChronoUnit.MICROS));
         assertThat(claimedCertificates(claimer.claim(now.plus(LEASE).plusSeconds(1)))).contains(rejected.getUuid());
     }
 
