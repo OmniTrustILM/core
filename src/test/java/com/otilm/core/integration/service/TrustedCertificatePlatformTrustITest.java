@@ -72,10 +72,9 @@ class TrustedCertificatePlatformTrustITest extends BaseSpringBootTest {
     }
 
     @Test
-    void returnsTheStoredRecord_whenCreating() throws Exception {
+    void returnsAPendingRecordForTheSentCertificate_whenCreating() throws Exception {
         // given
-        wireMockServer
-                .stubFor(post(urlPathEqualTo(BASE_PATH)).willReturn(okJson(item("p1", "pending")).withStatus(201)));
+        wireMockServer.stubFor(post(urlPathEqualTo(BASE_PATH)).willReturn(okJson("{\"uuid\":\"p1\"}").withStatus(201)));
 
         // when
         PlatformRecord created = manager.create(pem);

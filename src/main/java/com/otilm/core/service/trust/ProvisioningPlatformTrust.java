@@ -68,12 +68,14 @@ public class ProvisioningPlatformTrust implements PlatformTrustManager {
     @Override
     public PlatformRecord create(String pem) {
         byte[] content = pem.getBytes(StandardCharsets.US_ASCII);
+        String fingerprint = fingerprintOf(content);
         try {
             TrustedCertificateProvisioningDTO created = client
                     .createTrustedCertificate(new TrustedCertificateProvisioningRequestDTO(content), true);
-            return toRecord(created);
+            // Provisioning answers with the uuid alone; a deferred create is pending by definition.
+            return new PlatformRecord(created.uuid(), fingerprint, content, TrustedCertificatePlatformState.PENDING,
+                    null);
         } catch (HttpClientErrorException.Conflict e) {
-            String fingerprint = fingerprintOf(content);
             return list()
                     .stream()
                     .filter(platformRecord -> Objects.equals(fingerprint, platformRecord.fingerprintSha256()))
