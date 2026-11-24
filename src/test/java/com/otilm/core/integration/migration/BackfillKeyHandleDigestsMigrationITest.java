@@ -6,7 +6,7 @@ import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.model.crypto.RemoteKeyReference.MetadataReference;
 import com.otilm.core.util.seeders.CryptographicKeySeeder;
 import com.otilm.core.util.seeders.TokenProfileSeeder;
-import db.migration.V202611241200__BackfillKeyHandleDigests;
+import db.migration.V202611241201__BackfillKeyHandleDigests;
 import java.sql.Connection;
 import java.util.UUID;
 import javax.sql.DataSource;
@@ -198,7 +198,7 @@ class BackfillKeyHandleDigestsMigrationITest extends BaseMigrationTest {
             try {
                 Context context = mock(Context.class);
                 when(context.getConnection()).thenReturn(connection);
-                new V202611241200__BackfillKeyHandleDigests().migrate(context);
+                new V202611241201__BackfillKeyHandleDigests().migrate(context);
                 connection.commit();
             } finally {
                 connection.rollback();

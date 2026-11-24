@@ -80,7 +80,7 @@ public class DatabaseMigration {
         V202610181200__RepairDateAttributeContent(-875815430),
         V202611131010__CreateEstUserAndPermissions(-807394915),
         V202611211201__DescribeKeyItems(-1237744660),
-        V202611241200__BackfillKeyHandleDigests(-2007743042);
+        V202611241201__BackfillKeyHandleDigests(-1695520378);
 
         private final int checksum;
 

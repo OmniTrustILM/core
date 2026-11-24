@@ -21,15 +21,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 class RemoteKeyReferenceDigestTest {
 
     @Test
-    void returnsALowercaseSha256Hex() {
-        // given
+    void returnsTheSha256OfTheCanonicalForm() {
+        // given — the digest is stored, so its value must not change across upgrades
         var handle = new MetadataReference(List.of(buildKeyId("a1b2")));
+        var canonicalForm = "[{\"name\":\"keyId\",\"data\":[\"a1b2\"]}]";
+        var sha256OfCanonicalForm = "daf450128256bb9b625b9d1218a5d2b299d62f72555937add270b3403ef38c7e";
 
         // when
         String digest = handle.digest();
 
         // then
-        assertThat(digest).matches("[0-9a-f]{64}");
+        assertThat(digest).as("SHA-256 of %s", canonicalForm).isEqualTo(sha256OfCanonicalForm);
     }
 
     @Test
