@@ -1574,9 +1574,9 @@ class CertificateServiceITest extends BaseSpringBootTest {
             // when
             ThrowingCallable create = () -> certificateService.createCertificate(notACertificate, namedType);
 
-            // then
+            // then — a runtime failure, so that a location sync it interrupts is rolled back as a whole
             assertThatThrownBy(create)
-                    .isInstanceOf(com.otilm.api.exception.CertificateException.class)
+                    .isInstanceOf(ValidationException.class)
                     .hasMessageContaining(namedType.getLabel())
                     .hasMessageNotContaining(notACertificate);
         }

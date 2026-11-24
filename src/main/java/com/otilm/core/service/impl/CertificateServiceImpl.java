@@ -1567,7 +1567,7 @@ public class CertificateServiceImpl
             String message = "Failed to parse the certificate: the content is not a certificate of type "
                     + effectiveType.getLabel();
             log.error(message);
-            throw new com.otilm.api.exception.CertificateException(message);
+            throw new ValidationException(message);
         }
         String fingerprint = parsed.properties().fingerprint();
         Optional<Certificate> existingCertificate = certificateRepository.findByFingerprint(fingerprint);
