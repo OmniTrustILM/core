@@ -52,6 +52,42 @@ public class TrustedCertificateWriter {
     }
 
     /**
+     * Brings the validation purpose of a certificate's trust row in line with a {@code trusted_ca} change the caller
+     * has already made and published the revalidation for: adds a validation row, or drops the purpose and deletes a
+     * row left without one. It never writes {@code trusted_ca} itself, so the caller's certificate stays attached.
+     */
+    @Transactional
+    public void syncValidationPurpose(UUID certificateUuid, boolean validation) {
+        TrustedCertificate row = trustedCertificateRepository.findByCertificateUuid(certificateUuid).orElse(null);
+        if (validation) {
+            if (row == null) {
+                OffsetDateTime now = OffsetDateTime.now();
+                TrustedCertificate created = new TrustedCertificate();
+                created.setCertificateUuid(certificateUuid);
+                created.setValidation(true);
+                created.setCreatedAt(now);
+                created.setUpdatedAt(now);
+                trustedCertificateRepository.save(created);
+            } else if (!row.isValidation()) {
+                row.setValidation(true);
+                row.setUpdatedAt(OffsetDateTime.now());
+                trustedCertificateRepository.save(row);
+            }
+            return;
+        }
+        if (row == null || !row.isValidation()) {
+            return;
+        }
+        if (row.isPlatform() || row.isPlatformRemovalPending()) {
+            row.setValidation(false);
+            row.setUpdatedAt(OffsetDateTime.now());
+            trustedCertificateRepository.save(row);
+        } else {
+            trustedCertificateRepository.delete(row);
+        }
+    }
+
+    /**
      * Replaces the purposes of a trust row. Dropping the platform purpose keeps the row with its removal pending until
      * the platform confirms it, and adding it back cancels that removal; the orchestrator calls this for a platform
      * drop only where platform trust is managed, and deletes the row otherwise.

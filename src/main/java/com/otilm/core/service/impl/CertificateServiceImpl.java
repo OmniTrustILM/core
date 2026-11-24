@@ -122,6 +122,7 @@ import com.otilm.core.dao.repository.GroupRepository;
 import com.otilm.core.dao.repository.LocationRepository;
 import com.otilm.core.dao.repository.ProtocolCertificateAssociationsRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
+import com.otilm.core.dao.repository.TrustedCertificateRepository;
 import com.otilm.core.dao.repository.X509CertificateRepository;
 import com.otilm.core.dao.repository.acme.AcmeAccountRepository;
 import com.otilm.core.dao.repository.cmp.CmpProfileRepository;
@@ -180,6 +181,7 @@ import com.otilm.core.service.writer.CertificateValidationWriter;
 import com.otilm.core.service.writer.ComplianceProfileAssociationWriter;
 import com.otilm.core.service.writer.DiscoveryCertificateContentWriter;
 import com.otilm.core.service.writer.PendingNotificationWriter;
+import com.otilm.core.service.writer.TrustedCertificateWriter;
 import com.otilm.core.service.writer.est.EstProfileWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationAuthorizationWriter;
 import com.otilm.core.settings.SettingsCache;
@@ -266,6 +268,7 @@ public class CertificateServiceImpl
     private static final String UNDEFINED_CERTIFICATE_OBJECT_NAME = CertificateEventHistoryInternalService.UNDEFINED_OBJECT_NAME;
 
     private static final String NOT_ISSUED_SUFFIX = " (Not Issued)";
+    private static final String TRUSTED_CERTIFICATE_REFUSAL = "Certificate is trusted. Remove trust first.";
 
     // The serial number, or "{commonName} (Not Issued)" for a certificate that has none yet
     private static final BiFunction<Root<Certificate>, CriteriaBuilder, Expression<String>> RESOURCE_OBJECT_NAME = (
@@ -333,6 +336,8 @@ public class CertificateServiceImpl
     private CertificateProtocolAssociationRepository certificateProtocolAssociationRepository;
     private ApplicationEventPublisher applicationEventPublisher;
     private SubtreeRevalidation subtreeRevalidation;
+    private TrustedCertificateRepository trustedCertificateRepository;
+    private TrustedCertificateWriter trustedCertificateWriter;
     private ValidationProducer validationProducer;
     private AuthenticationCache authenticationCache;
     private CertificateUploadService certificateUploadService;
@@ -638,6 +643,16 @@ public class CertificateServiceImpl
     }
 
     @Autowired
+    public void setTrustedCertificateRepository(TrustedCertificateRepository trustedCertificateRepository) {
+        this.trustedCertificateRepository = trustedCertificateRepository;
+    }
+
+    @Autowired
+    public void setTrustedCertificateWriter(TrustedCertificateWriter trustedCertificateWriter) {
+        this.trustedCertificateWriter = trustedCertificateWriter;
+    }
+
+    @Autowired
     public void setAuthenticationCache(AuthenticationCache authenticationCache) {
         this.authenticationCache = authenticationCache;
     }
@@ -931,6 +946,15 @@ public class CertificateServiceImpl
                     "Could not delete certificate %s with UUID %s: Certificate is used by some user."
                             .formatted(certificate.getCommonName(), certificate.getUuid().toString()));
         }
+        // Checked before the location removals below, which reach connectors and cannot be rolled back.
+        if (trustedCertificateRepository.existsByCertificateUuid(certificate.getUuid())) {
+            certificateEventHistoryService
+                    .addEventHistorySurvivingRollback(certificate.getUuid(), CertificateEvent.DELETE,
+                            CertificateEventStatus.FAILED, TRUSTED_CERTIFICATE_REFUSAL, null);
+            throw new ValidationException("Could not delete certificate %s with UUID %s: %s"
+                    .formatted(certificate.getCommonName(), certificate.getUuid().toString(),
+                            TRUSTED_CERTIFICATE_REFUSAL));
+        }
 
         locationInternalService.removeCertificatesFromLocationsOnDelete(List.of(uuid));
 
@@ -1018,6 +1042,7 @@ public class CertificateServiceImpl
         }
         x509Certificate.setTrustedCa(trustedCa);
         subtreeRevalidation.publishFor(certificate);
+        trustedCertificateWriter.syncValidationPurpose(certificate.getUuid(), trustedCa);
     }
 
     @Async
@@ -1151,6 +1176,17 @@ public class CertificateServiceImpl
                             "Unable to delete certificate " + nonPermitted,
                             "The certificate cannot be found or cannot be authorized for deletion.");
         }
+
+        List<UUID> trustedUuids = trustedCertificateRepository.findCertificateUuidsByCertificateUuidIn(permittedUuids);
+        for (UUID trusted : trustedUuids) {
+            log.info("Unable to delete certificate {}. The certificate is trusted.", trusted);
+            notificationProducer
+                    .produceInternalNotificationMessage(Resource.CERTIFICATE, trusted,
+                            NotificationRecipient.buildUserNotificationRecipient(loggedUserUuid),
+                            "Unable to delete certificate " + trusted,
+                            "The certificate is trusted; remove trust first.");
+        }
+        permittedUuids = permittedUuids.stream().filter(uuid -> !trustedUuids.contains(uuid)).toList();
 
         if (permittedUuids.isEmpty()) {
             return 0;
@@ -2911,6 +2947,14 @@ public class CertificateServiceImpl
         Certificate certificate = certificateRepository
                 .findByUuid(uuid.getValue())
                 .orElseThrow(() -> new NotFoundException("Certificate", uuid));
+        if (trustedCertificateRepository.existsByCertificateUuid(certificate.getUuid())) {
+            certificateEventHistoryService
+                    .addEventHistorySurvivingRollback(certificate.getUuid(), CertificateEvent.ARCHIVE,
+                            CertificateEventStatus.FAILED, TRUSTED_CERTIFICATE_REFUSAL, null);
+            throw new ValidationException("Could not archive certificate %s with UUID %s: %s"
+                    .formatted(certificate.getCommonName(), certificate.getUuid().toString(),
+                            TRUSTED_CERTIFICATE_REFUSAL));
+        }
         certificate.setArchived(true);
         certificateRepository.save(certificate);
         certificateEventHistoryService
@@ -2935,13 +2979,27 @@ public class CertificateServiceImpl
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.ARCHIVE)
     public List<BulkActionMessageDto> bulkArchiveCertificates(List<SecuredUUID> securedUuids) {
         List<UUID> uuids = securedUuids.stream().map(SecuredUUID::getValue).distinct().toList();
-        certificateRepository.archiveCertificates(true, uuids);
-        for (UUID uuid : uuids) {
+        List<UUID> trustedUuids = trustedCertificateRepository.findCertificateUuidsByCertificateUuidIn(uuids);
+        List<UUID> archivable = uuids.stream().filter(uuid -> !trustedUuids.contains(uuid)).toList();
+        if (!archivable.isEmpty()) {
+            certificateRepository.archiveCertificates(true, archivable);
+        }
+        for (UUID uuid : archivable) {
             certificateEventHistoryService
                     .addEventHistory(uuid, CertificateEvent.ARCHIVE, CertificateEventStatus.SUCCESS,
                             "Certificate has been archived.", "");
         }
-        return List.of();
+        List<BulkActionMessageDto> skipped = new ArrayList<>();
+        for (UUID trusted : trustedUuids) {
+            certificateEventHistoryService
+                    .addEventHistory(trusted, CertificateEvent.ARCHIVE, CertificateEventStatus.FAILED,
+                            TRUSTED_CERTIFICATE_REFUSAL, "");
+            String commonName = certificateRepository.findByUuid(trusted).map(Certificate::getCommonName).orElse(null);
+            skipped
+                    .add(BulkActionMessageDto
+                            .failureWithMessage(trusted.toString(), commonName, TRUSTED_CERTIFICATE_REFUSAL));
+        }
+        return skipped;
     }
 
     @Override
