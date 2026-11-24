@@ -7,6 +7,7 @@ import com.otilm.api.exception.CertificateRequestException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.core.certificate.CertificateDetail;
+import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRekeyRequestDto;
@@ -16,12 +17,14 @@ import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
 import com.otilm.core.dao.entity.ApprovalProfileVersion;
 import com.otilm.core.messaging.model.ActionMessage;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
+import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import java.io.IOException;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.security.cert.CertificateException;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Consumer;
 
@@ -46,6 +49,31 @@ public interface ClientOperationInternalService {
             ClientCertificateIssueRequestDto request, CertificateProtocolInfo protocolInfo,
             Consumer<UUID> beforeDispatch) throws NotFoundException, CertificateException, IOException,
             NoSuchAlgorithmException, InvalidKeyException, CertificateOperationException, CertificateRequestException;
+
+    /**
+     * As
+     * {@link #issueCertificate(SecuredParentUUID, SecuredUUID, ClientCertificateIssueRequestDto, CertificateProtocolInfo, Consumer)},
+     * relating the new certificate to the certificate it replaces as its successor. The relation is pending until the
+     * new certificate is issued, and is then typed by how the two certificates compare.
+     *
+     * @param predecessorUuid the certificate the new certificate replaces
+     */
+    ClientCertificateDataResponseDto issueCertificate(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid,
+            ClientCertificateIssueRequestDto request, CertificateProtocolInfo protocolInfo,
+            Consumer<UUID> beforeDispatch, UUID predecessorUuid)
+            throws NotFoundException, CertificateException, IOException, NoSuchAlgorithmException, InvalidKeyException,
+            CertificateOperationException, CertificateRequestException;
+
+    /**
+     * How the certificate can be replaced with the request under the RA profile: {@link ResourceAction#RENEW} when the
+     * request keeps its key, {@link ResourceAction#REKEY} when it brings another one, or empty when a renewal or rekey
+     * would refuse it. Runs the checks the renewal and rekey run before any successor exists, without their side
+     * effects, and stores nothing.
+     *
+     * @throws ConnectorException when the connector cannot be asked for its renew attributes, as a renewal would fail
+     */
+    Optional<ResourceAction> renewalFor(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid,
+            UUID certificateUuid, String request, CertificateRequestFormat format) throws ConnectorException;
 
     void approvalCreatedAction(final UUID certificateUuid) throws NotFoundException;
 

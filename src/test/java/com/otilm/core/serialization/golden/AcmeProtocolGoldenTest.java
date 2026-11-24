@@ -56,6 +56,27 @@ class AcmeProtocolGoldenTest {
     }
 
     @Test
+    void directoryWithRenewalInfoKeepsItsWireShape() {
+        Directory directory = new Directory();
+        directory.setNewNonce("https://acme.example/acme/new-nonce");
+        directory.setNewAccount("https://acme.example/acme/new-account");
+        directory.setNewOrder("https://acme.example/acme/new-order");
+        directory.setNewAuthz("https://acme.example/acme/new-authz");
+        directory.setRevokeCert("https://acme.example/acme/revoke-cert");
+        directory.setKeyChange("https://acme.example/acme/key-change");
+        directory.setRenewalInfo("https://acme.example/acme/renewal-info");
+
+        DirectoryMeta meta = new DirectoryMeta();
+        meta.setTermsOfService("https://acme.example/terms");
+        meta.setWebsite("https://acme.example");
+        meta.setExternalAccountRequired(Boolean.FALSE);
+        meta.setCaaIdentities(new String[]{"acme.example"});
+        directory.setMeta(meta);
+
+        GoldenJson.assertMatchesGoldenAndRoundTrips("acme-directory-renewal-info", mapper, directory, Directory.class);
+    }
+
+    @Test
     void accountKeepsItsWireShape() {
         Account account = new Account();
         account.setStatus(AccountStatus.VALID);

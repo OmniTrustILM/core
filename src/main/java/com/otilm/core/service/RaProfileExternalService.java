@@ -23,6 +23,7 @@ import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.raprofile.RaProfileCertificateRequestAttributesUpdateDto;
 import com.otilm.api.model.core.raprofile.RaProfileCertificateValidationSettingsUpdateDto;
 import com.otilm.api.model.core.raprofile.RaProfileDto;
+import com.otilm.api.model.core.raprofile.RaProfileRenewalSettingsUpdateDto;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
@@ -222,6 +223,18 @@ public interface RaProfileExternalService {
      */
     RaProfileDto updateRaProfileValidationConfiguration(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid,
             RaProfileCertificateValidationSettingsUpdateDto request) throws NotFoundException;
+
+    /**
+     * Update the renewal window settings of the RA profile and recompute the policy windows of its certificates when
+     * the policy changed.
+     *
+     * @param authorityUuid UUID of the authority the RA profile belongs to
+     * @param raProfileUuid UUID of the RA profile
+     * @param request renewal window settings
+     * @return Edited RA Profile
+     */
+    RaProfileDto updateRaProfileRenewalSettings(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid,
+            RaProfileRenewalSettingsUpdateDto request) throws NotFoundException;
 
     /**
      * Update the static request-attribute configuration (definitions, merge mode, value-source bindings, strictness) of

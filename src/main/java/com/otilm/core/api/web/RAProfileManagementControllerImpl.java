@@ -22,18 +22,24 @@ import com.otilm.api.model.common.UuidDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateDetail;
+import com.otilm.api.model.core.certificate.EarlyRenewalRequestDto;
 import com.otilm.api.model.core.logging.enums.Module;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.raprofile.RaProfileCertificateRequestAttributesUpdateDto;
 import com.otilm.api.model.core.raprofile.RaProfileCertificateValidationSettingsUpdateDto;
 import com.otilm.api.model.core.raprofile.RaProfileDto;
+import com.otilm.api.model.core.raprofile.RaProfileEarlyRenewalResponseDto;
+import com.otilm.api.model.core.raprofile.RaProfileRenewalSettingsUpdateDto;
 import com.otilm.core.aop.AuditLogged;
+import com.otilm.core.aop.AuditOperationDataOverride;
 import com.otilm.core.auth.AuthEndpoint;
 import com.otilm.core.logging.LogResource;
+import com.otilm.core.model.certificate.EarlyRenewalAuditData;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.RaProfileExternalService;
+import com.otilm.core.service.renewal.EarlyRenewalExternalService;
 import com.otilm.core.util.EstProtocolUrlFactory;
 import java.net.URI;
 import java.util.List;
@@ -49,9 +55,23 @@ public class RAProfileManagementControllerImpl implements RAProfileManagementCon
 
     private RaProfileExternalService raProfileService;
 
+    private EarlyRenewalExternalService earlyRenewalService;
+
+    private AuditOperationDataOverride auditOperationDataOverride;
+
     @Autowired
     public void setRaProfileService(RaProfileExternalService raProfileService) {
         this.raProfileService = raProfileService;
+    }
+
+    @Autowired
+    public void setEarlyRenewalService(EarlyRenewalExternalService earlyRenewalService) {
+        this.earlyRenewalService = earlyRenewalService;
+    }
+
+    @Autowired
+    public void setAuditOperationDataOverride(AuditOperationDataOverride auditOperationDataOverride) {
+        this.auditOperationDataOverride = auditOperationDataOverride;
     }
 
     @Override
@@ -112,6 +132,31 @@ public class RAProfileManagementControllerImpl implements RAProfileManagementCon
         return raProfileService
                 .updateRaProfileValidationConfiguration(SecuredParentUUID.fromString(authorityUuid),
                         SecuredUUID.fromString(raProfileUuid), request);
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.RA_PROFILE, affiliatedResource = Resource.AUTHORITY,
+            operation = Operation.UPDATE)
+    public RaProfileDto updateRaProfileRenewalSettings(String authorityUuid, String raProfileUuid,
+            RaProfileRenewalSettingsUpdateDto request) throws NotFoundException {
+        return raProfileService
+                .updateRaProfileRenewalSettings(SecuredParentUUID.fromString(authorityUuid),
+                        SecuredUUID.fromString(raProfileUuid), request);
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.RA_PROFILE, affiliatedResource = Resource.AUTHORITY,
+            operation = Operation.REQUEST_EARLY_RENEWAL)
+    public RaProfileEarlyRenewalResponseDto requestRaProfileEarlyRenewal(
+            @LogResource(uuid = true, affiliated = true) String authorityUuid,
+            @LogResource(uuid = true) String raProfileUuid, EarlyRenewalRequestDto request) throws NotFoundException {
+        auditOperationDataOverride.set(EarlyRenewalAuditData.of(request));
+        long certificatesAffected = earlyRenewalService
+                .requestForRaProfile(SecuredParentUUID.fromString(authorityUuid), SecuredUUID.fromString(raProfileUuid),
+                        request);
+        RaProfileEarlyRenewalResponseDto response = new RaProfileEarlyRenewalResponseDto();
+        response.setCertificatesAffected(certificatesAffected);
+        return response;
     }
 
     @Override

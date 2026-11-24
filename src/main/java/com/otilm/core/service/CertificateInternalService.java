@@ -393,6 +393,11 @@ public interface CertificateInternalService extends ResourceExtensionService {
     int handleExpiringCertificates();
 
     /**
+     * Raise the renewal due event for certificates whose renewal window has started and that are not renewed yet
+     */
+    int handleRenewalDueCertificates();
+
+    /**
      * Raise the not compliant event again for certificates that are still not compliant and whose notification profile
      * is set to remind
      */

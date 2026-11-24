@@ -19,6 +19,8 @@ import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import java.util.List;
+import java.util.UUID;
+import java.util.function.Consumer;
 
 public interface LocationExternalService {
 
@@ -182,6 +184,18 @@ public interface LocationExternalService {
      */
     LocationDto renewCertificateInLocation(SecuredParentUUID entityUuid, SecuredUUID locationUuid,
             String certificateUuid) throws NotFoundException, LocationException, ConnectorException;
+
+    /**
+     * Renews the certificate in the location as {@link #renewCertificateInLocation} does, for a caller that tracks the
+     * new certificate.
+     *
+     * @param beforeDispatch receives the new certificate's UUID once it is stored and before its renewal is queued; if
+     * it throws, the new certificate is marked failed and nothing is queued.
+     * @return UUID of the new certificate.
+     */
+    UUID renewCertificateInLocationForSuccessor(SecuredParentUUID entityUuid, SecuredUUID locationUuid,
+            UUID certificateUuid, Consumer<UUID> beforeDispatch)
+            throws NotFoundException, LocationException, ConnectorException;
 
     /**
      * Get all possible field to be able to search by customer

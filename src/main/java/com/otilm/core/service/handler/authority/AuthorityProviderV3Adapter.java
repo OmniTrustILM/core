@@ -25,6 +25,9 @@ import com.otilm.api.model.connector.v3.certificate.CertificateOperationStatusRe
 import com.otilm.api.model.connector.v3.certificate.CertificateOperationStatusResponseDto;
 import com.otilm.api.model.connector.v3.certificate.CertificateRegistrationRequestDtoV3;
 import com.otilm.api.model.connector.v3.certificate.CertificateRenewRequestDtoV3;
+import com.otilm.api.model.connector.v3.certificate.CertificateRenewalInfoRequestDtoV3;
+import com.otilm.api.model.connector.v3.certificate.CertificateRenewalInfoRequestItemDtoV3;
+import com.otilm.api.model.connector.v3.certificate.CertificateRenewalInfoResponseDto;
 import com.otilm.api.model.connector.v3.certificate.CertificateRequestContent;
 import com.otilm.api.model.connector.v3.certificate.CertificateRevocationRequestDtoV3;
 import com.otilm.api.model.connector.v3.certificate.CertificateSignRequestDtoV3;
@@ -397,6 +400,72 @@ public class AuthorityProviderV3Adapter extends AbstractAuthorityProviderAdapter
         return executeWithAcceptanceGuard(CertificateOperation.ISSUE,
                 () -> connectorApiFactory.getCertificateApiClientV3(connectorDto).issue(connectorDto, wire),
                 this::mapIssueRenewRegisterResponse);
+    }
+
+    /**
+     * Asks the connector for the renewal information of the certificates. Nothing is thrown: a connector that does not
+     * advertise the feature, or answers 404 or 501 for it, yields {@link RenewalInfoCallResult.Suspend}; any other
+     * failure, including a response that cannot be read, yields {@link RenewalInfoCallResult.BackOff}.
+     */
+    public RenewalInfoCallResult renewalInfo(AuthorityInstanceReference authority, RaProfile raProfile,
+            List<RenewalInfoItem> items) {
+        String authorityName = authority.getName();
+        try {
+            if (!capabilityService.supports(authority, FeatureFlag.CERTIFICATE_RENEWAL_INFO)) {
+                return new RenewalInfoCallResult.Suspend(authorityName,
+                        "The connector does not advertise renewal information");
+            }
+            ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
+            CertificateRenewalInfoRequestDtoV3 wire = new CertificateRenewalInfoRequestDtoV3();
+            wire.setCertificates(items.stream().map(AuthorityProviderV3Adapter::renewalInfoItem).toList());
+            wire.setAuthorityAttributes(authorityAttributesFor(authority));
+            wire.setRaProfileAttributes(resolvedRaProfileAttributes(raProfile, authority));
+            CertificateRenewalInfoResponseDto response = connectorApiFactory
+                    .getCertificateApiClientV3(connectorDto)
+                    .renewalInfo(connectorDto, wire);
+            return new RenewalInfoCallResult.Answered(response);
+        } catch (ConnectorEntityNotFoundException e) {
+            return new RenewalInfoCallResult.Suspend(authorityName,
+                    "The connector does not serve renewal information (404)");
+        } catch (ConnectorProblemException e) {
+            return renewalInfoProblem(authorityName, e);
+        } catch (ConnectorServerException e) {
+            if (e.getHttpStatus() == HttpStatus.NOT_IMPLEMENTED) {
+                return new RenewalInfoCallResult.Suspend(authorityName,
+                        "The connector does not serve renewal information (501)");
+            }
+            return new RenewalInfoCallResult.BackOff("Connector error with status " + e.getHttpStatus());
+        } catch (ConnectorException | RuntimeException e) {
+            // A response that cannot be deserialised fails here too.
+            String failure = e.getClass().getSimpleName();
+            logger
+                    .debug("Renewal information request to the connector of authority {} failed: {}", authorityName,
+                            failure);
+            return new RenewalInfoCallResult.BackOff("Renewal information request failed: " + failure);
+        }
+    }
+
+    private static RenewalInfoCallResult renewalInfoProblem(String authorityName, ConnectorProblemException e) {
+        ErrorCode code = e.getProblemDetail().getErrorCode();
+        int status = e.getProblemDetail().getStatus();
+        boolean notServed = code == ErrorCode.OPERATION_NOT_SUPPORTED
+                || status == HttpStatus.NOT_FOUND.value() && (code == null || code == ErrorCode.RESOURCE_NOT_FOUND);
+        if (notServed) {
+            return new RenewalInfoCallResult.Suspend(authorityName,
+                    "The connector does not serve renewal information (" + status + ")");
+        }
+        if (status == HttpStatus.UNPROCESSABLE_CONTENT.value()) {
+            logger.error("Connector of authority {} refused the renewal information request as invalid", authorityName);
+        }
+        return new RenewalInfoCallResult.BackOff("Connector refused the request with status " + status);
+    }
+
+    private static CertificateRenewalInfoRequestItemDtoV3 renewalInfoItem(RenewalInfoItem item) {
+        CertificateRenewalInfoRequestItemDtoV3 wireItem = new CertificateRenewalInfoRequestItemDtoV3();
+        wireItem.setReference(item.reference());
+        wireItem.setCertificate(item.certificate());
+        wireItem.setMeta(item.meta());
+        return wireItem;
     }
 
     // ---- AsyncOperationCapability ----

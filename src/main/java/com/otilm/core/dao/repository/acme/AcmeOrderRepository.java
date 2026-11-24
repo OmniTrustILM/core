@@ -10,6 +10,7 @@ import java.util.UUID;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 @Repository
@@ -20,6 +21,22 @@ public interface AcmeOrderRepository extends SecurityFilterRepository<AcmeOrder,
     Optional<AcmeOrder> findByOrderId(String orderId);
 
     Optional<AcmeOrder> findByCertificateId(String certificateId);
+
+    boolean existsByCertificateReferenceUuidAndAcmeAccountUuid(UUID certificateUuid, UUID acmeAccountUuid);
+
+    /**
+     * Whether a live order of any account replaces the certificate: one that is neither invalid nor a pending or ready
+     * order past its expiry, which is only marked invalid when its account is next used.
+     */
+    @Query("""
+            SELECT COUNT(o) > 0 FROM AcmeOrder o
+            WHERE o.replacesCertificateUuid = :certificateUuid
+              AND o.status <> com.otilm.api.model.core.acme.OrderStatus.INVALID
+              AND (o.status NOT IN (com.otilm.api.model.core.acme.OrderStatus.PENDING,
+                                    com.otilm.api.model.core.acme.OrderStatus.READY)
+                   OR o.expires IS NULL OR o.expires > :now)
+            """)
+    boolean existsLiveOrderReplacing(@Param("certificateUuid") UUID certificateUuid, @Param("now") Date now);
 
     /**
      * Locks the order row ({@code SELECT ... FOR UPDATE}) so that every status write to the order, its authorizations

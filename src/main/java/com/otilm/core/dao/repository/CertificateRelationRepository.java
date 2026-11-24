@@ -1,6 +1,7 @@
 package com.otilm.core.dao.repository;
 
 import com.otilm.api.model.core.certificate.CertificateRelationType;
+import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.core.dao.entity.CertificateRelation;
 import com.otilm.core.dao.entity.CertificateRelationId;
 
@@ -13,4 +14,7 @@ public interface CertificateRelationRepository
 
     Optional<CertificateRelation> findFirstByIdSuccessorCertificateUuidAndRelationTypeOrderByCreatedAtAsc(
             UUID successorCertificateUuid, CertificateRelationType relationType);
+
+    boolean existsByIdPredecessorCertificateUuidAndSuccessorCertificateState(UUID predecessorCertificateUuid,
+            CertificateState successorState);
 }

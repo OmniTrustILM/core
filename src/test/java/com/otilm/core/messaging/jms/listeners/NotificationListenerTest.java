@@ -7,6 +7,7 @@ import com.otilm.api.interfaces.client.v1.NotificationInstanceSyncApiClient;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.events.data.CbomSyncedEventData;
 import com.otilm.api.model.common.events.data.CertificateRegisteredEventData;
+import com.otilm.api.model.common.events.data.CertificateRenewalDueEventData;
 import com.otilm.api.model.common.events.data.CommentEventData;
 import com.otilm.api.model.common.events.data.CryptoAssetPqcNotReadyEventData;
 import com.otilm.api.model.core.auth.Resource;
@@ -37,6 +38,7 @@ import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.service.writer.PendingNotificationWriter;
 import java.time.Duration;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -52,6 +54,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -70,6 +73,10 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class NotificationListenerTest {
+
+    private static final ZonedDateTime RENEWAL_WINDOW_START = ZonedDateTime
+            .of(2026, 12, 1, 10, 0, 0, 0, ZoneOffset.UTC);
+    private static final ZonedDateTime RENEWAL_WINDOW_END = ZonedDateTime.of(2026, 12, 8, 10, 0, 0, 0, ZoneOffset.UTC);
 
     private final NotificationInternalService notificationService = mock(NotificationInternalService.class);
 
@@ -417,6 +424,35 @@ class NotificationListenerTest {
                 renderedCommentNotification(ResourceEvent.COMMENT_RESOLVED, reopened)[0]);
     }
 
+    @Test
+    void rendersTheRenewalWindowAndTheExplanation_whenTheRenewalDueEventHasAnExplanationUrl() {
+        // given
+        var explanationUrl = "https://ca.example.com/why";
+        CertificateRenewalDueEventData data = renewalDueEventData(explanationUrl);
+
+        // when
+        String text = renderedRenewalDueNotification(data);
+
+        // then
+        assertThat(text)
+                .isEqualTo("Certificate identified as 'holder' should be renewed between %s and %s. See %s."
+                        .formatted(RENEWAL_WINDOW_START, RENEWAL_WINDOW_END, explanationUrl));
+    }
+
+    @Test
+    void rendersTheRenewalWindowOnly_whenTheRenewalDueEventHasNoExplanationUrl() {
+        // given
+        CertificateRenewalDueEventData data = renewalDueEventData(null);
+
+        // when
+        String text = renderedRenewalDueNotification(data);
+
+        // then
+        assertThat(text)
+                .isEqualTo("Certificate identified as 'holder' should be renewed between %s and %s"
+                        .formatted(RENEWAL_WINDOW_START, RENEWAL_WINDOW_END));
+    }
+
     // ── NotCompliantReminders ────────────────────────────────────────────────
 
     @Nested
@@ -675,5 +711,32 @@ class NotificationListenerTest {
             when(apiClient.listMappingAttributes(any(), any())).thenReturn(List.of());
             when(connectorApiFactory.getNotificationInstanceApiClient(any())).thenReturn(apiClient);
         }
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static CertificateRenewalDueEventData renewalDueEventData(String explanationUrl) {
+        CertificateRenewalDueEventData data = new CertificateRenewalDueEventData();
+        data.setCertificateUuid(UUID.randomUUID());
+        data.setDisplayName("holder");
+        data.setWindowStart(RENEWAL_WINDOW_START);
+        data.setWindowEnd(RENEWAL_WINDOW_END);
+        data.setExplanationUrl(explanationUrl);
+        return data;
+    }
+
+    private String renderedRenewalDueNotification(CertificateRenewalDueEventData data) {
+        UUID recipientUuid = UUID.randomUUID();
+        NotificationMessage message = new NotificationMessage(ResourceEvent.CERTIFICATE_RENEWAL_DUE,
+                Resource.CERTIFICATE, data.getCertificateUuid(), null,
+                List.of(new NotificationRecipient(RecipientType.USER, recipientUuid)), data);
+
+        listener().processMessage(message);
+
+        ArgumentCaptor<String> text = ArgumentCaptor.forClass(String.class);
+        verify(notificationService)
+                .createNotificationForUser(text.capture(), isNull(), eq(recipientUuid.toString()),
+                        eq(Resource.CERTIFICATE), eq(data.getCertificateUuid().toString()), any());
+        return text.getValue();
     }
 }

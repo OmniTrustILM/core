@@ -774,7 +774,8 @@ class LocationServiceITest extends BaseSpringBootTest {
         var authorityRefusal = new CertificateOperationException("refused by the authority");
         stubConnectorAccepting();
         prepareCertificateForRenewalInLocation();
-        when(clientOperationService.renewCertificate(any(), any(), any(), any())).thenThrow(authorityRefusal);
+        when(clientOperationService.renewCertificate(any(), any(), any(), any(), any(), any()))
+                .thenThrow(authorityRefusal);
 
         // when
         List<String> logged = logsDuring(() -> locationService
@@ -1161,7 +1162,7 @@ class LocationServiceITest extends BaseSpringBootTest {
 
         ClientCertificateDataResponseDto responseDto = new ClientCertificateDataResponseDto();
         responseDto.setUuid(renewedCertificate.getUuid().toString());
-        when(clientOperationService.renewCertificate(any(), any(), any(), any())).thenReturn(responseDto);
+        when(clientOperationService.renewCertificate(any(), any(), any(), any(), any(), any())).thenReturn(responseDto);
 
         mockServer
                 .stubFor(WireMock
@@ -1195,6 +1196,44 @@ class LocationServiceITest extends BaseSpringBootTest {
                         .filter(cl -> cl.getCertificateUuid().equals(renewedCertificate.getUuid().toString()))
                         .findFirst()
                         .orElse(null));
+    }
+
+    @Test
+    void returnsTheNewCertificate_whenRenewingInTheLocationForASuccessor() throws Exception {
+        // given
+        CertificateLocation certificateLocation = location.getCertificates().stream().findFirst().get();
+        DataAttributeV2 pushAttribute = new DataAttributeV2();
+        pushAttribute.setUuid(UUID.randomUUID().toString());
+        pushAttribute.setContent(List.of(new StringAttributeContentV2("data", "ref")));
+        DataAttributeV3 csrAttribute = new DataAttributeV3();
+        csrAttribute.setUuid(UUID.randomUUID().toString());
+        csrAttribute.setContent(List.of(new StringAttributeContentV3("data", "ref")));
+        certificateLocation.setPushAttributes(List.of(pushAttribute));
+        certificateLocation.setCsrAttributes(List.of(csrAttribute));
+        locationRepository.save(location);
+        certificate.setRaProfile(getRaProfile());
+        certificateRepository.save(certificate);
+        X509CertificateEntity renewedCertificate = aCertificate().build();
+        certificateRepository.save(renewedCertificate);
+        ClientCertificateDataResponseDto responseDto = new ClientCertificateDataResponseDto();
+        responseDto.setUuid(renewedCertificate.getUuid().toString());
+        when(clientOperationService.renewCertificate(any(), any(), any(), any(), any(), any())).thenReturn(responseDto);
+        mockServer.stubFor(WireMock.post(WireMock.urlPathMatching(CSR_PATH)).willReturn(WireMock.okJson("{}")));
+        mockServer
+                .stubFor(
+                        WireMock.get(WireMock.urlPathMatching(PUSH_ATTRIBUTES_PATH)).willReturn(WireMock.okJson("[]")));
+        mockServer
+                .stubFor(WireMock.get(WireMock.urlPathMatching(CSR_ATTRIBUTES_PATH)).willReturn(WireMock.okJson("[]")));
+
+        // when
+        UUID successorUuid = locationService
+                .renewCertificateInLocationForSuccessor(entityInstanceReference.getSecuredParentUuid(),
+                        location.getSecuredUuid(), certificate.getUuid(), null);
+
+        // then
+        assertThat(successorUuid).isEqualTo(renewedCertificate.getUuid());
+        assertThat(certificateLocationRepository
+                .findById(new CertificateLocationId(location.getUuid(), renewedCertificate.getUuid()))).isPresent();
     }
 
     @Test
@@ -1244,7 +1283,7 @@ class LocationServiceITest extends BaseSpringBootTest {
         mockServer
                 .verify(0, WireMock
                         .postRequestedFor(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/csr")));
-        verify(clientOperationService, never()).renewCertificate(any(), any(), any(), any());
+        verify(clientOperationService, never()).renewCertificate(any(), any(), any(), any(), any(), any());
         Assertions
                 .assertTrue(
                         eventHistoryRepository
@@ -1280,7 +1319,7 @@ class LocationServiceITest extends BaseSpringBootTest {
         Certificate renewedCertificate = certificateRepository.save(aCertificate().build());
         ClientCertificateDataResponseDto responseDto = new ClientCertificateDataResponseDto();
         responseDto.setUuid(renewedCertificate.getUuid().toString());
-        when(clientOperationService.renewCertificate(any(), any(), any(), any())).thenReturn(responseDto);
+        when(clientOperationService.renewCertificate(any(), any(), any(), any(), any(), any())).thenReturn(responseDto);
         mockServer
                 .stubFor(WireMock
                         .post(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/csr"))
@@ -1298,7 +1337,7 @@ class LocationServiceITest extends BaseSpringBootTest {
                 .renewCertificateInLocation(entityInstanceReference.getSecuredParentUuid(), location.getSecuredUuid(),
                         certificate.getUuid().toString());
 
-        verify(clientOperationService).renewCertificate(any(), any(), any(), any());
+        verify(clientOperationService).renewCertificate(any(), any(), any(), any(), any(), any());
     }
 
     @Test

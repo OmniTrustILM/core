@@ -281,6 +281,10 @@ public abstract class Certificate extends UniquelyIdentifiedAndAudited
     @ToString.Exclude
     private CertificateProtocolAssociation protocolAssociation;
 
+    @OneToOne(fetch = FetchType.LAZY, mappedBy = "certificate")
+    @ToString.Exclude
+    private CertificateRenewalInfo renewalInfo;
+
     @OneToMany(mappedBy = "predecessorCertificate", fetch = FetchType.LAZY)
     @JsonBackReference
     @ToString.Exclude

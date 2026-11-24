@@ -1,3 +1,4 @@
+com/otilm/core/integration/api/web/RaProfileRenewalSettingsITest.java
 com/otilm/core/integration/attribute/engine/AttributeReferenceExpanderITest.java
 com/otilm/core/integration/attribute/engine/NestedReferenceResolutionITest.java
 com/otilm/core/integration/cryptography/PQCITest.java
@@ -81,8 +82,16 @@ com/otilm/core/integration/service/est/EstRegistrationEnrollmentITest.java
 com/otilm/core/integration/service/est/EstServerKeyGenerationITest.java
 com/otilm/core/integration/service/est/EstServerKeyGenerationKeyRecoveryITest.java
 com/otilm/core/integration/service/est/RaBasicAuthenticatorITest.java
+com/otilm/core/integration/service/renewal/CertificateRenewalDueITest.java
+com/otilm/core/integration/service/renewal/EarlyRenewalITest.java
+com/otilm/core/integration/service/renewal/FilterFieldRenewalITest.java
+com/otilm/core/integration/service/renewal/IlmKeyRenewalITest.java
+com/otilm/core/integration/service/renewal/LocationRenewalITest.java
+com/otilm/core/integration/service/renewal/RenewalInfoRefreshITest.java
+com/otilm/core/integration/service/renewal/RenewalWindowWriterITest.java
 com/otilm/core/integration/service/v2/UploadedCsrValidationITest.java
 com/otilm/core/integration/service/v2/impl/ClientOperationRequestAttributePropagationITest.java
+com/otilm/core/integration/service/writer/RenewalRefreshWriterITest.java
 com/otilm/core/integration/signing/tsa/TsaServiceAuthzITest.java
 com/otilm/core/integration/signing/tsa/TsaServiceImplITest.java
 com/otilm/core/integration/util/AcmeUtilITest.java

@@ -46,7 +46,8 @@ class PropertyColumnDisplayabilityITest extends BaseSpringBootTest {
                                         FilterField.PUBLIC_KEY_ALGORITHM, FilterField.ALT_PUBLIC_KEY_ALGORITHM,
                                         FilterField.KEY_SIZE, FilterField.ALT_KEY_SIZE, FilterField.SUBJECTDN,
                                         FilterField.ISSUERDN, FilterField.ISSUER_SERIAL_NUMBER, FilterField.PRIVATE_KEY,
-                                        FilterField.TRUSTED_CA, FilterField.HYBRID_CERTIFICATE, FilterField.ARCHIVED));
+                                        FilterField.TRUSTED_CA, FilterField.HYBRID_CERTIFICATE, FilterField.ARCHIVED,
+                                        FilterField.RENEWAL_WINDOW_START));
 
         offeredColumns
                 .put(Resource.CRYPTOGRAPHIC_KEY, EnumSet

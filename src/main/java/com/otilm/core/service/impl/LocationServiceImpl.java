@@ -972,6 +972,43 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
         Location location = locationRepository
                 .findByUuidAndEnabledIsTrue(locationUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(Location.class, locationUuid));
+        renewInLocation(location, entityUuid, locationUuid, certificateUuid, null);
+
+        LocationDto locationDto = mapLocationToDto(location);
+        locationDto
+                .setCustomAttributes(
+                        attributeEngine.getObjectCustomAttributesContent(Resource.LOCATION, location.getUuid()));
+        locationDto
+                .getCertificates()
+                .forEach(e -> e
+                        .setMetadata(attributeEngine
+                                .getMappedMetadataContent(ObjectAttributeContentInfo
+                                        .builder(Resource.CERTIFICATE, UUID.fromString(e.getCertificateUuid()))
+                                        .source(Resource.LOCATION, location.getUuid())
+                                        .build())));
+
+        return locationDto;
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.LOCATION, action = ResourceAction.UPDATE,
+            parentResource = Resource.ENTITY, parentAction = ResourceAction.DETAIL)
+    public UUID renewCertificateInLocationForSuccessor(SecuredParentUUID entityUuid, SecuredUUID locationUuid,
+            UUID certificateUuid, Consumer<UUID> beforeDispatch)
+            throws ConnectorException, LocationException, NotFoundException {
+        Location location = locationRepository
+                .findByUuidAndEnabledIsTrue(locationUuid.getValue())
+                .orElseThrow(() -> new NotFoundException(Location.class, locationUuid));
+        return renewInLocation(location, entityUuid, locationUuid, certificateUuid.toString(), beforeDispatch);
+    }
+
+    /**
+     * Renews the certificate with a key and request the location generates; answers the new certificate's UUID.
+     * {@code beforeDispatch}, when set, receives that UUID before the renewal is queued.
+     */
+    private UUID renewInLocation(Location location, SecuredParentUUID entityUuid, SecuredUUID locationUuid,
+            String certificateUuid, Consumer<UUID> beforeDispatch)
+            throws ConnectorException, LocationException, NotFoundException {
         requireUnderEntity(location, entityUuid, locationUuid);
 
         CertificateLocation certificateLocation = getCertificateLocation(locationUuid.toString(), certificateUuid);
@@ -1042,13 +1079,12 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
                         certificateLocation.getLocation().getName());
 
         // renew existing Certificate
-        ClientCertificateDataResponseDto clientCertificateDataResponseDto = null;
+        UUID renewedUuid = null;
         Certificate certificate = null;
 
         try {
-            clientCertificateDataResponseDto = renewCertificate(certificateLocation, generateCsrResponseDto.getCsr());
-            certificate = certificateService
-                    .getCertificateEntity(SecuredUUID.fromString(clientCertificateDataResponseDto.getUuid()));
+            renewedUuid = renewCertificate(certificateLocation, generateCsrResponseDto.getCsr(), beforeDispatch);
+            certificate = certificateService.getCertificateEntity(SecuredUUID.fromUUID(renewedUuid));
         } catch (Exception e) {
             logger.error("Failed to renew Certificate", RedactedFailure.forLog(e));
             throw new LocationException(
@@ -1070,22 +1106,8 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
 
         logger
                 .info("Certificate {} successfully requested for renew and prepared to be pushed to Location {}",
-                        clientCertificateDataResponseDto.getUuid(), certificateLocation.getLocation().getName());
-
-        LocationDto locationDto = mapLocationToDto(location);
-        locationDto
-                .setCustomAttributes(
-                        attributeEngine.getObjectCustomAttributesContent(Resource.LOCATION, location.getUuid()));
-        locationDto
-                .getCertificates()
-                .forEach(e -> e
-                        .setMetadata(attributeEngine
-                                .getMappedMetadataContent(ObjectAttributeContentInfo
-                                        .builder(Resource.CERTIFICATE, UUID.fromString(e.getCertificateUuid()))
-                                        .source(Resource.LOCATION, location.getUuid())
-                                        .build())));
-
-        return locationDto;
+                        renewedUuid, certificateLocation.getLocation().getName());
+        return renewedUuid;
     }
 
     private LocationDto mapLocationToDto(Location location) {
@@ -1281,7 +1303,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
         return clientCertificateDataResponseDto;
     }
 
-    private ClientCertificateDataResponseDto renewCertificate(CertificateLocation certificateLocation, String csr)
+    private UUID renewCertificate(CertificateLocation certificateLocation, String csr, Consumer<UUID> beforeDispatch)
             throws LocationException {
         ClientCertificateRenewRequestDto clientCertificateRenewRequestDto = ClientCertificateRenewRequestDto
                 .builder()
@@ -1300,7 +1322,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
                                             .getAuthorityInstanceReferenceUuid()),
                             certificateLocation.getCertificate().getRaProfile().getSecuredUuid(),
                             certificateLocation.getCertificate().getSecuredUuid().toString(),
-                            clientCertificateRenewRequestDto);
+                            clientCertificateRenewRequestDto, null, beforeDispatch);
         } catch (NotFoundException | IOException | java.security.cert.CertificateException
                 | CertificateOperationException | CertificateRequestException | NoSuchAlgorithmException
                 | InvalidKeyException | ConnectorException | AttributeException e) {
@@ -1311,7 +1333,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
             throw new LocationException("Failed to renew Certificate for Location "
                     + certificateLocation.getLocation().getName() + ". Reason: " + e.getMessage());
         }
-        return clientCertificateDataResponseDto;
+        return UUID.fromString(clientCertificateDataResponseDto.getUuid());
     }
 
     /**

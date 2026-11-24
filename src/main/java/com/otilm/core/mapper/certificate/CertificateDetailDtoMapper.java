@@ -2,13 +2,17 @@ package com.otilm.core.mapper.certificate;
 
 import com.otilm.api.model.client.raprofile.SimplifiedRaProfileDto;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.core.certificate.AutoRenewalMode;
+import com.otilm.api.model.core.certificate.CertificateAutoRenewalDto;
 import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateDto;
 import com.otilm.api.model.core.certificate.CertificateProtocolDto;
 import com.otilm.api.model.core.certificate.CertificateQcStatementsDto;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
+import com.otilm.api.model.core.certificate.CertificateRenewalInfoDto;
 import com.otilm.api.model.core.certificate.CertificateRequestDetail;
 import com.otilm.api.model.core.certificate.CertificateSimpleDto;
+import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.QcType;
 import com.otilm.api.model.core.certificate.X509CertificateDetail;
 import com.otilm.api.model.core.certificate.X509CertificateRequestDetail;
@@ -16,6 +20,7 @@ import com.otilm.api.model.core.cryptography.key.KeyDto;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.CertificateRenewalInfo;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.Group;
@@ -24,8 +29,12 @@ import com.otilm.core.dao.entity.X509CertificateRequestEntity;
 import com.otilm.core.mapper.crypto.CryptographicKeyDtoMapper;
 import com.otilm.core.model.crypto.ImmutableCryptographicKeyFullModel;
 import com.otilm.core.model.crypto.ImmutableCryptographicKeyListModel;
+import com.otilm.core.service.renewal.auto.AutoRenewalModeResolver;
+import com.otilm.core.service.renewal.auto.AutoRenewalModeResolver.ModeDecision;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.MetaDefinitions;
+import java.time.Instant;
+import java.util.Date;
 
 public class CertificateDetailDtoMapper {
 
@@ -142,7 +151,52 @@ public class CertificateDetailDtoMapper {
             dto.setProtocolInfo(protocolDto);
         }
 
+        if (!chainContext) {
+            dto.setRenewalInfo(toRenewalInfoDto(certificate));
+        }
+
         return dto;
+    }
+
+    private static CertificateRenewalInfoDto toRenewalInfoDto(Certificate certificate) {
+        CertificateRenewalInfo renewalInfo = certificate.getRenewalInfo();
+        if (renewalInfo == null || renewalInfo.getWindowStart() == null) {
+            return null;
+        }
+        CertificateRenewalInfoDto dto = new CertificateRenewalInfoDto();
+        dto.setWindowStart(Date.from(renewalInfo.getWindowStart()));
+        dto.setWindowEnd(Date.from(renewalInfo.getWindowEnd()));
+        dto.setExplanationUrl(renewalInfo.getExplanationUrl());
+        dto.setSource(renewalInfo.getSource());
+        dto.setUpdatedAt(Date.from(renewalInfo.getUpdatedAt()));
+        boolean renewed = hasIssuedSuccessor(certificate);
+        dto.setDue(!renewalInfo.getWindowStart().isAfter(Instant.now()) && !renewed);
+        if (!renewed && certificate.getRaProfile() != null && certificate.getRaProfile().isAutoRenewalEnabled()) {
+            dto.setAutoRenewal(toAutoRenewalDto(certificate, renewalInfo));
+        }
+        return dto;
+    }
+
+    /** The current mode; the reason a firing stored, or the current one before any firing stored it. */
+    private static CertificateAutoRenewalDto toAutoRenewalDto(Certificate certificate,
+            CertificateRenewalInfo renewalInfo) {
+        ModeDecision decision = AutoRenewalModeResolver.resolve(certificate);
+        CertificateAutoRenewalDto dto = new CertificateAutoRenewalDto();
+        dto.setMode(decision.mode());
+        if (decision.mode() == AutoRenewalMode.NONE) {
+            dto
+                    .setBlockedReason(renewalInfo.getRenewBlockedReason() != null
+                            ? renewalInfo.getRenewBlockedReason()
+                            : decision.blockedReason());
+        }
+        return dto;
+    }
+
+    private static boolean hasIssuedSuccessor(Certificate certificate) {
+        return certificate
+                .getSuccessorRelations()
+                .stream()
+                .anyMatch(relation -> relation.getSuccessorCertificate().getState() == CertificateState.ISSUED);
     }
 
     private static CertificateRequestDetail mapCertificateRequest(Certificate certificate) {
@@ -272,6 +326,9 @@ public class CertificateDetailDtoMapper {
         dto.setValidationStatus(certificate.getValidationStatus());
         dto.setFingerprint(certificate.getFingerprint());
         dto.setArchived(certificate.isArchived());
+        if (certificate.getRenewalInfo() != null && certificate.getRenewalInfo().getWindowStart() != null) {
+            dto.setRenewalWindowStart(Date.from(certificate.getRenewalInfo().getWindowStart()));
+        }
         if (X509CertificateEntity.fromOrNull(certificate) instanceof X509CertificateEntity x509Certificate) {
             dto.setIssuerDn(x509Certificate.getIssuerDn());
             dto.setSubjectDn(x509Certificate.getSubjectDn());
