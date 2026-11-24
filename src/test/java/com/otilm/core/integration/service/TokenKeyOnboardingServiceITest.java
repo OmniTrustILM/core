@@ -1518,7 +1518,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         }
 
         @Test
-        void skipsTheKeyPairAndOnboardsTheNext_whenAKeyComesToHoldItsHandleWhileItIsWritten() throws Exception {
+        void skipsOnlyThatKeyPair_whenAKeyComesToHoldItsHandleWhileItIsWritten() throws Exception {
             // given
             var keyId = "a1b2";
             var publicKey = rsaPublicKey();

@@ -1,11 +1,10 @@
 package com.otilm.core.model.crypto;
 
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
-import com.otilm.api.model.common.enums.cryptography.KeyType;
-import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
+import static com.otilm.core.util.builders.ProviderKeyItemBuilder.aProviderKeyItem;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class HandleHolderSummaryTest {
@@ -14,7 +13,7 @@ class HandleHolderSummaryTest {
     void agrees_whenTheTokenListsThePrivateKeyWithAnUnknownAlgorithm() {
         // given
         HandleHolderSummary holder = holdKeyOf(KeyAlgorithm.ECDSA);
-        ProviderKeyItem unknownAlgorithm = buildListedPrivateKey(KeyAlgorithm.UNKNOWN);
+        ProviderKeyItem unknownAlgorithm = aProviderKeyItem().withAlgorithm(KeyAlgorithm.UNKNOWN).build();
 
         // when
         boolean agrees = holder.agreesWith(unknownAlgorithm, null);
@@ -27,7 +26,7 @@ class HandleHolderSummaryTest {
     void agrees_whenTheHoldingKeyHasAnUnknownAlgorithm() {
         // given
         HandleHolderSummary unknownAlgorithm = holdKeyOf(KeyAlgorithm.UNKNOWN);
-        ProviderKeyItem listed = buildListedPrivateKey(KeyAlgorithm.ECDSA);
+        ProviderKeyItem listed = aProviderKeyItem().withAlgorithm(KeyAlgorithm.ECDSA).build();
 
         // when
         boolean agrees = unknownAlgorithm.agreesWith(listed, null);
@@ -40,7 +39,7 @@ class HandleHolderSummaryTest {
     void disagrees_whenBothAlgorithmsAreKnownAndDiffer() {
         // given
         HandleHolderSummary holder = holdKeyOf(KeyAlgorithm.ECDSA);
-        ProviderKeyItem anotherAlgorithm = buildListedPrivateKey(KeyAlgorithm.RSA);
+        ProviderKeyItem anotherAlgorithm = aProviderKeyItem().withAlgorithm(KeyAlgorithm.RSA).build();
 
         // when
         boolean agrees = holder.agreesWith(anotherAlgorithm, null);
@@ -54,9 +53,5 @@ class HandleHolderSummaryTest {
     private static HandleHolderSummary holdKeyOf(KeyAlgorithm algorithm) {
         return new HandleHolderSummary(UUID.randomUUID(), "holder", UUID.randomUUID(), algorithm, null, null, null,
                 true);
-    }
-
-    private static ProviderKeyItem buildListedPrivateKey(KeyAlgorithm algorithm) {
-        return new ProviderKeyItem("listed", KeyType.PRIVATE_KEY, algorithm, null, null, null, List.of());
     }
 }
