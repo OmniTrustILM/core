@@ -34,6 +34,7 @@ import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.api.model.core.compliance.v2.ComplianceCheckResultDto;
+import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.logging.enums.Module;
 import com.otilm.api.model.core.logging.enums.Operation;
@@ -3585,12 +3586,17 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                         certificate.getCertificateRequest().getCertificateRequestFormat());
     }
 
-    // a request that arrives through an enrollment protocol needs a type that can be enrolled through that protocol
     private void requireEnrollmentSupport(CertificateType certificateType, CertificateProtocolInfo protocolInfo) {
-        if (protocolInfo == null) {
-            return;
+        if (protocolInfo != null) {
+            requireEnrollmentSupport(certificateType, protocolInfo.getProtocol());
         }
-        handlerOf(certificateType).requireSupport(switch (protocolInfo.getProtocol()) {
+    }
+
+    // NOT_SUPPORTED so that the refusal does not mark the transaction of the protocol that asks for rollback
+    @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public void requireEnrollmentSupport(CertificateType certificateType, CertificateProtocol protocol) {
+        handlerOf(certificateType).requireSupport(switch (protocol) {
             case ACME -> ENROLL_ACME;
             case SCEP -> ENROLL_SCEP;
             case CMP -> ENROLL_CMP;

@@ -15,7 +15,9 @@ import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.protocol.ProtocolChallengeSource;
@@ -629,6 +631,7 @@ public class ScepServiceImpl implements ScepExternalService {
             // Reject before issuing when the response could never be delivered, so the platform
             // does not commit a certificate the client can never retrieve (RFC 8894 §3.2.2).
             verifyResponseEnvelopable(scepRequest);
+            requireEnrollable(matchedRegistration);
             if (matchedRegistration != null) {
                 return completeRegistration(scepRequest, matchedRegistration);
             }
@@ -708,6 +711,17 @@ public class ScepServiceImpl implements ScepExternalService {
             throw new ScepException("Error generating SCEP response", e, FailInfo.BAD_REQUEST);
         }
         return getResponseEntity(responseBody, "application/x-pki-message", responseBody.length);
+    }
+
+    // Checked before any submission: a refusal raised inside one that joins this transaction would roll it back, and
+    // the client would get no SCEP answer.
+    private void requireEnrollable(Certificate matchedRegistration) throws ScepException {
+        CertificateType type = matchedRegistration != null ? matchedRegistration.getCertificateType() : null;
+        try {
+            clientOperationService.requireEnrollmentSupport(type, CertificateProtocol.SCEP);
+        } catch (UnsupportedCertificateTypeException e) {
+            throw new ScepException(e.getMessage(), e, FailInfo.BAD_REQUEST); // platform-authored, safe
+        }
     }
 
     private ScepResponse issueCertificate(ScepRequest scepRequest, IntuneScepServiceClient intuneClient)

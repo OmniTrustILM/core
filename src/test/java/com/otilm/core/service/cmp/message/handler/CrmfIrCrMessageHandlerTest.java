@@ -45,9 +45,12 @@ import org.mockito.ArgumentCaptor;
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -105,6 +108,31 @@ class CrmfIrCrMessageHandlerTest {
                 .isInstanceOfSatisfying(CmpProcessingException.class,
                         e -> assertThat(e.getFailureInfo()).isEqualTo(PKIFailureInfo.badRequest))
                 .hasMessageContaining(refusal.getMessage());
+    }
+
+    @Test
+    void rejectsTheCompletionWithBadRequest_whenTheTypeOfTheRegistrationCannotBeEnrolledThroughCmp() throws Exception {
+        // given
+        var refusal = UnsupportedCertificateTypeException
+                .unsupportedOperation(CertificateType.X509.getCode(), CertificateOperation.ENROLL_CMP);
+        ClientOperationExternalService clientOperationExternalService = mock(ClientOperationExternalService.class);
+        handler.setClientOperationExternalService(clientOperationExternalService);
+        handler.setRegistrationIdentityVerifier(mock(CmpRegistrationIdentityVerifier.class));
+        ConfigurationContext configuration = configuration(UUID.randomUUID(), UUID.randomUUID());
+        when(configuration.isRegistrationMode()).thenReturn(true);
+        when(configuration.getMatchedRegistration()).thenReturn(aCertificate().withUuid(UUID.randomUUID()).build());
+        doThrow(refusal).when(clientOperationService).requireEnrollmentSupport(any(), eq(CertificateProtocol.CMP));
+        PKIMessage request = irMessage();
+
+        // when
+        ThrowingCallable handle = () -> handler.handle(request, configuration);
+
+        // then
+        assertThatThrownBy(handle)
+                .isInstanceOfSatisfying(CmpProcessingException.class,
+                        e -> assertThat(e.getFailureInfo()).isEqualTo(PKIFailureInfo.badRequest))
+                .hasMessageContaining(refusal.getMessage());
+        verifyNoInteractions(clientOperationExternalService);
     }
 
     @Test

@@ -59,6 +59,7 @@ import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
+import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.otilm.api.model.core.proxy.ProxyStatus;
@@ -706,16 +707,14 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     @ParameterizedTest(name = "{0}")
     @MethodSource("protocolEnrollments")
     void refusesNamingTheOperation_whenTheTypeCannotBeEnrolledThroughTheProtocol(CertificateOperation unsupported,
-            CertificateProtocolInfo protocolInfo) throws Exception {
+            OperationOnACertificate protocolRequest) throws Exception {
         // given
         stubIssueEndpoints();
         long certificatesBefore = certificateRepository.count();
         clientOperationServiceImpl.setTypeHandlerRegistry(registryWithX509Lacking(x509Handler, unsupported));
 
         // when
-        ThrowingCallable issue = () -> clientOperationInternalService
-                .issueCertificate(authorityInstanceReference.getSecuredParentUuid(), raProfile.getSecuredUuid(),
-                        issueRequest(), protocolInfo);
+        ThrowingCallable issue = () -> protocolRequest.run(this);
 
         // then
         try {
@@ -6700,11 +6699,51 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     private static Stream<Arguments> protocolEnrollments() {
         return Stream
                 .of(Arguments
-                        .of(CertificateOperation.ENROLL_ACME,
-                                CertificateProtocolInfo.Acme(UUID.randomUUID(), UUID.randomUUID())),
-                        Arguments.of(CertificateOperation.ENROLL_SCEP, CertificateProtocolInfo.Scep(UUID.randomUUID())),
-                        Arguments.of(CertificateOperation.ENROLL_CMP, CertificateProtocolInfo.Cmp(UUID.randomUUID())),
-                        Arguments.of(CertificateOperation.ENROLL_EST, CertificateProtocolInfo.est(UUID.randomUUID())));
+                        .of(named("issue through ACME", CertificateOperation.ENROLL_ACME),
+                                issueThrough(CertificateProtocolInfo.Acme(UUID.randomUUID(), UUID.randomUUID()))),
+                        Arguments
+                                .of(named("issue through SCEP", CertificateOperation.ENROLL_SCEP),
+                                        issueThrough(CertificateProtocolInfo.Scep(UUID.randomUUID()))),
+                        Arguments
+                                .of(named("issue through CMP", CertificateOperation.ENROLL_CMP),
+                                        issueThrough(CertificateProtocolInfo.Cmp(UUID.randomUUID()))),
+                        Arguments
+                                .of(named("issue through EST", CertificateOperation.ENROLL_EST),
+                                        issueThrough(CertificateProtocolInfo.est(UUID.randomUUID()))),
+                        Arguments
+                                .of(named("request submitted through SCEP", CertificateOperation.ENROLL_SCEP),
+                                        (OperationOnACertificate) test -> test.clientOperationInternalService
+                                                .submitCertificateRequest(new ClientCertificateRequestDto(),
+                                                        CertificateProtocolInfo.Scep(UUID.randomUUID()))),
+                        Arguments
+                                .of(named("renewal through EST", CertificateOperation.ENROLL_EST),
+                                        (OperationOnACertificate) test -> test.clientOperationInternalService
+                                                .renewCertificate(
+                                                        test.authorityInstanceReference.getSecuredParentUuid(),
+                                                        test.raProfile.getSecuredUuid(),
+                                                        test.certificate.getUuid().toString(),
+                                                        new ClientCertificateRenewRequestDto(),
+                                                        CertificateProtocolInfo.est(UUID.randomUUID()), null)),
+                        Arguments
+                                .of(named("rekey through EST", CertificateOperation.ENROLL_EST),
+                                        (OperationOnACertificate) test -> test.clientOperationInternalService
+                                                .rekeyCertificate(
+                                                        test.authorityInstanceReference.getSecuredParentUuid(),
+                                                        test.raProfile.getSecuredUuid(),
+                                                        test.certificate.getUuid().toString(),
+                                                        new ClientCertificateRekeyRequestDto(),
+                                                        CertificateProtocolInfo.est(UUID.randomUUID()), null)),
+                        Arguments
+                                .of(named("direct check for CMP", CertificateOperation.ENROLL_CMP),
+                                        (OperationOnACertificate) test -> test.clientOperationInternalService
+                                                .requireEnrollmentSupport(CertificateType.X509,
+                                                        CertificateProtocol.CMP)));
+    }
+
+    private static OperationOnACertificate issueThrough(CertificateProtocolInfo protocolInfo) {
+        return test -> test.clientOperationInternalService
+                .issueCertificate(test.authorityInstanceReference.getSecuredParentUuid(),
+                        test.raProfile.getSecuredUuid(), test.issueRequest(), protocolInfo);
     }
 
     private static Stream<Arguments> operationsOnACertificate() {

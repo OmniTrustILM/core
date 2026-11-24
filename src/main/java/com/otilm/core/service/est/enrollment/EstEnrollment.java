@@ -4,11 +4,14 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CertificateType;
+import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.logging.Sensitive;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.core.aop.AuditOperationDataOverride;
 import com.otilm.core.certificate.request.RequestAttributePolicyViolationException;
+import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.est.EstRequestClaim;
 import com.otilm.core.dao.repository.CertificateRepository;
@@ -358,10 +361,20 @@ public class EstEnrollment {
      * refusal is answered as a request that matches no registration; a {@link CertificateException} as the service
      * being unavailable. Both are logged by class only.
      */
+    /** Refuses when the X.509 certificates EST requests cannot be enrolled through EST. */
+    private void requireEnrollable(EstRoute route) {
+        try {
+            clientOperationService.requireEnrollmentSupport(CertificateType.X509, CertificateProtocol.EST);
+        } catch (UnsupportedCertificateTypeException e) {
+            throw new EstException(EstError.REQUEST_REJECTED, route.realm()).withDetail(e.getMessage());
+        }
+    }
+
     private void complete(EstRoute route, UUID registrationUuid, Pkcs10CertificateRequest csr,
             @Sensitive String password) {
         RaProfile raProfile = route.raProfile();
         ClientCertificateIssueRequestDto request = issueRequests.completionRequest(route, csr, password);
+        requireEnrollable(route);
         try {
             clientOperationExternalService
                     .issueExistingCertificate(raProfile.getAuthorityInstanceReference().getSecuredParentUuid(),

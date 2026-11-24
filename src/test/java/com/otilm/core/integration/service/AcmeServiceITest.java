@@ -1271,9 +1271,9 @@ class AcmeServiceITest extends BaseSpringBootTest {
     void refusesAsMalformedNamingTheOperation_whenTheTypeOfTheCertificateCannotBeRevoked() throws Exception {
         // given
         var unsupported = CertificateOperation.REVOKE;
-        acmeServiceImpl.setTypeHandlerRegistry(registryWithX509Lacking(x509Handler, unsupported));
         URI requestUri = new URI(BASE_URI + ACME_PROFILE_NAME + "/revoke-cert");
         String requestJson = buildRevokeCertRequestJSON_withPrivateKey(requestUri);
+        acmeServiceImpl.setTypeHandlerRegistry(registryWithX509Lacking(x509Handler, unsupported));
 
         // when
         ThrowingCallable revoke = () -> acmeService

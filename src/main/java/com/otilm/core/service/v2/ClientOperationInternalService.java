@@ -7,12 +7,15 @@ import com.otilm.api.exception.CertificateRequestException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.core.certificate.CertificateDetail;
+import com.otilm.api.model.core.certificate.CertificateType;
+import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRekeyRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
+import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
 import com.otilm.core.dao.entity.ApprovalProfileVersion;
 import com.otilm.core.messaging.model.ActionMessage;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
@@ -153,4 +156,13 @@ public interface ClientOperationInternalService {
             throws NotFoundException, CertificateOperationException;
 
     void revokeCertificateRejectedAction(final UUID certificateUuid) throws NotFoundException;
+
+    /**
+     * Refuses a type whose certificates cannot be enrolled through the protocol; a missing type is X.509. A protocol
+     * calls this before it stores or sends anything, and before a call whose refusal it could not answer in its own
+     * form.
+     *
+     * @throws UnsupportedCertificateTypeException naming the type and the operation
+     */
+    void requireEnrollmentSupport(CertificateType certificateType, CertificateProtocol protocol);
 }

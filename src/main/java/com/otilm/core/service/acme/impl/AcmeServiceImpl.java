@@ -1817,11 +1817,6 @@ public class AcmeServiceImpl implements AcmeExternalService {
                         "Requested challenge is not found"));
     }
 
-    /**
-     * Finds the certificate by the fingerprint of the DER encoding that the client sent, without parsing it. A request
-     * signed with the key of the certificate needs no account, and parsing builds the public key of the certificate,
-     * which costs seconds for a large key.
-     */
     // checked here and not left to the revocation itself, whose refusal would roll back the answer to the client
     private void requireRevocable(Certificate certificate) throws AcmeProblemDocumentException {
         try {
@@ -1831,6 +1826,11 @@ public class AcmeServiceImpl implements AcmeExternalService {
         }
     }
 
+    /**
+     * Finds the certificate by the fingerprint of the DER encoding that the client sent, without parsing it. A request
+     * signed with the key of the certificate needs no account, and parsing builds the public key of the certificate,
+     * which costs seconds for a large key.
+     */
     private Certificate loadCertificateToRevoke(byte[] certificateDer) throws AcmeProblemDocumentException {
         try {
             return certificateService.getCertificateEntityByFingerprint(CertificateUtil.getThumbprint(certificateDer));

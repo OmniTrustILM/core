@@ -11,6 +11,7 @@ import com.otilm.api.interfaces.core.cmp.error.CmpProcessingException;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.cmp.CmpTransactionState;
+import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.api.model.core.v2.ClientCertificateRekeyRequestDto;
@@ -157,6 +158,9 @@ public class CrmfKurMessageHandler implements MessageHandler<ClientCertificateDa
                 dtoBuilder.authorizationSecret(configuration.getMatchedChallenge());
             }
             RaProfile raProfile = configuration.getRaProfile();
+            // the rekey below carries no protocol information, so that the new certificate inherits its attribution
+            clientOperationService
+                    .requireEnrollmentSupport(dbCertificate.getCertificateType(), CertificateProtocol.CMP);
             // -- (1)certification request (ask for issue)
             return clientOperationService
                     .rekeyCertificate(SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),

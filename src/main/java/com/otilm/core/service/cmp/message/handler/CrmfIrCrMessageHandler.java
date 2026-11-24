@@ -9,6 +9,7 @@ import com.otilm.api.interfaces.core.cmp.error.CmpCrmfValidationException;
 import com.otilm.api.interfaces.core.cmp.error.CmpProcessingException;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.cmp.CmpTransactionState;
+import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
@@ -152,6 +153,12 @@ public class CrmfIrCrMessageHandler implements MessageHandler<ClientCertificateD
                     CmpRegistrationResolver.REGISTRATION_REJECTION);
         }
         registrationIdentityVerifier.verify(crmf, matched, CertificateEvent.ISSUE, tid);
+        try {
+            clientOperationService.requireEnrollmentSupport(matched.getCertificateType(), CertificateProtocol.CMP);
+        } catch (UnsupportedCertificateTypeException e) {
+            // before the completion, whose refusals are all answered as a registration rejection
+            throw new CmpProcessingException(tid, PKIFailureInfo.badRequest, e.getMessage());
+        }
 
         try {
             ClientCertificateIssueRequestDto dto = new ClientCertificateIssueRequestDto();
