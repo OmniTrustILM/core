@@ -61,13 +61,15 @@ public class RenewalInfoResultApplier {
     /**
      * Applies the result to the certificates of the batch.
      *
+     * @param raProfileUuid the RA profile the batch was claimed for; a certificate that has left it takes no advice
      * @param referenceToCertificate the references sent to the connector and the certificates they stand for
      */
-    public void apply(Map<String, UUID> referenceToCertificate, RenewalInfoCallResult result, Instant now) {
+    public void apply(UUID raProfileUuid, Map<String, UUID> referenceToCertificate, RenewalInfoCallResult result,
+            Instant now) {
         RenewalInfoSettings settings = settings();
         switch (result) {
             case RenewalInfoCallResult.Answered(var response) ->
-                applyAnswer(referenceToCertificate, response, settings, now);
+                applyAnswer(raProfileUuid, referenceToCertificate, response, settings, now);
             case RenewalInfoCallResult.BackOff(var reason) -> {
                 logger
                         .warn("Renewal information refresh of {} certificates backs off: {}",
@@ -82,15 +84,15 @@ public class RenewalInfoResultApplier {
         }
     }
 
-    private void applyAnswer(Map<String, UUID> referenceToCertificate, CertificateRenewalInfoResponseDto response,
-            RenewalInfoSettings settings, Instant now) {
+    private void applyAnswer(UUID raProfileUuid, Map<String, UUID> referenceToCertificate,
+            CertificateRenewalInfoResponseDto response, RenewalInfoSettings settings, Instant now) {
         Map<String, CertificateRenewalInfoResultDtoV3> results = resultsByReference(response);
         Integer responseRetryAfter = response == null ? null : response.getRetryAfter();
         for (Map.Entry<String, UUID> entry : referenceToCertificate.entrySet()) {
             UUID certificateUuid = entry.getValue();
             try {
                 CertificateRenewalInfoResultDtoV3 item = results.get(entry.getKey());
-                if (!applyItem(certificateUuid, item, responseRetryAfter, settings, now)) {
+                if (!applyItem(raProfileUuid, certificateUuid, item, responseRetryAfter, settings, now)) {
                     backOff(certificateUuid, item == null ? null : item.getRetryAfter(), responseRetryAfter, settings,
                             now);
                 }
@@ -120,8 +122,8 @@ public class RenewalInfoResultApplier {
     }
 
     /** Applies a usable result; answers false when the item is to be retried instead. */
-    private boolean applyItem(UUID certificateUuid, CertificateRenewalInfoResultDtoV3 item, Integer responseRetryAfter,
-            RenewalInfoSettings settings, Instant now) {
+    private boolean applyItem(UUID raProfileUuid, UUID certificateUuid, CertificateRenewalInfoResultDtoV3 item,
+            Integer responseRetryAfter, RenewalInfoSettings settings, Instant now) {
         if (item == null || item.getStatus() == null) {
             logger.debug("Certificate {}: no usable renewal information result", certificateUuid);
             return false;
@@ -134,7 +136,7 @@ public class RenewalInfoResultApplier {
                     return false;
                 }
                 WindowWrite advice = new WindowWrite.Authority(window, explanationUrl(item.getExplanationUrl()));
-                if (windowWriter.writeAuthorityAdvice(certificateUuid, advice)) {
+                if (windowWriter.writeAuthorityAdvice(certificateUuid, raProfileUuid, advice)) {
                     refreshWriter
                             .schedule(certificateUuid,
                                     RefreshSchedule
@@ -147,7 +149,8 @@ public class RenewalInfoResultApplier {
                 logger
                         .debug("Certificate {}: the authority gives no renewal advice ({})", certificateUuid,
                                 item.getStatus().getCode());
-                if (windowWriter.writeAuthorityAdvice(certificateUuid, new WindowWrite.AuthorityNoAdvice())) {
+                if (windowWriter
+                        .writeAuthorityAdvice(certificateUuid, raProfileUuid, new WindowWrite.AuthorityNoAdvice())) {
                     refreshWriter
                             .schedule(certificateUuid, now.plusSeconds(settings.recheckIntervalSeconds()), 0, true);
                 }

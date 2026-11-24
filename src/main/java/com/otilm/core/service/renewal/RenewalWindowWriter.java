@@ -15,10 +15,10 @@ public interface RenewalWindowWriter {
 
     /**
      * Applies the advice of the authority, {@link WindowWrite.Authority} or {@link WindowWrite.AuthorityNoAdvice}, when
-     * the certificate still takes it: its RA profile uses the authority's renewal information and it has no issued
-     * successor. Answers whether it did.
+     * the certificate still takes it: it is still in the RA profile the advice was asked for, that profile uses the
+     * authority's renewal information and the certificate has no issued successor. Answers whether it did.
      */
-    boolean writeAuthorityAdvice(UUID certificateUuid, WindowWrite advice);
+    boolean writeAuthorityAdvice(UUID certificateUuid, UUID raProfileUuid, WindowWrite advice);
 
     /**
      * Sets the policy window on the issued, unexpired, non-archived certificates of the RA profile whose window is

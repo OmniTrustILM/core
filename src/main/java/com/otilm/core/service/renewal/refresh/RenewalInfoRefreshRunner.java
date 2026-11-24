@@ -137,7 +137,7 @@ public class RenewalInfoRefreshRunner {
             return;
         }
         RenewalInfoCallResult result = adapter.renewalInfo(authority, raProfile, items);
-        applier.apply(referenceToCertificate, result, Instant.now());
+        applier.apply(batch.raProfileUuid(), referenceToCertificate, result, Instant.now());
         logger
                 .debug("Renewal information of {} certificates of RA profile {} refreshed: {}", items.size(),
                         raProfile.getUuid(), result.getClass().getSimpleName());

@@ -53,6 +53,7 @@ class RenewalInfoResultApplierTest {
     private static final Instant NOW = Instant.parse("2026-11-23T10:00:00Z");
     private static final OffsetDateTime START = OffsetDateTime.of(2026, 12, 1, 0, 0, 0, 0, ZoneOffset.UTC);
     private static final OffsetDateTime END = START.plusDays(2);
+    private static final UUID RA_PROFILE = UUID.randomUUID();
 
     @Mock
     RenewalWindowWriter windowWriter;
@@ -71,7 +72,7 @@ class RenewalInfoResultApplierTest {
         PlatformSettingsDto platform = new PlatformSettingsDto();
         platform.setCertificates(new CertificateSettingsDto());
         lenient().when(settingService.getPlatformSettingsInternal()).thenReturn(platform);
-        lenient().when(windowWriter.writeAuthorityAdvice(any(), any())).thenReturn(true);
+        lenient().when(windowWriter.writeAuthorityAdvice(any(), any(), any())).thenReturn(true);
         applier = new RenewalInfoResultApplier(windowWriter, refreshWriter, settingService,
                 new RenewalInfoProperties(0, 0, 0, null, null, 0), () -> 0.5);
     }
@@ -107,11 +108,11 @@ class RenewalInfoResultApplierTest {
 
     @Test
     void availableWritesTheWindowAndSchedulesTheNextRefresh() {
-        applier.apply(Map.of("a", certA), answered(null, available("a")), NOW);
+        applier.apply(RA_PROFILE, Map.of("a", certA), answered(null, available("a")), NOW);
 
         verify(windowWriter)
-                .writeAuthorityAdvice(certA, new WindowWrite.Authority(new Window(START.toInstant(), END.toInstant()),
-                        "https://ca.example/why"));
+                .writeAuthorityAdvice(certA, RA_PROFILE, new WindowWrite.Authority(
+                        new Window(START.toInstant(), END.toInstant()), "https://ca.example/why"));
         verify(refreshWriter).schedule(certA, NOW.plusSeconds(21600), 0, false);
     }
 
@@ -120,14 +121,14 @@ class RenewalInfoResultApplierTest {
         CertificateRenewalInfoResultDtoV3 item = available("a");
         item.setRetryAfter(7200);
 
-        applier.apply(Map.of("a", certA), answered(10000, item), NOW);
+        applier.apply(RA_PROFILE, Map.of("a", certA), answered(10000, item), NOW);
 
         verify(refreshWriter).schedule(certA, NOW.plusSeconds(7200), 0, false);
     }
 
     @Test
     void availableUsesTheResponseRetryAfterWithoutAnItemValue() {
-        applier.apply(Map.of("a", certA), answered(10000, available("a")), NOW);
+        applier.apply(RA_PROFILE, Map.of("a", certA), answered(10000, available("a")), NOW);
 
         verify(refreshWriter).schedule(certA, NOW.plusSeconds(10000), 0, false);
     }
@@ -135,11 +136,11 @@ class RenewalInfoResultApplierTest {
     @Test
     void unknownAndNotSupportedRemoveAdviceAndWaitForTheRecheck() {
         applier
-                .apply(references, answered(null, result("a", CertificateRenewalInfoStatus.UNKNOWN),
+                .apply(RA_PROFILE, references, answered(null, result("a", CertificateRenewalInfoStatus.UNKNOWN),
                         result("b", CertificateRenewalInfoStatus.NOT_SUPPORTED)), NOW);
 
-        verify(windowWriter).writeAuthorityAdvice(certA, new WindowWrite.AuthorityNoAdvice());
-        verify(windowWriter).writeAuthorityAdvice(certB, new WindowWrite.AuthorityNoAdvice());
+        verify(windowWriter).writeAuthorityAdvice(certA, RA_PROFILE, new WindowWrite.AuthorityNoAdvice());
+        verify(windowWriter).writeAuthorityAdvice(certB, RA_PROFILE, new WindowWrite.AuthorityNoAdvice());
         verify(refreshWriter).schedule(certA, NOW.plusSeconds(604800), 0, true);
         verify(refreshWriter).schedule(certB, NOW.plusSeconds(604800), 0, true);
     }
@@ -147,12 +148,12 @@ class RenewalInfoResultApplierTest {
     @Test
     void retryBacksOffOnTheRampAndCountsTheFailure() {
         applier
-                .apply(references, answered(null, result("a", CertificateRenewalInfoStatus.RETRY),
+                .apply(RA_PROFILE, references, answered(null, result("a", CertificateRenewalInfoStatus.RETRY),
                         result("b", CertificateRenewalInfoStatus.RETRY)), NOW);
 
         assertEquals(NOW.plus(Duration.ofMinutes(5)), backOffTime(certA, 1));
         assertEquals(NOW.plus(Duration.ofHours(1)), backOffTime(certB, 3));
-        verify(windowWriter, never()).writeAuthorityAdvice(any(), any());
+        verify(windowWriter, never()).writeAuthorityAdvice(any(), any(), any());
     }
 
     @Test
@@ -160,14 +161,14 @@ class RenewalInfoResultApplierTest {
         CertificateRenewalInfoResultDtoV3 retry = result("a", CertificateRenewalInfoStatus.RETRY);
         retry.setRetryAfter(7200);
 
-        applier.apply(Map.of("a", certA), answered(null, retry), NOW);
+        applier.apply(RA_PROFILE, Map.of("a", certA), answered(null, retry), NOW);
 
         assertEquals(NOW.plusSeconds(7200), backOffTime(certA, 5));
     }
 
     @Test
     void anItemMissingFromTheResultsBacksOff() {
-        applier.apply(references, answered(null, available("a")), NOW);
+        applier.apply(RA_PROFILE, references, answered(null, available("a")), NOW);
 
         verify(refreshWriter).schedule(certA, NOW.plusSeconds(21600), 0, false);
         assertEquals(NOW.plus(Duration.ofMinutes(5)), backOffTime(certB, 1));
@@ -180,23 +181,23 @@ class RenewalInfoResultApplierTest {
         CertificateRenewalInfoResultDtoV3 incomplete = available("b");
         incomplete.setWindowStart(null);
 
-        applier.apply(references, answered(null, backwards, incomplete), NOW);
+        applier.apply(RA_PROFILE, references, answered(null, backwards, incomplete), NOW);
 
-        verify(windowWriter, never()).writeAuthorityAdvice(any(), any());
+        verify(windowWriter, never()).writeAuthorityAdvice(any(), any(), any());
         assertEquals(NOW.plus(Duration.ofMinutes(5)), backOffTime(certA, 1));
         assertEquals(NOW.plus(Duration.ofMinutes(5)), backOffTime(certB, 1));
     }
 
     @Test
     void aResultWithoutAStatusBacksOff() {
-        applier.apply(Map.of("a", certA), answered(null, result("a", null)), NOW);
+        applier.apply(RA_PROFILE, Map.of("a", certA), answered(null, result("a", null)), NOW);
 
         assertEquals(NOW.plus(Duration.ofMinutes(5)), backOffTime(certA, 1));
     }
 
     @Test
     void backOffResultBacksOffEveryItemAndStaysAtTheLastStep() {
-        applier.apply(references, new RenewalInfoCallResult.BackOff("unavailable"), NOW);
+        applier.apply(RA_PROFILE, references, new RenewalInfoCallResult.BackOff("unavailable"), NOW);
 
         assertEquals(NOW.plus(Duration.ofHours(6)), backOffTime(certA, 10));
         assertEquals(NOW.plus(Duration.ofMinutes(5)), backOffTime(certB, 1));
@@ -204,12 +205,12 @@ class RenewalInfoResultApplierTest {
 
     @Test
     void suspendPostponesTheWholeBatchToTheRecheck() {
-        applier.apply(references, new RenewalInfoCallResult.Suspend("test-ca", "not served"), NOW);
+        applier.apply(RA_PROFILE, references, new RenewalInfoCallResult.Suspend("test-ca", "not served"), NOW);
 
         ArgumentCaptor<Collection<UUID>> postponed = ArgumentCaptor.forClass(Collection.class);
         verify(refreshWriter).postpone(postponed.capture(), eq(NOW.plusSeconds(604800)));
         assertEquals(Set.of(certA, certB), Set.copyOf(new ArrayList<>(postponed.getValue())));
-        verify(windowWriter, never()).writeAuthorityAdvice(any(), any());
+        verify(windowWriter, never()).writeAuthorityAdvice(any(), any(), any());
     }
 
     @Test
@@ -218,9 +219,9 @@ class RenewalInfoResultApplierTest {
         lenient()
                 .doThrow(new IllegalStateException("database down"))
                 .when(windowWriter)
-                .writeAuthorityAdvice(eq(certA), any());
+                .writeAuthorityAdvice(eq(certA), any(), any());
 
-        applier.apply(references, answered(null, available("a"), available("b")), NOW);
+        applier.apply(RA_PROFILE, references, answered(null, available("a"), available("b")), NOW);
 
         verify(refreshWriter).schedule(certB, NOW.plusSeconds(21600), 0, false);
         verify(refreshWriter, never()).schedule(eq(certA), any(), anyInt(), anyBoolean());
@@ -234,7 +235,7 @@ class RenewalInfoResultApplierTest {
         platform.setCertificates(certificates);
         when(settingService.getPlatformSettingsInternal()).thenReturn(platform);
 
-        applier.apply(Map.of("a", certA), answered(null, available("a")), NOW);
+        applier.apply(RA_PROFILE, Map.of("a", certA), answered(null, available("a")), NOW);
 
         verify(refreshWriter).schedule(certA, NOW.plusSeconds(90), 0, false);
     }
@@ -251,27 +252,39 @@ class RenewalInfoResultApplierTest {
         backwards.setWindowEnd(backwards.getWindowStart());
 
         applier
-                .apply(requested, answered(null, available("duplicated"), available("duplicated"), backwards,
-                        available("valid"), available("unsent")), NOW);
+                .apply(RA_PROFILE, requested, answered(null, available("duplicated"), available("duplicated"),
+                        backwards, available("valid"), available("unsent")), NOW);
 
-        verify(windowWriter).writeAuthorityAdvice(eq(valid), any(WindowWrite.Authority.class));
-        verify(windowWriter, never()).writeAuthorityAdvice(eq(missing), any());
-        verify(windowWriter, never()).writeAuthorityAdvice(eq(duplicated), any());
-        verify(windowWriter, never()).writeAuthorityAdvice(eq(invalid), any());
+        verify(windowWriter).writeAuthorityAdvice(eq(valid), any(), any(WindowWrite.Authority.class));
+        verify(windowWriter, never()).writeAuthorityAdvice(eq(missing), any(), any());
+        verify(windowWriter, never()).writeAuthorityAdvice(eq(duplicated), any(), any());
+        verify(windowWriter, never()).writeAuthorityAdvice(eq(invalid), any(), any());
         verify(refreshWriter).schedule(eq(valid), any(), eq(0), eq(false));
         for (UUID retried : List.of(missing, duplicated, invalid)) {
             assertEquals(NOW.plus(Duration.ofMinutes(5)), backOffTime(retried, 1));
         }
-        verify(windowWriter, never()).writeAuthorityAdvice(eq(certA), any());
+        verify(windowWriter, never()).writeAuthorityAdvice(eq(certA), any(), any());
+    }
+
+    @Test
+    void asksTheWriterForTheClaimedRaProfile_whenTheAuthorityAnswers() {
+        // given
+        var claimedProfile = UUID.randomUUID();
+
+        // when
+        applier.apply(claimedProfile, Map.of("a", certA), answered(null, available("a")), NOW);
+
+        // then
+        verify(windowWriter).writeAuthorityAdvice(eq(certA), eq(claimedProfile), any(WindowWrite.Authority.class));
     }
 
     @Test
     void schedulesNoRefresh_whenTheCertificateNoLongerTakesTheAdvice() {
         // given
-        when(windowWriter.writeAuthorityAdvice(eq(certA), any())).thenReturn(false);
+        when(windowWriter.writeAuthorityAdvice(eq(certA), any(), any())).thenReturn(false);
 
         // when
-        applier.apply(Map.of("a", certA), answered(null, available("a")), NOW);
+        applier.apply(RA_PROFILE, Map.of("a", certA), answered(null, available("a")), NOW);
 
         // then
         verify(refreshWriter, never()).schedule(eq(certA), any(), anyInt(), anyBoolean());
@@ -287,10 +300,10 @@ class RenewalInfoResultApplierTest {
                 .readValue(unknownStatus, CertificateRenewalInfoResponseDto.class);
 
         // when
-        applier.apply(Map.of("a", certA), new RenewalInfoCallResult.Answered(response), NOW);
+        applier.apply(RA_PROFILE, Map.of("a", certA), new RenewalInfoCallResult.Answered(response), NOW);
 
         // then
-        verify(windowWriter, never()).writeAuthorityAdvice(any(), any());
+        verify(windowWriter, never()).writeAuthorityAdvice(any(), any(), any());
         assertEquals(NOW.plus(Duration.ofMinutes(5)), backOffTime(certA, 1));
     }
 
@@ -302,11 +315,11 @@ class RenewalInfoResultApplierTest {
         item.setExplanationUrl(unusableUrl);
 
         // when
-        applier.apply(Map.of("a", certA), answered(null, item), NOW);
+        applier.apply(RA_PROFILE, Map.of("a", certA), answered(null, item), NOW);
 
         // then
         verify(windowWriter)
-                .writeAuthorityAdvice(certA,
+                .writeAuthorityAdvice(certA, RA_PROFILE,
                         new WindowWrite.Authority(new Window(START.toInstant(), END.toInstant()), null));
     }
 
@@ -318,11 +331,11 @@ class RenewalInfoResultApplierTest {
         item.setExplanationUrl(webUrl);
 
         // when
-        applier.apply(Map.of("a", certA), answered(null, item), NOW);
+        applier.apply(RA_PROFILE, Map.of("a", certA), answered(null, item), NOW);
 
         // then
         verify(windowWriter)
-                .writeAuthorityAdvice(certA,
+                .writeAuthorityAdvice(certA, RA_PROFILE,
                         new WindowWrite.Authority(new Window(START.toInstant(), END.toInstant()), webUrl));
     }
 

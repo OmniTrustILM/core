@@ -62,9 +62,14 @@ public class RenewalWindowWriterImpl implements RenewalWindowWriter {
     }
 
     @Override
-    public boolean writeAuthorityAdvice(UUID certificateUuid, WindowWrite advice) {
-        if (renewalInfoRepository.lockRaProfileWhenRefreshEligible(certificateUuid, Instant.now()).isEmpty()) {
-            logger.debug("Certificate {} no longer takes the advice of its authority", certificateUuid);
+    public boolean writeAuthorityAdvice(UUID certificateUuid, UUID raProfileUuid, WindowWrite advice) {
+        if (renewalInfoRepository
+                .lockRaProfileWhenRefreshEligible(certificateUuid, Instant.now())
+                .filter(raProfileUuid::equals)
+                .isEmpty()) {
+            logger
+                    .debug("Certificate {} no longer takes the advice of the authority of RA profile {}",
+                            certificateUuid, raProfileUuid);
             return false;
         }
         write(certificateUuid, advice);

@@ -384,7 +384,7 @@ class RenewalWindowWriterITest extends BaseSpringBootTest {
 
         // when
         boolean written = renewalWindowWriter
-                .writeAuthorityAdvice(certificate.getUuid(),
+                .writeAuthorityAdvice(certificate.getUuid(), raProfile.getUuid(),
                         new WindowWrite.Authority(authorityWindow, EXPLANATION_URL));
 
         // then
@@ -402,7 +402,26 @@ class RenewalWindowWriterITest extends BaseSpringBootTest {
 
         // when
         boolean written = renewalWindowWriter
-                .writeAuthorityAdvice(certificate.getUuid(), new WindowWrite.Authority(
+                .writeAuthorityAdvice(certificate.getUuid(), turnedOff.getUuid(), new WindowWrite.Authority(
+                        windowFromNow(Duration.ofDays(1), Duration.ofDays(2)), EXPLANATION_URL));
+
+        // then
+        assertThat(written).isFalse();
+        assertThat(renewalInfoOf(certificate)).isEmpty();
+    }
+
+    @Test
+    void ignoresTheAuthorityAdvice_whenTheCertificateMovedToAnotherRaProfile() {
+        // given
+        RaProfile requestedProfile = seedRaProfileUsingAuthorityInfo(true);
+        RaProfile currentProfile = seedRaProfileUsingAuthorityInfo(true);
+        Certificate certificate = seedCertificate(requestedProfile, CertificateState.ISSUED);
+        certificate.setRaProfile(currentProfile);
+        certificateRepository.save(certificate);
+
+        // when
+        boolean written = renewalWindowWriter
+                .writeAuthorityAdvice(certificate.getUuid(), requestedProfile.getUuid(), new WindowWrite.Authority(
                         windowFromNow(Duration.ofDays(1), Duration.ofDays(2)), EXPLANATION_URL));
 
         // then
@@ -420,7 +439,7 @@ class RenewalWindowWriterITest extends BaseSpringBootTest {
 
         // when
         boolean written = renewalWindowWriter
-                .writeAuthorityAdvice(certificate.getUuid(), new WindowWrite.Authority(
+                .writeAuthorityAdvice(certificate.getUuid(), raProfile.getUuid(), new WindowWrite.Authority(
                         windowFromNow(Duration.ofDays(1), Duration.ofDays(2)), EXPLANATION_URL));
 
         // then
