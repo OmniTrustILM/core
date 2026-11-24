@@ -1849,6 +1849,24 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
+    void refusesToIssueARequestStoredEarlier_whenTheAuthorityDoesNotIssueTheTypeOfTheCertificate() throws Exception {
+        // given
+        doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedTypes(any());
+        UUID requestedUuid = prepareCertificateForIssuance();
+
+        // when
+        ThrowingCallable issue = () -> clientOperationService
+                .issueExistingCertificate(authorityInstanceReference.getSecuredParentUuid(), raProfile.getSecuredUuid(),
+                        requestedUuid.toString(), null);
+
+        // then
+        assertThatThrownBy(issue)
+                .isInstanceOf(UnsupportedCertificateTypeException.class)
+                .hasMessageContaining(raProfile.getName());
+        verify(actionProducer, never()).produceMessage(any());
+    }
+
+    @Test
     void refusesToRenew_whenTheAuthorityDoesNotIssueTheTypeOfTheCertificate() throws Exception {
         // given
         doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedTypes(any());
@@ -5667,18 +5685,20 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         }
 
         @Test
-        void refusesTheCompletion_whenTheAuthorityDoesNotIssueTheTypeOfTheCertificate() throws Exception {
+        void completesTheRegistrationWithoutAskingTheAuthorityForItsTypes() throws Exception {
             // given
             doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedTypes(any());
             ClientCertificateIssueRequestDto completion = createCompletionRequest();
 
             // when
-            ThrowingCallable complete = () -> clientOperationService
-                    .issueExistingCertificate(authorityUuid, raProfileUuid, registrationUuid, completion);
+            clientOperationService.issueExistingCertificate(authorityUuid, raProfileUuid, registrationUuid, completion);
 
             // then
-            assertThatThrownBy(complete).isInstanceOf(UnsupportedCertificateTypeException.class);
-            assertStillRegisteredWithoutARequest();
+            assertThat(certificateRepository
+                    .findByUuid(UUID.fromString(registrationUuid))
+                    .orElseThrow()
+                    .getCertificateRequestUuid()).isNotNull();
+            verify(authorityCertificateTypes, never()).requireSupport(any(), any());
         }
 
         @Test

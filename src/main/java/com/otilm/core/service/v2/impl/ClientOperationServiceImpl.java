@@ -2363,7 +2363,6 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                     "Cannot issue a certificate that belongs to a different RA profile. Certificate: %s"
                             .formatted(certificate.toStringShort()));
         }
-        authorityCertificateTypes.requireSupport(certificate.getCertificateType(), raProfile);
         CertificateState state = certificate.getState();
         boolean hasCsr = request != null && request.getRequest() != null && !request.getRequest().isBlank();
 
@@ -2408,6 +2407,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             requestAttributeWarnings = completeRegistration(raProfile, certificate.getUuid(), request,
                     challengeAuthorized);
         } else {
+            // a request stored earlier was not checked when it was stored; a registration is completed without asking
+            authorityCertificateTypes.requireSupport(certificate.getCertificateType(), raProfile);
             queueIssue(raProfileUuid.getValue(), certificate.getUuid(), certificate.getCertificateRequestUuid());
         }
 

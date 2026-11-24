@@ -6,7 +6,7 @@ import com.otilm.core.dao.entity.Connector;
 
 /**
  * The connector of an RA profile's authority failed or gave an answer that cannot be used when asked which certificate
- * types the authority issues, so nothing was sent to it.
+ * types the authority issues.
  */
 public class CertificateTypesUnavailableException extends RuntimeException implements PlatformException {
 
