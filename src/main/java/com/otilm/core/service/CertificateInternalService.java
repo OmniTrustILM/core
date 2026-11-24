@@ -18,6 +18,7 @@ import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.core.certificate.type.IssuedCertificateRefusedException;
+import com.otilm.core.certificate.type.ParsedCertificate;
 import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
@@ -30,7 +31,6 @@ import com.otilm.core.model.signing.SigningCertificate;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import java.security.NoSuchAlgorithmException;
-import java.security.PublicKey;
 import java.security.cert.CertificateEncodingException;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
@@ -147,7 +147,8 @@ public interface CertificateInternalService extends ResourceExtensionService {
     Certificate checkCreateCertificate(String certificate)
             throws AlreadyExistException, CertificateException, NoSuchAlgorithmException;
 
-    void uploadCertificateKey(PublicKey publicKey, Certificate certificate, byte[] altPublicKeyEncoded);
+    /** Links the keys of a certificate that entered the inventory with its content to the key inventory. */
+    void uploadCertificateKeys(Certificate certificate, ParsedCertificate content) throws CertificateException;
 
     CertificateContent checkAddCertificateContent(String fingerprint, String content);
 
