@@ -159,6 +159,7 @@ import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.orm.jpa.EntityManagerHolder;
@@ -2335,6 +2336,27 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             });
         }
 
+        @ParameterizedTest
+        @NullAndEmptySource
+        void sendsAnEmptyAllowedSet_whenTheProfileAllowsNoRequestAttribute(Set<String> noAllowedNames)
+                throws Exception {
+            // given
+            var workflow = aManagedContentSigningWorkflow().build();
+            workflow.setAllowedRequestAttributes(noAllowedNames);
+
+            // when
+            signingProfileService
+                    .createSigningProfile(aManagedContentSigningProfile("ct-validate-sends-no-allowed-names")
+                            .withContentSigning(workflow)
+                            .build());
+
+            // then
+            assertThat(contentSigningFormattingMock.validateProfileRequests()).singleElement().satisfies(sent -> {
+                assertThat(sent.path("allowedRequestAttributes").isArray()).isTrue();
+                assertThat(sent.path("allowedRequestAttributes")).isEmpty();
+            });
+        }
+
         @Test
         void storesTheAnsweredTransferModes_whenAManagedContentSigningProfileIsCreated() throws Exception {
             // given — the mock declares xades with both transfer modes
@@ -2383,7 +2405,9 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                     .createSigningProfile(aManagedContentSigningProfile(originalName)
                             .withContentSigning(aManagedContentSigningWorkflow().build())
                             .build());
-            contentSigningFormattingMock.stubValidateProfileReporting("font", "The font file cannot be parsed");
+            var refusedAttribute = "font";
+            contentSigningFormattingMock
+                    .stubValidateProfileReporting(refusedAttribute, "The font file cannot be parsed");
 
             // when
             ThrowableAssert.ThrowingCallable update = () -> signingProfileService
@@ -2393,14 +2417,15 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                                     .build());
 
             // then
-            assertThatThrownBy(update).isInstanceOf(ValidationException.class).hasMessageContaining("font");
+            assertThatThrownBy(update).isInstanceOf(ValidationException.class).hasMessageContaining(refusedAttribute);
             assertThat(signingProfileRepository.findByName(originalName)).isPresent();
         }
 
         @Test
         void refusesTheProfile_whenTheConnectorAnswersAModeTheFamilyDoesNotDeclare() {
             // given — the mock declares pades with the inline transfer mode only
-            contentSigningFormattingMock.stubValidateProfileAnswering(Set.of(DocumentTransferMode.DIGEST_ONLY));
+            var undeclaredMode = DocumentTransferMode.DIGEST_ONLY;
+            contentSigningFormattingMock.stubValidateProfileAnswering(Set.of(undeclaredMode));
             var name = "ct-validate-undeclared-mode";
 
             // when
@@ -2412,7 +2437,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             // then
             assertThatThrownBy(create)
                     .isInstanceOf(ConnectorException.class)
-                    .hasMessageContaining(DocumentTransferMode.DIGEST_ONLY.getCode());
+                    .hasMessageContaining(undeclaredMode.getCode());
             assertThat(signingProfileRepository.findByName(name)).isEmpty();
         }
 
@@ -2445,15 +2470,18 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                             .of(new RegexpAttributeConstraint("Letters only", "Location must hold letters only",
                                     "^[A-Za-z ]+$")));
             contentSigningFormattingMock.stubComputeDtbsRequestAttributeDefinitions(List.of(lettersOnly));
+            var locationContainingADigit = "Prague 1";
 
             // when
             ThrowableAssert.ThrowingCallable create = () -> signingProfileService
-                    .createSigningProfile(aManagedContentSigningProfile("ct-validate-after-core-checks")
-                            .withContentSigning(aManagedContentSigningWorkflow()
-                                    .withSignatureFormattingConnectorAttributes(
-                                            List.of(aStringAttribute(locationUuid, location, "Prague 1")))
-                                    .build())
-                            .build());
+                    .createSigningProfile(
+                            aManagedContentSigningProfile("ct-validate-after-core-checks")
+                                    .withContentSigning(aManagedContentSigningWorkflow()
+                                            .withSignatureFormattingConnectorAttributes(List
+                                                    .of(aStringAttribute(locationUuid, location,
+                                                            locationContainingADigit)))
+                                            .build())
+                                    .build());
 
             // then
             assertThatThrownBy(create).isInstanceOf(ValidationException.class);
