@@ -940,7 +940,7 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
     }
 
     @Test
-    void holdsNoPooledConnection_whileAskingOpaAboutGroupMembers() throws Exception {
+    void holdsNoPooledConnection_whenAskingOpaAboutGroupMembers() throws Exception {
         // given
         UUID certificate = saveCertificate(saveRaProfile());
         assignToGroup(Resource.CERTIFICATE, certificate, saveGroup());
@@ -954,7 +954,7 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
                         Mockito.any()))
                 .thenAnswer(invocation -> {
                     activeDuringMembersCheck.add(pool.getActiveConnections());
-                    return granted();
+                    return createGrantedResult();
                 });
 
         // when
@@ -1166,7 +1166,7 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
                 && action.getCode().equals(req.getProperties().get("action"));
     }
 
-    private static OpaResourceAccessResult granted() {
+    private static OpaResourceAccessResult createGrantedResult() {
         OpaResourceAccessResult granted = new OpaResourceAccessResult();
         granted.setAuthorized(true);
         granted.setAllow(List.of());
