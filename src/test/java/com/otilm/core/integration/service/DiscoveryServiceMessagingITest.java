@@ -72,7 +72,7 @@ class DiscoveryServiceMessagingITest extends BaseMessagingIntTest {
     }
 
     @Test
-    void notifiesThatTheRunsAreDeleted_whenABulkDeleteCommits() throws Exception {
+    void notifiesThatTheRunsAreDeleted_whenABulkDeleteSucceeds() throws Exception {
         // given — a v1 run, which deletes in any state
 
         // when

@@ -28,13 +28,13 @@ class DiscoveryBulkDeleteOutcomeTest {
     private static Stream<Arguments> outcomes() {
         return Stream
                 .of(arguments(named("every run deleted", 0), 0, "Discovery histories have been deleted."),
-                        arguments(named("some still running", 2), 0,
-                                "Discovery histories have been deleted, except 2 that are still running."
-                                        + " Cancel those first."),
+                        arguments(named("some refused", 2), 0,
+                                "Discovery histories have been deleted, except 2 that were still running or already"
+                                        + " deleted."),
                         arguments(named("some failed", 0), 3,
                                 "Discovery histories have been deleted, except 3 that could not be deleted."),
-                        arguments(named("some still running and some failed", 2), 3,
-                                "Discovery histories have been deleted, except 2 that are still running and 3 that"
-                                        + " could not be deleted. Cancel the running ones first."));
+                        arguments(named("some refused and some failed", 2), 3,
+                                "Discovery histories have been deleted, except 2 that were still running or already"
+                                        + " deleted and 3 that could not be deleted."));
     }
 }

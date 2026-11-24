@@ -66,6 +66,7 @@ import com.otilm.core.enums.FilterField;
 import com.otilm.core.events.data.DiscoveryResult;
 import com.otilm.core.events.handlers.DiscoveryFinishedEventHandler;
 import com.otilm.core.exception.UnsupportedDiscoveryVersionException;
+import com.otilm.core.logging.RedactedFailure;
 import com.otilm.core.mapper.discovery.DiscoveryDtoMapper;
 import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.messaging.jms.producers.NotificationProducer;
@@ -861,18 +862,17 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     }
 
     static String bulkDeleteOutcome(int refused, int failed) {
-        String deleted = "Discovery histories have been deleted";
-        if (refused == 0 && failed == 0) {
-            return deleted + ".";
+        List<String> leftBehind = new ArrayList<>();
+        if (refused > 0) {
+            leftBehind.add(refused + " that were still running or already deleted");
         }
-        if (failed == 0) {
-            return deleted + ", except " + refused + " that are still running. Cancel those first.";
+        if (failed > 0) {
+            leftBehind.add(failed + " that could not be deleted");
         }
-        if (refused == 0) {
-            return deleted + ", except " + failed + " that could not be deleted.";
+        if (leftBehind.isEmpty()) {
+            return "Discovery histories have been deleted.";
         }
-        return deleted + ", except " + refused + " that are still running and " + failed
-                + " that could not be deleted. Cancel the running ones first.";
+        return "Discovery histories have been deleted, except " + String.join(" and ", leftBehind) + ".";
     }
 
     /**
@@ -881,18 +881,22 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
      * Core's run is already gone.
      */
     private void deleteRunAndConnectorCopy(SecuredUUID uuid) throws NotFoundException {
-        discoveryRunWriter.deleteRun(uuid).ifPresent(this::deleteConnectorCopy);
+        discoveryRunWriter.deleteRun(uuid).ifPresent(this::deleteConnectorCopyV1);
     }
 
-    private void deleteConnectorCopy(DiscoveryRunWriter.ConnectorCopy copy) {
+    private void deleteConnectorCopyV1(DiscoveryRunWriter.ConnectorCopyV1 copy) {
         try {
+            // A deregistration evicts the cached route only on the replica that ran it, so ask the database.
+            if (connectorRepository.findByUuid(copy.connectorUuid()).isEmpty()) {
+                return;
+            }
             ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(copy.connectorUuid());
             DiscoverySyncApiClient client = connectorApiFactory.getDiscoveryApiClient(connectorDto);
             client.removeDiscovery(connectorDto, copy.reference());
         } catch (Exception e) {
             logger
-                    .warn("Connector {} failed to delete its copy {} of a discovery Core has deleted: {}",
-                            copy.connectorUuid(), copy.reference(), e.getMessage());
+                    .warn("Connector {} failed to delete its copy {} of a discovery Core has deleted",
+                            copy.connectorUuid(), copy.reference(), RedactedFailure.forLog(e));
         }
     }
 

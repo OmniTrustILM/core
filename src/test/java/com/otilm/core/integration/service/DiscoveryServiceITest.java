@@ -82,6 +82,7 @@ import com.otilm.core.model.discovery.DiscoveryMessageCode;
 import com.otilm.core.model.discovery.DiscoveryWorkType;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
+import com.otilm.core.service.ConnectorInternalService;
 import com.otilm.core.service.DiscoveryExternalService;
 import com.otilm.core.service.DiscoveryInternalService;
 import com.otilm.core.service.handler.discovery.DiscoveryProviderAdapterFactory;
@@ -96,6 +97,7 @@ import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.MetaDefinitions;
 import com.otilm.core.util.RefusedDefinitionInserts;
 import com.otilm.core.util.RefusedDiscoveryDeletes;
+import com.otilm.core.util.SqlCapture;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -103,6 +105,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.regex.Pattern;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -124,6 +127,10 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
 
     private static final String DISCOVERY_NAME = "testDiscovery1";
     private static final String PROVIDER_DISCOVERY_UUID = "4bd64640-be29-4e14-aad8-5c0ffa55c5bd";
+    private static final Pattern RESULTS_DELETE = Pattern
+            .compile("^delete from \\S*discovery_certificate\\b", Pattern.CASE_INSENSITIVE);
+    private static final Pattern RESULTS_SELECT = Pattern
+            .compile("^select .* from \\S*discovery_certificate\\b", Pattern.CASE_INSENSITIVE);
     private static final String CERTIFICATE_BASE64 = "MIIDyjCCArKgAwIBAgIUULw4BO/gvFzW2wMYXRhmz1kPPdAwDQYJKoZIhvcNAQELBQAwZDEUMBIGA1UEAwwLdGVzdGNlcnQuY3oxCzAJBgNVBAYTAkNaMRgwFgYDVQQIDA9DZW50cmFsIEJvaGVtaWExDzANBgNVBAcMBlNsYW7DvTEUMBIGA1UECgwLM0tleUNvbXBhbnkwHhcNMjQxMDIxMTAzMDEyWhcNMjUxMDIxMTAzMDEyWjBkMRQwEgYDVQQDDAt0ZXN0Y2VydC5jejELMAkGA1UEBhMCQ1oxGDAWBgNVBAgMD0NlbnRyYWwgQm9oZW1pYTEPMA0GA1UEBwwGU2xhbsO9MRQwEgYDVQQKDAszS2V5Q29tcGFueTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAJ112/a4p9sZ4F2fABLGtSBrbp71n/0uG+H/3usEQU8/FIW644ly5hNl8+SloPWryCCxOl+saXTKv62h0HnE/HNFMKlps4wwWNMsTploFKiAW9AbaDtzNrMy9f/orMoZldDZt5dLX8UR3qMmdK8nlqiJOyCAxIS70OsEQC8fGuIMNYeW6eidXGHjvpqApWnGTyA4U1bJWsDWcOIh/LL2ae9nwTJjVrHthrM6Wq6PplaPxEKYABp51UAQLMzY+cJElcKmwQxiK+zOHns7/ocosZVqI2QyxSmG60icabyrIT6HQHKVNzZHkltmduyYun9YZ+nl68YOuNmtSNi1TLMlfGECAwEAAaN0MHIwHQYDVR0OBBYEFOWFJRXdCer5Bpj+9JrquuJ7e5eQMB8GA1UdIwQYMBaAFOWFJRXdCer5Bpj+9JrquuJ7e5eQMA4GA1UdDwEB/wQEAwIFoDAgBgNVHSUBAf8EFjAUBggrBgEFBQcDAQYIKwYBBQUHAwIwDQYJKoZIhvcNAQELBQADggEBAA6AWaBFDAWL8oSBCP3q1s2Gq9QhR2QEBZ5tPOMTN5GpIzXxXdm4nHHBK/pSFABUNmrwQMapvq/y6IZ7hNMdC89MTOsHLD0EVPmHHO4xhzMG08XpJdevTrvktjpt0+ju81ratLg34pvJLeLF7ZL5AxwOl6qKX6RgwHpdBUipAYeeVhTVtQ7FLvakKDwYLiN6YFXuM1+CDAK3fsJ6sZki3uRvLYsUi7bguIQCmCQ0/n+T62Driq6mh1FkFB3sgpSFjfEo3bEaaHzF1YZr6otTYPNzcLCStJ5SYNBXKbw7YKAcYavL6yMNTQ2CjmLVnwjjd3O/Sv1kEhZMu86mHeNZK0I=";
 
     @Autowired
@@ -145,6 +152,8 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
     private CertificateContentRepository certificateContentRepository;
     @Autowired
     private ConnectorRepository connectorRepository;
+    @Autowired
+    private ConnectorInternalService connectorService;
     @Autowired
     private ConnectorInterfaceRepository connectorInterfaceRepository;
     @Autowired
@@ -225,9 +234,9 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
 
     @AfterEach
     void tearDown() {
+        mockServer.stop();
         RefusedDefinitionInserts.remove(jdbcTemplate);
         RefusedDiscoveryDeletes.remove(jdbcTemplate);
-        mockServer.stop();
     }
 
     @Test
@@ -536,6 +545,39 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
         // then
         assertThatThrownBy(delete).hasStackTraceContaining(RefusedDiscoveryDeletes.REASON);
         WireMock.verify(0, WireMock.deleteRequestedFor(WireMock.urlPathEqualTo(connectorCopyPath())));
+    }
+
+    @Test
+    void leavesTheConnectorCopyAlone_whenTheConnectorIsNoLongerRegistered() throws Exception {
+        // given
+        givenConnectorCopy();
+        stubConnectorCopyDeletion(HttpStatus.NO_CONTENT);
+        connectorService.getConnectorForApiClient(connector.getUuid());
+        deregisterConnectorBehindTheRouteCache();
+
+        // when
+        discoveryService.deleteDiscovery(discovery.getSecuredUuid());
+
+        // then
+        WireMock.verify(0, WireMock.deleteRequestedFor(WireMock.urlPathEqualTo(connectorCopyPath())));
+    }
+
+    @Test
+    void deletesTheResultsInOneStatement_whenDeletingARun() throws Exception {
+        // given
+        for (int i = 0; i < 3; i++) {
+            stageResult(discovery, saveContent("fp-result-" + i).getId());
+        }
+
+        // when
+        List<String> statements = SqlCapture.during(() -> {
+            discoveryService.deleteDiscovery(discovery.getSecuredUuid());
+            return null;
+        }).statements();
+
+        // then
+        assertThat(statements).filteredOn(sql -> RESULTS_DELETE.matcher(sql).find()).hasSize(1);
+        assertThat(statements).noneMatch(sql -> RESULTS_SELECT.matcher(sql).find());
     }
 
     @Test
@@ -2470,6 +2512,12 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
 
     private static String connectorCopyPath() {
         return "/v1/discoveryProvider/discover/" + PROVIDER_DISCOVERY_UUID;
+    }
+
+    /** Removes the connector as another replica would, leaving this replica's cached route to it in place. */
+    private void deregisterConnectorBehindTheRouteCache() {
+        jdbcTemplate.update("DELETE FROM connector_2_function_group WHERE connector_uuid = ?", connector.getUuid());
+        jdbcTemplate.update("DELETE FROM connector WHERE uuid = ?", connector.getUuid());
     }
 
     private void stubConnectorCopyDeletion(HttpStatus status) {

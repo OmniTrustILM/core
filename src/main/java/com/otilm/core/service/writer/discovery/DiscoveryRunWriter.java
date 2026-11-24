@@ -76,8 +76,8 @@ public class DiscoveryRunWriter {
         this.commentService = commentService;
     }
 
-    /** Where a run's connector keeps its own copy of the run. */
-    public record ConnectorCopy(UUID connectorUuid, String reference) {
+    /** Where a v1 run's connector keeps its own copy of the run; only the v1 adapter records one. */
+    public record ConnectorCopyV1(UUID connectorUuid, String reference) {
     }
 
     /**
@@ -179,7 +179,7 @@ public class DiscoveryRunWriter {
      * @throws ValidationException when the run is a v2 run that has not ended
      */
     @Transactional(rollbackFor = Exception.class)
-    public Optional<ConnectorCopy> deleteRun(SecuredUUID uuid) throws NotFoundException {
+    public Optional<ConnectorCopyV1> deleteRun(SecuredUUID uuid) throws NotFoundException {
         Discovery run = discoveryRepository
                 .findByUuid(uuid)
                 .orElseThrow(() -> new NotFoundException(Discovery.class, uuid));
@@ -207,6 +207,6 @@ public class DiscoveryRunWriter {
         if (reference == null || reference.isEmpty()) {
             return Optional.empty();
         }
-        return Optional.of(new ConnectorCopy(run.getConnectorUuid(), reference));
+        return Optional.of(new ConnectorCopyV1(run.getConnectorUuid(), reference));
     }
 }
