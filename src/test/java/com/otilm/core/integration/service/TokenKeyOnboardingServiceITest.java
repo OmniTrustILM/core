@@ -2101,6 +2101,30 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
                             "An import of a key pair into this key storage is still in progress.");
         }
 
+        /** The token may still find a private key that the compensation destroys while it resolves the selection. */
+        @Test
+        void blocksThePrivateKeyAlone_whenAKeyPairImportOnItsTokenIsCompensatedWhileTheTokenResolvesTheSelection()
+                throws Exception {
+            // given
+            var attempt = importOf(rsaPublicKey(), KeyImportState.COMPENSATING);
+            tokenLists(aListedKeyPair().withoutPublicKey().build());
+            var selection = theFirstListedPair();
+            connectorMock
+                    .onKeyResolutionRequest(() -> jdbcTemplate
+                            .update("UPDATE key_import SET state = ? WHERE uuid = ?", KeyImportState.COMPENSATED.name(),
+                                    attempt));
+
+            // when
+            TokenKeyOnboardingResultDto result = onboard(selection);
+
+            // then
+            assertThat(result)
+                    .extracting(TokenKeyOnboardingResultDto::getOutcome, TokenKeyOnboardingResultDto::getStatus,
+                            TokenKeyOnboardingResultDto::getReason)
+                    .containsExactly(TokenKeyOnboardingOutcome.BLOCKED, TokenKeyStatus.IMPORT_IN_PROGRESS,
+                            "An import of a key pair into this key storage is still in progress.");
+        }
+
         @Test
         void onboardsThePrivateKeyAlone_whenASecretKeyImportIsUnsettled() throws Exception {
             // given

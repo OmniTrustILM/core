@@ -351,12 +351,27 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
             Set<String> taken = Set.copyOf(cryptographicKeyRepository.findNamesIn(likelyNames));
             likelyNames.forEach(name -> nameTaken.put(name, taken.contains(name)));
         }
-        boolean keyPairImportOnToken = carryingKeyPair.stream().anyMatch(entry -> entry.keyPair().isPrivateOnly())
-                && keyImportRepository
-                        .existsByTokenInstanceUuidAndSpkiFingerprintIsNotNullAndStateIn(tokenInstanceUuid,
-                                KeyImportState.UNSETTLED);
+        boolean keyPairImportOnToken = keyPairImportUnsettledOn(tokenInstanceUuid, carryingKeyPair, importingAlready);
         return new Inventory(handleHolders, publicKeyHolders, importing, keyPairImportOnToken, nameTaken,
                 cryptographicKeyRepository::existsByName);
+    }
+
+    /**
+     * Only a private key listed alone waits for this, so a page without one skips the query. An import seen unsettled
+     * before the token resolved the selection counts too, since it may have destroyed a key the token still found.
+     */
+    private boolean keyPairImportUnsettledOn(UUID tokenInstanceUuid, List<ProviderKeyEntry> carryingKeyPair,
+            Set<String> importingAlready) {
+        boolean listsPrivateKeyAlone = carryingKeyPair.stream().anyMatch(entry -> entry.keyPair().isPrivateOnly());
+        if (!listsPrivateKeyAlone) {
+            return false;
+        }
+        if (!importingAlready.isEmpty()) {
+            return true;
+        }
+        return keyImportRepository
+                .existsByTokenInstanceUuidAndSpkiFingerprintIsNotNullAndStateIn(tokenInstanceUuid,
+                        KeyImportState.UNSETTLED);
     }
 
     /**
