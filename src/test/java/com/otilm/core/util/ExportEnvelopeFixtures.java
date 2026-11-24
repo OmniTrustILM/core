@@ -78,26 +78,26 @@ public final class ExportEnvelopeFixtures {
     }
 
     /** The connector's export answer for a key pair, as JSON. */
-    public static String keyPairResponseJson(byte[] envelope, KeyAlgorithm algorithm, int length, PublicKey publicKey) {
-        return responseJson(envelope, "Public", algorithm, length,
+    public static String keyPairResponseJson(byte[] envelope, KeyAlgorithm algorithm, PublicKey publicKey) {
+        return responseJson(envelope, "Public", algorithm,
                 ",\"publicKeySpki\":\"" + Base64.getEncoder().encodeToString(publicKey.getEncoded()) + "\"");
     }
 
     /** The connector's export answer for a key pair it reads the platform's reference from, as JSON. */
-    public static String keyPairResponseJson(byte[] envelope, KeyAlgorithm algorithm, int length, PublicKey publicKey,
+    public static String keyPairResponseJson(byte[] envelope, KeyAlgorithm algorithm, PublicKey publicKey,
             UUID keyReference) {
-        String answer = keyPairResponseJson(envelope, algorithm, length, publicKey);
+        String answer = keyPairResponseJson(envelope, algorithm, publicKey);
         return answer.substring(0, answer.length() - 1) + ",\"keyReference\":\"" + keyReference + "\"}";
     }
 
     /** The connector's export answer for a secret key, as JSON. */
     public static String secretKeyResponseJson(byte[] envelope, KeyAlgorithm algorithm, int length) {
-        return responseJson(envelope, "Secret", algorithm, length, "");
+        return responseJson(envelope, "Secret", algorithm, ",\"length\":" + length);
     }
 
-    private static String responseJson(byte[] envelope, String type, KeyAlgorithm algorithm, int length, String rest) {
+    private static String responseJson(byte[] envelope, String type, KeyAlgorithm algorithm, String rest) {
         return "{\"material\":{\"encryptedPrivateKeyInfo\":\"" + Base64.getEncoder().encodeToString(envelope)
-                + "\"},\"keyData\":{\"type\":\"" + type + "\",\"algorithm\":\"" + algorithm.getCode() + "\",\"length\":"
-                + length + rest + "}}";
+                + "\"},\"keyData\":{\"type\":\"" + type + "\",\"algorithm\":\"" + algorithm.getCode() + "\"" + rest
+                + "}}";
     }
 }

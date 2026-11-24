@@ -2,6 +2,7 @@ package com.otilm.core.key.normalization;
 
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
+import com.otilm.api.model.common.cryptography.ExplicitCurve;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.connector.cryptography.v2.material.EncryptedKeyMaterialV2Dto;
 import com.otilm.api.model.core.secret.Passphrase;
@@ -424,8 +425,9 @@ class KeyNormalizerTest {
     }
 
     @Test
-    void describe_reportsALengthThePlatformCannotTellAsZero() throws Exception {
+    void sizesByThePublicHalf_whenDescribingAPostQuantumKey() throws Exception {
         // given
+        var mlKem512PublicKeyBits = 6400;
         byte[] file = KeyFiles.pkcs8(KeyFiles.keyPair("ML-KEM", MLKEMParameterSpec.ml_kem_512, BC));
 
         // when
@@ -433,7 +435,7 @@ class KeyNormalizerTest {
 
         // then
         assertThat(description.algorithm()).isEqualTo(KeyAlgorithm.MLKEM);
-        assertThat(description.length()).isZero();
+        assertThat(description.length()).isEqualTo(mlKem512PublicKeyBits);
     }
 
     @ParameterizedTest

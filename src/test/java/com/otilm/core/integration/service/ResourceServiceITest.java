@@ -386,6 +386,19 @@ class ResourceServiceITest extends BaseSpringBootTest {
                 .doesNotContain(Resource.NONE, Resource.ANY);
     }
 
+    @Test
+    void offersStoredValues_whenFieldIsDeclaredOnACertificateSubtype() throws Exception {
+        // given
+        var hybridSignatureAlgorithm = "ML-DSA-65";
+        createHybridCertificate(hybridSignatureAlgorithm);
+
+        // when
+        Object[] offered = offeredValues(Resource.CERTIFICATE, FilterField.ALT_SIGNATURE_ALGORITHM);
+
+        // then
+        assertThat(offered).contains(hybridSignatureAlgorithm);
+    }
+
     private Object[] offeredValues(Resource resource, FilterField field) throws NotFoundException {
         SearchFieldDataDto data = resourceService
                 .listResourceRuleFilterFields(resource, false)
@@ -394,7 +407,9 @@ class ResourceServiceITest extends BaseSpringBootTest {
                 .filter(candidate -> field.name().equals(candidate.getFieldIdentifier()))
                 .findFirst()
                 .orElseThrow();
-        return (Object[]) data.getValue();
+        return data.getValue() instanceof List<?> propertyValues
+                ? propertyValues.toArray()
+                : (Object[]) data.getValue();
     }
 
     /**
@@ -683,5 +698,20 @@ class ResourceServiceITest extends BaseSpringBootTest {
         attributeContent2Object.setObjectType(Resource.AUTHORITY);
         attributeContent2Object.setOrder(1);
         attributeContent2ObjectRepository.save(attributeContent2Object);
+    }
+
+    private void createHybridCertificate(String altSignatureAlgorithm) {
+        CertificateContent certificateContent = new CertificateContent();
+        certificateContent.setContent("hybrid");
+        certificateContent = certificateContentRepository.save(certificateContent);
+        X509CertificateEntity hybridCertificate = aCertificate()
+                .withSerialNumber("987654321")
+                .withState(CertificateState.ISSUED)
+                .withCertificateContent(certificateContent)
+                .withCertificateContentId(certificateContent.getId())
+                .withHybridCertificate(true)
+                .withAltSignatureAlgorithm(altSignatureAlgorithm)
+                .build();
+        certificateRepository.save(hybridCertificate);
     }
 }

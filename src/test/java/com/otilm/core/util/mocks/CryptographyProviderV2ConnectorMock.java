@@ -365,8 +365,8 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
      * Answers an export with the private key protected under the passphrase the export carries, describing the key's
      * own public key, as {@code CryptographicKeyExportExternalService.exportKey} receives a real export.
      */
-    public CryptographyProviderV2ConnectorMock stubExportOf(KeyPair keyPair, KeyAlgorithm algorithm, int length) {
-        return stubExportOf(keyPair.getPrivate(), keyPair.getPublic(), algorithm, length);
+    public CryptographyProviderV2ConnectorMock stubExportOf(KeyPair keyPair, KeyAlgorithm algorithm) {
+        return stubExportOf(keyPair.getPrivate(), keyPair.getPublic(), algorithm);
     }
 
     /**
@@ -374,9 +374,9 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
      * public key, as a connector that exports another key than the one it describes.
      */
     public CryptographyProviderV2ConnectorMock stubExportOf(PrivateKey protectedKey, PublicKey describedKey,
-            KeyAlgorithm algorithm, int length) {
+            KeyAlgorithm algorithm) {
         exportingKeyTransformer
-                .register(new ExportingKeyTransformer.ExportedKey(protectedKey, algorithm, length, describedKey));
+                .register(new ExportingKeyTransformer.ExportedKey(protectedKey, algorithm, describedKey));
         server
                 .stubFor(WireMock
                         .post(WireMock.urlPathEqualTo(EXPORT_KEY))
@@ -742,14 +742,13 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
             int length) throws JsonProcessingException {
         PublicKeyDataV2Dto publicData = new PublicKeyDataV2Dto();
         publicData.setAlgorithm(algorithm);
-        publicData.setLength(length);
         publicData.setPublicKeySpki(publicKey.getEncoded());
         PublicKeyDataResponseV2Dto publicKeyData = new PublicKeyDataResponseV2Dto();
         publicKeyData.setKeyData(publicData);
         publicKeyData.setKeyMeta(List.of(providerHandle("public-handle-" + UUID.randomUUID())));
         PrivateKeyDataV2Dto privateData = new PrivateKeyDataV2Dto();
         privateData.setAlgorithm(algorithm);
-        privateData.setLength(length);
+        privateData.setLength(algorithm == KeyAlgorithm.RSA ? length : null);
         PrivateKeyDataResponseV2Dto privateKeyData = new PrivateKeyDataResponseV2Dto();
         privateKeyData.setKeyData(privateData);
         privateKeyData.setKeyMeta(List.of(providerHandle("private-handle-" + UUID.randomUUID())));
