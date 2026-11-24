@@ -37,6 +37,7 @@ import com.otilm.core.aop.OutsideTransaction;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.certificate.type.AuthorityCertificateTypes;
+import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
 import com.otilm.core.dao.entity.ApprovalProfileRelation;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
@@ -994,7 +995,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
 
             Optional<Certificate> existingCertificate = certificateRepository.findByFingerprint(fingerprint);
             if (existingCertificate.isPresent()) {
-                certificateDetailDtos.add(existingCertificate.get().mapToDto());
+                certificateDetailDtos.add(toDetail(existingCertificate.get()));
             } else {
                 X509CertificateEntity modal = new X509CertificateEntity();
                 CertificateUtil.prepareIssuedCertificate(modal, certificate);
@@ -1011,10 +1012,16 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
                 modal.setCertificateContent(certificateContent);
                 modal.setCertificateContentId(certificateContent.getId());
                 certificateRepository.save(modal);
-                certificateDetailDtos.add(modal.mapToDto());
+                certificateDetailDtos.add(toDetail(modal));
             }
         }
         return certificateDetailDtos;
+    }
+
+    private CertificateDetail toDetail(Certificate certificate) {
+        CertificateDetail detail = certificate.mapToDto();
+        typeHandlerRegistry.declareSupportedOperations(detail);
+        return detail;
     }
 
     private void mergeAndValidateAttributes(AuthorityInstanceReference authorityInstanceRef,
@@ -1269,6 +1276,13 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
     @Autowired
     public void setRenewalWindowWriter(RenewalWindowWriter renewalWindowWriter) {
         this.renewalWindowWriter = renewalWindowWriter;
+    }
+
+    private CertificateTypeHandlerRegistry typeHandlerRegistry;
+
+    @Autowired
+    public void setTypeHandlerRegistry(CertificateTypeHandlerRegistry typeHandlerRegistry) {
+        this.typeHandlerRegistry = typeHandlerRegistry;
     }
 
     @Autowired

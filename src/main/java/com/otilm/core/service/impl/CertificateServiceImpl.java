@@ -1427,10 +1427,15 @@ public class CertificateServiceImpl
             Certificate lastCertificate = certificateChain.isEmpty() ? certificate : certificateChain.getLast();
             certificateChainResponseDto
                     .setCompleteChain(chainService.completeCertificateChain(lastCertificate, certificateChain));
-            certificateChainResponseDto
-                    .setCertificates(certificateChain.stream().map(Certificate::mapToChainDto).toList());
+            certificateChainResponseDto.setCertificates(certificateChain.stream().map(this::toChainDetail).toList());
         }
         return certificateChainResponseDto;
+    }
+
+    private CertificateDetail toChainDetail(Certificate certificate) {
+        CertificateDetail detail = certificate.mapToChainDto();
+        typeHandlerRegistry.declareSupportedOperations(detail);
+        return detail;
     }
 
     @Override

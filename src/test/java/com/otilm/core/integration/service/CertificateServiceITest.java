@@ -32,6 +32,7 @@ import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateChainResponseDto;
 import com.otilm.api.model.core.certificate.CertificateContentDto;
 import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateDownloadResponseDto;
@@ -1537,7 +1538,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
         void validatesTheCertificateWithoutItsChain_whenItsTypeDoesNotSupportChainValidation() throws Exception {
             // given — the issuer is in the inventory, so the chain of the certificate has two certificates
             certificateService
-                    .createCertificate(Base64.getEncoder().encodeToString(issuerOfX509Cert().getEncoded()),
+                    .createCertificate(Base64.getEncoder().encodeToString(loadIssuerOfX509Cert().getEncoded()),
                             CertificateType.X509);
             Certificate stored = certificateService
                     .createCertificate(Base64.getEncoder().encodeToString(x509Cert.getEncoded()), CertificateType.X509);
@@ -1622,6 +1623,25 @@ class CertificateServiceITest extends BaseSpringBootTest {
             } finally {
                 certificateService.setTypeHandlerRegistry(typeHandlerRegistry);
             }
+        }
+
+        @Test
+        void listsTheOperationsOfItsTypeOnEveryCertificate_whenReadingTheChain() throws Exception {
+            // given — the issuer is in the inventory, so the chain has two certificates
+            certificateService
+                    .createCertificate(Base64.getEncoder().encodeToString(loadIssuerOfX509Cert().getEncoded()),
+                            CertificateType.X509);
+            Certificate stored = certificateService
+                    .createCertificate(Base64.getEncoder().encodeToString(x509Cert.getEncoded()), CertificateType.X509);
+
+            // when
+            CertificateChainResponseDto chain = certificateService.getCertificateChain(stored.getSecuredUuid(), true);
+
+            // then
+            assertThat(chain.getCertificates())
+                    .hasSize(2)
+                    .allSatisfy(detail -> assertThat(detail.getSupportedOperations())
+                            .contains(CertificateOperation.VALIDATE_CHAIN));
         }
 
         @Test
@@ -1970,7 +1990,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
                             Arguments.of(named("only another type is validated", List.of(CertificateType.SSH)), false));
         }
 
-        private static X509Certificate issuerOfX509Cert() throws Exception {
+        private static X509Certificate loadIssuerOfX509Cert() throws Exception {
             KeyStore keyStore = KeyStore.getInstance("PKCS12");
             try (InputStream keyStoreStream = CertificateServiceITest.class
                     .getClassLoader()
