@@ -20,6 +20,7 @@ import com.otilm.api.model.core.workflows.EventStatus;
 import com.otilm.api.model.core.workflows.ExecutionType;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.certificate.type.CertificateTypeHandler;
+import com.otilm.core.certificate.type.CertificateTypeHandlerException;
 import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
 import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry.DetectedCertificate;
 import com.otilm.core.certificate.type.ParsedCertificate;
@@ -245,18 +246,20 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
     // The upload service has accepted the content, so content that is no certificate any more is a fault that the
     // event history records.
     private DetectedCertificate detectCertificate(String certificateContent) {
+        if (certificateContent == null) {
+            logger.error("The upload event carries no certificate content");
+            return null;
+        }
         try {
             DetectedCertificate detected = typeHandlerRegistry
                     .detectCertificate(Base64.getDecoder().decode(certificateContent))
                     .orElse(null);
             if (detected == null) {
-                logger.error("Unable to parse certificate {} from uploaded certificate", certificateContent);
+                logger.error("No certificate type recognises the content of the uploaded certificate");
             }
             return detected;
-        } catch (RuntimeException e) {
-            logger
-                    .error("Unable to parse certificate {} from uploaded certificate: {}", certificateContent,
-                            e.getMessage());
+        } catch (IllegalArgumentException | CertificateTypeHandlerException e) {
+            logger.error("Unable to read the uploaded certificate: {}", e.getMessage());
             return null;
         }
     }

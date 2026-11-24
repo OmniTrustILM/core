@@ -1577,7 +1577,23 @@ class CertificateServiceITest extends BaseSpringBootTest {
             // then
             assertThatThrownBy(create)
                     .isInstanceOf(com.otilm.api.exception.CertificateException.class)
-                    .hasMessageContaining(namedType.getLabel());
+                    .hasMessageContaining(namedType.getLabel())
+                    .hasMessageNotContaining(notACertificate);
+        }
+
+        @Test
+        void linksTheAlternativeKey_whenCreatingAHybridCertificateFromContentOfANamedType() throws Exception {
+            // given
+            var hybridContent = Base64
+                    .getEncoder()
+                    .encodeToString(CertificateTestUtil.createHybridCertificate().getEncoded());
+
+            // when
+            Certificate created = certificateService.createCertificate(hybridContent, CertificateType.X509);
+
+            // then
+            assertThat(created.getAltKeyUuid()).isNotNull();
+            assertThat(cryptographicKeyRepository.findByUuid(created.getAltKeyUuid())).isPresent();
         }
 
         @Test

@@ -1564,8 +1564,8 @@ public class CertificateServiceImpl
                 .parseCertificate(CertificateUtil.decodeCertificateContent(certificateData))
                 .orElse(null);
         if (parsed == null) {
-            String message = "Failed to get parse the certificate " + certificateData
-                    + " > The content is not a certificate of type " + effectiveType.getLabel();
+            String message = "Failed to parse the certificate: the content is not a certificate of type "
+                    + effectiveType.getLabel();
             log.error(message);
             throw new com.otilm.api.exception.CertificateException(message);
         }
@@ -1769,8 +1769,7 @@ public class CertificateServiceImpl
         return certificateRequestEntity.getUuid();
     }
 
-    @Override
-    public void uploadCertificateKey(PublicKey publicKey, Certificate certificate, byte[] altPublicKeyEncoded) {
+    private void uploadCertificateKey(PublicKey publicKey, Certificate certificate, byte[] altPublicKeyEncoded) {
         UUID keyUuid;
         if (publicKey != null && certificate.getKeyUuid() == null) {
             keyUuid = cryptographicKeyService.findKeyByFingerprint(certificate.getPublicKeyFingerprint());

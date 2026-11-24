@@ -3,10 +3,7 @@ package com.otilm.core.certificate.type;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.core.certificate.CertificateOperation;
 
-/**
- * No handler is registered for a certificate type, a type does not support an operation, or an authority does not issue
- * a type.
- */
+/** A certificate type cannot do what was asked of it; the message names the type. */
 public class UnsupportedCertificateTypeException extends ValidationException {
 
     public UnsupportedCertificateTypeException(String message) {

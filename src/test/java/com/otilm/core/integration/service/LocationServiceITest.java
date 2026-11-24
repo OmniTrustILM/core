@@ -31,12 +31,14 @@ import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.location.LocationDto;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
+import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
@@ -59,6 +61,7 @@ import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.EntityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.LocationRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
+import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -68,12 +71,15 @@ import com.otilm.core.service.LocationInternalService;
 import com.otilm.core.service.registration.RegistrationChallengeStore;
 import com.otilm.core.service.v2.impl.ClientOperationServiceImpl;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.SecretLeakProbe;
 import java.io.IOException;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
+import java.security.cert.X509Certificate;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 import java.util.function.Consumer;
@@ -747,6 +753,32 @@ class LocationServiceITest extends BaseSpringBootTest {
         assertThat(logged)
                 .anyMatch(line -> line.contains(loggedFailure))
                 .anyMatch(line -> line.contains("CertificateException"));
+    }
+
+    @Test
+    void rollsBackTheSync_whenTheLocationHoldsACertificateOfATypeWithoutAHandler() throws Exception {
+        // given
+        var typeWithoutAHandler = CertificateType.SSH;
+        X509Certificate storedBeforeTheRefusal = CertificateGeneratorHelper
+                .generateCACertificate(null, "CN=stored-before-the-refusal");
+        stubConnectorAccepting();
+        stubLocationDetailHolding(Base64.getEncoder().encodeToString(storedBeforeTheRefusal.getEncoded()),
+                typeWithoutAHandler);
+
+        // when
+        ThrowingCallable sync = () -> locationService.updateLocationContent(getEntityUuid(), location.getSecuredUuid());
+
+        // then
+        assertThatThrownBy(sync)
+                .isInstanceOf(UnsupportedCertificateTypeException.class)
+                .hasMessageContaining(typeWithoutAHandler.getCode());
+        assertThat(certificateLocationRepository.findByCertificateUuidIn(List.of(certificate.getUuid())))
+                .as("links of the certificate the location held before the sync")
+                .extracting(link -> link.getLocation().getUuid())
+                .contains(location.getUuid());
+        assertThat(certificateRepository.findByFingerprint(CertificateUtil.getThumbprint(storedBeforeTheRefusal)))
+                .as("certificate the sync stored before the refusal")
+                .isEmpty();
     }
 
     @Test
@@ -1682,6 +1714,18 @@ class LocationServiceITest extends BaseSpringBootTest {
                   "multipleEntries": true,
                   "supportKeyManagement": true
                 }""".formatted(certificateData))));
+    }
+
+    private void stubLocationDetailHolding(String x509CertificateData, CertificateType typeOfTheSecondEntry) {
+        mockServer.stubFor(WireMock.post(WireMock.urlPathMatching(LOCATIONS_PATH)).willReturn(WireMock.okJson("""
+                {
+                  "certificates": [
+                    {"certificateData": "%s", "withKey": true, "certificateType": "X.509"},
+                    {"certificateData": "%s", "withKey": true, "certificateType": "%s"}
+                  ],
+                  "multipleEntries": true,
+                  "supportKeyManagement": true
+                }""".formatted(x509CertificateData, x509CertificateData, typeOfTheSecondEntry.getCode()))));
     }
 
     private void stubLocationRefusing(String path, String connectorText) {

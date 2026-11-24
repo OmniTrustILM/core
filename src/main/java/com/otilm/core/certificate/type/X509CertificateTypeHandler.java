@@ -34,7 +34,6 @@ import com.otilm.core.util.CertificateRequestUtils;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.CryptographyUtil;
 import com.otilm.core.util.PlatformX500NameStyle;
-import com.otilm.core.util.X509ObjectToString;
 import com.otilm.core.util.X509RequestContentRenderer;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -48,6 +47,7 @@ import java.security.cert.X509Certificate;
 import java.security.spec.InvalidKeySpecException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
@@ -374,7 +374,7 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
 
     @Override
     public String contentToStore(ParsedCertificate certificate) {
-        return X509ObjectToString.toPem(x509Of(certificate));
+        return Base64.getEncoder().encodeToString(certificate.encoded());
     }
 
     /** Shows the extended key usages by the display names of their OIDs, where a name is known. */

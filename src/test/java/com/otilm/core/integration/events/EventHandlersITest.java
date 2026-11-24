@@ -81,6 +81,7 @@ import com.otilm.core.dao.repository.ApprovalRepository;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
+import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.DiscoveryCertificateRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.dao.repository.GroupAssociationRepository;
@@ -130,6 +131,7 @@ import com.otilm.core.tasks.ScheduledJobInfo;
 import com.otilm.core.util.AuthHelper;
 import com.otilm.core.util.AuthServiceWireMockStubs;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.CertificateTestUtil;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.StubCertificateFixtures;
 import com.otilm.core.util.WireMockPorts;
@@ -184,6 +186,8 @@ class EventHandlersITest extends BaseSpringBootTest {
     private RaProfileRepository raProfileRepository;
     @Autowired
     private CertificateRepository certificateRepository;
+    @Autowired
+    private CryptographicKeyRepository cryptographicKeyRepository;
     @Autowired
     private CertificateContentRepository certificateContentRepository;
     @Autowired
@@ -598,6 +602,23 @@ class EventHandlersITest extends BaseSpringBootTest {
         verify(recognisingHandler).stampIssued(any(), any());
         verify(recognisingHandler).contentToStore(any());
         assertThat(certificateRepository.findByFingerprint(CertificateUtil.getThumbprint(uploaded))).isPresent();
+    }
+
+    @Test
+    void linksTheAlternativeKey_whenTheUploadedCertificateIsHybrid() throws Exception {
+        // given
+        X509Certificate hybrid = CertificateTestUtil.createHybridCertificate();
+        EventMessage uploadEvent = createUploadEvent(Base64.getEncoder().encodeToString(hybrid.getEncoded()));
+
+        // when
+        certificateUploadedEventHandler.handleEvent(uploadEvent);
+
+        // then
+        Certificate stored = certificateRepository
+                .findByFingerprint(CertificateUtil.getThumbprint(hybrid))
+                .orElseThrow();
+        assertThat(stored.getAltKeyUuid()).isNotNull();
+        assertThat(cryptographicKeyRepository.findByUuid(stored.getAltKeyUuid())).isPresent();
     }
 
     @Test

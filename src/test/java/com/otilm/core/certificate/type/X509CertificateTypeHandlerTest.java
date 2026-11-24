@@ -23,7 +23,6 @@ import com.otilm.core.oid.OidRecord;
 import com.otilm.core.service.CryptographicOperationInternalService;
 import com.otilm.core.util.CertificateTestUtil;
 import com.otilm.core.util.CertificateUtil;
-import com.otilm.core.util.X509ObjectToString;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -837,15 +836,16 @@ class X509CertificateTypeHandlerTest {
     }
 
     @Test
-    void returnsThePemOfTheCertificate_whenAskedForTheContentToStore() throws Exception {
+    void returnsTheBase64OfTheCertificateWithoutPemLines_whenAskedForTheContentToStore() throws Exception {
         // given
         X509Certificate issuedCertificate = chain.getEndEntityCertificate();
+        var storedText = Base64.getEncoder().encodeToString(issuedCertificate.getEncoded());
 
         // when
         String content = handler.contentToStore(parsedCertificate(issuedCertificate));
 
         // then
-        assertThat(content).isEqualTo(X509ObjectToString.toPem(issuedCertificate));
+        assertThat(content).isEqualTo(storedText);
     }
 
     @Test
