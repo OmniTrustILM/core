@@ -20,11 +20,6 @@ public interface OwnerAssociationRepository extends JpaRepository<OwnerAssociati
 
     Long deleteByResourceAndObjectUuidInAndOwnerUuidNotNull(Resource resource, List<UUID> objectUuids);
 
-    @Query("SELECT COUNT(DISTINCT oa.objectUuid) FROM OwnerAssociation oa WHERE oa.ownerUuid = :ownerUuid"
-            + " AND oa.resource = :resource AND oa.objectUuid IN :objectUuids")
-    long countOwnedObjects(@Param("ownerUuid") UUID ownerUuid, @Param("resource") Resource resource,
-            @Param("objectUuids") List<UUID> objectUuids);
-
     /**
      * Returns those of {@code resources} with at least one object owned by {@code ownerUuid}, or assigned to one of
      * {@code groupUuids} (to any group when {@code allGroups}) and to none of {@code deniedGroupUuids}, since
