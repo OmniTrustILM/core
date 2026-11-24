@@ -95,6 +95,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.AccessDeniedException;
@@ -813,10 +814,11 @@ class LocationServiceITest extends BaseSpringBootTest {
         mockServer.verify(0, WireMock.anyRequestedFor(WireMock.anyUrl()));
     }
 
-    @Test
-    void refusesToRenewInTheLocationBeforeAskingForACsr_whenTheTypeOfTheCertificateDoesNotSupportRenewal() {
+    @ParameterizedTest
+    @EnumSource(value = CertificateOperation.class, names = {"RENEW", "PUSH_TO_LOCATION"})
+    void refusesToRenewInTheLocationBeforeAskingForACsr_whenTheTypeOfTheCertificateDoesNotSupportIt(
+            CertificateOperation unsupported) {
         // given
-        var unsupported = CertificateOperation.RENEW;
         prepareCertificateForRenewalInLocation();
         locationServiceImpl.setTypeHandlerRegistry(registryWithX509Lacking(x509Handler, unsupported));
 

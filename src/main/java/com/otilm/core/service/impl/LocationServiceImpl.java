@@ -1014,6 +1014,8 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
         Certificate certificateInScope = certificateService
                 .getCertificateEntity(SecuredUUID.fromString(certificateUuid));
         typeHandlerRegistry.requireSupport(certificateInScope, CertificateOperation.RENEW);
+        // the renewed certificate is pushed to this location, so a type that cannot be pushed is refused here
+        typeHandlerRegistry.requireSupport(certificateInScope, CertificateOperation.PUSH_TO_LOCATION);
         if (certificateInScope.isArchived()) {
             throw new LocationException(
                     "Certificate with UUID %s is archived. Cannot renew the certificate in the location with UUID %s."

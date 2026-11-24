@@ -155,6 +155,7 @@ import com.otilm.core.util.WireMockPorts;
 import com.otilm.core.util.X509ObjectToString;
 import com.otilm.core.util.builders.ComplianceProfileFixtures;
 import com.otilm.core.util.seeders.CertificateUploadTriggerSeeder;
+import com.otilm.core.validation.certificate.ICertificateValidator;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -177,6 +178,7 @@ import java.util.Base64;
 import java.util.Date;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -220,6 +222,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.junit.jupiter.api.Named.named;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -249,6 +252,9 @@ class CertificateServiceITest extends BaseSpringBootTest {
 
     @Autowired
     private CertificateTypeHandlerRegistry typeHandlerRegistry;
+
+    @Autowired
+    private Map<String, ICertificateValidator> certificateValidators;
 
     @Autowired
     private CertificateRepository certificateRepository;
@@ -1524,6 +1530,30 @@ class CertificateServiceITest extends BaseSpringBootTest {
             // then
             assertThat(certificateRepository.findByUuid(stored.getUuid()).orElseThrow().getValidationStatus())
                     .isEqualTo(statusBefore);
+        }
+
+        @Test
+        void validatesTheCertificateWithoutItsChain_whenItsTypeDoesNotSupportChainValidation() throws Exception {
+            // given
+            Certificate stored = certificateService
+                    .createCertificate(Base64.getEncoder().encodeToString(x509Cert.getEncoded()), CertificateType.X509);
+            ICertificateValidator validator = mock(ICertificateValidator.class);
+            when(validator.validateCertificate(any(), anyBoolean())).thenReturn(CertificateValidationStatus.VALID);
+            certificateService.setCertificateValidatorMap(Map.of(CertificateType.X509.getCode(), validator));
+            certificateService
+                    .setTypeHandlerRegistry(registryWithX509Lacking(x509Handler, CertificateOperation.VALIDATE_CHAIN));
+
+            // when
+            try {
+                certificateService.validate(stored);
+            } finally {
+                certificateService.setTypeHandlerRegistry(typeHandlerRegistry);
+                certificateService.setCertificateValidatorMap(certificateValidators);
+            }
+
+            // then
+            var incompleteChain = false;
+            verify(validator).validateCertificate(List.of(stored), incompleteChain);
         }
 
         @ParameterizedTest(name = "{0}")
