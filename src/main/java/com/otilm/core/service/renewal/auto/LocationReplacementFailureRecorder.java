@@ -58,10 +58,9 @@ public class LocationReplacementFailureRecorder {
         UUID triggerHistoryUuid;
         UUID executionUuid;
         try {
-            Optional<RenewalInfoSnapshot> recorded = Optional
-                    .ofNullable(
-                            newTransaction.execute(status -> recordHistory(predecessorUuid, successorUuid, reason)));
-            if (recorded.isEmpty()) {
+            Optional<RenewalInfoSnapshot> recorded = newTransaction
+                    .execute(status -> recordHistory(predecessorUuid, successorUuid, reason));
+            if (recorded == null || recorded.isEmpty()) {
                 return;
             }
             RenewalInfoSnapshot snapshot = recorded.get();
@@ -93,17 +92,18 @@ public class LocationReplacementFailureRecorder {
         }
     }
 
-    private RenewalInfoSnapshot recordHistory(UUID predecessorUuid, UUID successorUuid, String reason) {
+    private Optional<RenewalInfoSnapshot> recordHistory(UUID predecessorUuid, UUID successorUuid, String reason) {
         CertificateRenewalInfo row = renewalInfoRepository.findByCertificateUuid(predecessorUuid).orElse(null);
         if (row == null || !successorUuid.equals(row.getRenewSuccessorUuid())) {
-            return null;
+            return Optional.empty();
         }
         String message = ("The renewed certificate %s was issued, but replacing the old certificate in its locations"
                 + " failed and is not retried: %s. The renewed certificate is in %s; the old certificate is still in %s")
                 .formatted(successorUuid, reason, locationsOf(successorUuid), locationsOf(predecessorUuid));
         eventHistoryService
                 .addEventHistory(predecessorUuid, CertificateEvent.RENEW, CertificateEventStatus.FAILED, message, "");
-        return new RenewalInfoSnapshot(message, row.getRenewTriggerHistoryUuid(), row.getRenewExecutionUuid());
+        return Optional
+                .of(new RenewalInfoSnapshot(message, row.getRenewTriggerHistoryUuid(), row.getRenewExecutionUuid()));
     }
 
     private record RenewalInfoSnapshot(String message, UUID triggerHistoryUuid, UUID executionUuid) {

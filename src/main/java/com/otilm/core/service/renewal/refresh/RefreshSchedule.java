@@ -39,7 +39,7 @@ public final class RefreshSchedule {
      * of the ramp; beyond its end the last delay repeats.
      */
     public static Instant backoff(Instant now, int attempt, List<Duration> ramp) {
-        int index = Math.clamp(attempt - 1, 0, ramp.size() - 1);
+        int index = Math.clamp((long) attempt - 1, 0, ramp.size() - 1);
         return now.plus(ramp.get(index));
     }
 }

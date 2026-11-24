@@ -44,21 +44,9 @@ class PolicyWindowTest {
     }
 
     @ParameterizedTest
-    @MethodSource("missingValidityDates")
-    void returnsNoWindow_whenValidityDateIsMissing(Instant notBefore, Instant notAfter) {
-        // given — a certificate whose validity dates are not both known
-
-        // when
-        Optional<Window> window = PolicyWindow.compute(notBefore, notAfter, 67, 80);
-
-        // then
-        assertThat(window).isEmpty();
-    }
-
-    @ParameterizedTest
-    @MethodSource("emptyLifetimes")
-    void returnsNoWindow_whenLifetimeIsNotPositive(Instant notBefore, Instant notAfter) {
-        // given — a validity period that does not span any time
+    @MethodSource({"missingValidityDates", "emptyLifetimes"})
+    void returnsNoWindow_whenValidityPeriodIsUnusable(Instant notBefore, Instant notAfter) {
+        // given — validity dates that are not both known, or that do not span any time
 
         // when
         Optional<Window> window = PolicyWindow.compute(notBefore, notAfter, 67, 80);
