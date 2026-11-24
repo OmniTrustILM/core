@@ -17,6 +17,7 @@ import org.junit.jupiter.api.extension.RegisterExtension;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.HttpServerErrorException;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.delete;
@@ -80,6 +81,19 @@ class TrustedCertificateProvisioningClientITest extends BaseSpringBootTest {
         wireMockServer
                 .verify(1, deleteRequestedFor(urlPathEqualTo(BASE_PATH + "/p1"))
                         .withQueryParam("deferApply", equalTo("true")));
+    }
+
+    @Test
+    void doesNotRetryApply_whenProvisioningFails() {
+        // given
+        wireMockServer.stubFor(post(urlPathEqualTo(BASE_PATH + "/apply")).willReturn(aResponse().withStatus(503)));
+
+        // when
+        ThrowingCallable apply = () -> client.apply();
+
+        // then
+        assertThatThrownBy(apply).isInstanceOf(HttpServerErrorException.class);
+        wireMockServer.verify(1, postRequestedFor(urlPathEqualTo(BASE_PATH + "/apply")));
     }
 
     @Test

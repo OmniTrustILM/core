@@ -61,14 +61,10 @@ public interface TrustedCertificateProvisioningApiClient {
 
     /**
      * Starts one tenant deployment carrying the deferred changes. An older provisioning without this endpoint answers
-     * 404; 204 means there was nothing to deploy.
+     * 404; 204 means there was nothing to deploy. Not retried: an answer lost after provisioning queued the deployment
+     * would make a retry queue a second one.
      */
     @PostExchange("/apply")
-    @Retryable(retryFor = RestClientException.class, noRetryFor = HttpClientErrorException.NotFound.class,
-            maxAttemptsExpression = "${provisioning.api.retry.max-attempts}",
-            backoff = @Backoff(delayExpression = "${provisioning.api.retry.delay}",
-                    maxDelayExpression = "${provisioning.api.retry.max-delay}",
-                    multiplierExpression = "${provisioning.api.retry.multiplier}"))
     ResponseEntity<ProvisioningApplyResponseDTO> apply();
 
     /**
