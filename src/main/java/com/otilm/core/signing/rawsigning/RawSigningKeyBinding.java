@@ -32,7 +32,7 @@ public class RawSigningKeyBinding {
     public void requireKeyNotShared(ResolvedManagedRawSigningProfile profile) throws SigningEngineException {
         List<String> conflictingProfileNames = signingProfileVersionRepository
                 .findProfileNamesBySigningKeyAndWorkflowIn(signingKeyUuid(profile.resolvedScheme()),
-                        RawSigningProfileRules.conflictingWorkflows(SigningWorkflowType.RAW_SIGNING), null, null);
+                        RawSigningProfileRules.conflictingWorkflows(SigningWorkflowType.RAW_SIGNING));
         if (!conflictingProfileNames.isEmpty()) {
             throw new SigningEngineException(SigningEngineFailure.MISCONFIGURED,
                     ("the signing key of Signing Profile '%s' signs, or has signed, for Signing Profile(s) of another "

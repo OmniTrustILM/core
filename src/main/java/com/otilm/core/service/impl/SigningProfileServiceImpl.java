@@ -459,7 +459,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         attributeEngine.validateCustomAttributesContent(Resource.SIGNING_PROFILE, request.getCustomAttributes());
         validateContentSigningWorkflow(request, null);
         validateRawSigningWorkflow(request);
-        validateSigningKeyWorkflowBinding(request, null);
+        validateSigningKeyWorkflowBinding(request);
         List<BaseAttribute> formattingDefinitions = fetchFormattingAttributeDefinitions(request.getWorkflow(),
                 request.getSigningScheme().getSigningScheme());
         AttributesWithOwner signingSchema = fetchValidatedSigningOperationSchema(request.getSigningScheme());
@@ -513,7 +513,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         attributeEngine.validateCustomAttributesContent(Resource.SIGNING_PROFILE, request.getCustomAttributes());
         validateContentSigningWorkflow(request, uuid.getValue());
         validateRawSigningWorkflow(request);
-        validateSigningKeyWorkflowBinding(request, uuid.getValue());
+        validateSigningKeyWorkflowBinding(request);
         List<BaseAttribute> formattingDefinitions = fetchFormattingAttributeDefinitions(request.getWorkflow(),
                 request.getSigningScheme().getSigningScheme());
         AttributesWithOwner signingSchema = fetchValidatedSigningOperationSchema(request.getSigningScheme());
@@ -547,7 +547,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         SigningProfileVersion currentVersion = signingProfileVersionRepository
                 .findBySigningProfileUuidAndVersion(profile.getUuid(), latestVersion)
                 .orElseThrow(() -> new NotFoundException("Signing Profile version " + latestVersion + " not found"));
-        boolean bump = updateKeepsVersion(profile.getUuid(), currentVersion, request.getRecordPolicy());
+        boolean bump = updateKeepsVersion(profile.getUuid(), currentVersion, request);
 
         SigningProfileVersion version;
         if (bump) {
@@ -897,8 +897,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
             // Only a static-key scheme names a key ILM signs with.
             return;
         }
-        refuseSharedSigningKey(SigningWorkflowType.RAW_SIGNING, certificate.getUuid(), certificate.getKeyUuid(), null,
-                null);
+        refuseSharedSigningKey(SigningWorkflowType.RAW_SIGNING, certificate.getUuid(), certificate.getKeyUuid());
     }
 
     /** An update may move a profile to a workflow or scheme that cannot carry a protocol it had enabled. */
@@ -1141,8 +1140,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
      * or once signed, with, through any certificate. Runs outside the persistence transaction; only a static-key
      * profile names a key ILM signs with.
      */
-    private void validateSigningKeyWorkflowBinding(SigningProfileRequestDto request, @Nullable UUID targetProfileUuid)
-            throws NotFoundException {
+    private void validateSigningKeyWorkflowBinding(SigningProfileRequestDto request) throws NotFoundException {
         if (!(request.getSigningScheme() instanceof StaticKeyManagedSigningRequestDto scheme)) {
             return;
         }
@@ -1153,37 +1151,26 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
             // The eligibility check refuses a certificate without a key.
             return;
         }
-        Integer overwrittenVersion = targetProfileUuid == null
-                ? null
-                : overwrittenVersionOf(targetProfileUuid, request.getRecordPolicy());
-        refuseSharedSigningKey(request.getWorkflow().getType(), certificateUuid, keyUuid,
-                overwrittenVersion == null ? null : targetProfileUuid, overwrittenVersion);
+        refuseSharedSigningKey(request.getWorkflow().getType(), certificateUuid, keyUuid);
     }
 
-    private void refuseSharedSigningKey(SigningWorkflowType workflowType, UUID certificateUuid, UUID keyUuid,
-            @Nullable UUID excludedProfileUuid, @Nullable Integer excludedVersion) {
+    private void refuseSharedSigningKey(SigningWorkflowType workflowType, UUID certificateUuid, UUID keyUuid) {
         List<String> conflictingProfileNames = signingProfileVersionRepository
                 .findProfileNamesBySigningKeyAndWorkflowIn(keyUuid,
-                        RawSigningProfileRules.conflictingWorkflows(workflowType), excludedProfileUuid,
-                        excludedVersion);
+                        RawSigningProfileRules.conflictingWorkflows(workflowType));
         RawSigningProfileRules.refuseSharedSigningKey(workflowType, certificateUuid, conflictingProfileNames);
     }
 
-    /** The latest version of the profile, when an update with this record policy overwrites it in place. */
-    private @Nullable Integer overwrittenVersionOf(UUID profileUuid,
-            @Nullable SigningRecordPolicyRequestDto recordPolicy) {
-        return signingProfileVersionRepository
-                .findLatestByProfileUuid(profileUuid)
-                .filter(latest -> !updateKeepsVersion(profileUuid, latest, recordPolicy))
-                .map(SigningProfileVersion::getVersion)
-                .orElse(null);
-    }
-
-    /** Whether an update writes its change as a new version instead of overwriting {@code current} in place. */
+    /**
+     * Whether an update writes its change as a new version instead of overwriting {@code current} in place. A workflow
+     * change always keeps the old version: a profile can sign without leaving a record, and the key binding reads what
+     * a key signed for from the stored versions.
+     */
     private boolean updateKeepsVersion(UUID profileUuid, SigningProfileVersion current,
-            @Nullable SigningRecordPolicyRequestDto recordPolicy) {
-        return signingRecordInternalService.doesSigningRecordExistInternal(profileUuid, current.getVersion())
-                || recordPolicyDiffersFromVersion(current, recordPolicy);
+            SigningProfileRequestDto request) {
+        return current.getWorkflowType() != request.getWorkflow().getType()
+                || signingRecordInternalService.doesSigningRecordExistInternal(profileUuid, current.getVersion())
+                || recordPolicyDiffersFromVersion(current, request.getRecordPolicy());
     }
 
     /**

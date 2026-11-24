@@ -48,18 +48,12 @@ public interface SigningProfileVersionRepository extends JpaRepository<SigningPr
      * Names the profiles of the given workflows that sign, or once signed, with the key, through whichever certificate
      * carries it. Every stored version counts, superseded ones too: a signature stays valid after its profile has moved
      * to another key.
-     *
-     * @param excludedProfileUuid with {@code excludedVersion}, the one version that does not count: the latest version
-     * of a profile that a save overwrites in place; both null to count every version
      */
     @Query("""
             SELECT DISTINCT v.signingProfile.name FROM SigningProfileVersion v
             WHERE v.certificate.keyUuid = :keyUuid
               AND v.workflowType IN :workflowTypes
-              AND (CAST(:excludedProfileUuid AS java.util.UUID) IS NULL
-                   OR v.signingProfileUuid <> :excludedProfileUuid OR v.version <> :excludedVersion)
             ORDER BY v.signingProfile.name
             """)
-    List<String> findProfileNamesBySigningKeyAndWorkflowIn(UUID keyUuid, Collection<SigningWorkflowType> workflowTypes,
-            UUID excludedProfileUuid, Integer excludedVersion);
+    List<String> findProfileNamesBySigningKeyAndWorkflowIn(UUID keyUuid, Collection<SigningWorkflowType> workflowTypes);
 }

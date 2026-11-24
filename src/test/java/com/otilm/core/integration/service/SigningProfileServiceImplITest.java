@@ -2193,10 +2193,13 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             assertThat(persistedVersion(profile.getUuid(), profile.getVersion()).getAllowedRequestAttributes())
                     .containsExactly("reason");
 
-            // when
+            // when — a raw profile may not sign with a key a content version used, so it moves to the raw key
             SigningProfileDto updated = signingProfileService
                     .updateSigningProfile(SecuredUUID.fromString(profile.getUuid()),
-                            aSigningProfileRequestFromExistingProfile(profile).withRawSigning().build());
+                            aSigningProfileRequestFromExistingProfile(profile)
+                                    .withStaticKeyManagedSigning(defaultRawSigningCertificate.getUuid())
+                                    .withRawSigning()
+                                    .build());
 
             // then
             assertThat(persistedVersion(updated.getUuid(), updated.getVersion()).getAllowedRequestAttributes())
@@ -2557,8 +2560,8 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         }
 
         @Test
-        void admitsItsOwnCertificate_whenContentProfileTurnsRaw() throws Exception {
-            // given — a content profile, the only profile signing with its certificate's key
+        void refusesTheSwitchToRaw_whenAContentProfileWithNoRecordsStaysOnItsKey() throws Exception {
+            // given — no signing record names the content version, yet a profile can sign without leaving one
             SigningProfileDto contentProfile = createManagedContentProfile("content-turning-raw",
                     defaultSigningCertificate.getUuid());
             SigningProfileRequestDto toRaw = aSigningProfileRequestFromExistingProfile(contentProfile)
@@ -2566,15 +2569,34 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                     .build();
 
             // when
-            SigningProfileDto updated = signingProfileService
+            ThrowableAssert.ThrowingCallable update = () -> signingProfileService
                     .updateSigningProfile(SecuredUUID.fromString(contentProfile.getUuid()), toRaw);
 
             // then
-            assertThat(updated.getWorkflow()).isInstanceOf(RawSigningWorkflowDto.class);
-            assertThat(updated.getSigningScheme())
-                    .isInstanceOfSatisfying(StaticKeyManagedSigningDto.class,
-                            scheme -> assertThat(scheme.getCertificate().getUuid())
-                                    .isEqualTo(defaultSigningCertificate.getUuid()));
+            assertThatThrownBy(update)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("signs, or has signed, for Signing Profile(s) of another workflow")
+                    .hasMessageContaining(contentProfile.getName());
+        }
+
+        @Test
+        void keepsTheOldVersion_whenAnUpdateChangesTheWorkflow() throws Exception {
+            // given — a content profile with no signing record, moving to raw signing on another key
+            SigningProfileDto contentProfile = createManagedContentProfile("content-moving-to-raw",
+                    defaultSigningCertificate.getUuid());
+            SigningProfileRequestDto toRawOnAnotherKey = aSigningProfileRequestFromExistingProfile(contentProfile)
+                    .withStaticKeyManagedSigning(defaultRawSigningCertificate.getUuid())
+                    .withRawSigning()
+                    .build();
+
+            // when
+            SigningProfileDto updated = signingProfileService
+                    .updateSigningProfile(SecuredUUID.fromString(contentProfile.getUuid()), toRawOnAnotherKey);
+
+            // then
+            assertThat(updated.getVersion()).isEqualTo(contentProfile.getVersion() + 1);
+            assertThat(persistedVersion(contentProfile.getUuid(), contentProfile.getVersion()).getWorkflowType())
+                    .isEqualTo(SigningWorkflowType.CONTENT_SIGNING);
         }
 
         @Test
