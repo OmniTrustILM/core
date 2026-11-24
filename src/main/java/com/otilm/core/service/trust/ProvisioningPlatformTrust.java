@@ -97,11 +97,14 @@ public class ProvisioningPlatformTrust implements PlatformTrustManager {
     }
 
     @Override
-    public Optional<ProvisioningApplyResponseDTO> apply() {
+    public PlatformApplyResult apply() {
         try {
-            return Optional.ofNullable(client.apply().getBody());
+            ProvisioningApplyResponseDTO deployment = client.apply().getBody();
+            return deployment == null
+                    ? PlatformApplyResult.nothingToApply()
+                    : PlatformApplyResult.deploying(deployment);
         } catch (HttpClientErrorException.NotFound e) {
-            return Optional.empty();
+            return PlatformApplyResult.notSupported();
         } catch (RestClientException e) {
             throw new ProvisioningException("Failed to apply platform trust", e);
         }

@@ -6,6 +6,7 @@ import com.otilm.api.model.client.trustedcertificate.TrustedCertificatePlatformS
 import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.provisioning.ProvisioningApplyResponseDTO;
 import com.otilm.core.provisioning.ProvisioningException;
+import com.otilm.core.service.trust.PlatformApplyResult;
 import com.otilm.core.service.trust.PlatformRecord;
 import com.otilm.core.service.trust.PlatformTrustManager;
 import com.otilm.core.util.BaseSpringBootTest;
@@ -16,7 +17,6 @@ import java.nio.charset.StandardCharsets;
 import java.security.cert.X509Certificate;
 import java.util.Base64;
 import java.util.List;
-import java.util.Optional;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -106,15 +106,43 @@ class TrustedCertificatePlatformTrustITest extends BaseSpringBootTest {
     }
 
     @Test
-    void returnsNoDeployment_whenOlderProvisioningHasNoApply() {
+    void reportsApplyAsNotSupported_whenOlderProvisioningHasNoApply() {
         // given
         wireMockServer.stubFor(post(urlPathEqualTo(BASE_PATH + "/apply")).willReturn(aResponse().withStatus(404)));
 
         // when
-        Optional<ProvisioningApplyResponseDTO> deployment = manager.apply();
+        PlatformApplyResult result = manager.apply();
 
         // then
-        assertThat(deployment).isEmpty();
+        assertThat(result.outcome()).isEqualTo(PlatformApplyResult.Outcome.NOT_SUPPORTED);
+        assertThat(result.deployment()).isNull();
+    }
+
+    @Test
+    void reportsNothingToApply_whenProvisioningAnswersNoContent() {
+        // given
+        wireMockServer.stubFor(post(urlPathEqualTo(BASE_PATH + "/apply")).willReturn(aResponse().withStatus(204)));
+
+        // when
+        PlatformApplyResult result = manager.apply();
+
+        // then
+        assertThat(result.outcome()).isEqualTo(PlatformApplyResult.Outcome.NOTHING_TO_APPLY);
+    }
+
+    @Test
+    void returnsTheDeployment_whenApplyStartsOne() {
+        // given
+        wireMockServer
+                .stubFor(post(urlPathEqualTo(BASE_PATH + "/apply"))
+                        .willReturn(okJson("{\"deploymentId\":42,\"configurationVersion\":\"v7\"}").withStatus(202)));
+
+        // when
+        PlatformApplyResult result = manager.apply();
+
+        // then
+        assertThat(result.outcome()).isEqualTo(PlatformApplyResult.Outcome.DEPLOYING);
+        assertThat(result.deployment()).isEqualTo(new ProvisioningApplyResponseDTO(42, "v7"));
     }
 
     @Test

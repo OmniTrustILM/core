@@ -2,7 +2,6 @@ package com.otilm.core.service.trust;
 
 import com.otilm.api.model.client.trustedcertificate.PlatformBundleCertificateDto;
 import com.otilm.api.model.client.trustedcertificate.TrustedCertificatePlatformSource;
-import com.otilm.core.provisioning.ProvisioningApplyResponseDTO;
 import com.otilm.core.provisioning.ProvisioningApplyStatusDTO;
 import java.util.List;
 import java.util.Optional;
@@ -39,10 +38,10 @@ public interface PlatformTrustManager {
     /**
      * Deploys the stored changes in one deployment.
      *
-     * @return the deployment, or empty when there was nothing to deploy or the platform cannot apply on request
+     * @return what the request did: started a deployment, found nothing to deploy, or found no apply on the platform
      * @throws PlatformTrustNotManagedException when platform trust is not managed here
      */
-    Optional<ProvisioningApplyResponseDTO> apply();
+    PlatformApplyResult apply();
 
     /**
      * Lists the certificates the platform holds, with their state.

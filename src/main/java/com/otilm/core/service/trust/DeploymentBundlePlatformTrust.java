@@ -3,7 +3,6 @@ package com.otilm.core.service.trust;
 import com.otilm.api.model.client.trustedcertificate.PlatformBundleCertificateDto;
 import com.otilm.api.model.client.trustedcertificate.TrustedCertificatePlatformSource;
 import com.otilm.core.config.TrustedCertificatesConfig;
-import com.otilm.core.provisioning.ProvisioningApplyResponseDTO;
 import com.otilm.core.provisioning.ProvisioningApplyStatusDTO;
 import com.otilm.core.util.CertificateUtil;
 import java.security.GeneralSecurityException;
@@ -65,7 +64,7 @@ public class DeploymentBundlePlatformTrust implements PlatformTrustManager {
     }
 
     @Override
-    public Optional<ProvisioningApplyResponseDTO> apply() {
+    public PlatformApplyResult apply() {
         throw new PlatformTrustNotManagedException(NOT_MANAGED_MESSAGE);
     }
 
