@@ -65,8 +65,9 @@ public interface AuthorizationEnforcer {
 
     /**
      * Runs {@code body} as one batch of decisions for the current principal: the owner and group associations of
-     * {@code objectUuids} are read together in the first query of each kind, and a principal allowed all resources is
-     * answered without OPA. Batches do not nest.
+     * {@code objectUuids} are read together in the first query of each kind, and, while the authorization cache is
+     * enabled, a principal allowed all resources is answered without OPA except on resources where it denies an object
+     * (see {@link AllResourcesGrant}). Batches do not nest.
      *
      * @throws IllegalStateException when a batch is already running on this thread
      */

@@ -512,6 +512,26 @@ class ExternalAuthorizationCoreTest {
         assertThat(asked.getAllValues().getLast().getObjectUUIDs()).containsExactly(groupUuid);
     }
 
+    @Test
+    void deniesOnTheParentCheck_whenTheGrantCoversTheChildButExcludesTheParent() {
+        // given
+        when(scope.grantFor(any())).thenReturn(new AllResourcesGrant(true, Set.of(Resource.TOKEN_PROFILE.getCode())));
+        when(opaClient.checkResourceAccess(any(), any(), any(), any()))
+                .thenReturn(OpaResourceAccessResult.unauthorized());
+        AuthorizationRequest request = requestWithParent(List.of(SecuredUUID.fromUUID(UUID.randomUUID())),
+                List.of(SecuredUUID.fromUUID(UUID.randomUUID())));
+
+        // when
+        AuthorizationDecision decision = core.decide(platformAuthentication(UUID.randomUUID().toString()), request);
+
+        // then
+        assertThat(decision.isGranted()).isFalse();
+        ArgumentCaptor<OpaRequestedResource> asked = ArgumentCaptor.forClass(OpaRequestedResource.class);
+        verify(opaClient).checkResourceAccess(any(), asked.capture(), any(), any());
+        assertThat(asked.getValue().getProperties()).containsEntry("name", Resource.TOKEN_PROFILE.getCode());
+        assertThat(asked.getValue().getObjectUUIDs()).containsExactly(request.parentUuids().getFirst().toString());
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /** A child TOKEN:DETAIL check nested under a parent TOKEN_PROFILE:DETAIL check. */

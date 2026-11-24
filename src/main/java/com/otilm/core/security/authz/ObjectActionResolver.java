@@ -64,9 +64,12 @@ public class ObjectActionResolver {
      * Reports the actions the current principal may perform on each requested object, in request order. Objects that do
      * not exist, or that the principal may neither list nor view, are left out, and an object requested twice is
      * reported once. Each decision is the one enforcement makes, asked once per call; the requested objects are read in
-     * one query, as are their owner and group associations. While the authorization cache is enabled, a principal
-     * allowed all resources is answered by {@link AllResourcesGrant} without asking OPA, so while OPA is unreachable
-     * the report can list actions that enforcement, which always asks OPA, refuses.
+     * one query, as are their owner and group associations.
+     *
+     * <p>
+     * <b>OPA outage.</b> While the authorization cache is enabled, a principal allowed all resources is answered by
+     * {@link AllResourcesGrant} without asking OPA, except on a resource where it denies an object. While OPA is
+     * unreachable the report can therefore list actions that enforcement, which always asks OPA, refuses.
      *
      * @throws ValidationException when the resource has no objects identified by UUID and authorized individually
      */

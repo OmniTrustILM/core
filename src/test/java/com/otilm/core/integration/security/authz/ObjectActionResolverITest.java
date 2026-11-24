@@ -56,12 +56,16 @@ import com.otilm.core.util.PrincipalFixtures;
 import com.otilm.core.util.seeders.CryptographicKeySeeder;
 import com.otilm.core.util.seeders.TokenProfileSeeder;
 import com.otilm.core.util.seeders.TspProfileBasicCredentialSeeder;
+import com.zaxxer.hikari.HikariDataSource;
+import com.zaxxer.hikari.HikariPoolMXBean;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Stream;
+import javax.sql.DataSource;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.hibernate.SessionFactory;
 import org.hibernate.engine.spi.SessionImplementor;
@@ -70,6 +74,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.orm.jpa.EntityManagerHolder;
@@ -81,6 +86,7 @@ import static com.otilm.core.util.builders.CertificateContentBuilder.aCertificat
 import static com.otilm.core.util.builders.ConnectorBuilder.aConnector;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -152,6 +158,9 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
 
     @Autowired
     private EntityManagerFactory entityManagerFactory;
+
+    @Autowired
+    private DataSource dataSource;
 
     private Connector connector;
 
@@ -908,6 +917,55 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
     }
 
     @Test
+    void asksAboutEveryGroupOfTheCertificate_whenItBelongsToSeveralGroups() {
+        // given
+        UUID certificate = saveCertificate(saveRaProfile());
+        List<String> certificateGroups = List.of(saveGroup().toString(), saveGroup().toString());
+        certificateGroups.forEach(group -> assignToGroup(Resource.CERTIFICATE, certificate, UUID.fromString(group)));
+        denyEveryCheckOn(Resource.CERTIFICATE);
+
+        // when
+        List<ObjectAllowedActionsDto> items = report(Resource.CERTIFICATE, certificate);
+
+        // then
+        assertThat(items).extracting(ObjectAllowedActionsDto::getUuid).containsExactly(certificate);
+        ArgumentCaptor<OpaRequestedResource> asked = ArgumentCaptor.forClass(OpaRequestedResource.class);
+        verify(opaClient, atLeastOnce())
+                .checkResourceAccess(Mockito.any(), asked.capture(), Mockito.any(), Mockito.any());
+        assertThat(asked.getAllValues())
+                .filteredOn(req -> isFor(req, Resource.GROUP, ResourceAction.MEMBERS))
+                .isNotEmpty()
+                .allSatisfy(
+                        req -> assertThat(req.getObjectUUIDs()).containsExactlyInAnyOrderElementsOf(certificateGroups));
+    }
+
+    @Test
+    void holdsNoPooledConnection_whileAskingOpaAboutGroupMembers() throws Exception {
+        // given
+        UUID certificate = saveCertificate(saveRaProfile());
+        assignToGroup(Resource.CERTIFICATE, certificate, saveGroup());
+        denyEveryCheckOn(Resource.CERTIFICATE);
+        HikariPoolMXBean pool = dataSource.unwrap(HikariDataSource.class).getHikariPoolMXBean();
+        int idleBaseline = pool.getActiveConnections();
+        List<Integer> activeDuringMembersCheck = new ArrayList<>();
+        when(opaClient
+                .checkResourceAccess(Mockito.any(),
+                        Mockito.argThat(req -> isFor(req, Resource.GROUP, ResourceAction.MEMBERS)), Mockito.any(),
+                        Mockito.any()))
+                .thenAnswer(invocation -> {
+                    activeDuringMembersCheck.add(pool.getActiveConnections());
+                    return granted();
+                });
+
+        // when
+        List<ObjectAllowedActionsDto> items = report(Resource.CERTIFICATE, certificate);
+
+        // then
+        assertThat(items).extracting(ObjectAllowedActionsDto::getUuid).containsExactly(certificate);
+        assertThat(activeDuringMembersCheck).isNotEmpty().containsOnly(idleBaseline);
+    }
+
+    @Test
     void readsKeyOwnersOnce_whenKeyOperationsAreCheckedOnTokenProfiles() {
         // given
         List<CryptographicKey> keys = List.of(saveKeyWithTokenProfile(), saveKeyWithTokenProfile());
@@ -1106,6 +1164,13 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
     private static boolean isFor(OpaRequestedResource req, Resource resource, ResourceAction action) {
         return req != null && req.getProperties() != null && resource.getCode().equals(req.getProperties().get("name"))
                 && action.getCode().equals(req.getProperties().get("action"));
+    }
+
+    private static OpaResourceAccessResult granted() {
+        OpaResourceAccessResult granted = new OpaResourceAccessResult();
+        granted.setAuthorized(true);
+        granted.setAllow(List.of());
+        return granted;
     }
 
     private static OpaResourceAccessResult denied() {

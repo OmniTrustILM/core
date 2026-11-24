@@ -121,6 +121,21 @@ class AuthorizationScopeTest {
     }
 
     @Test
+    void givesNoGrant_whenTheBatchUserDecidesWithNarrowerPermissions() {
+        // given — the same user, re-authenticated with an operator's permissions
+        PlatformUserDetails narrowed = createPrincipal(
+                PrincipalFixtures.operatorProfile(administrator.getUserUuid(), "a"));
+
+        // when
+        boolean granted = scope
+                .batched(administrator, Resource.CERTIFICATE, List.of(),
+                        () -> scope.grantFor(narrowed).grants(CERTIFICATES));
+
+        // then
+        assertThat(granted).isFalse();
+    }
+
+    @Test
     void sharesOneAssociationReader_whenAskedTwiceInTheSameBatch() {
         // given — the administrator's batch
 
