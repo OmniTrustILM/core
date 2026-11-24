@@ -16,7 +16,7 @@ public record PlatformApplyResult(Outcome outcome, ProvisioningApplyResponseDTO 
         DEPLOYING,
         /** The platform had no stored change to deploy. */
         NOTHING_TO_APPLY,
-        /** The platform cannot apply on request, as an older provisioning service. */
+        /** The platform cannot apply on request, such as an older provisioning service without the apply endpoint. */
         NOT_SUPPORTED
     }
 

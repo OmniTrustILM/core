@@ -37,7 +37,8 @@ public class TrustedCertificate extends UniquelyIdentified {
     @Column(name = "certificate_uuid", nullable = false, unique = true)
     private UUID certificateUuid;
 
-    // Trust is X.509 only, and the list shows the DNs and SANs only that subclass maps.
+    // Typed to the X.509 subclass: trust is X.509 only, and only that subclass maps the DNs and SANs a trust list
+    // shows.
     @ToString.Exclude
     @OneToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "certificate_uuid", insertable = false, updatable = false)

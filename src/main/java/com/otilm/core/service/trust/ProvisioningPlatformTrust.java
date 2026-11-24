@@ -134,17 +134,21 @@ public class ProvisioningPlatformTrust implements PlatformTrustManager {
 
     private static PlatformRecord toRecord(TrustedCertificateProvisioningDTO dto) {
         byte[] content = dto.certificateContent();
+        String fingerprint = fingerprintOf(content);
+        if (fingerprint == null && content != null) {
+            log.warn("Platform returned content for trusted certificate {} that is not a certificate", dto.uuid());
+        }
         String state = dto.state();
         if (state == null || state.isBlank()) {
-            return new PlatformRecord(dto.uuid(), fingerprintOf(content), content,
-                    TrustedCertificatePlatformState.UNKNOWN, NO_STATE_MESSAGE);
+            return new PlatformRecord(dto.uuid(), fingerprint, content, TrustedCertificatePlatformState.UNKNOWN,
+                    NO_STATE_MESSAGE);
         }
         try {
-            return new PlatformRecord(dto.uuid(), fingerprintOf(content), content,
+            return new PlatformRecord(dto.uuid(), fingerprint, content,
                     TrustedCertificatePlatformState.findByCode(state), null);
         } catch (ValidationException e) {
-            return new PlatformRecord(dto.uuid(), fingerprintOf(content), content,
-                    TrustedCertificatePlatformState.UNKNOWN, UNKNOWN_STATE_MESSAGE);
+            return new PlatformRecord(dto.uuid(), fingerprint, content, TrustedCertificatePlatformState.UNKNOWN,
+                    UNKNOWN_STATE_MESSAGE);
         }
     }
 
@@ -163,7 +167,6 @@ public class ProvisioningPlatformTrust implements PlatformTrustManager {
                     : CertificateUtil.getX509Certificate(content);
             return CertificateUtil.getThumbprint(certificate);
         } catch (GeneralSecurityException | IllegalArgumentException e) {
-            log.warn("Platform returned trusted certificate content that is not a certificate");
             return null;
         }
     }

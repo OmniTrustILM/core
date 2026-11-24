@@ -15,7 +15,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * The only writer of trusted certificate rows and of the {@code trusted_ca} flag they derive.
+ * Writes trusted certificate rows and the {@code trusted_ca} flag they derive; the certificate update keeps setting the
+ * flag itself and calls {@link #syncValidationPurpose} for the row.
  *
  * <p>
  * Methods use the default propagation ({@code REQUIRED}): they join an ambient transaction or open one. A change of the
@@ -89,8 +90,8 @@ public class TrustedCertificateWriter {
 
     /**
      * Replaces the purposes of a trust row. Dropping the platform purpose keeps the row with its removal pending until
-     * the platform confirms it, and adding it back cancels that removal; the orchestrator calls this for a platform
-     * drop only where platform trust is managed, and deletes the row otherwise.
+     * the platform confirms it, and adding it back cancels that removal. Call it to drop the platform purpose only
+     * where platform trust is managed; elsewhere delete the row.
      *
      * @throws IllegalArgumentException when no purpose would be left and no platform removal is pending; dropping the
      * last purpose is a removal

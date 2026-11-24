@@ -26,7 +26,7 @@ CREATE TABLE "trusted_certificate_sync" (
 INSERT INTO "trusted_certificate_sync" ("uuid", "initial_import_done")
 VALUES ('00000000-0000-0000-0000-000000000001', FALSE);
 
--- Validation trust moves into the new table as it is; trusted_ca stays and is written by the trust service from now on.
+-- Each certificate trusted as a CA becomes a trust row with the validation purpose; trusted_ca is kept.
 INSERT INTO "trusted_certificate" ("uuid", "certificate_uuid", "validation", "platform", "platform_removal_pending",
                                    "created_at", "updated_at")
 SELECT gen_random_uuid(), "uuid", TRUE, FALSE, FALSE, now(), now()

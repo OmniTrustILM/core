@@ -46,7 +46,7 @@ public interface PlatformTrustManager {
     /**
      * Lists the certificates the platform holds, with their state.
      *
-     * @throws com.otilm.core.provisioning.ProvisioningException when the platform cannot be reached
+     * @throws com.otilm.core.provisioning.ProvisioningException when the request to the platform fails
      */
     List<PlatformRecord> list();
 
