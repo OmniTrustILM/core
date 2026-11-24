@@ -163,7 +163,8 @@ public class CrmfKurMessageHandler implements MessageHandler<ClientCertificateDa
                     .requireEnrollmentSupport(dbCertificate.getCertificateType(), CertificateProtocol.CMP);
             // -- (1)certification request (ask for issue)
             return clientOperationService
-                    .rekeyCertificate(SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
+                    .rekeyCertificateThroughProtocol(
+                            SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
                             raProfile.getSecuredUuid(), certificateUUID, dtoBuilder.build());
         } catch (UnsupportedCertificateTypeException e) {
             // before the catch below, which would report it as a registration rejection

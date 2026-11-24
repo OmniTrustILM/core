@@ -55,6 +55,7 @@ import com.otilm.api.model.core.certificate.CertificateRelationType;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.certificate.SupportedCertificateTypeDto;
 import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.cryptography.key.KeyState;
@@ -189,6 +190,7 @@ import java.util.Date;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
@@ -469,6 +471,36 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
+    void listsTheTypesTheAuthorityReports_whenAskedForTheRaProfile() throws Exception {
+        // given
+        Set<CertificateType> reported = EnumSet.of(CertificateType.X509, CertificateType.SSH);
+        doReturn(reported).when(authorityCertificateTypes).supportedTypes(raProfile.getUuid());
+
+        // when
+        List<SupportedCertificateTypeDto> types = clientOperationService
+                .listSupportedCertificateTypes(authorityInstanceReference.getSecuredParentUuid(),
+                        raProfile.getSecuredUuid());
+
+        // then
+        assertThat(types)
+                .containsExactlyInAnyOrder(SupportedCertificateTypeDto.of(CertificateType.X509),
+                        SupportedCertificateTypeDto.of(CertificateType.SSH));
+    }
+
+    @Test
+    void listsX509Only_whenTheAuthorityHasNoOperationThatReportsItsTypes() throws Exception {
+        // given — the RA profile belongs to a v2 authority, which cannot report its certificate types
+
+        // when
+        List<SupportedCertificateTypeDto> types = clientOperationService
+                .listSupportedCertificateTypes(authorityInstanceReference.getSecuredParentUuid(),
+                        raProfile.getSecuredUuid());
+
+        // then
+        assertThat(types).containsExactly(SupportedCertificateTypeDto.of(CertificateType.X509));
+    }
+
+    @Test
     void testListIssueCertificateAttributes() throws ConnectorException, NotFoundException {
         mockServer
                 .stubFor(WireMock
@@ -724,6 +756,43 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         } finally {
             clientOperationServiceImpl.setTypeHandlerRegistry(typeHandlerRegistry);
         }
+        assertThat(certificateRepository.count()).isEqualTo(certificatesBefore);
+    }
+
+    @Test
+    void submitsWithoutAskingTheAuthorityForItsTypes_whenAProtocolRequestsTheCertificate() throws Exception {
+        // given
+        stubIssueEndpoints();
+        doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedTypes(any());
+        CertificateProtocolInfo protocolInfo = CertificateProtocolInfo.est(UUID.randomUUID());
+
+        // when
+        ClientCertificateDataResponseDto response = clientOperationInternalService
+                .issueCertificate(authorityInstanceReference.getSecuredParentUuid(), raProfile.getSecuredUuid(),
+                        issueRequest(), protocolInfo);
+
+        // then
+        assertThat(certificateRepository.findByUuid(UUID.fromString(response.getUuid()))).isPresent();
+        verify(authorityCertificateTypes, never()).requireSupport(any(), any());
+    }
+
+    @Test
+    void refusesBeforeStoring_whenARequestOutsideAProtocolAsksForATypeTheAuthorityDoesNotIssue() throws Exception {
+        // given
+        stubIssueEndpoints();
+        doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedTypes(any());
+        long certificatesBefore = certificateRepository.count();
+        ClientCertificateIssueRequestDto request = issueRequest();
+
+        // when
+        ThrowingCallable issue = () -> clientOperationInternalService
+                .issueCertificate(authorityInstanceReference.getSecuredParentUuid(), raProfile.getSecuredUuid(),
+                        request, null);
+
+        // then
+        assertThatThrownBy(issue)
+                .isInstanceOf(UnsupportedCertificateTypeException.class)
+                .hasMessageContaining(raProfile.getName());
         assertThat(certificateRepository.count()).isEqualTo(certificatesBefore);
     }
 
@@ -1001,6 +1070,9 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                 .of(operation("list issue attributes",
                         (service, authority, profile, certificateUuid) -> service
                                 .listIssueCertificateAttributes(authority, profile)),
+                        operation("list certificate types",
+                                (service, authority, profile, certificateUuid) -> service
+                                        .listSupportedCertificateTypes(authority, profile)),
                         operation("list register attributes",
                                 (service, authority, profile, certificateUuid) -> service
                                         .listRegisterCertificateAttributes(authority, profile)),
@@ -1834,9 +1906,27 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
-    void refusesToRenew_whenTheAuthorityDoesNotIssueTheTypeOfTheCertificate() {
+    void refusesToIssueARequestStoredEarlier_whenTheAuthorityDoesNotIssueTheTypeOfTheCertificate() throws Exception {
         // given
-        doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedTypes();
+        doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedTypes(any());
+        UUID requestedUuid = prepareCertificateForIssuance();
+
+        // when
+        ThrowingCallable issue = () -> clientOperationService
+                .issueExistingCertificate(authorityInstanceReference.getSecuredParentUuid(), raProfile.getSecuredUuid(),
+                        requestedUuid.toString(), null);
+
+        // then
+        assertThatThrownBy(issue)
+                .isInstanceOf(UnsupportedCertificateTypeException.class)
+                .hasMessageContaining(raProfile.getName());
+        verify(actionProducer, never()).produceMessage(any());
+    }
+
+    @Test
+    void refusesToRenew_whenTheAuthorityDoesNotIssueTheTypeOfTheCertificate() throws Exception {
+        // given
+        doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedTypes(any());
         long certificatesBefore = certificateRepository.count();
         ClientCertificateRenewRequestDto request = new ClientCertificateRenewRequestDto();
 
@@ -1854,9 +1944,31 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
-    void refusesToRekey_whenTheAuthorityDoesNotIssueTheTypeOfTheCertificate() {
+    void renewsWithoutAskingTheAuthorityForItsTypes_whenAProtocolRequestsTheRenewal() throws Exception {
         // given
-        doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedTypes();
+        stubAuthorityProviderAttributesEndpoints();
+        doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedTypes(any());
+        var subjectDn = "CN=renew-through-protocol";
+        KeyPair currentKeys = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+        storeAsCurrentCertificate(currentKeys, subjectDn);
+        ClientCertificateRenewRequestDto request = new ClientCertificateRenewRequestDto();
+        request.setRequest(generatePkcs10(currentKeys, subjectDn));
+        CertificateProtocolInfo protocolInfo = CertificateProtocolInfo.est(UUID.randomUUID());
+
+        // when
+        ClientCertificateDataResponseDto renewed = clientOperationInternalService
+                .renewCertificate(authorityInstanceReference.getSecuredParentUuid(), raProfile.getSecuredUuid(),
+                        certificate.getUuid().toString(), request, protocolInfo, null);
+
+        // then
+        assertThat(certificateRepository.findByUuid(UUID.fromString(renewed.getUuid()))).isPresent();
+        verify(authorityCertificateTypes, never()).requireSupport(any(), any());
+    }
+
+    @Test
+    void refusesToRekey_whenTheAuthorityDoesNotIssueTheTypeOfTheCertificate() throws Exception {
+        // given
+        doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedTypes(any());
         long certificatesBefore = certificateRepository.count();
         ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
 
@@ -1908,6 +2020,49 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
         // then
         assertThat(loadStoredRequestFormat(rekeyed)).isEqualTo(CertificateRequestFormat.PKCS10);
+    }
+
+    @Test
+    void rekeysWithoutAskingTheAuthorityForItsTypes_whenAProtocolRequestsTheRekey() throws Exception {
+        // given
+        stubAuthorityProviderAttributesEndpoints();
+        doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedTypes(any());
+        var subjectDn = "CN=rekey-through-protocol";
+        storeAsCurrentCertificate(CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null), subjectDn);
+        KeyPair newKeys = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+        ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
+        request.setRequest(generatePkcs10(newKeys, subjectDn));
+
+        // when
+        ClientCertificateDataResponseDto rekeyed = clientOperationInternalService
+                .rekeyCertificateThroughProtocol(authorityInstanceReference.getSecuredParentUuid(),
+                        raProfile.getSecuredUuid(), certificate.getUuid().toString(), request);
+
+        // then
+        assertThat(certificateRepository.findByUuid(UUID.fromString(rekeyed.getUuid()))).isPresent();
+        verify(authorityCertificateTypes, never()).requireSupport(any(), any());
+    }
+
+    @Test
+    void rekeysWithoutAskingTheAuthorityForItsTypes_whenTheRekeyCarriesProtocolInformation() throws Exception {
+        // given
+        stubAuthorityProviderAttributesEndpoints();
+        doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedTypes(any());
+        var subjectDn = "CN=rekey-with-protocol-information";
+        storeAsCurrentCertificate(CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null), subjectDn);
+        KeyPair newKeys = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+        ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
+        request.setRequest(generatePkcs10(newKeys, subjectDn));
+        CertificateProtocolInfo protocolInfo = CertificateProtocolInfo.est(UUID.randomUUID());
+
+        // when
+        ClientCertificateDataResponseDto rekeyed = clientOperationInternalService
+                .rekeyCertificate(authorityInstanceReference.getSecuredParentUuid(), raProfile.getSecuredUuid(),
+                        certificate.getUuid().toString(), request, protocolInfo, null);
+
+        // then
+        assertThat(certificateRepository.findByUuid(UUID.fromString(rekeyed.getUuid()))).isPresent();
+        verify(authorityCertificateTypes, never()).requireSupport(any(), any());
     }
 
     @Test
@@ -5609,18 +5764,20 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         }
 
         @Test
-        void refusesTheCompletion_whenTheAuthorityDoesNotIssueTheTypeOfTheCertificate() {
+        void completesTheRegistrationWithoutAskingTheAuthorityForItsTypes() throws Exception {
             // given
-            doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedTypes();
+            doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedTypes(any());
             ClientCertificateIssueRequestDto completion = createCompletionRequest();
 
             // when
-            ThrowingCallable complete = () -> clientOperationService
-                    .issueExistingCertificate(authorityUuid, raProfileUuid, registrationUuid, completion);
+            clientOperationService.issueExistingCertificate(authorityUuid, raProfileUuid, registrationUuid, completion);
 
             // then
-            assertThatThrownBy(complete).isInstanceOf(UnsupportedCertificateTypeException.class);
-            assertStillRegisteredWithoutARequest();
+            assertThat(certificateRepository
+                    .findByUuid(UUID.fromString(registrationUuid))
+                    .orElseThrow()
+                    .getCertificateRequestUuid()).isNotNull();
+            verify(authorityCertificateTypes, never()).requireSupport(any(), any());
         }
 
         @Test

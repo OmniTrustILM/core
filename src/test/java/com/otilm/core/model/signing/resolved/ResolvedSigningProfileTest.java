@@ -11,6 +11,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 import static com.otilm.core.util.builders.ResolvedManagedContentSigningProfileBuilder.aResolvedContentSigningProfile;
+import static com.otilm.core.util.builders.ResolvedManagedRawSigningProfileBuilder.aResolvedRawSigningProfile;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
@@ -80,5 +81,17 @@ class ResolvedSigningProfileTest {
 
         // then
         assertThat(workflowType).isEqualTo(SigningWorkflowType.CONTENT_SIGNING);
+    }
+
+    @Test
+    void reportsRawSigningWorkflowType_whenProfileIsRawSigning() {
+        // given
+        ResolvedSigningProfile profile = aResolvedRawSigningProfile().build();
+
+        // when
+        SigningWorkflowType workflowType = profile.workflowType();
+
+        // then
+        assertThat(workflowType).isEqualTo(SigningWorkflowType.RAW_SIGNING);
     }
 }

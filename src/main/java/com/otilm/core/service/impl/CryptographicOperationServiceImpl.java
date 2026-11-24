@@ -25,6 +25,7 @@ import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.cryptography.key.KeyEvent;
 import com.otilm.api.model.core.cryptography.key.KeyEventStatus;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
+import com.otilm.api.model.core.logging.Sensitive;
 import com.otilm.core.config.TokenContentSigner;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
@@ -331,7 +332,7 @@ public class CryptographicOperationServiceImpl
             parentResource = Resource.TOKEN, parentAction = ResourceAction.DETAIL)
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public SignDataResponseDto signDataWithoutEventHistory(SecuredParentUUID tokenInstanceUuid,
-            SecuredUUID tokenProfileUuid, UUID uuid, UUID keyItemUuid, SignDataRequestDto request,
+            SecuredUUID tokenProfileUuid, UUID uuid, UUID keyItemUuid, @Sensitive SignDataRequestDto request,
             SignatureInputMode inputMode) throws ConnectorException, NotFoundException {
         return signWithoutEventHistory(tokenInstanceUuid, tokenProfileUuid, uuid, keyItemUuid, request, inputMode);
     }
