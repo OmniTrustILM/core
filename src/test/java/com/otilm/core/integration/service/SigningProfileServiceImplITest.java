@@ -1,6 +1,7 @@
 package com.otilm.core.integration.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.otilm.api.exception.AlreadyExistException;
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorException;
@@ -50,6 +51,7 @@ import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.enums.cryptography.RsaSignatureScheme;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
+import com.otilm.api.model.common.signature.DocumentTransferMode;
 import com.otilm.api.model.common.signature.SignatureLevel;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.connector.cryptography.v2.operations.SignatureAlgorithmAttribute;
@@ -1957,19 +1959,6 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
 
         // ── Helpers ───────────────────────────────────────────────────────────
 
-        private SigningProfileRequestDtoBuilder aManagedContentSigningProfile(String name) {
-            return aSigningProfileRequest()
-                    .withName(name)
-                    .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid());
-        }
-
-        private ContentSigningWorkflowRequestDtoBuilder aManagedContentSigningWorkflow() {
-            return aContentSigningWorkflow()
-                    .withSignatureFormattingConnector(UUID.fromString(contentSigningFormattingConnector.getUuid()))
-                    .withFamily(SignatureFamilyFixtures.PADES)
-                    .withLevel(SignatureLevel.SIGNED);
-        }
-
         private SigningProfileRequestDto managedPadesSigningRequest(String name, UUID certificateUuid) {
             return aSigningProfileRequest()
                     .withName(name)
@@ -2307,6 +2296,261 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                     .withLevel(SignatureLevel.SIGNED)
                     .withAllowedRequestAttributes(allowedName)
                     .build();
+        }
+    }
+
+    // ── ConnectorProfileValidation ────────────────────────────────────────────
+
+    @Nested
+    class ConnectorProfileValidation {
+
+        @Test
+        void sendsTheFamilyValuesAndAllowedNames_whenAManagedContentSigningProfileIsCreated() throws Exception {
+            // given
+            var location = "location";
+            var locationUuid = UUID.randomUUID();
+            var city = "Prague";
+            contentSigningFormattingMock
+                    .stubComputeDtbsRequestAttributeDefinitions(
+                            List.of(requestAttributeDefinition(locationUuid, location, null)));
+
+            // when
+            signingProfileService
+                    .createSigningProfile(aManagedContentSigningProfile("ct-validate-sends-profile")
+                            .withContentSigning(aManagedContentSigningWorkflow()
+                                    .withAllowedRequestAttributes(location)
+                                    .withSignatureFormattingConnectorAttributes(
+                                            List.of(aStringAttribute(locationUuid, location, city)))
+                                    .build())
+                            .build());
+
+            // then
+            assertThat(contentSigningFormattingMock.validateProfileRequests()).singleElement().satisfies(sent -> {
+                assertThat(sent.path("family").asText()).isEqualTo(SignatureFamilyFixtures.PADES);
+                assertThat(sent.path("formattingAttributes").findValuesAsText("name")).containsExactly(location);
+                assertThat(sent.path("formattingAttributes").findValuesAsText("data")).containsExactly(city);
+                assertThat(sent.path("allowedRequestAttributes"))
+                        .extracting(JsonNode::asText)
+                        .containsExactly(location);
+            });
+        }
+
+        @Test
+        void storesTheAnsweredTransferModes_whenAManagedContentSigningProfileIsCreated() throws Exception {
+            // given — the mock declares xades with both transfer modes
+            var answeredModes = Set.of(DocumentTransferMode.DIGEST_ONLY);
+            contentSigningFormattingMock.stubValidateProfileAnswering(answeredModes);
+
+            // when
+            SigningProfileDto created = signingProfileService
+                    .createSigningProfile(aManagedContentSigningProfile("ct-validate-stores-modes")
+                            .withContentSigning(
+                                    aManagedContentSigningWorkflow().withFamily(SignatureFamilyFixtures.XADES).build())
+                            .build());
+
+            // then
+            assertThat(persistedVersion(created.getUuid(), created.getVersion()).getTransferModes())
+                    .containsExactlyInAnyOrderElementsOf(answeredModes);
+        }
+
+        @Test
+        void refusesTheProfileNamingTheAttribute_whenTheConnectorReportsAnError() {
+            // given
+            var font = "font";
+            var reason = "The font file cannot be parsed";
+            contentSigningFormattingMock.stubValidateProfileReporting(font, reason);
+            var name = "ct-validate-refused";
+
+            // when
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService
+                    .createSigningProfile(aManagedContentSigningProfile(name)
+                            .withContentSigning(aManagedContentSigningWorkflow().build())
+                            .build());
+
+            // then
+            assertThatThrownBy(create)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining(font)
+                    .hasMessageContaining(reason);
+            assertThat(signingProfileRepository.findByName(name)).isEmpty();
+        }
+
+        @Test
+        void refusesTheUpdate_whenTheConnectorReportsAnError() throws Exception {
+            // given
+            var originalName = "ct-validate-update-original";
+            SigningProfileDto saved = signingProfileService
+                    .createSigningProfile(aManagedContentSigningProfile(originalName)
+                            .withContentSigning(aManagedContentSigningWorkflow().build())
+                            .build());
+            contentSigningFormattingMock.stubValidateProfileReporting("font", "The font file cannot be parsed");
+
+            // when
+            ThrowableAssert.ThrowingCallable update = () -> signingProfileService
+                    .updateSigningProfile(SecuredUUID.fromString(saved.getUuid()),
+                            aManagedContentSigningProfile("ct-validate-update-renamed")
+                                    .withContentSigning(aManagedContentSigningWorkflow().build())
+                                    .build());
+
+            // then
+            assertThatThrownBy(update).isInstanceOf(ValidationException.class).hasMessageContaining("font");
+            assertThat(signingProfileRepository.findByName(originalName)).isPresent();
+        }
+
+        @Test
+        void refusesTheProfile_whenTheConnectorAnswersAModeTheFamilyDoesNotDeclare() {
+            // given — the mock declares pades with the inline transfer mode only
+            contentSigningFormattingMock.stubValidateProfileAnswering(Set.of(DocumentTransferMode.DIGEST_ONLY));
+            var name = "ct-validate-undeclared-mode";
+
+            // when
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService
+                    .createSigningProfile(aManagedContentSigningProfile(name)
+                            .withContentSigning(aManagedContentSigningWorkflow().build())
+                            .build());
+
+            // then
+            assertThatThrownBy(create)
+                    .isInstanceOf(ConnectorException.class)
+                    .hasMessageContaining(DocumentTransferMode.DIGEST_ONLY.getCode());
+            assertThat(signingProfileRepository.findByName(name)).isEmpty();
+        }
+
+        @Test
+        void refusesTheProfile_whenTheConnectorIsUnreachable() {
+            // given
+            contentSigningFormattingMock.stubValidateProfileUnreachable();
+            var name = "ct-validate-unreachable";
+
+            // when
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService
+                    .createSigningProfile(aManagedContentSigningProfile(name)
+                            .withContentSigning(aManagedContentSigningWorkflow().build())
+                            .build());
+
+            // then
+            assertThatThrownBy(create).isInstanceOf(ConnectorException.class);
+            assertThat(contentSigningFormattingMock.validateProfileRequests()).hasSize(1);
+            assertThat(signingProfileRepository.findByName(name)).isEmpty();
+        }
+
+        @Test
+        void refusesBeforeAskingTheConnector_whenAValueBreaksItsDefinitionsConstraint() {
+            // given
+            var location = "location";
+            var locationUuid = UUID.randomUUID();
+            DataAttributeV3 lettersOnly = requestAttributeDefinition(locationUuid, location, null);
+            lettersOnly
+                    .setConstraints(List
+                            .of(new RegexpAttributeConstraint("Letters only", "Location must hold letters only",
+                                    "^[A-Za-z ]+$")));
+            contentSigningFormattingMock.stubComputeDtbsRequestAttributeDefinitions(List.of(lettersOnly));
+
+            // when
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService
+                    .createSigningProfile(aManagedContentSigningProfile("ct-validate-after-core-checks")
+                            .withContentSigning(aManagedContentSigningWorkflow()
+                                    .withSignatureFormattingConnectorAttributes(
+                                            List.of(aStringAttribute(locationUuid, location, "Prague 1")))
+                                    .build())
+                            .build());
+
+            // then
+            assertThatThrownBy(create).isInstanceOf(ValidationException.class);
+            assertThat(contentSigningFormattingMock.validateProfileRequests()).isEmpty();
+        }
+
+        @Test
+        void storesTheAnsweredTransferModes_whenAManagedContentSigningProfileIsUpdated() throws Exception {
+            // given — the mock declares xades with both transfer modes
+            var xades = aManagedContentSigningWorkflow().withFamily(SignatureFamilyFixtures.XADES).build();
+            SigningProfileDto saved = signingProfileService
+                    .createSigningProfile(aManagedContentSigningProfile("ct-validate-update-modes")
+                            .withContentSigning(xades)
+                            .build());
+            var answeredModes = Set.of(DocumentTransferMode.DIGEST_ONLY);
+            contentSigningFormattingMock.stubValidateProfileAnswering(answeredModes);
+
+            // when
+            SigningProfileDto updated = signingProfileService
+                    .updateSigningProfile(SecuredUUID.fromString(saved.getUuid()),
+                            aManagedContentSigningProfile("ct-validate-update-modes-renamed")
+                                    .withContentSigning(xades)
+                                    .build());
+
+            // then
+            assertThat(persistedVersion(updated.getUuid(), updated.getVersion()).getTransferModes())
+                    .containsExactlyInAnyOrderElementsOf(answeredModes);
+        }
+
+        @Test
+        void clearsTheTransferModes_whenTheWorkflowSwitchesFromManagedContentSigningToRaw() throws Exception {
+            // given
+            SigningProfileDto saved = signingProfileService
+                    .createSigningProfile(aManagedContentSigningProfile("ct-validate-switch-to-raw")
+                            .withContentSigning(aManagedContentSigningWorkflow().build())
+                            .build());
+            assertThat(persistedVersion(saved.getUuid(), saved.getVersion()).getTransferModes()).isNotEmpty();
+
+            // when
+            SigningProfileDto updated = signingProfileService
+                    .updateSigningProfile(SecuredUUID.fromString(saved.getUuid()),
+                            aSigningProfileRequestFromExistingProfile(saved).withRawSigning().build());
+
+            // then
+            assertThat(persistedVersion(updated.getUuid(), updated.getVersion()).getTransferModes()).isEmpty();
+        }
+
+        @Test
+        void leavesTheDefinitionsUnstored_whenTheConnectorReportsAnError() {
+            // given
+            var definitionUuid = UUID.randomUUID();
+            contentSigningFormattingMock.stubPerOperationFormattingAttributeDefinition(definitionUuid, "reason");
+            contentSigningFormattingMock.stubValidateProfileReporting("reason", "The reason is not used");
+
+            // when
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService
+                    .createSigningProfile(aManagedContentSigningProfile("ct-validate-definitions-unstored")
+                            .withContentSigning(aManagedContentSigningWorkflow().build())
+                            .build());
+
+            // then
+            assertThatThrownBy(create).isInstanceOf(ValidationException.class);
+            assertThat(attributeDefinitionRepository.findByAttributeUuid(definitionUuid)).isEmpty();
+        }
+
+        @Test
+        void savesTheProfile_whenTheConnectorPublishesAnEncryptedDefault() throws Exception {
+            // given
+            contentSigningFormattingMock
+                    .stubEncryptedReadOnlyProfileAttributeDefinition(UUID.randomUUID(), "issuerName", "Acme");
+            var name = "ct-validate-encrypted-default";
+
+            // when
+            SigningProfileDto created = signingProfileService
+                    .createSigningProfile(aManagedContentSigningProfile(name)
+                            .withContentSigning(aManagedContentSigningWorkflow().build())
+                            .build());
+
+            // then
+            assertThat(created.getName()).isEqualTo(name);
+        }
+
+        @Test
+        void storesNoTransferModesWithoutAskingTheConnector_whenTheProfileSignsDelegated() throws Exception {
+            // given — a delegated signer connector, which formats its signatures itself
+
+            // when
+            SigningProfileDto created = signingProfileService
+                    .createSigningProfile(aSigningProfileRequest()
+                            .withName("ct-validate-delegated")
+                            .withDelegatedSigning(signerConnector.getUuid())
+                            .withContentSigning(aContentSigningWorkflow().build())
+                            .build());
+
+            // then
+            assertThat(contentSigningFormattingMock.validateProfileRequests()).isEmpty();
+            assertThat(persistedVersion(created.getUuid(), created.getVersion()).getTransferModes()).isEmpty();
         }
     }
 
@@ -4452,6 +4696,17 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private SigningProfileRequestDtoBuilder aManagedContentSigningProfile(String name) {
+        return aSigningProfileRequest().withName(name).withStaticKeyManagedSigning(defaultSigningCertificate.getUuid());
+    }
+
+    private ContentSigningWorkflowRequestDtoBuilder aManagedContentSigningWorkflow() {
+        return aContentSigningWorkflow()
+                .withSignatureFormattingConnector(UUID.fromString(contentSigningFormattingConnector.getUuid()))
+                .withFamily(SignatureFamilyFixtures.PADES)
+                .withLevel(SignatureLevel.SIGNED);
+    }
 
     /** Reads the persisted row directly, bypassing the DTO mapping the create/update calls already exercise. */
     private SigningProfileVersion persistedVersion(String profileUuid, int version) {
