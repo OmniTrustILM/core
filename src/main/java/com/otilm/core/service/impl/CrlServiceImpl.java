@@ -134,6 +134,7 @@ public class CrlServiceImpl implements CrlService {
                 if (crlStoredMeanwhile != null && !isDue(crlStoredMeanwhile, certificate)) {
                     return crlStoredMeanwhile.getUuid();
                 }
+                rethrowRecentFailureOfFirstDownload(certificate, crlStoredMeanwhile, issuerDn, issuerSerialNumber);
                 return crlDownloadGuard
                         .withDownloadPermit(
                                 () -> readCurrentCrl(certificate, issuerCertificate, issuerDn, issuerSerialNumber));
@@ -147,6 +148,24 @@ public class CrlServiceImpl implements CrlService {
                 throwUnlessStoredCrlLists(certificate, crlStoredNow, e);
             }
             return crlStoredNow.getUuid();
+        }
+    }
+
+    /**
+     * Reports a failure remembered for the CRL the validation would download first without waiting for a download
+     * permit, since no download is made for it: the base CRL when none is stored or the stored one is due, otherwise
+     * the delta CRL.
+     */
+    private void rethrowRecentFailureOfFirstDownload(X509Certificate certificate, Crl storedCrl, String issuerDn,
+            String issuerSerialNumber) throws IOException {
+        if (storedCrl == null || isBaseCrlDue(storedCrl)) {
+            crlDownloadGuard
+                    .rethrowRecentFailure(downloadKey("base", issuerDn, issuerSerialNumber,
+                            certificate.getExtensionValue(Extension.cRLDistributionPoints.getId())));
+        } else {
+            crlDownloadGuard
+                    .rethrowRecentFailure(downloadKey("delta", issuerDn, issuerSerialNumber,
+                            certificate.getExtensionValue(Extension.freshestCRL.getId())));
         }
     }
 
