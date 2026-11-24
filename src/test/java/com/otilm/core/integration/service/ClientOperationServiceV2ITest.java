@@ -721,7 +721,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         try {
             assertThatThrownBy(issue)
                     .isInstanceOf(UnsupportedCertificateTypeException.class)
-                    .hasMessageContaining(unsupported.toString());
+                    .hasMessageContaining(unsupported.getLabel());
         } finally {
             clientOperationServiceImpl.setTypeHandlerRegistry(typeHandlerRegistry);
         }

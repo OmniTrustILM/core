@@ -1091,7 +1091,7 @@ class AcmeServiceITest extends BaseSpringBootTest {
         try {
             assertThatThrownBy(finalizeOrder).isInstanceOfSatisfying(AcmeProblemDocumentException.class, e -> {
                 assertThat(e.getProblemDocument().getType()).isEqualTo(Problem.BAD_CSR.getType());
-                assertThat(e.getMessage()).contains(unsupported.toString());
+                assertThat(e.getMessage()).contains(unsupported.getLabel());
             });
         } finally {
             clientOperationServiceImpl.setTypeHandlerRegistry(typeHandlerRegistry);
@@ -1283,7 +1283,7 @@ class AcmeServiceITest extends BaseSpringBootTest {
         try {
             assertThatThrownBy(revoke).isInstanceOfSatisfying(AcmeProblemDocumentException.class, e -> {
                 assertThat(e.getProblemDocument().getType()).isEqualTo(Problem.MALFORMED.getType());
-                assertThat(e.getMessage()).contains(unsupported.toString());
+                assertThat(e.getMessage()).contains(unsupported.getLabel());
             });
         } finally {
             acmeServiceImpl.setTypeHandlerRegistry(typeHandlerRegistry);
