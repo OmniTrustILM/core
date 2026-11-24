@@ -281,11 +281,19 @@ public class AuthorityProviderV3Adapter extends AbstractAuthorityProviderAdapter
         CertificateTypesRequestDtoV3 request = new CertificateTypesRequestDtoV3();
         request.setAuthorityAttributes(authorityAttributesFor(authority));
         request.setRaProfileAttributes(resolvedRaProfileAttributes(raProfile, authority));
-        List<SupportedCertificateTypeDtoV3> listed = offeredOr(
-                () -> connectorApiFactory
-                        .getAuthorityInstanceApiClientV3(connectorDto)
-                        .listCertificateTypes(connectorDto, request),
-                List.of(SupportedCertificateTypeDtoV3.of(CertificateType.X509)), "the supported certificate types");
+        List<SupportedCertificateTypeDtoV3> x509Only = List.of(SupportedCertificateTypeDtoV3.of(CertificateType.X509));
+        List<SupportedCertificateTypeDtoV3> listed;
+        try {
+            listed = offeredOr(() -> connectorApiFactory
+                    .getAuthorityInstanceApiClientV3(connectorDto)
+                    .listCertificateTypes(connectorDto, request), x509Only, "the supported certificate types");
+        } catch (ConnectorProblemException e) {
+            // this operation documents 501 as declining it, whatever error code the problem carries
+            if (e.getProblemDetail().getStatus() != HttpStatus.NOT_IMPLEMENTED.value()) {
+                throw e;
+            }
+            listed = x509Only;
+        }
         Set<CertificateType> types = EnumSet.noneOf(CertificateType.class);
         listed.forEach(entry -> types.add(entry.getCertificateType()));
         return types.isEmpty() ? EnumSet.of(CertificateType.X509) : types;
@@ -616,11 +624,11 @@ public class AuthorityProviderV3Adapter extends AbstractAuthorityProviderAdapter
             }
             if (e.getProblemDetail().getStatus() == HttpStatus.NOT_FOUND.value()
                     && (code == null || code == ErrorCode.RESOURCE_NOT_FOUND)) {
-                // Logs what the connector said rather than asserting the endpoint is absent: a connector that serves
-                // the endpoint but reports a missing resource the same way lands here too.
+                // A connector that serves the endpoint but reports a missing resource the same way lands here too. Its
+                // text is not logged: it may repeat the attributes of the request, which can hold credentials.
                 log
-                        .debug("Connector answered 404 {} (\"{}\") for {}; treating it as not offered and resolving "
-                                + "the fallback", code == null ? "with no error code" : code, e.getMessage(), subject);
+                        .debug("Connector answered 404 {} for {}; treating it as not offered and resolving the fallback",
+                                code == null ? "with no error code" : code, subject);
                 return fallback;
             }
             throw e;

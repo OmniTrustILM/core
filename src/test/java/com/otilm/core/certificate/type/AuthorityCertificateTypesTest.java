@@ -127,6 +127,23 @@ class AuthorityCertificateTypesTest {
     }
 
     @Test
+    void refusesWithoutTheConnectorsWords_whenTheConnectorRefusesTheRequestAsInvalid() throws Exception {
+        // given
+        var connectorRefusal = new ValidationException("text written by the connector");
+        when(adapter.listCertificateTypes(raProfile.getAuthorityInstanceReference(), raProfile))
+                .thenThrow(connectorRefusal);
+
+        // when
+        ThrowingCallable check = () -> authorityCertificateTypes.requireSupport(CertificateType.X509, raProfile);
+
+        // then
+        assertThatThrownBy(check)
+                .isInstanceOf(CertificateTypesUnavailableException.class)
+                .hasMessageNotContaining(connectorRefusal.getMessage())
+                .hasCause(connectorRefusal);
+    }
+
+    @Test
     void refusesNamingTheMissingConnector_whenTheAuthorityHasNone() {
         // given
         raProfile.getAuthorityInstanceReference().setConnector(null);

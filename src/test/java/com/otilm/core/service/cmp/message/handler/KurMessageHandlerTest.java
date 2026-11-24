@@ -43,7 +43,6 @@ import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -110,23 +109,22 @@ public class KurMessageHandlerTest {
     }
 
     @Test
-    public void test_handleOk() throws Exception {
-        // -- WHEN --
-        String trxId = "779";
+    void answersWithTheRekeyedCertificate_whenTheKeyUpdateNamesAnIssuedCertificate() throws Exception {
+        // given
         PKIMessage request = CmpTestUtil
-                .createKur(trxId, x509Certificate.getSerialNumber(), CmpTestUtil.generateKeyPairEC())
+                .createKur("779", x509Certificate.getSerialNumber(), CmpTestUtil.generateKeyPairEC())
                 .toASN1Structure();
         ConfigurationContext configuration = new Mobile3gppProfileContext(cmpProfile, raProfile, request,
                 certificateKeyService, null, null);
-
-        // -- GIVEN
+        var rekeyed = new ClientCertificateDataResponseDto();
         given(certificateRepository.findBySerialNumberIgnoreCase(any())).willReturn(Optional.of(issuedCertificated));
-        given(clientOperationService.rekeyCertificateThroughProtocol(any(), any(), any(), any()))
-                .willReturn(new ClientCertificateDataResponseDto());
+        given(clientOperationService.rekeyCertificateThroughProtocol(any(), any(), any(), any())).willReturn(rekeyed);
 
-        // -- THEN
+        // when
         ClientCertificateDataResponseDto response = tested.handle(request, configuration);
-        assertNotNull(response);
+
+        // then
+        assertThat(response).isSameAs(rekeyed);
     }
 
     @Test

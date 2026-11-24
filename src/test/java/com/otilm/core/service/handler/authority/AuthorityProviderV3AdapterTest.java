@@ -1575,6 +1575,8 @@ class AuthorityProviderV3AdapterTest {
         private static Stream<Arguments> notOfferedAnswers() {
             var notFoundWithoutCode = new ProblemDetailExtended();
             notFoundWithoutCode.setStatus(HttpStatus.NOT_FOUND.value());
+            var notImplementedWithoutCode = new ProblemDetailExtended();
+            notImplementedWithoutCode.setStatus(HttpStatus.NOT_IMPLEMENTED.value());
             return Stream
                     .of(arguments(named("bare 404", new ConnectorEntityNotFoundException("no such route"))),
                             arguments(named("bare 501",
@@ -1587,7 +1589,9 @@ class AuthorityProviderV3AdapterTest {
                                     new ConnectorProblemException(ProblemDetailExtended
                                             .fromErrorCode(ErrorCode.RESOURCE_NOT_FOUND, "no route", null, null)))),
                             arguments(named("404 problem without a code",
-                                    new ConnectorProblemException(notFoundWithoutCode))));
+                                    new ConnectorProblemException(notFoundWithoutCode))),
+                            arguments(named("501 problem without a code",
+                                    new ConnectorProblemException(notImplementedWithoutCode))));
         }
     }
 
