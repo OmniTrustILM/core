@@ -44,28 +44,36 @@ public class TrustedCertificateWriter {
         row.setCreatedAt(now);
         row.setUpdatedAt(now);
         TrustedCertificate saved = trustedCertificateRepository.saveAndFlush(row);
-        writeTrustedCa(certificate.getUuid(), validation, validation);
+        // Only a validation purpose writes the flag: a platform-only row never takes away validation trust.
+        if (validation) {
+            writeTrustedCa(certificate.getUuid(), true);
+        }
         return saved;
     }
 
     /**
      * Replaces the purposes of a trust row. Dropping the platform purpose keeps the row with its removal pending until
-     * the platform confirms it; the orchestrator calls this for a platform drop only where platform trust is managed,
-     * and deletes the row otherwise.
+     * the platform confirms it, and adding it back cancels that removal; the orchestrator calls this for a platform
+     * drop only where platform trust is managed, and deletes the row otherwise.
+     *
+     * @throws IllegalArgumentException when no purpose would be left and no platform removal is pending; dropping the
+     * last purpose is a removal
      */
     @Transactional
     public void setPurposes(UUID trustUuid, boolean validation, boolean platform) {
         TrustedCertificate row = trustedCertificateRepository.findById(trustUuid).orElseThrow();
-        boolean validationChanged = row.isValidation() != validation;
-        if (row.isPlatform() && !platform) {
-            row.setPlatformRemovalPending(true);
+        boolean removalPending = !platform && (row.isPlatform() || row.isPlatformRemovalPending());
+        if (!validation && !platform && !removalPending) {
+            throw new IllegalArgumentException("Trusted certificate %s would keep no purpose".formatted(trustUuid));
         }
+        boolean validationChanged = row.isValidation() != validation;
         row.setValidation(validation);
         row.setPlatform(platform);
+        row.setPlatformRemovalPending(removalPending);
         row.setUpdatedAt(OffsetDateTime.now());
         trustedCertificateRepository.saveAndFlush(row);
         if (validationChanged) {
-            writeTrustedCa(row.getCertificateUuid(), validation, true);
+            writeTrustedCa(row.getCertificateUuid(), validation);
         }
     }
 
@@ -78,7 +86,9 @@ public class TrustedCertificateWriter {
         row.setPlatformRemovalPending(true);
         row.setUpdatedAt(OffsetDateTime.now());
         trustedCertificateRepository.saveAndFlush(row);
-        writeTrustedCa(row.getCertificateUuid(), false, hadValidation);
+        if (hadValidation) {
+            writeTrustedCa(row.getCertificateUuid(), false);
+        }
     }
 
     @Transactional
@@ -88,7 +98,9 @@ public class TrustedCertificateWriter {
         UUID certificateUuid = row.getCertificateUuid();
         trustedCertificateRepository.delete(row);
         trustedCertificateRepository.flush();
-        writeTrustedCa(certificateUuid, false, hadValidation);
+        if (hadValidation) {
+            writeTrustedCa(certificateUuid, false);
+        }
     }
 
     @Transactional
@@ -125,19 +137,17 @@ public class TrustedCertificateWriter {
     }
 
     /**
-     * Writes {@code trusted_ca} for a CA or self-signed certificate and, when its validation trust changed, queues the
-     * revalidation of its subtree. The certificate is read again after the update, which clears the persistence
-     * context, so the revalidation sees it attached to this transaction.
+     * Sets {@code trusted_ca} on a CA or self-signed certificate and, when the flag changes, queues the revalidation of
+     * its subtree. The certificate is read again after the update, which clears the persistence context, so the
+     * revalidation sees it attached to this transaction.
      */
-    private void writeTrustedCa(UUID certificateUuid, boolean trusted, boolean revalidate) {
+    private void writeTrustedCa(UUID certificateUuid, boolean trusted) {
         X509CertificateEntity certificate = x509CertificateRepository.findByUuid(certificateUuid).orElseThrow();
-        if (certificate.getTrustedCa() == null) {
+        if (certificate.getTrustedCa() == null || certificate.getTrustedCa() == trusted) {
             return;
         }
         x509CertificateRepository.updateTrustedCa(certificateUuid, trusted);
-        if (revalidate) {
-            X509CertificateEntity updated = x509CertificateRepository.findByUuid(certificateUuid).orElseThrow();
-            subtreeRevalidation.publishFor(updated);
-        }
+        X509CertificateEntity updated = x509CertificateRepository.findByUuid(certificateUuid).orElseThrow();
+        subtreeRevalidation.publishFor(updated);
     }
 }
