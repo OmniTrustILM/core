@@ -215,17 +215,25 @@ public class OutboundSecretContainment {
 
     /**
      * The values of an object sealed in its {@code toString()} form, as an OBJECT attribute holding a map or a list is
-     * encrypted: {@code {profile=EMPTY, passphrases=[x, y]}}, nested to any depth. A map entry counts from its first
-     * {@code =} on, so its key is left out and a value padded with {@code =} keeps its padding; a list item counts
-     * whole, padding included.
+     * encrypted: {@code {profile=EMPTY, passphrases=[x, y]}}, nested to any depth. Each piece counts whole, padding
+     * included, and a piece holding {@code =} also counts from its first {@code =} on, which is a map entry's value.
      */
     private static void collectToStringValues(String text, Set<String> sentSecrets) {
         for (String piece : TO_STRING_STRUCTURE.split(text)) {
             String entry = piece.strip();
+            addUnlessPadding(entry, sentSecrets);
             int keyEnd = entry.indexOf('=');
-            String value = keyEnd < 0 ? entry : entry.substring(keyEnd + 1).strip();
-            boolean isPaddedItem = !value.isEmpty() && value.chars().allMatch(c -> c == '=');
-            addIfPresent(isPaddedItem ? entry : value, sentSecrets);
+            if (keyEnd >= 0) {
+                addUnlessPadding(entry.substring(keyEnd + 1).strip(), sentSecrets);
+            }
+        }
+    }
+
+    /** Adds a value unless it is blank or only {@code =} padding, which would match benign text. */
+    private static void addUnlessPadding(String value, Set<String> sentSecrets) {
+        boolean isOnlyPadding = value.chars().allMatch(c -> c == '=');
+        if (!isOnlyPadding) {
+            addIfPresent(value, sentSecrets);
         }
     }
 

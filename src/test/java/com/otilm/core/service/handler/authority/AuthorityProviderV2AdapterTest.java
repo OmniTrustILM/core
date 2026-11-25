@@ -422,7 +422,7 @@ class AuthorityProviderV2AdapterTest {
     void replacesConnectorWords_whenIdentifyRefusalQuotesAValueNestedInAnEncryptedRaProfileObject(
             String sealedObjectForm) throws Exception {
         // given
-        var nestedPassphrase = "c3RvcmVkLW5lc3RlZA==";
+        var nestedPassphrase = "c3RvcmVkLW5lc3RlZDE=";
         when(attributeEngine.getStoredObjectDataAttributesContent(any()))
                 .thenReturn(List
                         .of(createSealedRow("endEntity", AttributeContentType.OBJECT,
