@@ -2035,6 +2035,8 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
 
         @Test
         void listsOnlyKeyListableProfiles_whenTheConnectorDeclaresAnUnlistableToken() {
+            // given — a v2 token whose connector declares no restriction
+
             // when
             List<String> whileListing = keyListableProfiles();
             connectorDeclaresAnUnlistableToken();
@@ -2050,8 +2052,11 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             // given
             connectorDeclaresAnUnlistableToken();
 
-            // when / then
-            assertThatThrownBy(() -> firstPage())
+            // when
+            ThrowingCallable listFirstPage = () -> firstPage();
+
+            // then
+            assertThatThrownBy(listFirstPage)
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining("cannot list the keys in its key storage");
         }
@@ -2259,8 +2264,11 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             var created = keyPairThePlatformCreated("created");
             connectorDeclaresAnUnlistableToken();
 
-            // when / then
-            assertThatThrownBy(() -> removeFromInventory(created))
+            // when
+            ThrowingCallable removeCreated = () -> removeFromInventory(created);
+
+            // then
+            assertThatThrownBy(removeCreated)
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining("The connector backing this token cannot list keys");
             assertThat(cryptographicKeyRepository.findByUuid(created)).isPresent();

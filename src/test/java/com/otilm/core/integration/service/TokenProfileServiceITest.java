@@ -61,6 +61,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 @SpringBootTest
 class TokenProfileServiceITest extends BaseSpringBootTest {
 
@@ -139,13 +141,15 @@ class TokenProfileServiceITest extends BaseSpringBootTest {
     }
 
     @Test
-    void listTokenProfiles_keyListableExcludesProfileOnFirstVersionConnector() {
+    void excludesTheProfileOnAFirstVersionConnector_whenListingKeyListableProfiles() {
+        // given — an enabled profile on a v1 connector
+
         // when
         List<TokenProfileDto> profiles = tokenProfileService
                 .listTokenProfiles(Optional.of(true), List.of(), true, SecurityFilter.create());
 
         // then
-        Assertions.assertTrue(profiles.isEmpty());
+        assertThat(profiles).isEmpty();
     }
 
     @ParameterizedTest

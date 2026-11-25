@@ -426,7 +426,7 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
-    void getKey_reportsWhetherTheKeyCanBeRemovedFromTheInventory(boolean unlistableToken) throws NotFoundException {
+    void reportsWhetherTheFetchedKeyCanBeRemovedFromTheInventory(boolean unlistableToken) throws Exception {
         // given
         configureV2Token(unlistableToken);
 
@@ -434,7 +434,7 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
         KeyDetailDto dto = cryptographicKeyService.getKey(SecuredUUID.fromUUID(key.getUuid()));
 
         // then
-        Assertions.assertEquals(!unlistableToken, dto.isRemovableFromInventory());
+        assertThat(dto.isRemovableFromInventory()).isEqualTo(!unlistableToken);
     }
 
     @Test
@@ -776,7 +776,7 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
-    void createKey_reportsWhetherTheCreatedKeyCanBeRemovedFromTheInventory(boolean unlistableToken) throws Exception {
+    void reportsWhetherTheCreatedKeyCanBeRemovedFromTheInventory(boolean unlistableToken) throws Exception {
         // given
         configureV2Token(unlistableToken);
         stubV2KeyPairCreation(List.of());
@@ -787,7 +787,7 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
                         KeyRequestType.KEY_PAIR, keyCreationRequest("v2-removable"));
 
         // then
-        Assertions.assertEquals(!unlistableToken, created.isRemovableFromInventory());
+        assertThat(created.isRemovableFromInventory()).isEqualTo(!unlistableToken);
     }
 
     @Test
@@ -1946,7 +1946,7 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
     }
 
     @Test
-    void listCryptographicKeys_marksEachRowWithWhetherItsKeyCanBeRemoved() {
+    void marksEachListedRowWithWhetherItsKeyCanBeRemoved() {
         // given
         configureV2Token();
         SearchRequestDto searchRequestDto = new SearchRequestDto();
@@ -1964,15 +1964,14 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
                 .collect(Collectors
                         .groupingBy(KeyItemListDto::getKeyWrapperUuid,
                                 Collectors.mapping(KeyItemListDto::isRemovableFromInventory, Collectors.toList())));
-        Assertions
-                .assertEquals(Map
+        assertThat(removableByKey)
+                .isEqualTo(Map
                         .of(key.getUuid().toString(), List.of(true, true), keyWithoutToken.getUuid().toString(),
-                                List.of(false)),
-                        removableByKey);
+                                List.of(false)));
     }
 
     @Test
-    void listCryptographicKeys_marksARowNotRemovable_whenAFilteredOutSiblingIsCompromised() {
+    void marksAListedRowNotRemovable_whenAFilteredOutSiblingIsCompromised() {
         // given
         configureV2Token();
         publicKeyItem.setState(KeyState.COMPROMISED);
@@ -1991,14 +1990,12 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
 
         // then
         List<KeyItemListDto> rows = response.getCryptographicKeys();
-        Assertions
-                .assertEquals(List.of(privateKeyItem.getUuid().toString()),
-                        rows.stream().map(KeyItemListDto::getUuid).toList());
-        Assertions.assertFalse(rows.getFirst().isRemovableFromInventory());
+        assertThat(rows).extracting(KeyItemListDto::getUuid).containsExactly(privateKeyItem.getUuid().toString());
+        assertThat(rows.getFirst().isRemovableFromInventory()).isFalse();
     }
 
     @Test
-    void listCryptographicKeys_marksNoRowRemovable_whenTheTokenCannotListKeys() {
+    void marksNoListedRowRemovable_whenTheTokenCannotListKeys() {
         // given
         configureV2Token(true);
         SearchRequestDto searchRequestDto = new SearchRequestDto();
@@ -2011,8 +2008,7 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
 
         // then
         List<KeyItemListDto> rows = response.getCryptographicKeys();
-        Assertions.assertEquals(3, rows.size());
-        Assertions.assertTrue(rows.stream().noneMatch(KeyItemListDto::isRemovableFromInventory));
+        assertThat(rows).hasSize(3).noneMatch(KeyItemListDto::isRemovableFromInventory);
     }
 
     @Test

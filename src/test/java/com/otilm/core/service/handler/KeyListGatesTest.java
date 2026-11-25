@@ -3,6 +3,7 @@ package com.otilm.core.service.handler;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
@@ -84,8 +85,11 @@ class KeyListGatesTest {
             UUID tokenInstanceUuid = profile.tokenInstanceReferenceUuid();
             UUID tokenProfileUuid = profile.uuid();
 
-            // when / then
-            assertThatThrownBy(() -> gates.requireListable(tokenInstanceUuid, tokenProfileUuid))
+            // when
+            ThrowingCallable requireListable = () -> gates.requireListable(tokenInstanceUuid, tokenProfileUuid);
+
+            // then
+            assertThatThrownBy(requireListable)
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining("cannot list the keys in its key storage");
         }
@@ -99,8 +103,11 @@ class KeyListGatesTest {
             UUID tokenInstanceUuid = profile.tokenInstanceReferenceUuid();
             UUID tokenProfileUuid = profile.uuid();
 
-            // when / then
-            assertThatThrownBy(() -> gates.requireListable(tokenInstanceUuid, tokenProfileUuid))
+            // when
+            ThrowingCallable requireListable = () -> gates.requireListable(tokenInstanceUuid, tokenProfileUuid);
+
+            // then
+            assertThatThrownBy(requireListable)
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining("is disabled");
         }
