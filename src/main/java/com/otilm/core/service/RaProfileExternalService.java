@@ -20,6 +20,7 @@ import com.otilm.api.model.client.raprofile.RaProfileEstDetailResponseDto;
 import com.otilm.api.model.client.raprofile.RaProfileScepDetailResponseDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.core.certificate.CertificateDetail;
+import com.otilm.api.model.core.certificate.SupportedCertificateTypeDto;
 import com.otilm.api.model.core.raprofile.RaProfileCertificateRequestAttributesUpdateDto;
 import com.otilm.api.model.core.raprofile.RaProfileCertificateValidationSettingsUpdateDto;
 import com.otilm.api.model.core.raprofile.RaProfileDto;
@@ -161,6 +162,10 @@ public interface RaProfileExternalService {
 
     List<BaseAttribute> listRevokeCertificateAttributes(SecuredParentUUID authorityUuid, SecuredUUID uuid)
             throws ConnectorException, NotFoundException;
+
+    /** The certificate types that can be issued through the RA profile, as its authority reports them. */
+    List<SupportedCertificateTypeDto> listSupportedCertificateTypes(SecuredParentUUID authorityUuid, SecuredUUID uuid)
+            throws NotFoundException;
 
     List<BaseAttribute> listIssueCertificateAttributes(SecuredParentUUID authorityUuid, SecuredUUID uuid)
             throws ConnectorException, NotFoundException;
