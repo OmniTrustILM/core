@@ -2142,18 +2142,11 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                         .removeCertificateFromLocation(
                                 SecuredParentUUID.fromUUID(cl.getLocation().getEntityInstanceReferenceUuid()),
                                 cl.getLocation().getSecuredUuid(), oldCertificate.getUuid().toString());
-                certificateEventHistoryService
-                        .addEventHistory(oldCertificate.getUuid(), CertificateEvent.UPDATE_LOCATION,
-                                CertificateEventStatus.SUCCESS, "Removed from Location " + cl.getLocation().getName(),
-                                "");
 
                 locationService
                         .pushCertificateToLocation(
                                 SecuredParentUUID.fromUUID(cl.getLocation().getEntityInstanceReferenceUuid()),
                                 cl.getLocation().getSecuredUuid(), certificate.getUuid().toString(), pushRequest);
-                certificateEventHistoryService
-                        .addEventHistory(certificate.getUuid(), CertificateEvent.UPDATE_LOCATION,
-                                CertificateEventStatus.SUCCESS, "Pushed to Location " + cl.getLocation().getName(), "");
             }
         } catch (Exception e) {
             certificateEventHistoryService
