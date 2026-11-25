@@ -142,6 +142,7 @@ import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -788,6 +789,140 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
 
         // then
         Assertions.assertEquals(tokenListsKeys, created.isRemovableFromInventory());
+    }
+
+    // ── PrivateKeyHandle ──────────────────────────────────────────────────────
+
+    @Nested
+    class PrivateKeyHandle {
+
+        @Test
+        void storesTheDigestOfThePrivateKeysHandle_whenAV2TokenCreatesAKeyPair() throws Exception {
+            // given
+            configureV2Token();
+            stubV2KeyPairCreation(List.of());
+            var privateKeyHandle = new RemoteKeyReference.MetadataReference(List.of(providerHandle("private-handle")));
+
+            // when
+            KeyDetailDto created = cryptographicKeyService
+                    .createKey(tokenInstanceReference.getUuid(), tokenProfile.getSecuredParentUuid(),
+                            KeyRequestType.KEY_PAIR, keyCreationRequest("v2-handle-digest"));
+
+            // then
+            assertThat(readHandleDigest(UUID.fromString(created.getUuid())))
+                    .isNotNull()
+                    .isEqualTo(privateKeyHandle.digest());
+        }
+
+        @Test
+        void releasesTheHandle_whenDestroyingThePrivateKey() throws Exception {
+            // given
+            KeyDetailDto created = createV2KeyPair("v2-destroyed-handle");
+            UUID keyUuid = UUID.fromString(created.getUuid());
+            String privateKeyUuid = compromise(findItemOfType(created, KeyType.PRIVATE_KEY));
+
+            // when
+            cryptographicKeyService.destroyKey(keyUuid, List.of(privateKeyUuid));
+
+            // then
+            assertThat(readHandleDigest(keyUuid)).isNull();
+        }
+
+        @Test
+        void keepsTheHandle_whenDestroyingThePublicKeyAlone() throws Exception {
+            // given
+            KeyDetailDto created = createV2KeyPair("v2-kept-handle");
+            UUID keyUuid = UUID.fromString(created.getUuid());
+            String handleDigest = readHandleDigest(keyUuid);
+            String publicKeyUuid = compromise(findItemOfType(created, KeyType.PUBLIC_KEY));
+
+            // when
+            cryptographicKeyService.destroyKey(keyUuid, List.of(publicKeyUuid));
+
+            // then
+            assertThat(readHandleDigest(keyUuid)).isEqualTo(handleDigest);
+        }
+
+        @Test
+        void releasesTheHandle_whenDeletingThePrivateKey() throws Exception {
+            // given
+            KeyDetailDto created = createV2KeyPair("v2-deleted-handle");
+            UUID keyUuid = UUID.fromString(created.getUuid());
+
+            // when
+            cryptographicKeyService.deleteKey(keyUuid, List.of(findItemOfType(created, KeyType.PRIVATE_KEY).getUuid()));
+
+            // then
+            assertThat(readHandleDigest(keyUuid)).isNull();
+        }
+
+        @Test
+        void releasesTheHandle_whenDeletingThePrivateKeyInBulk() throws Exception {
+            // given
+            KeyDetailDto created = createV2KeyPair("v2-bulk-deleted-handle");
+            UUID keyUuid = UUID.fromString(created.getUuid());
+
+            // when
+            cryptographicKeyService
+                    .deleteKeyItems(SecurityFilter.create(),
+                            List.of(findItemOfType(created, KeyType.PRIVATE_KEY).getUuid()));
+
+            // then
+            assertThat(readHandleDigest(keyUuid)).isNull();
+        }
+
+        @Test
+        void keepsTheHandle_whenDeletingThePublicKeyAloneInBulk() throws Exception {
+            // given
+            KeyDetailDto created = createV2KeyPair("v2-bulk-kept-handle");
+            UUID keyUuid = UUID.fromString(created.getUuid());
+            String handleDigest = readHandleDigest(keyUuid);
+
+            // when
+            cryptographicKeyService
+                    .deleteKeyItems(SecurityFilter.create(),
+                            List.of(findItemOfType(created, KeyType.PUBLIC_KEY).getUuid()));
+
+            // then
+            assertThat(readHandleDigest(keyUuid)).isEqualTo(handleDigest);
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        /** A key pair a v2 token created. The token destroys it on request. */
+        private KeyDetailDto createV2KeyPair(String name) throws Exception {
+            configureV2Token();
+            stubV2KeyPairCreation(List.of());
+            mockServer
+                    .stubFor(WireMock
+                            .post(WireMock.urlPathEqualTo("/v2/cryptographyProvider/keys/destroy"))
+                            .willReturn(WireMock.okJson("{}")));
+            KeyDetailDto created = cryptographicKeyService
+                    .createKey(tokenInstanceReference.getUuid(), tokenProfile.getSecuredParentUuid(),
+                            KeyRequestType.KEY_PAIR, keyCreationRequest(name));
+            assertThat(readHandleDigest(UUID.fromString(created.getUuid())))
+                    .as("handle digest of the created key")
+                    .isNotNull();
+            return created;
+        }
+
+        private String readHandleDigest(UUID keyUuid) {
+            return jdbcTemplate
+                    .queryForObject("SELECT handle_digest FROM " + dbSchema + ".cryptographic_key WHERE uuid = ?",
+                            String.class, keyUuid);
+        }
+
+        /** Makes the item eligible for destruction. */
+        private String compromise(KeyItemDetailDto item) throws NotFoundException {
+            cryptographicKeyWriter
+                    .setKeyItemCompromised(UUID.fromString(item.getUuid()),
+                            KeyCompromiseReason.UNAUTHORIZED_DISCLOSURE);
+            return item.getUuid();
+        }
+
+        private static KeyItemDetailDto findItemOfType(KeyDetailDto key, KeyType type) {
+            return key.getItems().stream().filter(item -> item.getType() == type).findFirst().orElseThrow();
+        }
     }
 
     @Test
