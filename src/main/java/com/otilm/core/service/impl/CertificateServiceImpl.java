@@ -22,7 +22,6 @@ import com.otilm.api.model.client.certificate.SearchRequestDto;
 import com.otilm.api.model.client.certificate.UploadCertificateRequestDto;
 import com.otilm.api.model.client.dashboard.StatisticsDto;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
-import com.otilm.api.model.common.BulkActionMessageDto;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.UuidDto;
 import com.otilm.api.model.common.attribute.common.AttributeType;
@@ -2947,14 +2946,6 @@ public class CertificateServiceImpl
         Certificate certificate = certificateRepository
                 .findByUuid(uuid.getValue())
                 .orElseThrow(() -> new NotFoundException("Certificate", uuid));
-        if (trustedCertificateRepository.existsByCertificateUuid(certificate.getUuid())) {
-            certificateEventHistoryService
-                    .addEventHistorySurvivingRollback(certificate.getUuid(), CertificateEvent.ARCHIVE,
-                            CertificateEventStatus.FAILED, TRUSTED_CERTIFICATE_REFUSAL, null);
-            throw new ValidationException("Could not archive certificate %s with UUID %s: %s"
-                    .formatted(certificate.getCommonName(), certificate.getUuid().toString(),
-                            TRUSTED_CERTIFICATE_REFUSAL));
-        }
         certificate.setArchived(true);
         certificateRepository.save(certificate);
         certificateEventHistoryService
@@ -2977,29 +2968,14 @@ public class CertificateServiceImpl
 
     @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.ARCHIVE)
-    public List<BulkActionMessageDto> bulkArchiveCertificates(List<SecuredUUID> securedUuids) {
+    public void bulkArchiveCertificates(List<SecuredUUID> securedUuids) {
         List<UUID> uuids = securedUuids.stream().map(SecuredUUID::getValue).distinct().toList();
-        List<UUID> trustedUuids = trustedCertificateRepository.findCertificateUuidsByCertificateUuidIn(uuids);
-        List<UUID> archivable = uuids.stream().filter(uuid -> !trustedUuids.contains(uuid)).toList();
-        if (!archivable.isEmpty()) {
-            certificateRepository.archiveCertificates(true, archivable);
-        }
-        for (UUID uuid : archivable) {
+        certificateRepository.archiveCertificates(true, uuids);
+        for (UUID uuid : uuids) {
             certificateEventHistoryService
                     .addEventHistory(uuid, CertificateEvent.ARCHIVE, CertificateEventStatus.SUCCESS,
                             "Certificate has been archived.", "");
         }
-        List<BulkActionMessageDto> skipped = new ArrayList<>();
-        for (UUID trusted : trustedUuids) {
-            certificateEventHistoryService
-                    .addEventHistory(trusted, CertificateEvent.ARCHIVE, CertificateEventStatus.FAILED,
-                            TRUSTED_CERTIFICATE_REFUSAL, "");
-            String commonName = certificateRepository.findByUuid(trusted).map(Certificate::getCommonName).orElse(null);
-            skipped
-                    .add(BulkActionMessageDto
-                            .failureWithMessage(trusted.toString(), commonName, TRUSTED_CERTIFICATE_REFUSAL));
-        }
-        return skipped;
     }
 
     @Override

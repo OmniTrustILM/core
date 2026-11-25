@@ -20,7 +20,6 @@ import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.client.trustedcertificate.TrustedCertificatePlatformState;
-import com.otilm.api.model.common.BulkActionMessageDto;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.UuidDto;
 import com.otilm.api.model.common.attribute.common.AttributeType;
@@ -1740,25 +1739,22 @@ class CertificateServiceITest extends BaseSpringBootTest {
         }
 
         @Test
-        void refusesToArchive_whenTheCertificateIsTrusted() {
+        void archivesAndKeepsTheTrust_whenTheCertificateIsTrusted() throws Exception {
             // given
-            trustedCertificateWriter.insert(certificate, true, false, null);
-            SecuredUUID uuid = certificate.getSecuredUuid();
+            TrustedCertificate trust = trustedCertificateWriter.insert(certificate, true, false, null);
 
             // when
-            ThrowingCallable archive = () -> certificateService.archiveCertificate(uuid);
+            certificateService.archiveCertificate(certificate.getSecuredUuid());
 
             // then
-            assertThatThrownBy(archive)
-                    .isInstanceOf(ValidationException.class)
-                    .hasMessageContaining("Certificate is trusted. Remove trust first.");
-            assertThat(certificateRepository.findByUuid(certificate.getUuid()).orElseThrow().isArchived()).isFalse();
+            assertThat(certificateRepository.findByUuid(certificate.getUuid()).orElseThrow().isArchived()).isTrue();
+            assertThat(trustedCertificateRepository.findById(trust.getUuid())).isPresent();
         }
 
         @Test
-        void skipsAndReturnsTheTrustedCertificate_whenBulkArchiving() {
+        void archivesTheTrustedCertificateWithTheOthers_whenBulkArchiving() {
             // given
-            trustedCertificateWriter.insert(certificate, true, false, null);
+            TrustedCertificate trust = trustedCertificateWriter.insert(certificate, true, false, null);
             X509CertificateEntity untrusted = certificateRepository
                     .save(aCertificate()
                             .withSerialNumber(UUID.randomUUID().toString())
@@ -1766,16 +1762,13 @@ class CertificateServiceITest extends BaseSpringBootTest {
                             .build());
 
             // when
-            List<BulkActionMessageDto> skipped = certificateService
+            certificateService
                     .bulkArchiveCertificates(List.of(certificate.getSecuredUuid(), untrusted.getSecuredUuid()));
 
             // then
-            assertThat(skipped).singleElement().satisfies(message -> {
-                assertThat(message.getUuid()).isEqualTo(certificate.getUuid().toString());
-                assertThat(message.getMessage()).isEqualTo("Certificate is trusted. Remove trust first.");
-            });
-            assertThat(certificateRepository.findByUuid(certificate.getUuid()).orElseThrow().isArchived()).isFalse();
+            assertThat(certificateRepository.findByUuid(certificate.getUuid()).orElseThrow().isArchived()).isTrue();
             assertThat(certificateRepository.findByUuid(untrusted.getUuid()).orElseThrow().isArchived()).isTrue();
+            assertThat(trustedCertificateRepository.findById(trust.getUuid())).isPresent();
         }
 
         @Test

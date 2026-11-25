@@ -12,7 +12,6 @@ import com.otilm.api.model.client.certificate.CertificateUpdateObjectsDto;
 import com.otilm.api.model.client.certificate.MultipleCertificateObjectUpdateDto;
 import com.otilm.api.model.client.certificate.RemoveCertificateDto;
 import com.otilm.api.model.client.certificate.UploadCertificateRequestDto;
-import com.otilm.api.model.common.BulkActionMessageDto;
 import com.otilm.api.model.common.UuidDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.core.certificate.CertificateChainDownloadResponseDto;
@@ -164,9 +163,8 @@ public interface CertificateExternalService {
      * Archives a list of certificates by their UUIDs.
      *
      * @param uuids the list of UUIDs of certificates to archive
-     * @return one entry per certificate left unarchived, with the reason
      */
-    List<BulkActionMessageDto> bulkArchiveCertificates(List<SecuredUUID> uuids);
+    void bulkArchiveCertificates(List<SecuredUUID> uuids);
 
     /**
      * Unarchives a list of certificates by their UUIDs.
