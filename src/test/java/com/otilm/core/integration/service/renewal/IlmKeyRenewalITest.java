@@ -45,6 +45,8 @@ import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.QueuedMessageDelivery;
 import com.otilm.core.util.builders.V3ConnectorStubs;
 import com.otilm.core.util.seeders.AutoRenewalSeeder;
+import com.zaxxer.hikari.HikariDataSource;
+import com.zaxxer.hikari.HikariPoolMXBean;
 import jakarta.persistence.EntityManager;
 import java.io.InputStream;
 import java.security.KeyStore;
@@ -61,8 +63,10 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -122,6 +126,8 @@ class IlmKeyRenewalITest extends BaseSpringBootTest {
     private PlatformTransactionManager transactionManager;
     @Autowired
     private EntityManager entityManager;
+    @Autowired
+    private DataSource dataSource;
     @Autowired
     private QueuedMessageDelivery delivery;
     @Autowired
@@ -189,9 +195,13 @@ class IlmKeyRenewalITest extends BaseSpringBootTest {
     void callsTheRenewalWithoutATransactionOnceTheEventCommitted_whenTheEventRunsInATransaction() throws Exception {
         // given
         Map<String, Boolean> duringRenewal = new LinkedHashMap<>();
+        HikariPoolMXBean pool = dataSource.unwrap(HikariDataSource.class).getHikariPoolMXBean();
+        int activeBefore = pool.getActiveConnections();
+        AtomicInteger activeDuringRenewal = new AtomicInteger(-1);
         whenRenewed().thenAnswer(invocation -> {
             duringRenewal.put("transactionActive", TransactionSynchronizationManager.isActualTransactionActive());
             duringRenewal.put("eventCommitted", isCommitted(trigger.triggerHistoryUuid()));
+            activeDuringRenewal.set(pool.getActiveConnections());
             Certificate successor = requestRenewal(invocation.getArgument(5));
             ClientCertificateDataResponseDto response = new ClientCertificateDataResponseDto();
             response.setUuid(successor.getUuid().toString());
@@ -205,6 +215,7 @@ class IlmKeyRenewalITest extends BaseSpringBootTest {
         // then
         assertThat(duringRenewal)
                 .containsExactly(Map.entry("transactionActive", false), Map.entry("eventCommitted", true));
+        assertThat(activeDuringRenewal).hasValue(activeBefore);
         verifyRenewals(1);
     }
 

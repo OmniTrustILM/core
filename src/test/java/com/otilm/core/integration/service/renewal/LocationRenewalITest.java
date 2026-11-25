@@ -47,6 +47,8 @@ import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.QueuedMessageDelivery;
 import com.otilm.core.util.builders.V3ConnectorStubs;
 import com.otilm.core.util.seeders.AutoRenewalSeeder;
+import com.zaxxer.hikari.HikariDataSource;
+import com.zaxxer.hikari.HikariPoolMXBean;
 import jakarta.persistence.EntityManager;
 import java.io.InputStream;
 import java.security.KeyStore;
@@ -59,8 +61,10 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import javax.sql.DataSource;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -121,6 +125,8 @@ class LocationRenewalITest extends BaseSpringBootTest {
     private TriggerInternalService triggerService;
     @Autowired
     private TriggerHistoryRepository triggerHistoryRepository;
+    @Autowired
+    private DataSource dataSource;
 
     private final LocationExternalService locationStub = mock(LocationExternalService.class);
     private final TriggerContext trigger = new TriggerContext(UUID.randomUUID(), UUID.randomUUID(), null, null);
@@ -176,6 +182,9 @@ class LocationRenewalITest extends BaseSpringBootTest {
         Certificate successor = seeder.seedSuccessor(certificate.getRaProfile(), CertificateState.PENDING_ISSUE);
         AtomicReference<UUID> firingUuid = new AtomicReference<>();
         Map<String, Boolean> duringRenewal = new LinkedHashMap<>();
+        HikariPoolMXBean pool = dataSource.unwrap(HikariDataSource.class).getHikariPoolMXBean();
+        int activeBefore = pool.getActiveConnections();
+        AtomicInteger activeDuringRenewal = new AtomicInteger(-1);
         when(locationStub
                 .renewCertificateInLocationForSuccessor(any(SecuredParentUUID.class), inLocation(web),
                         eq(certificate.getUuid()), any()))
@@ -183,6 +192,7 @@ class LocationRenewalITest extends BaseSpringBootTest {
                     duringRenewal
                             .put("transactionActive", TransactionSynchronizationManager.isActualTransactionActive());
                     duringRenewal.put("eventCommitted", isCommitted(firingUuid.get()));
+                    activeDuringRenewal.set(pool.getActiveConnections());
                     requestRenewal(successor, invocation.getArgument(3));
                     return successor.getUuid();
                 });
@@ -193,6 +203,7 @@ class LocationRenewalITest extends BaseSpringBootTest {
         // then
         assertThat(duringRenewal)
                 .containsExactly(Map.entry("transactionActive", false), Map.entry("eventCommitted", true));
+        assertThat(activeDuringRenewal).hasValue(activeBefore);
         assertStarted(seeder.locationRow(certificate, web), successor);
     }
 
