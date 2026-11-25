@@ -1997,7 +1997,7 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
     @Test
     void marksNoListedRowRemovable_whenTheTokenCannotListKeys() {
         // given
-        configureV2Token(true);
+        configureV2Token(List.of(FeatureFlag.STATELESS, FeatureFlag.UNLISTABLE_TOKEN));
         SearchRequestDto searchRequestDto = new SearchRequestDto();
         searchRequestDto.setItemsPerPage(10);
         searchRequestDto.setPageNumber(1);
