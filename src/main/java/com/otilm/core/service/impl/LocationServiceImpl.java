@@ -1070,7 +1070,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
 
     /** Renews the certificate with a key and request the location generates, in the caller's transaction. */
     private void renewInLocation(Location location, SecuredParentUUID entityUuid, SecuredUUID locationUuid,
-            String certificateUuid) throws ConnectorException, LocationException, NotFoundException {
+            String certificateUuid) throws LocationException, NotFoundException {
         CertificateLocation certificateLocation = requireRenewableInLocation(location, entityUuid, locationUuid,
                 certificateUuid);
         LocationRenewal renewal = LocationRenewal.of(certificateLocation);
