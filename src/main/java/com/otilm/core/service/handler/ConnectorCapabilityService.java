@@ -15,8 +15,8 @@ import org.springframework.stereotype.Service;
  * <p>
  * Resolves whether a connector advertises a {@link FeatureFlag} on the relevant interface:
  * <ul>
- * <li><b>ENFORCED</b> flags are opt-in — supported only when the connector explicitly advertises the flag on the
- * applicable interface; absent means unsupported.</li>
+ * <li><b>ENFORCED</b> flags apply only when the connector advertises them on the applicable interface, whether they
+ * grant a capability or declare a restriction.</li>
  * <li><b>INFORMATIONAL</b> flags pass through — Core handles the behavior regardless of whether it is advertised, so
  * {@code supports(...)} is always true.</li>
  * </ul>

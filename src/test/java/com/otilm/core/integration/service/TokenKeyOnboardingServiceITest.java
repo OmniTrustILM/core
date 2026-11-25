@@ -197,7 +197,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
     @BeforeEach
     void startTokenThatListsKeys() {
         v2Token = v2TokenFixture.start();
-        v2TokenFixture.declare(v2Token, FeatureFlag.STATELESS, FeatureFlag.KEY_LIST);
+        v2TokenFixture.declare(v2Token, FeatureFlag.STATELESS);
         connectorMock = v2Token.connectorMock();
         tokenUuid = v2Token.token().getUuid();
         profileUuid = v2Token.profile().getUuid();
@@ -2187,24 +2187,38 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         }
 
         @Test
-        void listsOnlyKeyListableProfiles_whenTheConnectorDropsKeyListing() {
+        void listsTheProfileAsKeyListable_whenTheConnectorDeclaresNoRestriction() {
+            // given — a v2 token whose connector declares no restriction
+
             // when
-            List<String> whileListing = keyListableProfiles();
-            connectorDropsKeyListing();
-            List<String> afterDropping = keyListableProfiles();
+            List<String> profiles = keyListableProfiles();
 
             // then
-            assertThat(whileListing).containsExactly(profileUuid.toString());
-            assertThat(afterDropping).isEmpty();
+            assertThat(profiles).containsExactly(profileUuid.toString());
         }
 
         @Test
-        void refusesTheListing_whenTheConnectorLacksKeyListing() {
+        void listsNoKeyListableProfile_whenTheConnectorDeclaresAnUnlistableToken() {
             // given
-            connectorDropsKeyListing();
+            connectorDeclaresAnUnlistableToken();
 
-            // when / then
-            assertThatThrownBy(() -> firstPage())
+            // when
+            List<String> profiles = keyListableProfiles();
+
+            // then
+            assertThat(profiles).isEmpty();
+        }
+
+        @Test
+        void refusesTheListing_whenTheConnectorDeclaresAnUnlistableToken() {
+            // given
+            connectorDeclaresAnUnlistableToken();
+
+            // when
+            ThrowingCallable listFirstPage = () -> firstPage();
+
+            // then
+            assertThatThrownBy(listFirstPage)
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining("cannot list the keys in its key storage");
         }
@@ -2407,13 +2421,16 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         }
 
         @Test
-        void refusesTheRemoval_whenItsConnectorListsNoKeys() throws Exception {
+        void refusesTheRemoval_whenItsConnectorDeclaresAnUnlistableToken() throws Exception {
             // given
             var created = keyPairThePlatformCreated("created");
-            connectorDropsKeyListing();
+            connectorDeclaresAnUnlistableToken();
 
-            // when / then
-            assertThatThrownBy(() -> removeFromInventory(created))
+            // when
+            ThrowingCallable removeCreated = () -> removeFromInventory(created);
+
+            // then
+            assertThatThrownBy(removeCreated)
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining("The connector backing this token cannot list keys");
             assertThat(cryptographicKeyRepository.findByUuid(created)).isPresent();
@@ -2555,8 +2572,8 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         connectorMock.stubKeyResolution(aKeyResolutionResponse().withAnswers(answers).build());
     }
 
-    private void connectorDropsKeyListing() {
-        v2TokenFixture.declare(v2Token, FeatureFlag.STATELESS);
+    private void connectorDeclaresAnUnlistableToken() {
+        v2TokenFixture.declare(v2Token, FeatureFlag.STATELESS, FeatureFlag.UNLISTABLE_TOKEN);
     }
 
     private TokenKeyListResponseDto firstPage() throws Exception {

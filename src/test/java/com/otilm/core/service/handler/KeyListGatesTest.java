@@ -3,6 +3,7 @@ package com.otilm.core.service.handler;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
@@ -24,10 +25,10 @@ class KeyListGatesTest {
     class IsAvailable {
 
         @Test
-        void offersListing_whenTheConnectorListsKeys() {
+        void offersListing_whenTheV2ConnectorDeclaresNoRestriction() {
             // given
             var profile = aTokenProfileSnapshot()
-                    .withTokenInstance(aTokenSnapshot().withConnectorFeatures(FeatureFlag.KEY_LIST).build())
+                    .withTokenInstance(aTokenSnapshot().withConnectorFeatures(FeatureFlag.KEY_IMPORT).build())
                     .build();
 
             // when
@@ -38,10 +39,12 @@ class KeyListGatesTest {
         }
 
         @Test
-        void withholdsListing_whenTheV2ConnectorLacksKeyListing() {
+        void withholdsListing_whenTheConnectorDeclaresAnUnlistableToken() {
             // given
             var profile = aTokenProfileSnapshot()
-                    .withTokenInstance(aTokenSnapshot().withConnectorFeatures(FeatureFlag.KEY_IMPORT).build())
+                    .withTokenInstance(aTokenSnapshot()
+                            .withConnectorFeatures(FeatureFlag.KEY_IMPORT, FeatureFlag.UNLISTABLE_TOKEN)
+                            .build())
                     .build();
 
             // when
@@ -72,16 +75,21 @@ class KeyListGatesTest {
     class RequireListable {
 
         @Test
-        void refusesListing_whenTheConnectorLacksKeyListing() throws Exception {
+        void refusesListing_whenTheConnectorDeclaresAnUnlistableToken() throws Exception {
             // given
-            var profile = aTokenProfileSnapshot().build();
+            var profile = aTokenProfileSnapshot()
+                    .withTokenInstance(aTokenSnapshot().withConnectorFeatures(FeatureFlag.UNLISTABLE_TOKEN).build())
+                    .build();
             when(keyImportGates.requireAccess(profile.tokenInstanceReferenceUuid(), profile.uuid()))
                     .thenReturn(profile);
             UUID tokenInstanceUuid = profile.tokenInstanceReferenceUuid();
             UUID tokenProfileUuid = profile.uuid();
 
-            // when / then
-            assertThatThrownBy(() -> gates.requireListable(tokenInstanceUuid, tokenProfileUuid))
+            // when
+            ThrowingCallable requireListable = () -> gates.requireListable(tokenInstanceUuid, tokenProfileUuid);
+
+            // then
+            assertThatThrownBy(requireListable)
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining("cannot list the keys in its key storage");
         }
@@ -89,17 +97,17 @@ class KeyListGatesTest {
         @Test
         void refusesListing_whenTheProfileIsDisabled() throws Exception {
             // given
-            var profile = aTokenProfileSnapshot()
-                    .withTokenInstance(aTokenSnapshot().withConnectorFeatures(FeatureFlag.KEY_LIST).build())
-                    .withEnabled(false)
-                    .build();
+            var profile = aTokenProfileSnapshot().withEnabled(false).build();
             when(keyImportGates.requireAccess(profile.tokenInstanceReferenceUuid(), profile.uuid()))
                     .thenReturn(profile);
             UUID tokenInstanceUuid = profile.tokenInstanceReferenceUuid();
             UUID tokenProfileUuid = profile.uuid();
 
-            // when / then
-            assertThatThrownBy(() -> gates.requireListable(tokenInstanceUuid, tokenProfileUuid))
+            // when
+            ThrowingCallable requireListable = () -> gates.requireListable(tokenInstanceUuid, tokenProfileUuid);
+
+            // then
+            assertThatThrownBy(requireListable)
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining("is disabled");
         }
