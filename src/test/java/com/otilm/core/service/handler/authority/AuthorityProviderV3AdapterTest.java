@@ -80,6 +80,7 @@ import com.otilm.core.service.handler.OperationAttributeResolver;
 import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.util.CertificateTestUtil;
 import com.otilm.core.util.SecretEncodingVersion;
+import com.otilm.core.util.SecretLeakProbe;
 import com.otilm.core.util.SecretsUtil;
 import java.net.URI;
 import java.security.KeyPair;
@@ -577,6 +578,55 @@ class AuthorityProviderV3AdapterTest {
         assertThatThrownBy(identify)
                 .isInstanceOfSatisfying(ConnectorProblemException.class,
                         e -> assertThat(e.getProblemDetail().getDetail()).doesNotContain(quotedValue));
+    }
+
+    @Test
+    void keepsConnectorDetail_whenIdentifyRefusalQuotesAPublicIdentifyValue() throws Exception {
+        // given
+        var publicIdentifyValue = "agent-42";
+        var identifyDefinitionUuid = UUID.randomUUID();
+        when(attributeEngine
+                .getDataAttributeDefinitionStrict(authority.getConnectorUuid(), identifyDefinitionUuid,
+                        "agentReference"))
+                .thenReturn(aDataAttribute().withUuid(identifyDefinitionUuid).withName("agentReference").build());
+        List<RequestAttribute> identifyValues = List
+                .of(aCustomAttribute()
+                        .withUuid(identifyDefinitionUuid)
+                        .withName("agentReference")
+                        .withStringContent(publicIdentifyValue)
+                        .build());
+        var refusal = identifyRefusal("agent " + publicIdentifyValue + " is unknown");
+        when(certClientV3.identify(eq(connectorInfo), any(CertificateIdentificationRequestDtoV3.class)))
+                .thenThrow(refusal);
+
+        // when
+        ThrowingCallable identify = () -> adapter.identify(raProfile, "dGVzdGNlcnQ=", identifyValues);
+
+        // then
+        assertThatThrownBy(identify).isSameAs(refusal);
+    }
+
+    @Test
+    void logsNoSecret_whenSecretsSentForIdentifyCannotBeRead() throws Exception {
+        // given
+        var sentSecret = "s3cr3t-account-key";
+        doThrow(new IllegalStateException("could not read " + sentSecret,
+                new IllegalArgumentException("value " + sentSecret)))
+                .when(outboundContainment)
+                .recordExpandedSecretsFromRequest(any(), any());
+        when(certClientV3.identify(eq(connectorInfo), any(CertificateIdentificationRequestDtoV3.class)))
+                .thenThrow(identifyRefusal("its issuing CA certificate could not be obtained"));
+
+        // when
+        List<String> logged;
+        try (SecretLeakProbe probe = SecretLeakProbe.capture()) {
+            assertThatThrownBy(() -> adapter.identify(raProfile, "dGVzdGNlcnQ=", List.of()))
+                    .isInstanceOf(ConnectorProblemException.class);
+            logged = probe.logged();
+        }
+
+        // then
+        SecretLeakProbe.assertNoneReveals(logged, sentSecret);
     }
 
     @Test

@@ -395,7 +395,7 @@ class AuthorityProviderV2AdapterTest {
         // given
         var encryptedValue = "upstream-api-password";
         when(attributeEngine.getStoredObjectDataAttributesContent(any()))
-                .thenReturn(List.of(createSealedRow("apiPassword", encryptedValue)));
+                .thenReturn(List.of(createSealedRow("apiPassword", AttributeContentType.STRING, encryptedValue)));
         when(certClient
                 .identifyCertificate(eq(connectorInfo), eq("auth-instance-uuid"),
                         any(CertificateIdentificationRequestDto.class)))
@@ -413,10 +413,33 @@ class AuthorityProviderV2AdapterTest {
     }
 
     @Test
+    void replacesConnectorWords_whenIdentifyRefusalQuotesAValueNestedInAnEncryptedRaProfileObject() throws Exception {
+        // given
+        var nestedPassphrase = "stored-nested-passphrase-9";
+        when(attributeEngine.getStoredObjectDataAttributesContent(any()))
+                .thenReturn(List
+                        .of(createSealedRow("endEntity", AttributeContentType.OBJECT,
+                                "{\"profile\": \"EMPTY\", \"passphrase\": \"" + nestedPassphrase + "\"}")));
+        when(certClient
+                .identifyCertificate(eq(connectorInfo), eq("auth-instance-uuid"),
+                        any(CertificateIdentificationRequestDto.class)))
+                .thenThrow(identifyRefusal("end entity passphrase " + nestedPassphrase + " refused"));
+
+        // when
+        ThrowingCallable identify = () -> adapter.identify(raProfile, "dGVzdGNlcnQ=", List.of());
+
+        // then
+        assertThatThrownBy(identify)
+                .isInstanceOfSatisfying(ConnectorProblemException.class,
+                        e -> assertThat(e.getProblemDetail().getDetail()).doesNotContain(nestedPassphrase));
+    }
+
+    @Test
     void keepsConnectorDetail_whenIdentifyRefusalQuotesNoSentSecret() throws Exception {
         // given
         when(attributeEngine.getStoredObjectDataAttributesContent(any()))
-                .thenReturn(List.of(createSealedRow("apiPassword", "upstream-api-password")));
+                .thenReturn(
+                        List.of(createSealedRow("apiPassword", AttributeContentType.STRING, "upstream-api-password")));
         var refusal = identifyRefusal("its issuing CA certificate could not be obtained; add it to the authority");
         when(certClient
                 .identifyCertificate(eq(connectorInfo), eq("auth-instance-uuid"),
@@ -629,12 +652,12 @@ class AuthorityProviderV2AdapterTest {
     }
 
     /** A row as the attribute engine stores a protected value, sealed under the test application's key. */
-    private static ObjectAttributeContent createSealedRow(String name, String value) {
+    private static ObjectAttributeContent createSealedRow(String name, AttributeContentType contentType, String value) {
         Security.addProvider(new BouncyCastleProvider());
         new SecretsUtil().setEncryptionKeyStatic(TEST_APPLICATION_ENCRYPTION_KEY);
         String sealed = SecretsUtil.encryptAndEncodeSecretString(value, SecretEncodingVersion.V1);
-        return new ObjectAttributeContent(UUID.randomUUID(), name, name, AttributeType.DATA,
-                AttributeContentType.STRING, new StringAttributeContentV2(), 2, sealed);
+        return new ObjectAttributeContent(UUID.randomUUID(), name, name, AttributeType.DATA, contentType,
+                new StringAttributeContentV2(), 2, sealed);
     }
 
     private static ConnectorProblemException identifyRefusal(String detail) {

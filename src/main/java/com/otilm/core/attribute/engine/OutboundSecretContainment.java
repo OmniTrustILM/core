@@ -1,5 +1,6 @@
 package com.otilm.core.attribute.engine;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -39,6 +40,7 @@ import java.util.Collection;
 import java.util.HexFormat;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
@@ -156,8 +158,18 @@ public class OutboundSecretContainment {
     }
 
     /**
-     * Record the text and numbers of each sent attribute whose definition keeps it encrypted, for operation attributes
-     * that are sent before any row stores them. Definitions and attributes are matched by definition UUID.
+     * Record every text and number a resolved attribute whose stored row is encrypted holds, nested ones included, for
+     * a check where a match only withholds a connector's words. Rows and attributes are matched by definition UUID.
+     */
+    public void recordProtectedValuesForRefusal(List<ObjectAttributeContent> storedRows,
+            List<RequestAttribute> resolved, Set<String> sentSecrets) {
+        forEachProtectedData(storedRows, resolved, data -> recordProtectedValue(data, sentSecrets));
+    }
+
+    /**
+     * As {@link #recordProtectedValuesForRefusal}, for operation attributes, which are sent before any row stores them:
+     * an attribute counts as protected when its definition keeps it encrypted. Definitions and attributes are matched
+     * by definition UUID.
      */
     public void recordProtectedOperationValues(List<DataAttribute> definitions, List<RequestAttribute> sent,
             Set<String> sentSecrets) {
@@ -166,21 +178,35 @@ public class OutboundSecretContainment {
                 .filter(OutboundSecretContainment::isStoredEncrypted)
                 .map(definition -> UUID.fromString(definition.getUuid()))
                 .collect(Collectors.toSet());
-        forEachProtectedData(protectedDefinitions, sent, data -> recordProtectedOperationValue(data, sentSecrets));
+        forEachProtectedData(protectedDefinitions, sent, data -> recordProtectedValue(data, sentSecrets));
     }
 
     /**
      * The text of a protected value, its decimal form for a number, and every text or number nested in an object or a
-     * list, such as a passphrase inside an object attribute. Flags are left out, as they match any benign answer.
+     * list, such as a passphrase inside an object attribute. A stored object decrypts to its JSON text, whose values
+     * count too. Flags and dates are left out, as they match benign answers.
      */
-    private void recordProtectedOperationValue(Object data, Set<String> sentSecrets) {
+    private void recordProtectedValue(Object data, Set<String> sentSecrets) {
         String text = protectedText(data);
         if (text != null) {
             addIfPresent(text, sentSecrets);
+            collectJsonValues(text, sentSecrets);
         } else if (data instanceof Number number) {
             sentSecrets.add(number.toString());
-        } else if (data != null && !(data instanceof Boolean)) {
+        } else if (data instanceof Map<?, ?> || data instanceof Collection<?>) {
             collectTextAndNumbers(objectMapper.valueToTree(data), sentSecrets);
+        }
+    }
+
+    private void collectJsonValues(String text, Set<String> sentSecrets) {
+        String candidate = text.strip();
+        if (!candidate.startsWith("{") && !candidate.startsWith("[")) {
+            return;
+        }
+        try {
+            collectTextAndNumbers(objectMapper.readTree(candidate), sentSecrets);
+        } catch (JsonProcessingException e) {
+            logger.debug("A protected value that looks like JSON is not; it counts as a whole only");
         }
     }
 

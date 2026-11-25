@@ -120,15 +120,14 @@ public abstract class AbstractAuthorityProviderAdapter implements AuthorityProvi
     }
 
     /**
-     * The secret values among attributes sent to a connector: resolved secret content, and the plain value, numbers
-     * included, of every attribute whose stored row keeps it encrypted.
+     * The secret values among attributes sent to a connector: resolved secret content, and every text and number,
+     * nested ones included, of each attribute whose stored row keeps it encrypted.
      */
     protected static Set<String> secretsSent(OutboundSecretContainment containment,
             List<ObjectAttributeContent> storedRows, List<RequestAttribute> sent) {
         Set<String> sentSecrets = new HashSet<>();
         containment.recordExpandedSecretsFromRequest(sent, sentSecrets);
-        containment.recordProtectedValuesFromRequest(storedRows, sent, sentSecrets);
-        containment.recordProtectedNumbersFromRequest(storedRows, sent, sentSecrets);
+        containment.recordProtectedValuesForRefusal(storedRows, sent, sentSecrets);
         return sentSecrets;
     }
 }
