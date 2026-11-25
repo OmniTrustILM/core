@@ -257,36 +257,39 @@ class AutoRenewalGuardsTest {
         assertThat(afterwards.failure()).isNull();
     }
 
-    @Test
-    void stopsReopening_whenRevokedSuccessorsReachTheLimit() {
-        // given
-        int attempt = 0;
-        int limitReports = 0;
-
-        // when: every renewed certificate is revoked after it completed the unit
-        while (attempt < MAX_ATTEMPTS) {
-            UnitGuardResult reopened = AutoRenewalGuards
-                    .unit(unit(true, SuccessorStatus.REVOKED, false, attempt, null), NOW);
-            assertThat(reopened.outcome()).isEqualTo(UnitOutcome.REOPEN);
-            FailureCount count = AutoRenewalGuards.countReopen(attempt, MAX_ATTEMPTS);
-            attempt = count.attempt();
-            limitReports += count.limitReached() ? 1 : 0;
-        }
-        UnitGuardResult afterwards = AutoRenewalGuards
-                .unit(unit(false, SuccessorStatus.NONE, false, attempt, null), NOW);
+    @ParameterizedTest(name = "attempt {0} of 3 -> limit reached {1}")
+    @CsvSource({"1, false", "2, true", "3, false"})
+    void reachesTheLimitThroughAReopen_whenTheCountFirstGetsThere(int previousAttempts, boolean limitReached) {
+        // when
+        FailureCount reopen = AutoRenewalGuards.countReopen(previousAttempts, 3);
 
         // then
-        assertThat(limitReports).isEqualTo(1);
-        assertThat(afterwards.outcome()).isEqualTo(UnitOutcome.MAX_ATTEMPTS);
+        assertThat(reopen.limitReached()).isEqualTo(limitReached);
     }
 
     @Test
-    void countsAReopenWithoutBackoff() {
+    void stopsRenewal_whenReopensHaveUsedUpTheAttempts() {
+        // given
+        var reopenedAtTheLimit = unit(false, SuccessorStatus.NONE, false, MAX_ATTEMPTS, null);
+
         // when
-        FailureCount reopen = AutoRenewalGuards.countReopen(2, MAX_ATTEMPTS);
+        UnitGuardResult result = AutoRenewalGuards.unit(reopenedAtTheLimit, NOW);
 
         // then
-        assertThat(reopen.attempt()).isEqualTo(3);
+        assertThat(result.outcome()).isEqualTo(UnitOutcome.MAX_ATTEMPTS);
+        assertThat(result.failure()).isNull();
+    }
+
+    @Test
+    void countsOneMoreAttemptWithoutBackoff_whenAUnitIsReopened() {
+        // given
+        int previousAttempts = 2;
+
+        // when
+        FailureCount reopen = AutoRenewalGuards.countReopen(previousAttempts, MAX_ATTEMPTS);
+
+        // then
+        assertThat(reopen.attempt()).isEqualTo(previousAttempts + 1);
         assertThat(reopen.notBefore()).isNull();
         assertThat(reopen.limitReached()).isFalse();
     }
@@ -315,14 +318,20 @@ class AutoRenewalGuardsTest {
 
     @ParameterizedTest
     @EnumSource(CertificateState.class)
-    void readsTheSuccessorState(CertificateState state) {
+    void mapsTheCertificateState_toItsSuccessorStatus(CertificateState state) {
+        // given
         SuccessorStatus expected = switch (state) {
             case ISSUED -> SuccessorStatus.ISSUED;
             case REVOKED -> SuccessorStatus.REVOKED;
             case FAILED, REJECTED -> SuccessorStatus.FAILED;
             default -> SuccessorStatus.IN_FLIGHT;
         };
-        assertThat(SuccessorStatus.of(state)).isEqualTo(expected);
+
+        // when
+        SuccessorStatus status = SuccessorStatus.of(state);
+
+        // then
+        assertThat(status).isEqualTo(expected);
     }
 
     @Test
@@ -332,9 +341,15 @@ class AutoRenewalGuardsTest {
 
     @ParameterizedTest
     @EnumSource(SuccessorStatus.class)
-    void tellsWhetherTheSuccessorWasIssued(SuccessorStatus status) {
-        boolean expected = status == SuccessorStatus.ISSUED || status == SuccessorStatus.REVOKED;
-        assertThat(status.wasIssued()).isEqualTo(expected);
+    void reportsIssued_whenTheSuccessorWasIssuedOrRevokedSince(SuccessorStatus status) {
+        // given
+        boolean issuedOrRevoked = status == SuccessorStatus.ISSUED || status == SuccessorStatus.REVOKED;
+
+        // when
+        boolean wasIssued = status.wasIssued();
+
+        // then
+        assertThat(wasIssued).isEqualTo(issuedOrRevoked);
     }
 
     // ── Foreign renewal ───────────────────────────────────────────────────────
