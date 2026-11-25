@@ -165,12 +165,12 @@ public class CryptographicKeyWriter {
      * onboarding states, and links it to the certificates carrying its public key. An unsettled import may yet register
      * or destroy the key pair, so its attempt is locked and refuses the onboarding.
      *
-     * @param spkiFingerprint the fingerprint of the key pair's public key
+     * @param spkiFingerprint the fingerprint of the key pair's public key, or null for a private key alone
      * @param items the key pair's items, as the connector listed them
      * @param customAttributes the key's custom attributes, validated already, or {@code null} for none
      * @param customAttributePermissions permissions applied to the custom attributes, resolved before the transaction
      * since resolving them may ask the policy engine
-     * @return the onboarded key, or nothing while an unsettled import holds its public key
+     * @return the onboarded key, or nothing while an unsettled import may hold the key pair
      * @throws AttributeException if storing an item's metadata or the custom attributes fails
      * @throws NotFoundException if a custom attribute's definition no longer exists
      */
@@ -178,7 +178,7 @@ public class CryptographicKeyWriter {
     public Optional<CryptographicKeyBasicModel> onboardUnlessImporting(String name, TokenProfileFullModel profile,
             String spkiFingerprint, List<ProviderKeyItem> items, List<RequestAttribute> customAttributes,
             SecurityResourceFilter customAttributePermissions) throws AttributeException, NotFoundException {
-        if (!lockUnsettledImportsOf(spkiFingerprint).isEmpty()) {
+        if (!lockUnsettledImportsThatMayHold(spkiFingerprint, profile.tokenInstanceReferenceUuid()).isEmpty()) {
             return Optional.empty();
         }
         CryptographicKeyBasicModel key = save(name, null, profile.uuid(), profile.tokenInstanceReferenceUuid(),
@@ -235,6 +235,19 @@ public class CryptographicKeyWriter {
     private static KeyItemOrigin onboardingOrigin(TokenProfileFullModel profile) {
         return new KeyItemOrigin(KeyEvent.ONBOARD, "Key Onboarded to Token Profile " + profile.name()
                 + " from Token Instance " + profile.tokenInstance().name(), null);
+    }
+
+    /**
+     * The unsettled import attempts that may hold the key pair, locked until the transaction ends. A private key alone
+     * has no public key to match an attempt by, so every key-pair import on its token may hold it.
+     */
+    private List<KeyImport> lockUnsettledImportsThatMayHold(String spkiFingerprint, UUID tokenInstanceUuid) {
+        if (spkiFingerprint == null) {
+            return keyImportRepository
+                    .findForUpdateByTokenInstanceUuidAndSpkiFingerprintIsNotNullAndStateIn(tokenInstanceUuid,
+                            KeyImportState.UNSETTLED);
+        }
+        return lockUnsettledImportsOf(spkiFingerprint);
     }
 
     /** The unsettled import attempts holding the public key, locked until the transaction ends. */

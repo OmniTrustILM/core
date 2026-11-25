@@ -106,7 +106,6 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @SpringBootTest
 class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
@@ -318,7 +317,7 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
-    void verifyData_pairsByPosition_andReturnsResult() throws Exception {
+    void pairsDataWithSignaturesByPosition_whenVerifying() throws Exception {
         // given
         connectorMock
                 .stubOperationAttributes("verify", signSchema())
@@ -330,13 +329,15 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
         String expectedAlgorithmSelection = "{\"signatureAttributes\":[{\"name\":\"signatureAlgorithm\","
                 + "\"content\":[{\"data\":\"SHA256withRSA\"}]}]}";
 
+        CryptographicKeyItem publicKey = persistKeyItem(KeyType.PUBLIC_KEY, "hsm-key-17-pub");
+
         // when
         VerifyDataResponseDto response = operationService
-                .verifyData(token.getSecuredParentUuid(), profile.getSecuredUuid(), key.getUuid(), privateKey.getUuid(),
+                .verifyData(token.getSecuredParentUuid(), profile.getSecuredUuid(), key.getUuid(), publicKey.getUuid(),
                         request);
 
         // then
-        assertTrue(response.getVerifications().get(0).isResult());
+        assertThat(response.getVerifications().get(0).isResult()).isTrue();
         connectorMock
                 .verifyOperationRequestContaining("verify",
                         "{\"data\":[{\"identifier\":\"0\"}],\"signatures\":[{\"identifier\":\"0\"}]}");
@@ -344,22 +345,60 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
-    void encryptData_returnsConnectorPayload_andRecordsSuccess() throws Exception {
+    void returnsTheConnectorPayload_whenEncryptionSucceeds() throws Exception {
         // given
         connectorMock
                 .stubOperationAttributes("encrypt", cipherSchema())
                 .stubOperation("encrypt",
                         "{\"encryptedData\":[{\"identifier\":\"0\",\"data\":\"" + SIGNATURE + "\"}]}");
+        CryptographicKeyItem publicKey = persistKeyItem(KeyType.PUBLIC_KEY, "hsm-key-17-pub");
 
         // when
         EncryptDataResponseDto encrypted = operationService
-                .encryptData(token.getSecuredParentUuid(), profile.getSecuredUuid(), key.getUuid(),
-                        privateKey.getUuid(), cipherRequest());
+                .encryptData(token.getSecuredParentUuid(), profile.getSecuredUuid(), key.getUuid(), publicKey.getUuid(),
+                        cipherRequest());
 
         // then
-        assertEquals(SIGNATURE, encrypted.getEncryptedData().get(0).getData());
+        assertThat(encrypted.getEncryptedData().get(0).getData()).isEqualTo(SIGNATURE);
         connectorMock.verifyOperationRequestContaining("encrypt", cipherAlgorithmSelection());
-        assertEquals(KeyEventStatus.SUCCESS, onlyEvent(KeyEvent.ENCRYPT).getStatus());
+        assertThat(onlyEvent(KeyEvent.ENCRYPT).getStatus()).isEqualTo(KeyEventStatus.SUCCESS);
+    }
+
+    @Test
+    void refusesVerification_whenTheKeyItemIsAPrivateKey() {
+        // given
+        VerifyDataRequestDto request = new VerifyDataRequestDto();
+        request.setSignatureAttributes(sha256WithRsa());
+        request.setData(List.of(signatureData(DATA)));
+        request.setSignatures(List.of(signatureData(SIGNATURE)));
+
+        // when
+        ThrowingCallable verify = () -> operationService
+                .verifyData(token.getSecuredParentUuid(), profile.getSecuredUuid(), key.getUuid(), privateKey.getUuid(),
+                        request);
+
+        // then
+        assertThatThrownBy(verify)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("' is a private key. Verification needs a public key.");
+        connectorMock.verifyNoOperationRequest("verify");
+    }
+
+    @Test
+    void refusesEncryption_whenTheKeyItemIsAPrivateKey() {
+        // given
+        CipherDataRequestDto request = cipherRequest();
+
+        // when
+        ThrowingCallable encrypt = () -> operationService
+                .encryptData(token.getSecuredParentUuid(), profile.getSecuredUuid(), key.getUuid(),
+                        privateKey.getUuid(), request);
+
+        // then
+        assertThatThrownBy(encrypt)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("' is a private key. Encryption needs a public key.");
+        connectorMock.verifyNoOperationRequest("encrypt");
     }
 
     @Test
@@ -524,6 +563,42 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
+    void refusesCertificateRequest_whenTheKeyHoldsItsPrivateKeyAlone() {
+        // given — the key holds only its private item
+        X500Principal subject = new X500Principal("CN=v2-csr");
+        List<RequestAttribute> attributes = sha256WithRsa();
+
+        // when
+        ThrowingCallable generateCsr = () -> internalOperationService
+                .generateCsr(key.getUuid(), profile.getUuid(), subject, null, attributes, null, null, null);
+
+        // then
+        assertThatThrownBy(generateCsr)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("holds no public key to put in a certificate request.");
+        connectorMock.verifyNoOperationRequest("sign");
+    }
+
+    @Test
+    void refusesCertificateRequest_whenTheKeyHoldsItsPublicKeyAlone() throws Exception {
+        // given
+        cryptographicKeyItemRepository.delete(privateKey);
+        persistPublicKeyItem(rsaKeyPair().getPublic());
+        X500Principal subject = new X500Principal("CN=v2-csr");
+        List<RequestAttribute> attributes = sha256WithRsa();
+
+        // when
+        ThrowingCallable generateCsr = () -> internalOperationService
+                .generateCsr(key.getUuid(), profile.getUuid(), subject, null, attributes, null, null, null);
+
+        // then
+        assertThatThrownBy(generateCsr)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("holds no private key to sign a certificate request.");
+        connectorMock.verifyNoOperationRequest("sign");
+    }
+
+    @Test
     void generateCsr_refusesKeyWhosePublicKeyIsNotHeld() {
         // given
         persistKeyItem(KeyType.PUBLIC_KEY, "hsm-key-17-pub");
@@ -585,6 +660,13 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
     @Nested
     class EncryptData {
 
+        private CryptographicKeyItem publicKey;
+
+        @BeforeEach
+        void persistThePublicKeyItem() {
+            publicKey = persistKeyItem(KeyType.PUBLIC_KEY, "hsm-key-17-pub");
+        }
+
         @Test
         void refusesTheKey_whenItMovesToAnotherProfileBehindTheCache() throws Exception {
             // given
@@ -610,7 +692,7 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
         private EncryptDataResponseDto encryptInTheOriginalProfile() throws Exception {
             return operationService
                     .encryptData(token.getSecuredParentUuid(), profile.getSecuredUuid(), key.getUuid(),
-                            privateKey.getUuid(), cipherRequest());
+                            publicKey.getUuid(), cipherRequest());
         }
     }
 

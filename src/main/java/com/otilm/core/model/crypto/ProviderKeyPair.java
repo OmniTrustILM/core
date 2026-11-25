@@ -17,17 +17,17 @@ public record ProviderKeyPair(List<MetadataAttribute> keyPairMeta, ProviderKeyIt
         keyPairMeta = List.copyOf(keyPairMeta);
     }
 
-    /**
-     * Names and orders the items as key creation does.
-     *
-     * @throws IllegalStateException for a pair listed without its public key
-     */
+    public boolean isPrivateOnly() {
+        return publicKey == null;
+    }
+
+    /** The items of a key onboarded under the given name, named and ordered as for a created key. */
     public List<ProviderKeyItem> toOnboardedItems(String keyName) {
-        if (publicKey == null) {
-            throw new IllegalStateException("A key pair listed without its public key cannot be onboarded");
+        ProviderKeyItem privateKeyItem = named(privateKey, privateKeyName(keyName));
+        if (isPrivateOnly()) {
+            return List.of(privateKeyItem);
         }
         ProviderKeyItem publicKeyItem = named(publicKey, publicKeyName(keyName));
-        ProviderKeyItem privateKeyItem = named(privateKey, privateKeyName(keyName));
         return List.of(publicKeyItem, privateKeyItem);
     }
 

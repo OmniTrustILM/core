@@ -227,7 +227,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             assertThat(listing.getItems())
                     .extracting(TokenKeyDto::getStatus)
                     .containsExactly(TokenKeyStatus.ONBOARDABLE, TokenKeyStatus.ONBOARDABLE_INTO_KEY,
-                            TokenKeyStatus.PUBLIC_KEY_UNAVAILABLE);
+                            TokenKeyStatus.ONBOARDABLE);
         }
 
         @Test
@@ -297,15 +297,48 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         }
 
         @Test
-        void givesTheReason_whenTheTokenHoldsNoPublicKeyForThePair() throws Exception {
+        void listsThePrivateKeyAsOnboardable_whenTheTokenHoldsNoPublicKeyForIt() throws Exception {
             // given
-            tokenLists(aListedKeyPair().withoutPublicKey().build());
+            var storageName = "signer";
+            tokenLists(aListedKeyPair().withStorageName(storageName).withoutPublicKey().build());
 
             // when
             TokenKeyDto entry = firstListedEntry();
 
             // then
-            assertThat(entry.getReason()).isEqualTo("The key storage holds no public key for this key pair.");
+            assertThat(entry.getStatus()).isEqualTo(TokenKeyStatus.ONBOARDABLE);
+            assertThat(entry.isPrivateOnly()).isTrue();
+            assertThat(entry.getSuggestedName()).isEqualTo(storageName);
+            assertThat(entry).extracting(TokenKeyDto::getFingerprint, TokenKeyDto::getReason).containsOnlyNulls();
+        }
+
+        @Test
+        void marksTheKeyPairAsNotPrivateOnly_whenTheTokenHoldsItsPublicKey() throws Exception {
+            // given
+            tokenLists(aListedKeyPair().build());
+
+            // when
+            TokenKeyDto entry = firstListedEntry();
+
+            // then
+            assertThat(entry.isPrivateOnly()).isFalse();
+        }
+
+        @Test
+        void suggestsTheStorageNameWithAPrefixOfTheHandleDigest_whenAKeyHasTheStorageNameOfAPrivateKeyAlone()
+                throws Exception {
+            // given
+            var storageName = "signer";
+            var keyId = "a1b2";
+            recordHolding(storageName, rsaPublicKey());
+            tokenLists(aListedKeyPair().withKeyId(keyId).withStorageName(storageName).withoutPublicKey().build());
+
+            // when
+            TokenKeyDto entry = firstListedEntry();
+
+            // then
+            assertThat(entry.getSuggestedName())
+                    .isEqualTo("%s (%s)".formatted(storageName, digestHandleOfKeyId(keyId).substring(0, 8)));
         }
 
         @Test
@@ -388,7 +421,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             // then
             assertThat(entry.getStatus()).isEqualTo(TokenKeyStatus.IN_INVENTORY);
             assertThat(entry.getInventoryKeyName()).isEqualTo(storageName);
-            assertThat(entry.getReason()).isEqualTo("Key '%s' already holds this key pair.".formatted(storageName));
+            assertThat(entry.getReason()).isEqualTo("Key '%s' already holds this key.".formatted(storageName));
         }
 
         @Test
@@ -469,7 +502,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             // then
             assertThat(entry.getStatus()).isEqualTo(TokenKeyStatus.IN_INVENTORY);
             assertThat(entry.getInventoryKeyName()).isEqualTo(storageName);
-            assertThat(entry.getReason()).isEqualTo("Key '%s' already holds this key pair.".formatted(storageName));
+            assertThat(entry.getReason()).isEqualTo("Key '%s' already holds this key.".formatted(storageName));
         }
 
         @Test
@@ -487,7 +520,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             // then
             assertThat(entry.getStatus()).isEqualTo(TokenKeyStatus.IN_INVENTORY);
             assertThat(entry.getInventoryKeyUuid()).isEqualTo(keyUuid);
-            assertThat(entry.getReason()).isEqualTo("Key '%s' already holds this key pair.".formatted(storageName));
+            assertThat(entry.getReason()).isEqualTo("Key '%s' already holds this key.".formatted(storageName));
         }
 
         @Test
@@ -589,7 +622,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
 
             // then
             assertThat(entry.getStatus()).isEqualTo(TokenKeyStatus.IN_INVENTORY);
-            assertThat(entry.getReason()).isEqualTo("Key '%s' already holds this key pair.".formatted(holderName));
+            assertThat(entry.getReason()).isEqualTo("Key '%s' already holds this key.".formatted(holderName));
         }
 
         @Test
@@ -608,7 +641,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             assertThat(entry)
                     .extracting(TokenKeyDto::getInventoryKeyUuid, TokenKeyDto::getInventoryKeyName)
                     .containsOnlyNulls();
-            assertThat(entry.getReason()).isEqualTo("Another key in the inventory already holds this key pair.");
+            assertThat(entry.getReason()).isEqualTo("Another key in the inventory already holds this key.");
         }
 
         @Test
@@ -626,8 +659,8 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             assertThat(entry.getStatus()).isEqualTo(TokenKeyStatus.IN_INVENTORY);
             assertThat(entry.getInventoryKeyName()).isNull();
             assertThat(entry.getReason())
-                    .isEqualTo("The token reused the handle of another key in the inventory for this key pair. "
-                            + "That key must be removed from the inventory to onboard this key pair.");
+                    .isEqualTo("The token reused the handle of another key in the inventory for this key. "
+                            + "That other key must be removed from the inventory to onboard this one.");
         }
 
         @Test
@@ -968,6 +1001,53 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         }
 
         @Test
+        void listsThePrivateKeyAloneAsInInventory_onceItIsOnboarded() throws Exception {
+            // given
+            var storageName = "signer";
+            var privateKeyAlone = aListedKeyPair().withStorageName(storageName).withoutPublicKey().build();
+            tokenLists(privateKeyAlone);
+            UUID onboarded = onboardTheFirstListedPair().getKeyUuid();
+
+            // when
+            TokenKeyDto entry = firstListedEntry();
+
+            // then
+            assertThat(entry)
+                    .extracting(TokenKeyDto::getStatus, TokenKeyDto::isPrivateOnly, TokenKeyDto::getInventoryKeyUuid)
+                    .containsExactly(TokenKeyStatus.IN_INVENTORY, true, onboarded);
+            assertThat(entry.getReason()).isEqualTo("Key '%s' already holds this key.".formatted(storageName));
+        }
+
+        @Test
+        void listsThePrivateKeyAloneAsImportInProgress_whenAKeyPairImportOnItsTokenIsUnsettled() throws Exception {
+            // given
+            importOf(rsaPublicKey(), KeyImportState.ACCEPTED);
+            tokenLists(aListedKeyPair().withoutPublicKey().build());
+
+            // when
+            TokenKeyDto entry = firstListedEntry();
+
+            // then
+            assertThat(entry)
+                    .extracting(TokenKeyDto::getStatus, TokenKeyDto::getReason, TokenKeyDto::getSuggestedName)
+                    .containsExactly(TokenKeyStatus.IMPORT_IN_PROGRESS,
+                            "An import of a key pair into this key storage is still in progress.", null);
+        }
+
+        @Test
+        void listsThePrivateKeyAloneOnboardable_whenTheKeyPairImportOnItsTokenFailed() throws Exception {
+            // given
+            importOf(rsaPublicKey(), KeyImportState.FAILED);
+            tokenLists(aListedKeyPair().withoutPublicKey().build());
+
+            // when
+            TokenKeyDto entry = firstListedEntry();
+
+            // then
+            assertThat(entry.getStatus()).isEqualTo(TokenKeyStatus.ONBOARDABLE);
+        }
+
+        @Test
         void listsItByItsParameterSetAndPrivateSize_whenTheTokenHoldsOnlyThePrivateKey() throws Exception {
             // given
             var privateKeyOnly = aListedKeyPair()
@@ -1040,7 +1120,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
                             arguments(KeyEntryStatus.UNREADABLE, TokenKeyStatus.UNREADABLE,
                                     "The connector cannot read this key."),
                             arguments(KeyEntryStatus.NOT_FOUND, TokenKeyStatus.GONE,
-                                    "The key storage no longer holds this key pair."));
+                                    "The key storage no longer holds this key."));
         }
     }
 
@@ -1398,8 +1478,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
                     .extracting(TokenKeyOnboardingResultDto::getOutcome, TokenKeyOnboardingResultDto::getKeyUuid)
                     .containsExactly(tuple(TokenKeyOnboardingOutcome.JOINED_EXISTING_KEY, publicKeyRecord),
                             tuple(TokenKeyOnboardingOutcome.BLOCKED, publicKeyRecord));
-            assertThat(results.get(1).getReason())
-                    .isEqualTo("Key '%s' already holds this key pair.".formatted(holderName));
+            assertThat(results.get(1).getReason()).isEqualTo("Key '%s' already holds this key.".formatted(holderName));
         }
 
         @Test
@@ -1449,7 +1528,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
                             TokenKeyOnboardingResultDto::getReason)
                     .containsExactly(
                             tuple(TokenKeyOnboardingOutcome.BLOCKED, TokenKeyStatus.IN_INVENTORY,
-                                    "The inventory came to hold this key pair while it was being onboarded."),
+                                    "The inventory came to hold this key while it was being onboarded."),
                             tuple(TokenKeyOnboardingOutcome.ONBOARDED, null, null));
             assertThat(results.getFirst().getKeyName()).isEqualTo(REGISTERED_MEANWHILE);
             assertThat(results.getFirst().getKeyUuid()).isNotNull();
@@ -1504,7 +1583,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
                     .extracting(TokenKeyOnboardingResultDto::getOutcome, TokenKeyOnboardingResultDto::getStatus,
                             TokenKeyOnboardingResultDto::getKeyUuid)
                     .containsExactly(TokenKeyOnboardingOutcome.BLOCKED, TokenKeyStatus.IN_INVENTORY, holder);
-            assertThat(result.getReason()).isEqualTo("Key '%s' already holds this key pair.".formatted(storageName));
+            assertThat(result.getReason()).isEqualTo("Key '%s' already holds this key.".formatted(storageName));
         }
 
         @Test
@@ -1560,7 +1639,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
                             TokenKeyOnboardingResultDto::getReason)
                     .containsExactly(
                             tuple(TokenKeyOnboardingOutcome.BLOCKED, TokenKeyStatus.IN_INVENTORY,
-                                    "The inventory came to hold this key pair while it was being onboarded."),
+                                    "The inventory came to hold this key while it was being onboarded."),
                             tuple(TokenKeyOnboardingOutcome.ONBOARDED, null, null));
             assertThat(results.getFirst().getKeyName()).isEqualTo(REGISTERED_MEANWHILE);
             assertThat(cryptographicKeyRepository.existsByName("contested")).isFalse();
@@ -1585,8 +1664,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
                     .extracting(TokenKeyOnboardingResultDto::getOutcome, TokenKeyOnboardingResultDto::getStatus,
                             TokenKeyOnboardingResultDto::getReason, TokenKeyOnboardingResultDto::getKeyName)
                     .containsExactly(tuple(TokenKeyOnboardingOutcome.BLOCKED, TokenKeyStatus.IN_INVENTORY,
-                            "The inventory came to hold this key pair while it was being onboarded.",
-                            REGISTERED_MEANWHILE));
+                            "The inventory came to hold this key while it was being onboarded.", REGISTERED_MEANWHILE));
             assertThat(cryptographicKeyRepository.existsByName("contested")).isFalse();
         }
 
@@ -1925,11 +2003,90 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         }
 
         @Test
-        void skipsTheKeyPair_whenTheTokenHoldsNoPublicKeyForIt() throws Exception {
+        void onboardsThePrivateKeyAlone_whenTheTokenHoldsNoPublicKeyForIt() throws Exception {
             // given
             tokenLists(aListedKeyPair().withoutPublicKey().build());
             var selection = theFirstListedPair();
-            long keysBefore = cryptographicKeyRepository.count();
+
+            // when
+            TokenKeyOnboardingResultDto result = onboard(selection);
+
+            // then
+            assertThat(result.getOutcome()).isEqualTo(TokenKeyOnboardingOutcome.ONBOARDED);
+            assertThat(cryptographicKeyItemRepository.findByKeyUuidIn(List.of(result.getKeyUuid())))
+                    .singleElement()
+                    .satisfies(item -> assertThat(item)
+                            .extracting(CryptographicKeyItem::getType, CryptographicKeyItem::isEnabled,
+                                    CryptographicKeyItem::isExportable)
+                            .containsExactly(KeyType.PRIVATE_KEY, false, false));
+        }
+
+        @Test
+        void keepsTheParameterSetAndPrivateSize_whenItOnboardsThePrivateKeyAlone() throws Exception {
+            // given
+            tokenLists(aListedKeyPair()
+                    .withAlgorithm(KeyAlgorithm.MLDSA)
+                    .withLength(null)
+                    .withAlgorithmIdentifier(PqcKeyFixtures.algorithmIdentifier())
+                    .withoutPublicKey()
+                    .build());
+            var selection = theFirstListedPair();
+
+            // when
+            TokenKeyOnboardingResultDto result = onboard(selection);
+
+            // then
+            assertThat(cryptographicKeyItemRepository.findByKeyUuidIn(List.of(result.getKeyUuid())))
+                    .singleElement()
+                    .extracting(CryptographicKeyItem::getKeyAlgorithm, CryptographicKeyItem::getParameterSet,
+                            CryptographicKeyItem::getLength)
+                    .containsExactly(KeyAlgorithm.MLDSA, PqcKeyFixtures.ML_DSA_PARAMETER_SET,
+                            PqcKeyFixtures.ML_DSA_PRIVATE_KEY_BITS);
+        }
+
+        @Test
+        void namesThePrivateKeyAloneWithAPrefixOfItsHandleDigest_whenAKeyHasItsStorageName() throws Exception {
+            // given
+            var storageName = "signer";
+            var keyId = "a1b2";
+            recordHolding(storageName, rsaPublicKey());
+            tokenLists(aListedKeyPair().withKeyId(keyId).withStorageName(storageName).withoutPublicKey().build());
+            var unnamed = selecting(firstListedEntry());
+
+            // when
+            TokenKeyOnboardingResultDto result = onboard(unnamed);
+
+            // then
+            assertThat(result.getKeyName())
+                    .isEqualTo("%s (%s)".formatted(storageName, digestHandleOfKeyId(keyId).substring(0, 8)));
+        }
+
+        @Test
+        void skipsTheRepeatedPrivateKeyAlone_whenTheSelectionRepeatsIt() throws Exception {
+            // given
+            var privateKeyAlone = aListedKeyPair().withoutPublicKey().build();
+            tokenLists(privateKeyAlone);
+            var once = theFirstListedPair();
+            var again = theFirstListedPairNamed("again");
+            tokenResolves(privateKeyAlone, privateKeyAlone);
+
+            // when
+            List<TokenKeyOnboardingResultDto> results = onboardTogether(once, again);
+
+            // then
+            assertThat(results.get(1))
+                    .extracting(TokenKeyOnboardingResultDto::getOutcome, TokenKeyOnboardingResultDto::getStatus,
+                            TokenKeyOnboardingResultDto::getKeyUuid)
+                    .containsExactly(TokenKeyOnboardingOutcome.BLOCKED, TokenKeyStatus.IN_INVENTORY,
+                            results.get(0).getKeyUuid());
+        }
+
+        @Test
+        void blocksThePrivateKeyAlone_whenAKeyPairImportOnItsTokenIsUnsettled() throws Exception {
+            // given
+            importOf(rsaPublicKey(), KeyImportState.REQUESTED);
+            tokenLists(aListedKeyPair().withoutPublicKey().build());
+            var selection = theFirstListedPair();
 
             // when
             TokenKeyOnboardingResultDto result = onboard(selection);
@@ -1938,9 +2095,68 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             assertThat(result)
                     .extracting(TokenKeyOnboardingResultDto::getOutcome, TokenKeyOnboardingResultDto::getStatus,
                             TokenKeyOnboardingResultDto::getReason)
-                    .containsExactly(TokenKeyOnboardingOutcome.BLOCKED, TokenKeyStatus.PUBLIC_KEY_UNAVAILABLE,
-                            "The key storage holds no public key for this key pair.");
-            assertThat(cryptographicKeyRepository.count()).isEqualTo(keysBefore);
+                    .containsExactly(TokenKeyOnboardingOutcome.BLOCKED, TokenKeyStatus.IMPORT_IN_PROGRESS,
+                            "An import of a key pair into this key storage is still in progress.");
+        }
+
+        /** The token may still find a private key that the compensation destroys while it resolves the selection. */
+        @Test
+        void blocksThePrivateKeyAlone_whenAKeyPairImportOnItsTokenIsCompensatedWhileTheTokenResolvesTheSelection()
+                throws Exception {
+            // given
+            var attempt = importOf(rsaPublicKey(), KeyImportState.COMPENSATING);
+            tokenLists(aListedKeyPair().withoutPublicKey().build());
+            var selection = theFirstListedPair();
+            connectorMock
+                    .onKeyResolutionRequest(() -> jdbcTemplate
+                            .update("UPDATE key_import SET state = ? WHERE uuid = ?", KeyImportState.COMPENSATED.name(),
+                                    attempt));
+
+            // when
+            TokenKeyOnboardingResultDto result = onboard(selection);
+
+            // then
+            assertThat(result)
+                    .extracting(TokenKeyOnboardingResultDto::getOutcome, TokenKeyOnboardingResultDto::getStatus,
+                            TokenKeyOnboardingResultDto::getReason)
+                    .containsExactly(TokenKeyOnboardingOutcome.BLOCKED, TokenKeyStatus.IMPORT_IN_PROGRESS,
+                            "An import of a key pair into this key storage is still in progress.");
+        }
+
+        @Test
+        void onboardsThePrivateKeyAlone_whenASecretKeyImportIsUnsettled() throws Exception {
+            // given
+            seedSecretKeyImport(KeyImportState.ACCEPTED);
+            tokenLists(aListedKeyPair().withoutPublicKey().build());
+            var selection = theFirstListedPair();
+
+            // when
+            TokenKeyOnboardingResultDto result = onboard(selection);
+
+            // then
+            assertThat(result.getOutcome()).isEqualTo(TokenKeyOnboardingOutcome.ONBOARDED);
+        }
+
+        @Test
+        void skipsThePrivateKeyAlone_whenAKeyComesToHoldItsHandleWhileItIsWritten() throws Exception {
+            // given
+            var keyId = "a1b2";
+            tokenLists(aListedKeyPair().withKeyId(keyId).withStorageName("contested").withoutPublicKey().build());
+            var contested = theFirstListedPair();
+            var securityContext = SecurityContextHolder.getContext();
+
+            // when
+            Future<TokenKeyOnboardingResultDto> onboarding = lockContention
+                    .callBlockedBy(() -> registerPrivateKeyMeanwhile(keyId),
+                            DelegatingSecurityContextCallable.create(() -> onboard(contested), securityContext));
+
+            // then
+            assertThat(onboarding.get(10, TimeUnit.SECONDS))
+                    .extracting(TokenKeyOnboardingResultDto::getOutcome, TokenKeyOnboardingResultDto::getStatus,
+                            TokenKeyOnboardingResultDto::getReason)
+                    .containsExactly(TokenKeyOnboardingOutcome.BLOCKED, TokenKeyStatus.IN_INVENTORY,
+                            "The inventory came to hold this key while it was being onboarded.");
+            assertThat(cryptographicKeyRepository.existsByName("contested")).isFalse();
         }
 
         @Test
@@ -2071,6 +2287,27 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         }
 
         @Test
+        void waitsForTheImportAndRefusesThePrivateKeyAlone_whenAKeyPairImportOnItsTokenHoldsItsLock() throws Exception {
+            // given
+            var attempt = importOf(rsaPublicKey(), KeyImportState.ACCEPTED);
+            var name = "signer";
+            var profile = profileModel();
+            var items = aProviderKeyPair().withoutPublicKey().build().toOnboardedItems(name);
+
+            // when
+            Future<Optional<CryptographicKeyBasicModel>> onboarding = lockContention
+                    .callBlockedBy(
+                            () -> jdbcTemplate
+                                    .queryForList("SELECT uuid FROM key_import WHERE uuid = ? FOR UPDATE", attempt),
+                            () -> cryptographicKeyWriter
+                                    .onboardUnlessImporting(name, profile, null, items, null, null));
+
+            // then
+            assertThat(onboarding.get(10, TimeUnit.SECONDS)).isEmpty();
+            assertThat(cryptographicKeyRepository.existsByName(name)).isFalse();
+        }
+
+        @Test
         void skipsTheKeyPair_whenItsNameIsTaken() throws Exception {
             // given
             var takenName = "Payments signer";
@@ -2112,13 +2349,13 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         private static Stream<Arguments> answersWithoutAKeyPair() {
             return Stream
                     .of(arguments(KeyEntryStatus.NOT_FOUND, TokenKeyStatus.GONE,
-                            "The key storage no longer holds this key pair."),
+                            "The key storage no longer holds this key."),
                             arguments(KeyEntryStatus.UNADDRESSABLE, TokenKeyStatus.UNADDRESSABLE,
-                                    "The connector cannot address this key pair by its handle alone."),
+                                    "The connector cannot address this key by its handle alone."),
                             arguments(KeyEntryStatus.UNSUPPORTED_TYPE, TokenKeyStatus.UNSUPPORTED_KEY_TYPE,
                                     "The connector cannot operate a key of this type."),
                             arguments(KeyEntryStatus.UNREADABLE, TokenKeyStatus.UNREADABLE,
-                                    "The connector cannot read this key pair."),
+                                    "The connector cannot read this key."),
                             arguments(
                                     named("a handle the token does not recognise has no key to describe",
                                             KeyEntryStatus.INVALID_HANDLE),
@@ -2329,7 +2566,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             List<TokenKeyOnboardingResultDto> results = onboardThroughTheApi(first, second).getResults();
 
             // then
-            var gone = "The key storage no longer holds this key pair.";
+            var gone = "The key storage no longer holds this key.";
             assertThat(results)
                     .extracting(TokenKeyOnboardingResultDto::getOutcome, TokenKeyOnboardingResultDto::getReason)
                     .containsExactly(tuple(TokenKeyOnboardingOutcome.BLOCKED, gone),
@@ -2387,6 +2624,24 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             assertThat(cryptographicKeyRepository.findByUuid(onboarded)).isEmpty();
             connectorMock.verifyDestroyKeyRequests(0);
             assertThat(firstListedEntry().getStatus()).isEqualTo(TokenKeyStatus.ONBOARDABLE);
+        }
+
+        @Test
+        void listsThePrivateKeyAloneAsOnboardableAgain_whenItsKeyIsRemovedFromTheInventory() throws Exception {
+            // given
+            tokenLists(aListedKeyPair().withoutPublicKey().build());
+            var onboarded = onboardTheFirstListedPair().getKeyUuid();
+            connectorMock.stubDestroyKey();
+
+            // when
+            removeFromInventory(onboarded);
+
+            // then
+            assertThat(cryptographicKeyRepository.findByUuid(onboarded)).isEmpty();
+            connectorMock.verifyDestroyKeyRequests(0);
+            assertThat(firstListedEntry())
+                    .extracting(TokenKeyDto::getStatus, TokenKeyDto::isPrivateOnly)
+                    .containsExactly(TokenKeyStatus.ONBOARDABLE, true);
         }
 
         @Test
@@ -2673,8 +2928,8 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
     }
 
     private static String formatHandleReuseReason(String holderName) {
-        return ("The token reused the handle of key '%1$s' for this key pair. "
-                + "Remove key '%1$s' from the inventory to onboard this key pair.").formatted(holderName);
+        return ("The token reused the handle of key '%1$s' for this key. "
+                + "Remove key '%1$s' from the inventory to onboard this one.").formatted(holderName);
     }
 
     /** Joins the key pair's private key to the record holding its public key, within the caller's transaction. */
@@ -2721,6 +2976,16 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
                 .uuid();
         jdbcTemplate.update("UPDATE key_import SET state = ? WHERE uuid = ?", state.name(), attempt);
         return attempt;
+    }
+
+    /** The seeded attempt carries no public key fingerprint, as a secret key has none. */
+    private void seedSecretKeyImport(KeyImportState state) throws Exception {
+        KeyImportTerms terms = new KeyImportTerms(profileModel(), KeyRequestType.SECRET, KeyAlgorithm.AES, null, false,
+                List.of(), new NameAndUuidDto(UUID.randomUUID().toString(), "requester"));
+        UUID attempt = keyImportWriter
+                .open(terms, "import-" + UUID.randomUUID(), "imported secret key", List.of("sent-secret-digest"))
+                .uuid();
+        jdbcTemplate.update("UPDATE key_import SET state = ? WHERE uuid = ?", state.name(), attempt);
     }
 
     /** A public-key-only record, as an uploaded certificate brings it into the inventory. */
