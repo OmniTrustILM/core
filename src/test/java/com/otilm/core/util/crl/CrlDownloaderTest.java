@@ -15,6 +15,7 @@ import java.net.InetSocketAddress;
 import java.net.Proxy;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Arrays;
@@ -49,6 +50,8 @@ class CrlDownloaderTest {
     private static final String CRL_PATH = "/ca.crl";
     /** Bounds how long a silent server holds a connection its client never closes. */
     private static final int HOLD_LIMIT_MILLIS = 20_000;
+    /** Well within the read timeout, so a server sending slowly never lets a single read time out. */
+    private static final int SLOW_SEND_INTERVAL_MILLIS = 200;
     /** Well below the hold limit, so only the cancelled download, not the server, can close the connection in time. */
     private static final Duration CONNECTION_CLOSE_WAIT = Duration.ofSeconds(2);
 
@@ -424,25 +427,35 @@ class CrlDownloaderTest {
     }
 
     /**
-     * Answers with a chunked body whose first chunk-size line never ends, sent one digit at a time well within the read
-     * timeout, so no single socket read stalls.
+     * Answers with a chunked body whose first chunk-size line never ends, sent one digit at a time, so no single socket
+     * read stalls. The pause between digits is a read from the client, so the server stops as soon as the client hangs
+     * up.
      */
     private static void serveEndlessChunkSizeLine(ServerSocket server) {
         try (Socket client = server.accept()) {
             client.setSoTimeout(HOLD_LIMIT_MILLIS);
-            readRequestHead(client.getInputStream());
+            InputStream fromClient = client.getInputStream();
+            readRequestHead(fromClient);
             OutputStream out = client.getOutputStream();
             out.write("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n".getBytes(StandardCharsets.US_ASCII));
+            client.setSoTimeout(SLOW_SEND_INTERVAL_MILLIS);
             long holdUntil = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(HOLD_LIMIT_MILLIS);
-            while (System.nanoTime() - holdUntil < 0) {
+            boolean clientConnected = true;
+            while (clientConnected && System.nanoTime() - holdUntil < 0) {
                 out.write('0');
                 out.flush();
-                TimeUnit.MILLISECONDS.sleep(200);
+                clientConnected = staysConnectedForReadTimeout(fromClient);
             }
         } catch (IOException connectionEnded) {
             // the client hung up
-        } catch (InterruptedException interrupted) {
-            Thread.currentThread().interrupt();
+        }
+    }
+
+    private static boolean staysConnectedForReadTimeout(InputStream fromClient) throws IOException {
+        try {
+            return fromClient.read() != -1;
+        } catch (SocketTimeoutException stillConnected) {
+            return true;
         }
     }
 
