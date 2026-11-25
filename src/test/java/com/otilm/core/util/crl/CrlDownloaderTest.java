@@ -7,6 +7,7 @@ import java.io.ByteArrayInputStream;
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InterruptedIOException;
 import java.io.OutputStream;
 import java.io.SequenceInputStream;
 import java.net.InetAddress;
@@ -18,6 +19,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Random;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
@@ -325,6 +327,35 @@ class CrlDownloaderTest {
     }
 
     @Test
+    @Timeout(value = 30, threadMode = SEPARATE_THREAD)
+    void failsAsInterrupted_whenCallerIsInterruptedDuringDownload() throws Exception {
+        // given
+        var timeoutsLongerThanCloseWait = Duration.ofSeconds(15);
+        try (ServerSocket silentServer = new ServerSocket(0, 1, InetAddress.getByName(LoopbackWireMock.HOST))) {
+            var connected = new CountDownLatch(1);
+            var heldConnection = new FutureTask<Void>(() -> readRequestWithoutAnswering(silentServer, connected), null);
+            Thread.ofVirtual().start(heldConnection);
+            String url = LoopbackWireMock.url(silentServer.getLocalPort()) + CRL_PATH;
+            var downloader = new CrlDownloader(CONNECT_TIMEOUT_MILLIS, (int) timeoutsLongerThanCloseWait.toMillis(),
+                    SIZE_LIMIT, timeoutsLongerThanCloseWait);
+            var download = new FutureTask<InterruptedDownload>(() -> downloadReportingInterrupt(downloader, url));
+            Thread caller = Thread.ofVirtual().start(download);
+            assertThat(connected.await(5, TimeUnit.SECONDS)).isTrue();
+
+            // when
+            caller.interrupt();
+
+            // then
+            InterruptedDownload outcome = download.get(5, TimeUnit.SECONDS);
+            assertThat(outcome.failure()).isInstanceOf(InterruptedIOException.class);
+            assertThat(outcome.interruptedAfterwards()).as("the caller keeps its interrupt status").isTrue();
+            assertThat(heldConnection)
+                    .as("the download closed its connection once the caller was interrupted")
+                    .succeedsWithin(CONNECTION_CLOSE_WAIT);
+        }
+    }
+
+    @Test
     void refusesCrl_whenEndOfDeclaredBodyArrivesAfterDeadline() {
         // given
         var downloadTimeout = Duration.ofMillis(200);
@@ -375,11 +406,16 @@ class CrlDownloaderTest {
         });
     }
 
+    private static void readRequestWithoutAnswering(ServerSocket server) {
+        readRequestWithoutAnswering(server, new CountDownLatch(1));
+    }
+
     /**
      * Reads the request and never answers, holding the connection until the client hangs up, as a stalled server does.
      */
-    private static void readRequestWithoutAnswering(ServerSocket server) {
+    private static void readRequestWithoutAnswering(ServerSocket server, CountDownLatch connected) {
         try (Socket client = server.accept()) {
+            connected.countDown();
             client.setSoTimeout(HOLD_LIMIT_MILLIS);
             client.getInputStream().transferTo(OutputStream.nullOutputStream());
         } catch (IOException connectionEnded) {
@@ -424,6 +460,19 @@ class CrlDownloaderTest {
                 matched = next == endOfHead[0] ? 1 : 0;
             }
         }
+    }
+
+    /** Runs the download, then records how it failed and whether the calling thread is still interrupted. */
+    private static InterruptedDownload downloadReportingInterrupt(CrlDownloader downloader, String url) {
+        try {
+            downloader.download(url);
+            return new InterruptedDownload(null, Thread.currentThread().isInterrupted());
+        } catch (IOException e) {
+            return new InterruptedDownload(e, Thread.currentThread().isInterrupted());
+        }
+    }
+
+    private record InterruptedDownload(IOException failure, boolean interruptedAfterwards) {
     }
 
     private void stubCrl(ResponseDefinitionBuilder response) {

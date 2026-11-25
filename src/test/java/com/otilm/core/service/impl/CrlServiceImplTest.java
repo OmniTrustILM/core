@@ -582,16 +582,18 @@ class CrlServiceImplTest {
                 started.countDown();
                 return crlService.getCurrentCrl(certificate, certificate);
             });
+            ThrowingCallable waitWhileBothPermitsAreHeld = () -> check.get(200, TimeUnit.MILLISECONDS);
+            ThrowingCallable waitAfterOnePermitIsFreed = () -> check.get(2, TimeUnit.SECONDS);
 
             // then
             try {
                 assertThat(started.await(1, TimeUnit.SECONDS)).isTrue();
-                assertThatThrownBy(() -> check.get(200, TimeUnit.MILLISECONDS)).isInstanceOf(TimeoutException.class);
+                assertThatThrownBy(waitWhileBothPermitsAreHeld).isInstanceOf(TimeoutException.class);
                 verify(crlDownloader, never()).download(eq(BASE_CRL_URL), anyLong());
             } finally {
                 releaseSecond.countDown();
             }
-            assertThatThrownBy(() -> check.get(2, TimeUnit.SECONDS)).hasCauseInstanceOf(IOException.class);
+            assertThatThrownBy(waitAfterOnePermitIsFreed).hasCauseInstanceOf(IOException.class);
             verify(crlDownloader).download(eq(BASE_CRL_URL), anyLong());
         }
     }
@@ -764,7 +766,7 @@ class CrlServiceImplTest {
         assertThat(permitHeld.await(5, TimeUnit.SECONDS)).isTrue();
     }
 
-    private boolean awaitRelease(CountDownLatch release) throws IOException {
+    private static boolean awaitRelease(CountDownLatch release) throws IOException {
         try {
             return release.await(10, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
