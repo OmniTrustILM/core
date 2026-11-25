@@ -147,6 +147,15 @@ public interface ClientOperationInternalService {
             boolean isApproved) throws NotFoundException, CertificateOperationException;
 
     /**
+     * Replaces the renewed certificate with the certificate its renewal issued, in every location that holds the
+     * renewed one, as a renewal that replaces in locations does once the authority issued it. Used when the authority
+     * issued it later, so the renewal action had returned before. A failure is recorded as
+     * {@link #renewCertificateAction} records it, and rethrown.
+     */
+    void replaceRenewedCertificateInLocations(UUID renewedCertificateUuid, UUID certificateUuid)
+            throws NotFoundException, CertificateOperationException;
+
+    /**
      * A failure before the action is queued marks the new certificate failed; a compliance rejection leaves it rejected
      * and queues nothing. The new certificate keeps the protocol attribution of the certificate it rekeys.
      */

@@ -2,6 +2,7 @@ package com.otilm.core.util.seeders;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
@@ -137,6 +138,18 @@ public class AutoRenewalSeeder {
     /** An RA profile with automatic renewal on, whose authority connector answers at the given server. */
     public RaProfile seedRaProfile(WireMockServer authority) {
         RaProfile raProfile = AuthorityFixtures.v2Authority(authorityRepos(), authority, null).raProfile();
+        raProfile.setAutoRenewalEnabled(true);
+        return raProfileRepository.save(raProfile);
+    }
+
+    /**
+     * An RA profile with automatic renewal on, whose authority connector answers at the given server and issues later:
+     * a v3 authority that advertises status polling.
+     */
+    public RaProfile seedLaterIssuingRaProfile(WireMockServer authority) {
+        RaProfile raProfile = AuthorityFixtures
+                .v3Authority(authorityRepos(), authority, FeatureFlag.CERTIFICATE_STATUS_POLLING)
+                .raProfile();
         raProfile.setAutoRenewalEnabled(true);
         return raProfileRepository.save(raProfile);
     }

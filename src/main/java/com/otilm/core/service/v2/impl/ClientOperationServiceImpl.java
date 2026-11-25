@@ -2095,6 +2095,30 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                         .constructEventMessage(certificateUuid, ResourceAction.ISSUE));
     }
 
+    @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public void replaceRenewedCertificateInLocations(UUID renewedCertificateUuid, UUID certificateUuid)
+            throws NotFoundException, CertificateOperationException {
+        Certificate oldCertificate = certificateRepository
+                .findByUuid(renewedCertificateUuid)
+                .orElseThrow(() -> new NotFoundException(Certificate.class, renewedCertificateUuid));
+        Certificate certificate = certificateRepository
+                .findByUuid(certificateUuid)
+                .orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
+        replaceRenewedInLocations(oldCertificate, certificate);
+    }
+
+    private void replaceRenewedInLocations(Certificate oldCertificate, Certificate certificate)
+            throws CertificateOperationException {
+        try {
+            replaceInLocations(oldCertificate, certificate, "renew");
+        } catch (CertificateOperationException e) {
+            locationReplacementFailureRecorder
+                    .recordFailure(oldCertificate.getUuid(), certificate.getUuid(), e.getMessage());
+            throw e;
+        }
+    }
+
     /**
      * Moves the predecessor's locations to its successor: removes the predecessor from each location and pushes the
      * successor there with the same push attributes. A failure stops the move and surfaces without its runtime detail.
@@ -2911,13 +2935,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         }
 
         if (request.isReplaceInLocations()) {
-            try {
-                replaceInLocations(oldCertificate, certificate, "renew");
-            } catch (CertificateOperationException e) {
-                locationReplacementFailureRecorder
-                        .recordFailure(oldCertificate.getUuid(), certificate.getUuid(), e.getMessage());
-                throw e;
-            }
+            replaceRenewedInLocations(oldCertificate, certificate);
         } else {
             // push certificate to locations
             for (CertificateLocation cl : certificate.getLocations()) {

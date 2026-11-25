@@ -153,16 +153,28 @@ public class AuthHelper {
      * audit attribution and an actor-less caller stays actor-less.
      */
     public <T, E extends Exception> T runAsSystem(String systemUsername, ThrowingSupplier<T, E> action) throws E {
+        return runAs(() -> authenticateAsSystemUser(systemUsername), action);
+    }
+
+    /**
+     * Runs {@code action} as the given user, then restores the caller's context and actor, as {@link #runAsSystem}
+     * does. Used where the platform completes later, on a thread without a principal, what a user started.
+     */
+    public <T, E extends Exception> T runAsUser(UUID userUuid, ThrowingSupplier<T, E> action) throws E {
+        return runAs(() -> authenticateAsUser(userUuid), action);
+    }
+
+    private <T, E extends Exception> T runAs(Runnable authenticate, ThrowingSupplier<T, E> action) throws E {
         SecurityContext previous = SecurityContextHolder.getContext();
         boolean callerHadAuthentication = previous.getAuthentication() != null;
         Map<String, String> previousActor = LoggingHelper.snapshotActorInfo();
         try {
             SecurityContextHolder.setContext(SecurityContextHolder.createEmptyContext());
-            // Clear before elevating: authenticateAsSystemUser overwrites only the actor type + name, so without this
-            // the caller's uuid/authMethod would linger and audit records from the elevated read would show a mixed
-            // actor (system type/name, caller uuid). The snapshot above restores the caller's actor in finally.
+            // Clear before elevating: authentication overwrites only some actor fields, so without this the caller's
+            // uuid/authMethod would linger and audit records from the scoped step would show a mixed actor. The
+            // snapshot above restores the caller's actor in finally.
             LoggingHelper.clearActorInfo();
-            authenticateAsSystemUser(systemUsername);
+            authenticate.run();
             return action.get();
         } finally {
             if (callerHadAuthentication) {

@@ -31,12 +31,17 @@ import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CertificateEventHistoryInternalService;
 import com.otilm.core.service.TriggerInternalService;
+import com.otilm.core.service.handler.authority.CertificateOperation;
+import com.otilm.core.service.renewal.auto.AsyncRenewalLocationReplacer;
 import com.otilm.core.service.renewal.auto.AutoRenewalAction;
 import com.otilm.core.service.renewal.auto.IlmKeyRenewalHandler;
 import com.otilm.core.service.renewal.auto.TriggerContext;
 import com.otilm.core.service.v2.ClientOperationInternalService;
+import com.otilm.core.util.AuthServiceWireMockStubs;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.LoopbackWireMock;
+import com.otilm.core.util.QueuedMessageDelivery;
+import com.otilm.core.util.builders.V3ConnectorStubs;
 import com.otilm.core.util.seeders.AutoRenewalSeeder;
 import jakarta.persistence.EntityManager;
 import java.io.InputStream;
@@ -110,6 +115,10 @@ class IlmKeyRenewalITest extends BaseSpringBootTest {
     private PlatformTransactionManager transactionManager;
     @Autowired
     private EntityManager entityManager;
+    @Autowired
+    private QueuedMessageDelivery delivery;
+    @Autowired
+    private AsyncRenewalLocationReplacer locationReplacer;
 
     private final ClientOperationInternalService renewalStub = mock(ClientOperationInternalService.class);
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -118,6 +127,8 @@ class IlmKeyRenewalITest extends BaseSpringBootTest {
     private Certificate certificate;
     private AutoRenewalAction action;
     private TriggerContext trigger;
+    private WireMockServer laterIssuingAuthority;
+    private WireMockServer authService;
 
     @BeforeEach
     void seedDueCertificate() {
@@ -135,6 +146,12 @@ class IlmKeyRenewalITest extends BaseSpringBootTest {
     void stop() {
         executor.shutdownNow();
         mockServer.stop();
+        if (laterIssuingAuthority != null) {
+            laterIssuingAuthority.stop();
+        }
+        if (authService != null) {
+            authService.stop();
+        }
     }
 
     @Test
@@ -198,6 +215,74 @@ class IlmKeyRenewalITest extends BaseSpringBootTest {
         // then
         assertThat(locationNames(successor.get())).containsExactlyInAnyOrder("web", "mail");
         assertThat(locationNames(certificate)).isEmpty();
+    }
+
+    @Test
+    void replacesTheOldCertificateInBothLocations_whenTheAuthorityIssuesTheRenewalLater() throws Exception {
+        // given
+        Certificate successor = requestRenewalFromAnAuthorityThatIssuesLater();
+        stubLocationAnswering("remove", WireMock.okJson("{}"));
+        stubLocationAnswering("push", WireMock.okJson("{\"withKey\": false}"));
+        V3ConnectorStubs.stubIssueStatusCompleted(laterIssuingAuthority, issuedCertificateData());
+
+        // when
+        delivery.pollStatus(successor.getUuid(), CertificateOperation.RENEW);
+
+        // then
+        assertThat(certificateRepository.findById(successor.getUuid()).orElseThrow().getState())
+                .isEqualTo(CertificateState.ISSUED);
+        assertThat(locationNames(successor)).containsExactlyInAnyOrder("web", "mail");
+        assertThat(locationNames(certificate)).isEmpty();
+    }
+
+    @Test
+    void recordsTheFailedPushOnceWithoutRenewingAgain_whenTheAuthorityIssuesTheRenewalLater() throws Exception {
+        // given
+        Certificate successor = requestRenewalFromAnAuthorityThatIssuesLater();
+        stubLocationAnswering("remove", WireMock.jsonResponse("{\"message\": \"location is offline\"}", 400));
+        V3ConnectorStubs.stubIssueStatusCompleted(laterIssuingAuthority, issuedCertificateData());
+        delivery.pollStatus(successor.getUuid(), CertificateOperation.RENEW);
+
+        // when
+        Throwable next = fire();
+
+        // then
+        String expected = ("The renewed certificate %s was issued, but replacing the old certificate in its locations"
+                + " failed and is not retried").formatted(successor.getUuid());
+        assertThat(renewHistory())
+                .extracting(CertificateEventHistory::getMessage)
+                .filteredOn(message -> message.startsWith(expected))
+                .singleElement()
+                .asString()
+                .contains("The renewed certificate is in no location; the old certificate is still in mail, web");
+        assertThat(triggerHistoryRecordRepository.findAll())
+                .singleElement()
+                .satisfies(historyRecord -> assertThat(historyRecord.getMessage()).startsWith(expected));
+        assertThat(next).isNull();
+        verifyRenewals(1);
+        CertificateRenewalInfo row = seeder.renewalRow(certificate.getUuid());
+        assertThat(row.getRenewAttempt()).isZero();
+        assertThat(row.getRenewSuccessorUuid()).isEqualTo(successor.getUuid());
+    }
+
+    @Test
+    void replacesNothingAgain_whenTheRenewalIssuedAtOnceHasReplacedTheOldCertificate() throws Exception {
+        // given
+        seeder.seedPushOnlyLocations(mockServer, certificate, "web", "mail");
+        AtomicReference<Certificate> successor = stubRenewal();
+        stubAuthorityRenewing();
+        stubLocationAnswering("remove", WireMock.okJson("{}"));
+        stubLocationAnswering("push", WireMock.okJson("{\"withKey\": false}"));
+        fire();
+        clientOperationService.renewCertificateAction(successor.get().getUuid(), renewRequest(), true);
+
+        // when
+        locationReplacer.replaceInLocations(successor.get().getUuid());
+
+        // then
+        mockServer.verify(2, WireMock.postRequestedFor(WireMock.urlPathMatching(LOCATION_PATH + "/remove")));
+        mockServer.verify(2, WireMock.postRequestedFor(WireMock.urlPathMatching(LOCATION_PATH + "/push")));
+        assertThat(locationNames(successor.get())).containsExactlyInAnyOrder("web", "mail");
     }
 
     @Test
@@ -403,15 +488,37 @@ class IlmKeyRenewalITest extends BaseSpringBootTest {
     }
 
     private void stubAuthorityRenewing() throws Exception {
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching(AUTHORITY_RENEW_PATH))
+                        .willReturn(WireMock.okJson("{ \"certificateData\": \"" + issuedCertificateData() + "\" }")));
+    }
+
+    private String issuedCertificateData() throws Exception {
         KeyStore keyStore = KeyStore.getInstance("PKCS12");
         try (InputStream stream = getClass().getClassLoader().getResourceAsStream("client1.p12")) {
             keyStore.load(stream, "123456".toCharArray());
         }
-        String certificateData = Base64.getEncoder().encodeToString(keyStore.getCertificate("1").getEncoded());
-        mockServer
-                .stubFor(WireMock
-                        .post(WireMock.urlPathMatching(AUTHORITY_RENEW_PATH))
-                        .willReturn(WireMock.okJson("{ \"certificateData\": \"" + certificateData + "\" }")));
+        return Base64.getEncoder().encodeToString(keyStore.getCertificate("1").getEncoded());
+    }
+
+    /**
+     * Moves the certificate to an authority that accepts the renewal and issues it later, has a trigger owned by a user
+     * the auth service knows renew it while it is in two locations, and returns the successor the authority accepted.
+     */
+    private Certificate requestRenewalFromAnAuthorityThatIssuesLater() throws Exception {
+        laterIssuingAuthority = LoopbackWireMock.start();
+        raProfile = seeder.seedLaterIssuingRaProfile(laterIssuingAuthority);
+        certificate = seeder.seedDueHeldKeyCertificate(raProfile);
+        seeder.seedPushOnlyLocations(mockServer, certificate, "web", "mail");
+        V3ConnectorStubs.stubAttributesAndValidate(laterIssuingAuthority);
+        V3ConnectorStubs.stubV3RenewAsync(laterIssuingAuthority);
+        seedFiring();
+        authService = AuthServiceWireMockStubs.startImpersonating(trigger.ownerUuid(), "renewal-owner");
+        AtomicReference<Certificate> successor = stubRenewal();
+        fire();
+        clientOperationService.renewCertificateAction(successor.get().getUuid(), renewRequest(), true);
+        return successor.get();
     }
 
     private void stubLocationAnswering(String operation, ResponseDefinitionBuilder answer) {
