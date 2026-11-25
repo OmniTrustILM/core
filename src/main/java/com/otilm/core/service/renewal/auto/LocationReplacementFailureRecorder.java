@@ -62,7 +62,7 @@ public class LocationReplacementFailureRecorder {
      * @param reason why the replacement failed, as shaped for the history
      */
     public void recordFailure(UUID predecessorUuid, UUID successorUuid, String reason) {
-        record(predecessorUuid, successorUuid,
+        writeFailure(predecessorUuid, successorUuid,
                 () -> renewalInfoRepository
                         .findByCertificateUuid(predecessorUuid)
                         .filter(row -> successorUuid.equals(row.getRenewSuccessorUuid()))
@@ -78,7 +78,7 @@ public class LocationReplacementFailureRecorder {
      * @param reason why the push failed, as shaped for the history
      */
     public void recordLocationFailure(UUID predecessorUuid, UUID successorUuid, UUID locationUuid, String reason) {
-        record(predecessorUuid, successorUuid,
+        writeFailure(predecessorUuid, successorUuid,
                 () -> renewalLocationRepository
                         .findByCertificateUuidAndLocationUuid(predecessorUuid, locationUuid)
                         .filter(row -> successorUuid.equals(row.getSuccessorUuid()))
@@ -88,7 +88,7 @@ public class LocationReplacementFailureRecorder {
                 reason);
     }
 
-    private void record(UUID predecessorUuid, UUID successorUuid, Supplier<Optional<Failure>> trackedFailure,
+    private void writeFailure(UUID predecessorUuid, UUID successorUuid, Supplier<Optional<Failure>> trackedFailure,
             String reason) {
         RecordedFailure recorded;
         try {
