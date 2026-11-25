@@ -106,7 +106,6 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @SpringBootTest
 class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
@@ -318,7 +317,7 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
-    void verifyData_pairsByPosition_andReturnsResult() throws Exception {
+    void pairsDataWithSignaturesByPosition_whenVerifying() throws Exception {
         // given
         connectorMock
                 .stubOperationAttributes("verify", signSchema())
@@ -338,7 +337,7 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
                         request);
 
         // then
-        assertTrue(response.getVerifications().get(0).isResult());
+        assertThat(response.getVerifications().get(0).isResult()).isTrue();
         connectorMock
                 .verifyOperationRequestContaining("verify",
                         "{\"data\":[{\"identifier\":\"0\"}],\"signatures\":[{\"identifier\":\"0\"}]}");
@@ -346,7 +345,7 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
-    void encryptData_returnsConnectorPayload_andRecordsSuccess() throws Exception {
+    void returnsTheConnectorPayload_whenEncryptionSucceeds() throws Exception {
         // given
         connectorMock
                 .stubOperationAttributes("encrypt", cipherSchema())
@@ -360,9 +359,9 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
                         cipherRequest());
 
         // then
-        assertEquals(SIGNATURE, encrypted.getEncryptedData().get(0).getData());
+        assertThat(encrypted.getEncryptedData().get(0).getData()).isEqualTo(SIGNATURE);
         connectorMock.verifyOperationRequestContaining("encrypt", cipherAlgorithmSelection());
-        assertEquals(KeyEventStatus.SUCCESS, onlyEvent(KeyEvent.ENCRYPT).getStatus());
+        assertThat(onlyEvent(KeyEvent.ENCRYPT).getStatus()).isEqualTo(KeyEventStatus.SUCCESS);
     }
 
     @Test
@@ -564,7 +563,7 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
-    void generateCsr_refusesKeyHoldingThePrivateKeyAlone() {
+    void refusesCertificateRequest_whenTheKeyHoldsItsPrivateKeyAlone() {
         // given — the key holds only its private item
         X500Principal subject = new X500Principal("CN=v2-csr");
         List<RequestAttribute> attributes = sha256WithRsa();
@@ -581,7 +580,7 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
-    void generateCsr_refusesKeyHoldingThePublicKeyAlone() throws Exception {
+    void refusesCertificateRequest_whenTheKeyHoldsItsPublicKeyAlone() throws Exception {
         // given
         cryptographicKeyItemRepository.delete(privateKey);
         persistPublicKeyItem(rsaKeyPair().getPublic());

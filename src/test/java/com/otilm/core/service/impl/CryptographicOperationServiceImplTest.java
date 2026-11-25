@@ -564,7 +564,7 @@ class CryptographicOperationServiceImplTest {
     }
 
     @Test
-    void encryptData_rejectsKeyWithoutUsage_beforeRouting() throws Exception {
+    void refusesEncryption_whenTheKeyLacksTheEncryptUsage() throws Exception {
         // given
         List<KeyUsage> currentUsages = List.of(KeyUsage.DECRYPT);
         KeyUsage missingUsage = KeyUsage.ENCRYPT;
@@ -576,18 +576,17 @@ class CryptographicOperationServiceImplTest {
         request.setCipherData(List.of());
 
         // when
-        Executable encrypt = () -> service
+        ThrowingCallable encrypt = () -> service
                 .encryptData(SecuredParentUUID.fromUUID(key.tokenInstanceReferenceUuid()),
                         SecuredUUID.fromUUID(key.tokenProfileUuid()), key.keyUuid(), key.keyItemUuid(), request);
 
         // then
-        ValidationException failure = assertThrows(ValidationException.class, encrypt);
-        assertTrue(failure.getMessage().contains(expectedMessage));
+        assertThatThrownBy(encrypt).isInstanceOf(ValidationException.class).hasMessageContaining(expectedMessage);
         verifyNoInteractions(keyProviderAdapterFactory);
     }
 
     @Test
-    void verifyData_rejectsInactiveKey() throws Exception {
+    void refusesVerification_whenTheKeyIsInactive() throws Exception {
         // given
         CryptographicKeyItemOperationModel key = withState(asPublicKey(legacyKey()), KeyState.DEACTIVATED);
         when(keyService.getKeyItemModel(key.keyItemUuid())).thenReturn(key);
@@ -595,12 +594,12 @@ class CryptographicOperationServiceImplTest {
         request.setSignatures(List.of());
 
         // when
-        Executable verifyCall = () -> service
+        ThrowingCallable verifyCall = () -> service
                 .verifyData(SecuredParentUUID.fromUUID(key.tokenInstanceReferenceUuid()),
                         SecuredUUID.fromUUID(key.tokenProfileUuid()), key.keyUuid(), key.keyItemUuid(), request);
 
         // then
-        assertThatThrownBy(verifyCall::execute)
+        assertThatThrownBy(verifyCall)
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("Key needs to be " + KeyState.ACTIVE.getLabel() + " and enabled.");
         verifyNoInteractions(keyProviderAdapterFactory);
@@ -638,46 +637,13 @@ class CryptographicOperationServiceImplTest {
         when(keyService.getKeyItemModel(key.keyItemUuid())).thenReturn(key);
 
         // when
-        Executable listing = () -> serviceListing
+        ThrowingCallable listing = () -> serviceListing
                 .list(service, SecuredParentUUID.fromUUID(key.tokenInstanceReferenceUuid()),
                         SecuredUUID.fromUUID(key.tokenProfileUuid()), key.keyUuid(), key.keyItemUuid());
 
         // then
-        assertThatThrownBy(listing::execute).isInstanceOf(ValidationException.class).hasMessageContaining(refusal);
+        assertThatThrownBy(listing).isInstanceOf(ValidationException.class).hasMessageContaining(refusal);
         verifyNoInteractions(keyProviderAdapterFactory);
-    }
-
-    private static Stream<Arguments> publicKeyAttributeListings() {
-        return Stream
-                .of(Arguments
-                        .of(named("encrypt", (ServiceListing) CryptographicOperationServiceImpl::listEncryptAttributes),
-                                "Encryption needs a public key."),
-                        Arguments
-                                .of(named("verify",
-                                        (ServiceListing) CryptographicOperationServiceImpl::listVerifyAttributes),
-                                        "Verification needs a public key."));
-    }
-
-    private static Stream<Arguments> operationAttributeListings() {
-        return Stream
-                .of(Arguments
-                        .of(named("encrypt", (AdapterListing) listing -> listing.listEncryptAttributes(any())),
-                                (ServiceListing) CryptographicOperationServiceImpl::listEncryptAttributes,
-                                (AdapterSelection) KeyProviderAdapterFactory::forKeyItemInUnchangedScope,
-                                KeyType.PUBLIC_KEY),
-                        Arguments
-                                .of(named("decrypt", (AdapterListing) listing -> listing.listDecryptAttributes(any())),
-                                        (ServiceListing) CryptographicOperationServiceImpl::listDecryptAttributes,
-                                        (AdapterSelection) KeyProviderAdapterFactory::forKeyItemInUnchangedScope,
-                                        KeyType.PRIVATE_KEY),
-                        Arguments
-                                .of(named("sign", (AdapterListing) listing -> listing.listSignAttributes(any())),
-                                        (ServiceListing) CryptographicOperationServiceImpl::listSignAttributes,
-                                        (AdapterSelection) KeyProviderAdapterFactory::forKeyItem, KeyType.PRIVATE_KEY),
-                        Arguments
-                                .of(named("verify", (AdapterListing) listing -> listing.listVerifyAttributes(any())),
-                                        (ServiceListing) CryptographicOperationServiceImpl::listVerifyAttributes,
-                                        (AdapterSelection) KeyProviderAdapterFactory::forKeyItem, KeyType.PUBLIC_KEY));
     }
 
     @FunctionalInterface
@@ -882,6 +848,39 @@ class CryptographicOperationServiceImplTest {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static Stream<Arguments> publicKeyAttributeListings() {
+        return Stream
+                .of(Arguments
+                        .of(named("encrypt", (ServiceListing) CryptographicOperationServiceImpl::listEncryptAttributes),
+                                "Encryption needs a public key."),
+                        Arguments
+                                .of(named("verify",
+                                        (ServiceListing) CryptographicOperationServiceImpl::listVerifyAttributes),
+                                        "Verification needs a public key."));
+    }
+
+    private static Stream<Arguments> operationAttributeListings() {
+        return Stream
+                .of(Arguments
+                        .of(named("encrypt", (AdapterListing) listing -> listing.listEncryptAttributes(any())),
+                                (ServiceListing) CryptographicOperationServiceImpl::listEncryptAttributes,
+                                (AdapterSelection) KeyProviderAdapterFactory::forKeyItemInUnchangedScope,
+                                KeyType.PUBLIC_KEY),
+                        Arguments
+                                .of(named("decrypt", (AdapterListing) listing -> listing.listDecryptAttributes(any())),
+                                        (ServiceListing) CryptographicOperationServiceImpl::listDecryptAttributes,
+                                        (AdapterSelection) KeyProviderAdapterFactory::forKeyItemInUnchangedScope,
+                                        KeyType.PRIVATE_KEY),
+                        Arguments
+                                .of(named("sign", (AdapterListing) listing -> listing.listSignAttributes(any())),
+                                        (ServiceListing) CryptographicOperationServiceImpl::listSignAttributes,
+                                        (AdapterSelection) KeyProviderAdapterFactory::forKeyItem, KeyType.PRIVATE_KEY),
+                        Arguments
+                                .of(named("verify", (AdapterListing) listing -> listing.listVerifyAttributes(any())),
+                                        (ServiceListing) CryptographicOperationServiceImpl::listVerifyAttributes,
+                                        (AdapterSelection) KeyProviderAdapterFactory::forKeyItem, KeyType.PUBLIC_KEY));
+    }
 
     private SignDataResponseDto signDataDigest(CryptographicKeyItemOperationModel key) throws Exception {
         return service

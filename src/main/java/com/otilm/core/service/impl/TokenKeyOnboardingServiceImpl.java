@@ -480,10 +480,11 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
      * alone has no public key to fingerprint, so its handle digest stands in.
      */
     private static String nameDigestOf(ProviderKeyPair pair) {
-        if (pair.isPrivateOnly()) {
-            return Objects.requireNonNull(pair.privateKey().handleDigest(), "A listed private key carries its handle.");
+        String fingerprint = publicKeyFingerprint(pair);
+        if (fingerprint != null) {
+            return fingerprint;
         }
-        return publicKeyFingerprint(pair);
+        return Objects.requireNonNull(pair.privateKey().handleDigest(), "A listed private key carries its handle.");
     }
 
     private static String withDigestPrefix(String storageName, String nameDigest, int prefixLength) {
