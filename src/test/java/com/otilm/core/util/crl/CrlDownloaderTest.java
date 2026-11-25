@@ -475,7 +475,6 @@ class CrlDownloaderTest {
         }
     }
 
-    /** Runs the download, then records how it failed and whether the calling thread is still interrupted. */
     private static InterruptedDownload downloadReportingInterrupt(CrlDownloader downloader, String url) {
         try {
             downloader.download(url);

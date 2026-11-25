@@ -116,19 +116,20 @@ public class CrlDownloader {
             Thread.currentThread().interrupt();
             throw new InterruptedIOException("Interrupted while reading a CRL");
         } catch (ExecutionException e) {
-            if (e.getCause() instanceof IOException failure) {
-                throw failure;
-            }
-            if (e.getCause() instanceof RuntimeException failure) {
-                throw failure;
-            }
-            if (e.getCause() instanceof Error failure) {
-                throw failure;
-            }
-            throw new IllegalStateException("The CRL download failed unexpectedly", e.getCause());
+            throw workerFailure(e);
         } finally {
             download.cancel(true);
         }
+    }
+
+    /** The worker throws only IOException or an unchecked exception, which reaches the caller unchanged. */
+    private static IOException workerFailure(ExecutionException e) {
+        return switch (e.getCause()) {
+            case IOException failure -> failure;
+            case RuntimeException failure -> throw failure;
+            case Error failure -> throw failure;
+            default -> throw new IllegalStateException("The CRL download failed unexpectedly", e.getCause());
+        };
     }
 
     private byte[] readFromHttp(String crlUrl, URL url, long deadline) throws IOException {

@@ -561,6 +561,58 @@ class CrlServiceImplTest {
         }
 
         @Test
+        void reportsRememberedFailure_whenStoredCrlIsDueAndItsRefreshFailedJustBeforeAndEveryPermitIsHeld()
+                throws Exception {
+            // given
+            X509Certificate certificate = selfSignedCertificate(false);
+            Crl dueBaseCrl = currentBaseCrl();
+            dueBaseCrl.setNextUpdate(Date.from(Instant.now().minus(Duration.ofDays(1))));
+            storedRow.set(dueBaseCrl);
+            when(crlDownloader.download(eq(BASE_CRL_URL), anyLong())).thenThrow(new IOException("Connection refused"));
+            ThrowingCallable failingRefresh = () -> crlService.getCurrentCrl(certificate, certificate);
+            assertThatThrownBy(failingRefresh).isInstanceOf(IOException.class);
+            holdDownloadPermit(releasePermit);
+            holdDownloadPermit(releasePermit);
+
+            // when
+            long start = System.nanoTime();
+            ThrowingCallable check = () -> crlService.getCurrentCrl(certificate, certificate);
+
+            // then
+            assertThatThrownBy(check)
+                    .isInstanceOf(IOException.class)
+                    .hasMessageContaining("Failed to read a usable CRL from 1 available URL(s)");
+            assertThat(Duration.ofNanos(System.nanoTime() - start))
+                    .as("answered without waiting for a download permit")
+                    .isLessThan(Duration.ofSeconds(1));
+            verify(crlDownloader, times(1)).download(eq(BASE_CRL_URL), anyLong());
+        }
+
+        @Test
+        void keepsCertificateRevoked_whenDeltaCrlFailedJustBeforeAndEveryPermitIsHeld() throws Exception {
+            // given
+            X509Certificate certificate = selfSignedCertificate(true);
+            Crl storedCrl = currentBaseCrlWithDueDeltaCrl();
+            storedRow.set(storedCrl);
+            when(crlDownloader.download(eq(DELTA_CRL_URL), anyLong())).thenThrow(new IOException("Connection refused"));
+            when(crlEntryRepository.findById(any(CrlEntryId.class))).thenReturn(Optional.of(new CrlEntry()));
+            crlService.getCurrentCrl(certificate, certificate);
+            holdDownloadPermit(releasePermit);
+            holdDownloadPermit(releasePermit);
+
+            // when
+            long start = System.nanoTime();
+            UUID crlUuid = crlService.getCurrentCrl(certificate, certificate);
+
+            // then
+            assertThat(crlUuid).isEqualTo(storedCrl.getUuid());
+            assertThat(Duration.ofNanos(System.nanoTime() - start))
+                    .as("answered without waiting for a download permit")
+                    .isLessThan(Duration.ofSeconds(1));
+            verify(crlDownloader, times(1)).download(eq(DELTA_CRL_URL), anyLong());
+        }
+
+        @Test
         void waitsForPermit_whenBaseCrlIsDueAndOnlyItsDeltaCrlFailedJustBefore() throws Exception {
             // given
             X509Certificate certificate = selfSignedCertificate(true);
