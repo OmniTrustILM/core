@@ -44,6 +44,7 @@ import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.otilm.api.model.core.certificate.CertificateFormat;
 import com.otilm.api.model.core.certificate.CertificateFormatEncoding;
 import com.otilm.api.model.core.certificate.CertificateKeyUsage;
+import com.otilm.api.model.core.certificate.CertificateOperation;
 import com.otilm.api.model.core.certificate.CertificateRegistrationDetailDto;
 import com.otilm.api.model.core.certificate.CertificateRegistrationState;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
@@ -221,6 +222,7 @@ import java.util.Base64;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
+import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -736,9 +738,14 @@ public class CertificateServiceImpl
     public CertificateDetail getCertificate(SecuredUUID uuid)
             throws NotFoundException, CertificateException, IOException {
         Certificate certificate = getCertificateEntityWithAssociations(uuid);
-        CertificateDetail dto = certificate.mapToDto();
+        Optional<CertificateTypeHandler> typeHandler = typeHandlerRegistry
+                .find(certificate.getCertificateType().getCode());
+        CertificateDetail dto = certificate
+                .mapToDto(typeHandler
+                        .map(CertificateTypeHandler::supportedOperations)
+                        .orElseGet(() -> EnumSet.noneOf(CertificateOperation.class)));
         dto.setKeystoreAvailable(keystoreAvailability.of(certificate));
-        typeHandlerRegistry.find(dto.getCertificateType().getCode()).ifPresent(handler -> handler.presentDetail(dto));
+        typeHandler.ifPresent(handler -> handler.presentDetail(dto));
 
         if (certificate.getComplianceResult() != null) {
             ComplianceCheckResultDto complianceCheckResult = complianceService

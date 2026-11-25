@@ -9,7 +9,6 @@ import com.otilm.core.dao.entity.CertificateLocation;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.Location;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
 
@@ -30,14 +29,6 @@ public final class AutoRenewalModeResolver {
 
     /** The mode of a certificate, with the reason when it is {@link AutoRenewalMode#NONE}. */
     public record ModeDecision(AutoRenewalMode mode, String blockedReason) {
-    }
-
-    public static ModeDecision resolve(Certificate certificate) {
-        return resolve(certificate, false);
-    }
-
-    public static ModeDecision resolve(Certificate certificate, boolean locationRenewed) {
-        return resolve(certificate, locationRenewed, EnumSet.allOf(CertificateOperation.class));
     }
 
     /**

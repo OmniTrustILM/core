@@ -4,6 +4,7 @@ import com.otilm.api.model.core.certificate.AutoRenewalMode;
 import com.otilm.api.model.core.certificate.CertificateAutoRenewalDto;
 import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateDto;
+import com.otilm.api.model.core.certificate.CertificateOperation;
 import com.otilm.api.model.core.certificate.CertificateRenewalInfoDto;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.RenewalWindowSource;
@@ -16,6 +17,8 @@ import com.otilm.core.service.renewal.auto.AutoRenewalModeResolver;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Date;
+import java.util.EnumSet;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
@@ -34,6 +37,8 @@ class CertificateDetailDtoMapperRenewalTest {
 
     private static final Instant UPDATED_AT = Instant.parse("2026-11-01T00:00:00Z");
     private static final String EXPLANATION_URL = "https://ca.example.com/why";
+
+    private static final Set<CertificateOperation> ALL_OPERATIONS = EnumSet.allOf(CertificateOperation.class);
 
     private X509CertificateEntity certificate;
 
@@ -130,7 +135,7 @@ class CertificateDetailDtoMapperRenewalTest {
         certificate.setRaProfile(raProfile(false));
 
         // when
-        CertificateDetail dto = CertificateDetailDtoMapper.toDetailDto(certificate);
+        CertificateDetail dto = CertificateDetailDtoMapper.toDetailDto(certificate, ALL_OPERATIONS);
 
         // then
         assertThat(dto.getRenewalInfo().getAutoRenewal()).isNull();
@@ -147,7 +152,7 @@ class CertificateDetailDtoMapperRenewalTest {
         certificate.setRaProfile(raProfile(true));
 
         // when
-        CertificateDetail dto = CertificateDetailDtoMapper.toDetailDto(certificate);
+        CertificateDetail dto = CertificateDetailDtoMapper.toDetailDto(certificate, ALL_OPERATIONS);
 
         // then
         CertificateAutoRenewalDto autoRenewal = dto.getRenewalInfo().getAutoRenewal();
@@ -163,10 +168,41 @@ class CertificateDetailDtoMapperRenewalTest {
         certificate.setRaProfile(raProfile(true));
 
         // when
-        CertificateDetail dto = CertificateDetailDtoMapper.toDetailDto(certificate);
+        CertificateDetail dto = CertificateDetailDtoMapper.toDetailDto(certificate, ALL_OPERATIONS);
 
         // then
         assertThat(dto.getRenewalInfo().getAutoRenewal().getBlockedReason()).isEqualTo(AutoRenewalModeResolver.NO_KEY);
+    }
+
+    @Test
+    void mapsNoneWithTheRenewalNotSupportedReason_whenTheTypeDoesNotSupportRenewal() {
+        // given
+        Instant start = Instant.now().minus(Duration.ofHours(1));
+        certificate.setRenewalInfo(renewalInfo(start, start.plus(Duration.ofDays(1))));
+        certificate.setRaProfile(raProfile(true));
+        var withoutRenew = EnumSet.complementOf(EnumSet.of(CertificateOperation.RENEW));
+
+        // when
+        CertificateDetail dto = CertificateDetailDtoMapper.toDetailDto(certificate, withoutRenew);
+
+        // then
+        CertificateAutoRenewalDto autoRenewal = dto.getRenewalInfo().getAutoRenewal();
+        assertThat(autoRenewal.getMode()).isEqualTo(AutoRenewalMode.NONE);
+        assertThat(autoRenewal.getBlockedReason()).isEqualTo(AutoRenewalModeResolver.RENEWAL_NOT_SUPPORTED);
+    }
+
+    @Test
+    void omitsAutomaticRenewal_whenTheTypeOperationsAreNotKnown() {
+        // given
+        Instant start = Instant.now().minus(Duration.ofHours(1));
+        certificate.setRenewalInfo(renewalInfo(start, start.plus(Duration.ofDays(1))));
+        certificate.setRaProfile(raProfile(true));
+
+        // when
+        CertificateDetail dto = CertificateDetailDtoMapper.toDetailDto(certificate);
+
+        // then
+        assertThat(dto.getRenewalInfo().getAutoRenewal()).isNull();
     }
 
     @Test
@@ -178,7 +214,7 @@ class CertificateDetailDtoMapperRenewalTest {
         addSuccessor(certificate, CertificateState.ISSUED);
 
         // when
-        CertificateDetail dto = CertificateDetailDtoMapper.toDetailDto(certificate);
+        CertificateDetail dto = CertificateDetailDtoMapper.toDetailDto(certificate, ALL_OPERATIONS);
 
         // then
         assertThat(dto.getRenewalInfo().getAutoRenewal()).isNull();
@@ -196,7 +232,7 @@ class CertificateDetailDtoMapperRenewalTest {
         addLocationRenewal(certificate, null);
 
         // when
-        CertificateDetail dto = CertificateDetailDtoMapper.toDetailDto(certificate);
+        CertificateDetail dto = CertificateDetailDtoMapper.toDetailDto(certificate, ALL_OPERATIONS);
 
         // then
         assertThat(dto.getRenewalInfo().isDue()).isTrue();
@@ -213,7 +249,7 @@ class CertificateDetailDtoMapperRenewalTest {
         addLocationRenewal(certificate, Instant.now().minus(Duration.ofMinutes(5)));
 
         // when
-        CertificateDetail dto = CertificateDetailDtoMapper.toDetailDto(certificate);
+        CertificateDetail dto = CertificateDetailDtoMapper.toDetailDto(certificate, ALL_OPERATIONS);
 
         // then
         assertThat(dto.getRenewalInfo().isDue()).isFalse();
@@ -231,7 +267,7 @@ class CertificateDetailDtoMapperRenewalTest {
         endOfLife.accept(certificate);
 
         // when
-        CertificateDetail dto = CertificateDetailDtoMapper.toDetailDto(certificate);
+        CertificateDetail dto = CertificateDetailDtoMapper.toDetailDto(certificate, ALL_OPERATIONS);
 
         // then
         assertThat(dto.getRenewalInfo().isDue()).isFalse();

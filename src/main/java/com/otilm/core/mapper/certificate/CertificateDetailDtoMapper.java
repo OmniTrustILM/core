@@ -6,6 +6,7 @@ import com.otilm.api.model.core.certificate.AutoRenewalMode;
 import com.otilm.api.model.core.certificate.CertificateAutoRenewalDto;
 import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateDto;
+import com.otilm.api.model.core.certificate.CertificateOperation;
 import com.otilm.api.model.core.certificate.CertificateProtocolDto;
 import com.otilm.api.model.core.certificate.CertificateQcStatementsDto;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
@@ -36,18 +37,25 @@ import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.MetaDefinitions;
 import java.time.Instant;
 import java.util.Date;
+import java.util.Set;
 
 public class CertificateDetailDtoMapper {
 
     private CertificateDetailDtoMapper() {
     }
 
+    /** The detail without the automatic renewal mode, which depends on the operations of the certificate type. */
     public static CertificateDetail toDetailDto(Certificate certificate) {
-        return buildDetailDto(certificate, false);
+        return buildDetailDto(certificate, false, null);
+    }
+
+    /** @param typeOperations the operations the handler of the certificate's type supports */
+    public static CertificateDetail toDetailDto(Certificate certificate, Set<CertificateOperation> typeOperations) {
+        return buildDetailDto(certificate, false, typeOperations);
     }
 
     public static CertificateDetail toChainDto(Certificate certificate) {
-        return buildDetailDto(certificate, true);
+        return buildDetailDto(certificate, true, null);
     }
 
     private static KeyDto mapKey(CryptographicKey key, boolean chainContext) {
@@ -62,9 +70,11 @@ public class CertificateDetailDtoMapper {
 
     /**
      * @param chainContext whether to omit key association counts and avoid loading their certificate collections
+     * @param typeOperations the operations the certificate's type supports, or null to omit the automatic renewal mode
      */
     @SuppressWarnings("deprecation")
-    private static CertificateDetail buildDetailDto(Certificate certificate, boolean chainContext) {
+    private static CertificateDetail buildDetailDto(Certificate certificate, boolean chainContext,
+            Set<CertificateOperation> typeOperations) {
         final CertificateDetail dto = newDetail(certificate);
         String commonName = CertificateUtil.formatCommonName(certificate.getCommonName());
         dto.setCommonName(commonName);
@@ -153,13 +163,14 @@ public class CertificateDetailDtoMapper {
         }
 
         if (!chainContext) {
-            dto.setRenewalInfo(toRenewalInfoDto(certificate));
+            dto.setRenewalInfo(toRenewalInfoDto(certificate, typeOperations));
         }
 
         return dto;
     }
 
-    private static CertificateRenewalInfoDto toRenewalInfoDto(Certificate certificate) {
+    private static CertificateRenewalInfoDto toRenewalInfoDto(Certificate certificate,
+            Set<CertificateOperation> typeOperations) {
         CertificateRenewalInfo renewalInfo = certificate.getRenewalInfo();
         if (renewalInfo == null || renewalInfo.getWindowStart() == null) {
             return null;
@@ -175,17 +186,17 @@ public class CertificateDetailDtoMapper {
         boolean awaitingRenewal = RenewalEligibility.isLive(certificate, now)
                 && (!hasIssuedSuccessor(certificate) || openLocationRenewal);
         dto.setDue(awaitingRenewal && !renewalInfo.getWindowStart().isAfter(now));
-        if (awaitingRenewal && certificate.getRaProfile() != null
+        if (typeOperations != null && awaitingRenewal && certificate.getRaProfile() != null
                 && certificate.getRaProfile().isAutoRenewalEnabled()) {
-            dto.setAutoRenewal(toAutoRenewalDto(certificate, renewalInfo, openLocationRenewal));
+            dto.setAutoRenewal(toAutoRenewalDto(certificate, renewalInfo, openLocationRenewal, typeOperations));
         }
         return dto;
     }
 
     /** The current mode; the reason a firing stored, or the current one before any firing stored it. */
     private static CertificateAutoRenewalDto toAutoRenewalDto(Certificate certificate,
-            CertificateRenewalInfo renewalInfo, boolean openLocationRenewal) {
-        ModeDecision decision = AutoRenewalModeResolver.resolve(certificate, openLocationRenewal);
+            CertificateRenewalInfo renewalInfo, boolean openLocationRenewal, Set<CertificateOperation> typeOperations) {
+        ModeDecision decision = AutoRenewalModeResolver.resolve(certificate, openLocationRenewal, typeOperations);
         CertificateAutoRenewalDto dto = new CertificateAutoRenewalDto();
         dto.setMode(decision.mode());
         if (decision.mode() == AutoRenewalMode.NONE) {

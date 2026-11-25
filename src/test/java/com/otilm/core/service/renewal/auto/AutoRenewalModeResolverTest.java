@@ -24,6 +24,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class AutoRenewalModeResolverTest {
 
+    private static final Set<CertificateOperation> ALL_OPERATIONS = EnumSet.allOf(CertificateOperation.class);
+
     @Test
     void resolvesLocation_whenAKeyGeneratingLocationExistsBesideAHeldKey() {
         // given
@@ -31,7 +33,7 @@ class AutoRenewalModeResolverTest {
         addLocation(certificate, keyGeneratingLocation(), true, true);
 
         // when
-        ModeDecision decision = AutoRenewalModeResolver.resolve(certificate);
+        ModeDecision decision = AutoRenewalModeResolver.resolve(certificate, false, ALL_OPERATIONS);
 
         // then
         assertThat(decision.mode()).isEqualTo(AutoRenewalMode.LOCATION);
@@ -44,7 +46,7 @@ class AutoRenewalModeResolverTest {
         Certificate certificate = aCertificate().build();
 
         // when
-        ModeDecision decision = AutoRenewalModeResolver.resolve(certificate, true);
+        ModeDecision decision = AutoRenewalModeResolver.resolve(certificate, true, ALL_OPERATIONS);
 
         // then
         assertThat(decision.mode()).isEqualTo(AutoRenewalMode.LOCATION);
@@ -71,7 +73,7 @@ class AutoRenewalModeResolverTest {
         Certificate certificate = heldKeyCertificate(KeyState.ACTIVE, true);
 
         // when
-        ModeDecision decision = AutoRenewalModeResolver.resolve(certificate);
+        ModeDecision decision = AutoRenewalModeResolver.resolve(certificate, false, ALL_OPERATIONS);
 
         // then
         assertThat(decision.mode()).isEqualTo(AutoRenewalMode.ILM_KEY);
@@ -84,7 +86,7 @@ class AutoRenewalModeResolverTest {
         Certificate certificate = heldKeyCertificate(KeyState.ACTIVE, false);
 
         // when
-        ModeDecision decision = AutoRenewalModeResolver.resolve(certificate);
+        ModeDecision decision = AutoRenewalModeResolver.resolve(certificate, false, ALL_OPERATIONS);
 
         // then
         assertThat(decision.mode()).isEqualTo(AutoRenewalMode.NONE);
@@ -97,7 +99,7 @@ class AutoRenewalModeResolverTest {
         Certificate certificate = heldKeyCertificate(KeyState.DEACTIVATED, true);
 
         // when
-        ModeDecision decision = AutoRenewalModeResolver.resolve(certificate);
+        ModeDecision decision = AutoRenewalModeResolver.resolve(certificate, false, ALL_OPERATIONS);
 
         // then
         assertThat(decision.mode()).isEqualTo(AutoRenewalMode.NONE);
@@ -111,7 +113,7 @@ class AutoRenewalModeResolverTest {
         addLocation(certificate, keyGeneratingLocation(), true, false);
 
         // when
-        ModeDecision decision = AutoRenewalModeResolver.resolve(certificate);
+        ModeDecision decision = AutoRenewalModeResolver.resolve(certificate, false, ALL_OPERATIONS);
 
         // then
         assertThat(decision.mode()).isEqualTo(AutoRenewalMode.NONE);
@@ -125,7 +127,7 @@ class AutoRenewalModeResolverTest {
         addLocation(certificate, keyGeneratingLocation(), false, true);
 
         // when
-        ModeDecision decision = AutoRenewalModeResolver.resolve(certificate);
+        ModeDecision decision = AutoRenewalModeResolver.resolve(certificate, false, ALL_OPERATIONS);
 
         // then
         assertThat(decision.mode()).isEqualTo(AutoRenewalMode.NONE);
@@ -140,7 +142,7 @@ class AutoRenewalModeResolverTest {
         addLocation(certificate, location, true, true);
 
         // when
-        ModeDecision decision = AutoRenewalModeResolver.resolve(certificate);
+        ModeDecision decision = AutoRenewalModeResolver.resolve(certificate, false, ALL_OPERATIONS);
 
         // then
         assertThat(decision.mode()).isEqualTo(AutoRenewalMode.NONE);
@@ -155,7 +157,7 @@ class AutoRenewalModeResolverTest {
         addLocation(certificate, location, true, true);
 
         // when
-        ModeDecision decision = AutoRenewalModeResolver.resolve(certificate);
+        ModeDecision decision = AutoRenewalModeResolver.resolve(certificate, false, ALL_OPERATIONS);
 
         // then
         assertThat(decision.mode()).isEqualTo(AutoRenewalMode.NONE);
