@@ -89,7 +89,7 @@ class AutoRenewalActionITest extends BaseSpringBootTest {
         TriggerHistory history = fire(association, certificate);
 
         // then
-        assertThat(recordsOf(history)).isEmpty();
+        assertThat(readRecordsOf(history)).isEmpty();
         assertThat(seeder.renewalRow(certificate.getUuid()).getRenewStartedAt()).isNull();
         assertThat(renewHistory(certificate)).isEmpty();
     }
@@ -108,7 +108,7 @@ class AutoRenewalActionITest extends BaseSpringBootTest {
         TriggerHistory history = fire(association, certificate);
 
         // then
-        assertThat(recordsOf(history)).isEmpty();
+        assertThat(readRecordsOf(history)).isEmpty();
         CertificateRenewalInfo stored = seeder.renewalRow(certificate.getUuid());
         assertThat(stored.getRenewAt()).isEqualTo(later);
         assertThat(stored.getRenewStartedAt()).isNull();
@@ -125,7 +125,7 @@ class AutoRenewalActionITest extends BaseSpringBootTest {
                 .of(fire(association, certificate), fire(association, certificate), fire(association, certificate));
 
         // then
-        assertThat(histories).isNotEmpty().allSatisfy(history -> assertThat(recordsOf(history)).isEmpty());
+        assertThat(histories).isNotEmpty().allSatisfy(history -> assertThat(readRecordsOf(history)).isEmpty());
         assertThat(seeder.renewalRow(certificate.getUuid()).getRenewBlockedReason())
                 .isEqualTo(AutoRenewalModeResolver.NO_KEY);
         assertThat(renewHistory(certificate))
@@ -164,7 +164,7 @@ class AutoRenewalActionITest extends BaseSpringBootTest {
         TriggerHistory history = fire(ownerless, certificate);
 
         // then
-        assertThat(recordsOf(history))
+        assertThat(readRecordsOf(history))
                 .singleElement()
                 .extracting(TriggerHistoryRecord::getMessage)
                 .asString()
@@ -215,7 +215,7 @@ class AutoRenewalActionITest extends BaseSpringBootTest {
         }
 
         // then
-        assertThat(histories).isNotEmpty().allSatisfy(history -> assertThat(recordsOf(history)).isEmpty());
+        assertThat(histories).isNotEmpty().allSatisfy(history -> assertThat(readRecordsOf(history)).isEmpty());
         assertThat(certificateRepository.findById(certificate.getUuid()).orElseThrow().getRaProfileUuid()).isNull();
         assertThat(seeder.renewalRow(certificate.getUuid()).getRenewStartedAt()).isNull();
     }
@@ -265,7 +265,7 @@ class AutoRenewalActionITest extends BaseSpringBootTest {
     }
 
     /** The records stored for the firing, including those the renewal adds after the evaluation committed. */
-    private List<TriggerHistoryRecord> recordsOf(TriggerHistory history) {
+    private List<TriggerHistoryRecord> readRecordsOf(TriggerHistory history) {
         return triggerHistoryRecordRepository
                 .findAll()
                 .stream()

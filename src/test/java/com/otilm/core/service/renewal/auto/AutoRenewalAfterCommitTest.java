@@ -1,7 +1,9 @@
 package com.otilm.core.service.renewal.auto;
 
 import com.otilm.api.exception.RuleException;
+import com.otilm.api.model.core.logging.enums.ActorType;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.logging.LoggingHelper;
 import com.otilm.core.service.TriggerInternalService;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
@@ -23,7 +25,6 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -63,6 +64,7 @@ class AutoRenewalAfterCommitTest {
             TransactionSynchronizationManager.clearSynchronization();
         }
         SecurityContextHolder.clearContext();
+        LoggingHelper.clearActorInfo();
     }
 
     @Test
@@ -91,6 +93,8 @@ class AutoRenewalAfterCommitTest {
         verifyNoInteractions(triggerService);
     }
 
+    // ── InsideTransaction ─────────────────────────────────────────────────────
+
     @Nested
     class InsideTransaction {
 
@@ -100,7 +104,7 @@ class AutoRenewalAfterCommitTest {
         }
 
         @Test
-        void performsNothing_beforeTheCallerCommits() throws Exception {
+        void performsNothing_whenTheCallerHasNotCommitted() throws Exception {
             // given — the caller's transaction is still open
 
             // when
@@ -147,6 +151,58 @@ class AutoRenewalAfterCommitTest {
         }
 
         @Test
+        void performsWithTheOwnersActor_whenTheCallerChangedTheActorBeforeCommitting() throws Exception {
+            // given
+            var ownerUuid = UUID.randomUUID();
+            LoggingHelper.putActorInfoWhenNull(ActorType.USER, ownerUuid.toString(), "trigger-owner");
+            AtomicReference<UUID> actorDuringAction = new AtomicReference<>();
+            doAnswer(invocation -> {
+                actorDuringAction.set(LoggingHelper.getActorInfo().uuid());
+                return null;
+            }).when(action).perform(certificate, firing);
+            afterCommit.perform(certificate, firing);
+            LoggingHelper.clearActorInfo();
+            LoggingHelper.putActorInfoWhenNull(ActorType.USER, UUID.randomUUID().toString(), "acting-user");
+
+            // when
+            commit();
+
+            // then
+            assertThat(actorDuringAction).hasValue(ownerUuid);
+        }
+
+        @Test
+        void restoresTheCallersActor_whenTheActionHasRun() throws Exception {
+            // given
+            var callerUuid = UUID.randomUUID();
+            LoggingHelper.putActorInfoWhenNull(ActorType.USER, UUID.randomUUID().toString(), "trigger-owner");
+            afterCommit.perform(certificate, firing);
+            LoggingHelper.clearActorInfo();
+            LoggingHelper.putActorInfoWhenNull(ActorType.USER, callerUuid.toString(), "acting-user");
+
+            // when
+            commit();
+
+            // then
+            assertThat(LoggingHelper.getActorInfo().uuid()).isEqualTo(callerUuid);
+        }
+
+        @Test
+        void leavesAnActorlessCallerWithoutActor_whenTheActionFails() throws Exception {
+            // given
+            LoggingHelper.putActorInfoWhenNull(ActorType.USER, UUID.randomUUID().toString(), "trigger-owner");
+            doThrow(new RuleException("refused")).when(action).perform(certificate, firing);
+            afterCommit.perform(certificate, firing);
+            LoggingHelper.clearActorInfo();
+
+            // when
+            commit();
+
+            // then
+            assertThat(LoggingHelper.hasActorInfo()).isFalse();
+        }
+
+        @Test
         void recordsTheFailureOnTheFiring_whenTheActionFails() throws Exception {
             // given
             var reason = "Automatic renewal failed: the authority refused the request";
@@ -184,10 +240,9 @@ class AutoRenewalAfterCommitTest {
             afterCommit.perform(certificate, firing);
 
             // when
-            ThrowingCallable commit = AutoRenewalAfterCommitTest::commit;
+            commit();
 
             // then
-            assertThatCode(commit).doesNotThrowAnyException();
             verify(triggerService, never()).setTriggerHistoryActionsPerformedFalse(any());
         }
 
@@ -199,10 +254,9 @@ class AutoRenewalAfterCommitTest {
             afterCommit.perform(certificate, firing);
 
             // when
-            ThrowingCallable commit = AutoRenewalAfterCommitTest::commit;
+            commit();
 
             // then
-            assertThatCode(commit).doesNotThrowAnyException();
             verify(triggerService)
                     .createTriggerHistoryRecord(FIRING_UUID, null, EXECUTION_UUID,
                             AutoRenewalAfterCommit.UNEXPECTED_FAILURE);

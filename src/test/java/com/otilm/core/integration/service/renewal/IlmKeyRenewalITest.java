@@ -235,7 +235,8 @@ class IlmKeyRenewalITest extends BaseSpringBootTest {
     @Test
     void recordsTheFailureOnTheFiring_whenTheRenewalStartedByTheEventFails() throws Exception {
         // given
-        whenRenewed().thenThrow(new CertificateOperationException("the authority refused the request"));
+        var authorityRefusal = "the authority refused the request";
+        whenRenewed().thenThrow(new CertificateOperationException(authorityRefusal));
 
         // when
         fireInEvent(status -> {
@@ -247,7 +248,7 @@ class IlmKeyRenewalITest extends BaseSpringBootTest {
                 .singleElement()
                 .extracting(TriggerHistoryRecord::getMessage)
                 .asString()
-                .contains("the authority refused the request");
+                .contains(authorityRefusal);
         assertThat(triggerHistoryRepository.findById(trigger.triggerHistoryUuid()).orElseThrow().isActionsPerformed())
                 .isFalse();
         assertThat(seeder.renewalRow(certificate.getUuid()).getRenewAttempt()).isEqualTo(1);
