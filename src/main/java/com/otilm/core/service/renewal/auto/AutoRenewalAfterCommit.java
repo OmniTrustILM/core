@@ -47,10 +47,12 @@ public class AutoRenewalAfterCommit {
 
     /**
      * Performs the action after the caller's transaction commits, or at once, throwing its failure, when the caller has
-     * no transaction.
+     * no transaction, as in a scope that runs without one.
      */
     public void perform(Certificate certificate, TriggerContext context) throws RuleException {
-        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+        boolean insideTransaction = TransactionSynchronizationManager.isActualTransactionActive()
+                && TransactionSynchronizationManager.isSynchronizationActive();
+        if (!insideTransaction) {
             action.perform(certificate, context);
             return;
         }

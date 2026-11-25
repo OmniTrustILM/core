@@ -60,6 +60,7 @@ class AutoRenewalAfterCommitTest {
 
     @AfterEach
     void clearThreadState() {
+        TransactionSynchronizationManager.setActualTransactionActive(false);
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.clearSynchronization();
         }
@@ -77,6 +78,31 @@ class AutoRenewalAfterCommitTest {
         // then
         verify(action).perform(certificate, firing);
         assertThat(TransactionSynchronizationManager.isSynchronizationActive()).isFalse();
+    }
+
+    @Test
+    void performsAtOnce_whenTheCallerRunsInAScopeWithoutTransaction() throws Exception {
+        // given
+        TransactionSynchronizationManager.initSynchronization();
+
+        // when
+        afterCommit.perform(certificate, firing);
+
+        // then
+        verify(action).perform(certificate, firing);
+        assertThat(TransactionSynchronizationManager.getSynchronizations()).isEmpty();
+    }
+
+    @Test
+    void performsAtOnce_whenTheCallersTransactionHasNoSynchronization() throws Exception {
+        // given
+        TransactionSynchronizationManager.setActualTransactionActive(true);
+
+        // when
+        afterCommit.perform(certificate, firing);
+
+        // then
+        verify(action).perform(certificate, firing);
     }
 
     @Test
@@ -99,8 +125,9 @@ class AutoRenewalAfterCommitTest {
     class InsideTransaction {
 
         @BeforeEach
-        void startSynchronization() {
+        void startTransaction() {
             TransactionSynchronizationManager.initSynchronization();
+            TransactionSynchronizationManager.setActualTransactionActive(true);
         }
 
         @Test
