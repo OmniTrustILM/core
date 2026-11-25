@@ -215,20 +215,17 @@ public class OutboundSecretContainment {
 
     /**
      * The values of an object sealed in its {@code toString()} form, as an OBJECT attribute holding a map or a list is
-     * encrypted: {@code {profile=EMPTY, passphrases=[x, y]}}, nested to any depth. Each piece between the structural
-     * characters counts whole, and a map entry also counts from its first {@code =} on, so a value padded with
-     * {@code =} keeps its padding. Padding alone, as in a padded list item, is not counted.
+     * encrypted: {@code {profile=EMPTY, passphrases=[x, y]}}, nested to any depth. A map entry counts from its first
+     * {@code =} on, so its key is left out and a value padded with {@code =} keeps its padding; a list item counts
+     * whole, padding included.
      */
     private static void collectToStringValues(String text, Set<String> sentSecrets) {
         for (String piece : TO_STRING_STRUCTURE.split(text)) {
             String entry = piece.strip();
-            addIfPresent(entry, sentSecrets);
             int keyEnd = entry.indexOf('=');
-            String value = keyEnd < 0 ? "" : entry.substring(keyEnd + 1).strip();
-            boolean isOnlyPadding = value.chars().allMatch(c -> c == '=');
-            if (!isOnlyPadding) {
-                sentSecrets.add(value);
-            }
+            String value = keyEnd < 0 ? entry : entry.substring(keyEnd + 1).strip();
+            boolean isPaddedItem = !value.isEmpty() && value.chars().allMatch(c -> c == '=');
+            addIfPresent(isPaddedItem ? entry : value, sentSecrets);
         }
     }
 
