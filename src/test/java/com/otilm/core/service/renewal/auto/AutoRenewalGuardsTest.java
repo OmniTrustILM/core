@@ -2,6 +2,7 @@ package com.otilm.core.service.renewal.auto;
 
 import com.otilm.api.model.core.certificate.AutoRenewalMode;
 import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.core.dao.entity.CertificateRelation;
 import com.otilm.core.service.renewal.auto.AutoRenewalGuards.CommonInput;
 import com.otilm.core.service.renewal.auto.AutoRenewalGuards.CommonSkip;
 import com.otilm.core.service.renewal.auto.AutoRenewalGuards.FailureCount;
@@ -12,6 +13,9 @@ import com.otilm.core.service.renewal.auto.AutoRenewalGuards.UnitInput;
 import com.otilm.core.service.renewal.auto.AutoRenewalGuards.UnitOutcome;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -20,6 +24,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.params.provider.Arguments.arguments;
 
@@ -185,6 +190,12 @@ class AutoRenewalGuardsTest {
                                 UnitOutcome.IN_FLIGHT, false),
                         arguments("successor failed -> count and back off",
                                 unit(false, SuccessorStatus.FAILED, false, 0, null), UnitOutcome.BACKOFF, true),
+                        arguments("successor revoked before completion -> count and back off",
+                                unit(false, SuccessorStatus.REVOKED, false, 0, null), UnitOutcome.BACKOFF, true),
+                        arguments("successor revoked after completion -> reopen",
+                                unit(true, SuccessorStatus.REVOKED, false, 0, null), UnitOutcome.REOPEN, false),
+                        arguments("completed with an issued successor -> skip",
+                                unit(true, SuccessorStatus.ISSUED, false, 0, null), UnitOutcome.COMPLETED, false),
                         arguments("foreign renewal -> skip", unit(false, SuccessorStatus.NONE, true, 0, null),
                                 UnitOutcome.FOREIGN_RENEWAL, false),
                         arguments("attempts at the limit -> skip",
@@ -246,6 +257,40 @@ class AutoRenewalGuardsTest {
         assertThat(afterwards.failure()).isNull();
     }
 
+    @Test
+    void stopsReopening_whenRevokedSuccessorsReachTheLimit() {
+        // given
+        int attempt = 0;
+        int limitReports = 0;
+
+        // when: every renewed certificate is revoked after it completed the unit
+        while (attempt < MAX_ATTEMPTS) {
+            UnitGuardResult reopened = AutoRenewalGuards
+                    .unit(unit(true, SuccessorStatus.REVOKED, false, attempt, null), NOW);
+            assertThat(reopened.outcome()).isEqualTo(UnitOutcome.REOPEN);
+            FailureCount count = AutoRenewalGuards.countReopen(attempt, MAX_ATTEMPTS);
+            attempt = count.attempt();
+            limitReports += count.limitReached() ? 1 : 0;
+        }
+        UnitGuardResult afterwards = AutoRenewalGuards
+                .unit(unit(false, SuccessorStatus.NONE, false, attempt, null), NOW);
+
+        // then
+        assertThat(limitReports).isEqualTo(1);
+        assertThat(afterwards.outcome()).isEqualTo(UnitOutcome.MAX_ATTEMPTS);
+    }
+
+    @Test
+    void countsAReopenWithoutBackoff() {
+        // when
+        FailureCount reopen = AutoRenewalGuards.countReopen(2, MAX_ATTEMPTS);
+
+        // then
+        assertThat(reopen.attempt()).isEqualTo(3);
+        assertThat(reopen.notBefore()).isNull();
+        assertThat(reopen.limitReached()).isFalse();
+    }
+
     // ── Failure counting ──────────────────────────────────────────────────────
 
     @ParameterizedTest(name = "attempt {0} -> {1} h")
@@ -272,7 +317,8 @@ class AutoRenewalGuardsTest {
     @EnumSource(CertificateState.class)
     void readsTheSuccessorState(CertificateState state) {
         SuccessorStatus expected = switch (state) {
-            case ISSUED, REVOKED -> SuccessorStatus.ISSUED;
+            case ISSUED -> SuccessorStatus.ISSUED;
+            case REVOKED -> SuccessorStatus.REVOKED;
             case FAILED, REJECTED -> SuccessorStatus.FAILED;
             default -> SuccessorStatus.IN_FLIGHT;
         };
@@ -282,6 +328,60 @@ class AutoRenewalGuardsTest {
     @Test
     void readsAGoneSuccessorAsFailed() {
         assertThat(SuccessorStatus.of(null)).isEqualTo(SuccessorStatus.FAILED);
+    }
+
+    @ParameterizedTest
+    @EnumSource(SuccessorStatus.class)
+    void tellsWhetherTheSuccessorWasIssued(SuccessorStatus status) {
+        boolean expected = status == SuccessorStatus.ISSUED || status == SuccessorStatus.REVOKED;
+        assertThat(status.wasIssued()).isEqualTo(expected);
+    }
+
+    // ── Foreign renewal ───────────────────────────────────────────────────────
+
+    @Test
+    void readsAForeignRenewal_whenARelationNamesASuccessorNotStarted() {
+        // given
+        var foreign = relationTo(CertificateState.PENDING_ISSUE);
+
+        // when
+        boolean foreignRenewal = AutoRenewalGuards.foreignRenewal(List.of(foreign), Set.of());
+
+        // then
+        assertThat(foreignRenewal).isTrue();
+    }
+
+    @Test
+    void readsNoForeignRenewal_whenTheOnlyOtherSuccessorIsRevoked() {
+        // given
+        var revoked = relationTo(CertificateState.REVOKED);
+
+        // when
+        boolean foreignRenewal = AutoRenewalGuards.foreignRenewal(List.of(revoked), Set.of());
+
+        // then
+        assertThat(foreignRenewal).isFalse();
+    }
+
+    @Test
+    void readsNoForeignRenewal_whenTheSuccessorWasStartedByTheUnit() {
+        // given
+        var started = relationTo(CertificateState.ISSUED);
+
+        // when
+        boolean foreignRenewal = AutoRenewalGuards
+                .foreignRenewal(List.of(started), Set.of(started.getId().getSuccessorCertificateUuid()));
+
+        // then
+        assertThat(foreignRenewal).isFalse();
+    }
+
+    private static CertificateRelation relationTo(CertificateState successorState) {
+        var successor = aCertificate().withUuid(UUID.randomUUID()).withState(successorState).build();
+        var relation = new CertificateRelation();
+        relation.getId().setSuccessorCertificateUuid(successor.getUuid());
+        relation.setSuccessorCertificate(successor);
+        return relation;
     }
 
     private static UnitInput unit(boolean completed, SuccessorStatus successor, boolean foreignRenewal, int attempt,

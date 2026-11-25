@@ -9,7 +9,6 @@ import com.otilm.api.model.core.certificate.CertificateOperation;
 import com.otilm.core.certificate.type.CertificateTypeHandler;
 import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
 import com.otilm.core.dao.entity.Certificate;
-import com.otilm.core.dao.entity.CertificateRelation;
 import com.otilm.core.dao.entity.CertificateRenewalInfo;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.repository.CertificateRenewalInfoRepository;
@@ -169,7 +168,10 @@ public class AutoRenewalAction {
         return new Start(mode, maxAttempts, now);
     }
 
-    /** The certificate itself is the unit of work when the platform holds its key. */
+    /**
+     * The certificate itself is the unit of work when the platform holds its key. Its renewal completes when the
+     * successor is issued, as the certificate then stops firing; a successor revoked since reopens it.
+     */
     private Optional<Claim> applyUnitGuards(Certificate certificate, CertificateRenewalInfo row, int maxAttempts,
             Instant now) {
         UUID successorUuid = row.getRenewSuccessorUuid();
@@ -177,14 +179,15 @@ public class AutoRenewalAction {
                 ? SuccessorStatus.NONE
                 : SuccessorStatus
                         .of(certificateRepository.findById(successorUuid).map(Certificate::getState).orElse(null));
-        boolean foreignRenewal = certificate
-                .getSuccessorRelations()
-                .stream()
-                .map(CertificateRelation::getId)
-                .anyMatch(id -> !id.getSuccessorCertificateUuid().equals(successorUuid));
+        Set<UUID> started = successorUuid == null ? Set.of() : Set.of(successorUuid);
+        boolean foreignRenewal = AutoRenewalGuards.foreignRenewal(certificate.getSuccessorRelations(), started);
         UnitGuardResult result = AutoRenewalGuards
-                .unit(new UnitInput(false, successor, foreignRenewal, row.getRenewAttempt(), row.getRenewNotBefore(),
-                        maxAttempts), now);
+                .unit(new UnitInput(successor.wasIssued(), successor, foreignRenewal, row.getRenewAttempt(),
+                        row.getRenewNotBefore(), maxAttempts), now);
+        if (result.outcome() == UnitOutcome.REOPEN) {
+            reopen(row, successorUuid, maxAttempts);
+            return Optional.of(new Skip(result.outcome().name()));
+        }
         if (result.failure() != null) {
             row.setRenewSuccessorUuid(null);
             String message = "The renewed certificate %s was rejected, failed or removed".formatted(successorUuid);
@@ -195,6 +198,16 @@ public class AutoRenewalAction {
             return Optional.of(new Skip(result.outcome().name()));
         }
         return Optional.empty();
+    }
+
+    /** Clears the revoked successor and the renewal time, so that the next firing chooses a new one. */
+    private void reopen(CertificateRenewalInfo row, UUID successorUuid, int maxAttempts) {
+        row.setRenewSuccessorUuid(null);
+        row.setRenewAt(null);
+        String message = "The renewed certificate %s was revoked; the certificate is renewed again"
+                .formatted(successorUuid);
+        storeFailure(row, AutoRenewalGuards.countReopen(row.getRenewAttempt(), maxAttempts), message, maxAttempts);
+        logger.info("Automatic renewal of certificate {} reopened: {}", row.getCertificateUuid(), message);
     }
 
     private void renew(UUID certificateUuid, TriggerContext context, Start start) throws RuleException {
@@ -284,7 +297,7 @@ public class AutoRenewalAction {
                 "%s (attempt %d of %d)".formatted(message, failure.attempt(), maxAttempts));
         if (failure.limitReached()) {
             addHistory(row.getCertificateUuid(),
-                    "Automatic renewal stopped after %d failed attempts".formatted(failure.attempt()));
+                    "Automatic renewal stopped after %d attempts".formatted(failure.attempt()));
         }
     }
 
