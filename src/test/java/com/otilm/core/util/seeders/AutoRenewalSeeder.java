@@ -217,6 +217,14 @@ public class AutoRenewalSeeder {
         return seedLocation(certificate, name, true);
     }
 
+    /**
+     * A key-generating location as {@link #seedKeyGeneratingLocation(Certificate, String)} seeds it, whose entity
+     * connector answers at the given server.
+     */
+    public Location seedKeyGeneratingLocation(WireMockServer entityProvider, Certificate certificate, String name) {
+        return seedLocation(seedEntity(LoopbackWireMock.url(entityProvider)), certificate, name, true);
+    }
+
     /** A location holding the certificate that can only receive a pushed certificate. */
     public Location seedPushOnlyLocation(Certificate certificate, String name) {
         return seedLocation(certificate, name, false);
@@ -318,7 +326,12 @@ public class AutoRenewalSeeder {
     }
 
     private Location seedLocation(Certificate certificate, String name, boolean keyGenerating) {
-        Location location = newLocation(seedEntity("http://localhost/" + UUID.randomUUID()), name);
+        return seedLocation(seedEntity("http://localhost/" + UUID.randomUUID()), certificate, name, keyGenerating);
+    }
+
+    private Location seedLocation(EntityInstanceReference entity, Certificate certificate, String name,
+            boolean keyGenerating) {
+        Location location = newLocation(entity, name);
         CertificateLocation entry = entry(certificate, location, List.of(locationAttribute()));
         if (keyGenerating) {
             entry.setCsrAttributes(List.of(locationAttribute()));

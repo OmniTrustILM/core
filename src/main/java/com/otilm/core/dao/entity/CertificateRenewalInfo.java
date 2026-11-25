@@ -90,6 +90,10 @@ public class CertificateRenewalInfo extends UniquelyIdentified implements Serial
     @Column(name = "renew_execution_uuid")
     private UUID renewExecutionUuid;
 
+    /** The user the firing that started {@code renewSuccessorUuid} acted as. */
+    @Column(name = "renew_owner_uuid")
+    private UUID renewOwnerUuid;
+
     @Column(name = "renew_attempt", nullable = false, columnDefinition = "integer not null default 0")
     private int renewAttempt;
 

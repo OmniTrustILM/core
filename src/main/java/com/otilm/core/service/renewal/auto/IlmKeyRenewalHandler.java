@@ -100,6 +100,7 @@ public class IlmKeyRenewalHandler implements AutoRenewalHandler {
             row.setRenewSuccessorUuid(successorUuid);
             row.setRenewTriggerHistoryUuid(context.triggerHistoryUuid());
             row.setRenewExecutionUuid(context.executionUuid());
+            row.setRenewOwnerUuid(context.ownerUuid());
         });
     }
 

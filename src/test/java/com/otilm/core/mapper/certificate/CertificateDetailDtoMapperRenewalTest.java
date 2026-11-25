@@ -9,6 +9,7 @@ import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.RenewalWindowSource;
 import com.otilm.core.dao.entity.CertificateRelation;
 import com.otilm.core.dao.entity.CertificateRenewalInfo;
+import com.otilm.core.dao.entity.CertificateRenewalLocation;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.service.renewal.auto.AutoRenewalModeResolver;
@@ -183,6 +184,42 @@ class CertificateDetailDtoMapperRenewalTest {
         assertThat(dto.getRenewalInfo().getAutoRenewal()).isNull();
     }
 
+    @Test
+    void marksTheCertificateDueInLocationMode_whenALocationRenewalIsOpenWhileAnotherLocationsSuccessorIsIssued() {
+        // given
+        Instant start = Instant.now().minus(Duration.ofHours(1));
+        certificate.setRenewalInfo(renewalInfo(start, start.plus(Duration.ofDays(1))));
+        certificate.setRaProfile(raProfile(true));
+        addSuccessor(certificate, CertificateState.ISSUED);
+        Instant completedElsewhere = Instant.now().minus(Duration.ofMinutes(5));
+        addLocationRenewal(certificate, completedElsewhere);
+        addLocationRenewal(certificate, null);
+
+        // when
+        CertificateDetail dto = CertificateDetailDtoMapper.toDetailDto(certificate);
+
+        // then
+        assertThat(dto.getRenewalInfo().isDue()).isTrue();
+        assertThat(dto.getRenewalInfo().getAutoRenewal().getMode()).isEqualTo(AutoRenewalMode.LOCATION);
+    }
+
+    @Test
+    void omitsAutomaticRenewal_whenEveryLocationRenewalCompletedWithAnIssuedSuccessor() {
+        // given
+        Instant start = Instant.now().minus(Duration.ofHours(1));
+        certificate.setRenewalInfo(renewalInfo(start, start.plus(Duration.ofDays(1))));
+        certificate.setRaProfile(raProfile(true));
+        addSuccessor(certificate, CertificateState.ISSUED);
+        addLocationRenewal(certificate, Instant.now().minus(Duration.ofMinutes(5)));
+
+        // when
+        CertificateDetail dto = CertificateDetailDtoMapper.toDetailDto(certificate);
+
+        // then
+        assertThat(dto.getRenewalInfo().isDue()).isFalse();
+        assertThat(dto.getRenewalInfo().getAutoRenewal()).isNull();
+    }
+
     @ParameterizedTest
     @MethodSource("certificatesNoLongerToRenew")
     void marksTheCertificateNotDueWithoutAutomaticRenewal_whenItIsNoLongerLive(
@@ -264,6 +301,15 @@ class CertificateDetailDtoMapperRenewalTest {
         raProfile.setName("auto-renewal");
         raProfile.setAutoRenewalEnabled(autoRenewalEnabled);
         return raProfile;
+    }
+
+    private static void addLocationRenewal(X509CertificateEntity certificate, Instant completedAt) {
+        CertificateRenewalLocation locationRenewal = new CertificateRenewalLocation();
+        locationRenewal.setUuid(UUID.randomUUID());
+        locationRenewal.setCertificateUuid(certificate.getUuid());
+        locationRenewal.setLocationUuid(UUID.randomUUID());
+        locationRenewal.setCompletedAt(completedAt);
+        certificate.getRenewalLocations().add(locationRenewal);
     }
 
     private static void addSuccessor(X509CertificateEntity predecessor, CertificateState successorState) {

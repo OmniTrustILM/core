@@ -171,19 +171,21 @@ public class CertificateDetailDtoMapper {
         dto.setSource(renewalInfo.getSource());
         dto.setUpdatedAt(Date.from(renewalInfo.getUpdatedAt()));
         Instant now = Instant.now();
-        boolean awaitingRenewal = RenewalEligibility.isLive(certificate, now) && !hasIssuedSuccessor(certificate);
+        boolean openLocationRenewal = hasOpenLocationRenewal(certificate);
+        boolean awaitingRenewal = RenewalEligibility.isLive(certificate, now)
+                && (!hasIssuedSuccessor(certificate) || openLocationRenewal);
         dto.setDue(awaitingRenewal && !renewalInfo.getWindowStart().isAfter(now));
         if (awaitingRenewal && certificate.getRaProfile() != null
                 && certificate.getRaProfile().isAutoRenewalEnabled()) {
-            dto.setAutoRenewal(toAutoRenewalDto(certificate, renewalInfo));
+            dto.setAutoRenewal(toAutoRenewalDto(certificate, renewalInfo, openLocationRenewal));
         }
         return dto;
     }
 
     /** The current mode; the reason a firing stored, or the current one before any firing stored it. */
     private static CertificateAutoRenewalDto toAutoRenewalDto(Certificate certificate,
-            CertificateRenewalInfo renewalInfo) {
-        ModeDecision decision = AutoRenewalModeResolver.resolve(certificate);
+            CertificateRenewalInfo renewalInfo, boolean openLocationRenewal) {
+        ModeDecision decision = AutoRenewalModeResolver.resolve(certificate, openLocationRenewal);
         CertificateAutoRenewalDto dto = new CertificateAutoRenewalDto();
         dto.setMode(decision.mode());
         if (decision.mode() == AutoRenewalMode.NONE) {
@@ -193,6 +195,11 @@ public class CertificateDetailDtoMapper {
                             : decision.blockedReason());
         }
         return dto;
+    }
+
+    /** A key-generating location has still to renew the certificate, as {@link RenewalEligibility} counts it. */
+    private static boolean hasOpenLocationRenewal(Certificate certificate) {
+        return certificate.getRenewalLocations().stream().anyMatch(location -> location.getCompletedAt() == null);
     }
 
     private static boolean hasIssuedSuccessor(Certificate certificate) {

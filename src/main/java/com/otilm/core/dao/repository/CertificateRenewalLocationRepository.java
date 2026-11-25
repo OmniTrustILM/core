@@ -22,6 +22,8 @@ public interface CertificateRenewalLocationRepository extends JpaRepository<Cert
 
     Optional<CertificateRenewalLocation> findByCertificateUuidAndLocationUuid(UUID certificateUuid, UUID locationUuid);
 
+    List<CertificateRenewalLocation> findBySuccessorUuid(UUID successorUuid);
+
     /**
      * Locks the row without waiting: answers nothing when another transaction holds it, which may be a transaction this
      * thread suspended.

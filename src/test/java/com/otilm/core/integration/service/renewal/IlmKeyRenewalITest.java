@@ -236,6 +236,36 @@ class IlmKeyRenewalITest extends BaseSpringBootTest {
     }
 
     @Test
+    void replacesTheOldCertificateAsTheFiringOwner_whenTheTriggerAssociationWasRemovedBeforeTheRenewalIssued()
+            throws Exception {
+        // given
+        Certificate successor = requestRenewalFromAnAuthorityThatIssuesLater();
+        removeTriggerAssociationOf(seeder.renewalRow(certificate.getUuid()).getRenewTriggerHistoryUuid());
+        stubLocationAnswering("remove", WireMock.okJson("{}"));
+        stubLocationAnswering("push", WireMock.okJson("{\"withKey\": false}"));
+        V3ConnectorStubs.stubIssueStatusCompleted(laterIssuingAuthority, issuedCertificateData());
+
+        // when
+        delivery.pollStatus(successor.getUuid(), CertificateOperation.RENEW);
+
+        // then
+        assertThat(locationNames(successor)).containsExactlyInAnyOrder("web", "mail");
+        assertThat(locationNames(certificate)).isEmpty();
+    }
+
+    @Test
+    void storesTheFiringOwnerWithTheSuccessor_whenTheRenewalIsRequested() throws Exception {
+        // given
+        stubRenewal();
+
+        // when
+        fire();
+
+        // then
+        assertThat(seeder.renewalRow(certificate.getUuid()).getRenewOwnerUuid()).isEqualTo(trigger.ownerUuid());
+    }
+
+    @Test
     void recordsTheFailedPushOnceWithoutRenewingAgain_whenTheAuthorityIssuesTheRenewalLater() throws Exception {
         // given
         Certificate successor = requestRenewalFromAnAuthorityThatIssuesLater();
@@ -485,6 +515,21 @@ class IlmKeyRenewalITest extends BaseSpringBootTest {
         trigger = new TriggerContext(association.getTriggerUuid(), association.getTriggeredBy(), history.getUuid(),
                 executionUuid);
         return history;
+    }
+
+    /** Deletes the association the firing ran under, which the database detaches from the firing's history. */
+    private void removeTriggerAssociationOf(UUID firingUuid) {
+        UUID associationUuid = triggerHistoryRepository.findById(firingUuid).orElseThrow().getTriggerAssociationUuid();
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            entityManager
+                    .createNativeQuery("UPDATE trigger_history SET trigger_association_uuid = NULL WHERE uuid = :uuid")
+                    .setParameter("uuid", firingUuid)
+                    .executeUpdate();
+            entityManager
+                    .createNativeQuery("DELETE FROM trigger_association WHERE uuid = :uuid")
+                    .setParameter("uuid", associationUuid)
+                    .executeUpdate();
+        });
     }
 
     private void stubAuthorityRenewing() throws Exception {

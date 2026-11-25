@@ -576,7 +576,8 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
 
     /**
      * Post-commit replacement of the certificate a renewal renewed by the one the authority issued later, in its
-     * locations, when an automatic renewal asked for it. Never throws.
+     * locations or in the key-generating location that renewed it, when an automatic renewal asked for it. Never
+     * throws.
      */
     private void replaceRenewedCertificateInLocations(UUID certificateUuid, CertificateOperation op,
             StatusPollResult status) {

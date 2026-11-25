@@ -245,6 +245,9 @@ public class LocationRenewalHandler implements AutoRenewalHandler {
             return LocationClaim.SKIP;
         }
         row.setStartedAt(now);
+        row.setOwnerUuid(context.ownerUuid());
+        row.setTriggerHistoryUuid(context.triggerHistoryUuid());
+        row.setExecutionUuid(context.executionUuid());
         return LocationClaim.PROCEED;
     }
 

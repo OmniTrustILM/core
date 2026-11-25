@@ -285,6 +285,10 @@ public abstract class Certificate extends UniquelyIdentifiedAndAudited
     @ToString.Exclude
     private CertificateRenewalInfo renewalInfo;
 
+    @OneToMany(mappedBy = "certificate", fetch = FetchType.LAZY)
+    @ToString.Exclude
+    private Set<CertificateRenewalLocation> renewalLocations = new HashSet<>();
+
     @OneToMany(mappedBy = "predecessorCertificate", fetch = FetchType.LAZY)
     @JsonBackReference
     @ToString.Exclude

@@ -1,10 +1,13 @@
 package com.otilm.core.integration.service.renewal;
 
+import com.github.tomakehurst.wiremock.WireMockServer;
+import com.github.tomakehurst.wiremock.client.WireMock;
 import com.otilm.api.exception.LocationException;
 import com.otilm.api.exception.RuleException;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateEventHistory;
 import com.otilm.core.dao.entity.CertificateLocationId;
@@ -22,6 +25,7 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.CertificateEventHistoryInternalService;
 import com.otilm.core.service.LocationExternalService;
+import com.otilm.core.service.handler.authority.CertificateOperation;
 import com.otilm.core.service.renewal.RenewalEligibility;
 import com.otilm.core.service.renewal.RenewalWindowWriter;
 import com.otilm.core.service.renewal.Window;
@@ -29,16 +33,25 @@ import com.otilm.core.service.renewal.WindowWrite;
 import com.otilm.core.service.renewal.auto.AutoRenewalAction;
 import com.otilm.core.service.renewal.auto.LocationRenewalHandler;
 import com.otilm.core.service.renewal.auto.TriggerContext;
+import com.otilm.core.service.v2.ClientOperationInternalService;
+import com.otilm.core.util.AuthServiceWireMockStubs;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.LoopbackWireMock;
+import com.otilm.core.util.QueuedMessageDelivery;
+import com.otilm.core.util.builders.V3ConnectorStubs;
 import com.otilm.core.util.seeders.AutoRenewalSeeder;
 import jakarta.persistence.EntityManager;
+import java.io.InputStream;
+import java.security.KeyStore;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -62,6 +75,7 @@ import static org.mockito.Mockito.when;
 class LocationRenewalITest extends BaseSpringBootTest {
 
     private static final String PUSH_ONLY_ENTRY = "push-only locations";
+    private static final String LOCATION_PUSH_PATH = "/v1/entityProvider/entities/[^/]+/locations/push";
 
     @Autowired
     private AutoRenewalSeeder seeder;
@@ -85,11 +99,18 @@ class LocationRenewalITest extends BaseSpringBootTest {
     private AutoRenewalAction autoRenewalAction;
     @Autowired
     private RenewalWindowWriter renewalWindowWriter;
+    @Autowired
+    private ClientOperationInternalService clientOperationService;
+    @Autowired
+    private QueuedMessageDelivery delivery;
 
     private final LocationExternalService locationStub = mock(LocationExternalService.class);
     private final TriggerContext trigger = new TriggerContext(UUID.randomUUID(), UUID.randomUUID(), null, null);
     private Certificate certificate;
     private AutoRenewalAction action;
+    private WireMockServer entityProvider;
+    private WireMockServer laterIssuingAuthority;
+    private WireMockServer authService;
 
     @BeforeEach
     void seedDueCertificate() {
@@ -99,6 +120,15 @@ class LocationRenewalITest extends BaseSpringBootTest {
                 transactionManager);
         action = new AutoRenewalAction(renewalInfoRepository, certificateRepository, eventHistoryService, entityManager,
                 transactionManager, List.of(handler));
+    }
+
+    @AfterEach
+    void stopServers() {
+        for (WireMockServer server : new WireMockServer[]{entityProvider, laterIssuingAuthority, authService}) {
+            if (server != null) {
+                server.stop();
+            }
+        }
     }
 
     @Test
@@ -432,7 +462,119 @@ class LocationRenewalITest extends BaseSpringBootTest {
         verifyRenewals(web, 0);
     }
 
+    @Test
+    void pushesTheRenewedCertificateInPlaceOfTheOldOne_whenTheAuthorityIssuesTheLocationRenewalLater()
+            throws Exception {
+        // given
+        Location web = renewInALocationWithAnAuthorityThatIssuesLater();
+        Certificate successor = certificateRepository
+                .findById(seeder.locationRow(certificate, web).getSuccessorUuid())
+                .orElseThrow();
+        entityProvider
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching(LOCATION_PUSH_PATH))
+                        .willReturn(WireMock.okJson("{\"withKey\": true}")));
+        V3ConnectorStubs.stubIssueStatusCompleted(laterIssuingAuthority, issuedCertificateData());
+
+        // when
+        delivery.pollStatus(successor.getUuid(), CertificateOperation.RENEW);
+
+        // then
+        assertThat(certificateRepository.findById(successor.getUuid()).orElseThrow().getState())
+                .isEqualTo(CertificateState.ISSUED);
+        entityProvider.verify(1, WireMock.postRequestedFor(WireMock.urlPathMatching(LOCATION_PUSH_PATH)));
+        assertThat(locationNames(successor)).containsExactly("web");
+        assertThat(locationNames(certificate)).isEmpty();
+        assertThat(seeder.locationRow(certificate, web).getCompletedAt()).isNotNull();
+    }
+
+    @Test
+    void recordsTheFailedPushWithoutCompletingTheLocation_whenTheAuthorityIssuesTheLocationRenewalLater()
+            throws Exception {
+        // given
+        Location web = renewInALocationWithAnAuthorityThatIssuesLater();
+        UUID successorUuid = seeder.locationRow(certificate, web).getSuccessorUuid();
+        entityProvider
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching(LOCATION_PUSH_PATH))
+                        .willReturn(WireMock.jsonResponse("{\"message\": \"location is offline\"}", 400)));
+        V3ConnectorStubs.stubIssueStatusCompleted(laterIssuingAuthority, issuedCertificateData());
+
+        // when
+        delivery.pollStatus(successorUuid, CertificateOperation.RENEW);
+
+        // then
+        assertThat(renewHistory())
+                .extracting(CertificateEventHistory::getMessage)
+                .anyMatch(message -> message
+                        .startsWith("The renewed certificate %s was issued, but pushing it to location web failed"
+                                .formatted(successorUuid)));
+        assertThat(locationNames(certificate)).containsExactly("web");
+        assertThat(seeder.locationRow(certificate, web).getCompletedAt()).isNull();
+    }
+
+    @Test
+    void storesTheFiringOwnerOnTheLocationRow_whenTheRenewalStarts() throws Exception {
+        // given
+        Location web = seeder.seedKeyGeneratingLocation(certificate, "web");
+        stubRenewal(web, CertificateState.PENDING_ISSUE);
+
+        // when
+        action.perform(certificate, trigger);
+
+        // then
+        assertThat(seeder.locationRow(certificate, web).getOwnerUuid()).isEqualTo(trigger.ownerUuid());
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /**
+     * Moves the certificate to an authority that accepts the renewal and issues it later, has the trigger renew it in a
+     * key-generating location as a user the auth service knows, lets the authority accept the renewal, and returns the
+     * location, which holds both the old certificate and the pending successor.
+     */
+    private Location renewInALocationWithAnAuthorityThatIssuesLater() throws Exception {
+        entityProvider = LoopbackWireMock.start();
+        laterIssuingAuthority = LoopbackWireMock.start();
+        certificate = seeder.seedDueCertificate(seeder.seedLaterIssuingRaProfile(laterIssuingAuthority));
+        Location web = seeder.seedKeyGeneratingLocation(entityProvider, certificate, "web");
+        V3ConnectorStubs.stubAttributesAndValidate(laterIssuingAuthority);
+        V3ConnectorStubs.stubV3RenewAsync(laterIssuingAuthority);
+        authService = AuthServiceWireMockStubs.startImpersonating(trigger.ownerUuid(), "renewal-owner");
+        when(locationStub
+                .renewCertificateInLocationForSuccessor(any(SecuredParentUUID.class), inLocation(web),
+                        eq(certificate.getUuid()), any()))
+                .thenAnswer(invocation -> {
+                    Certificate successor = new TransactionTemplate(transactionManager,
+                            new DefaultTransactionDefinition(TransactionDefinition.PROPAGATION_REQUIRES_NEW))
+                            .execute(status -> seeder.seedRequestedSuccessor(certificate));
+                    invocation.<Consumer<UUID>>getArgument(3).accept(successor.getUuid());
+                    clientOperationService
+                            .renewCertificateAction(successor.getUuid(),
+                                    ClientCertificateRenewRequestDto.builder().build(), true);
+                    seeder.seedLocationEntry(web, successor);
+                    return successor.getUuid();
+                });
+        action.perform(certificate, trigger);
+        return web;
+    }
+
+    private String issuedCertificateData() throws Exception {
+        KeyStore keyStore = KeyStore.getInstance("PKCS12");
+        try (InputStream stream = getClass().getClassLoader().getResourceAsStream("client1.p12")) {
+            keyStore.load(stream, "123456".toCharArray());
+        }
+        return Base64.getEncoder().encodeToString(keyStore.getCertificate("1").getEncoded());
+    }
+
+    private List<String> locationNames(Certificate owner) {
+        return new TransactionTemplate(transactionManager)
+                .execute(status -> certificateLocationRepository
+                        .findByCertificateUuid(owner.getUuid())
+                        .stream()
+                        .map(entry -> entry.getLocation().getName())
+                        .toList());
+    }
 
     private void performQuietly() {
         try {

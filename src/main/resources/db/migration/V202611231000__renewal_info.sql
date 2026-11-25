@@ -23,6 +23,9 @@ CREATE TABLE certificate_renewal_info
     -- certificate in the locations of the old one can be added to that firing's history.
     renew_trigger_history_uuid UUID                     NULL,
     renew_execution_uuid       UUID                     NULL,
+    -- The user the trigger firing acted as, kept with the renewal so the work left when the authority issues the
+    -- renewed certificate later runs as that user whatever becomes of the firing and its trigger.
+    renew_owner_uuid           UUID                     NULL,
     CONSTRAINT uq_certificate_renewal_info_certificate UNIQUE (certificate_uuid),
     CONSTRAINT fk_certificate_renewal_info_certificate FOREIGN KEY (certificate_uuid)
         REFERENCES certificate (uuid) ON DELETE CASCADE,
@@ -36,14 +39,19 @@ CREATE INDEX idx_certificate_renewal_info_next_refresh_at ON certificate_renewal
 -- The automatic renewal of a certificate in each location that generates its own key.
 CREATE TABLE certificate_renewal_location
 (
-    uuid             UUID                     NOT NULL PRIMARY KEY,
-    certificate_uuid UUID                     NOT NULL,
-    location_uuid    UUID                     NOT NULL,
-    successor_uuid   UUID                     NULL,
-    started_at       TIMESTAMP WITH TIME ZONE NULL,
-    attempt          INTEGER                  NOT NULL DEFAULT 0,
-    not_before       TIMESTAMP WITH TIME ZONE NULL,
-    completed_at     TIMESTAMP WITH TIME ZONE NULL,
+    uuid                 UUID                     NOT NULL PRIMARY KEY,
+    certificate_uuid     UUID                     NOT NULL,
+    location_uuid        UUID                     NOT NULL,
+    successor_uuid       UUID                     NULL,
+    started_at           TIMESTAMP WITH TIME ZONE NULL,
+    attempt              INTEGER                  NOT NULL DEFAULT 0,
+    not_before           TIMESTAMP WITH TIME ZONE NULL,
+    completed_at         TIMESTAMP WITH TIME ZONE NULL,
+    -- The firing that started the successor: the user it acted as, its trigger history and its execution, so the
+    -- renewed certificate is pushed to the location as that user once the authority issues it later.
+    owner_uuid           UUID                     NULL,
+    trigger_history_uuid UUID                     NULL,
+    execution_uuid       UUID                     NULL,
     CONSTRAINT uq_certificate_renewal_location UNIQUE (certificate_uuid, location_uuid),
     CONSTRAINT fk_certificate_renewal_location_certificate FOREIGN KEY (certificate_uuid)
         REFERENCES certificate (uuid) ON DELETE CASCADE,

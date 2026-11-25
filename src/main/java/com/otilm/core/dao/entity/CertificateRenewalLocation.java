@@ -2,6 +2,9 @@ package com.otilm.core.dao.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import java.io.Serializable;
@@ -27,6 +30,11 @@ import org.hibernate.proxy.HibernateProxy;
                 columnNames = {"certificate_uuid", "location_uuid"}))
 public class CertificateRenewalLocation extends UniquelyIdentified implements Serializable {
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "certificate_uuid", insertable = false, updatable = false)
+    @ToString.Exclude
+    private Certificate certificate;
+
     @Column(name = "certificate_uuid", nullable = false)
     private UUID certificateUuid;
 
@@ -47,6 +55,18 @@ public class CertificateRenewalLocation extends UniquelyIdentified implements Se
 
     @Column(name = "completed_at")
     private Instant completedAt;
+
+    /** The user the firing that started {@code successorUuid} acted as. */
+    @Column(name = "owner_uuid")
+    private UUID ownerUuid;
+
+    /** The trigger history of the firing that started {@code successorUuid}, when a trigger started it. */
+    @Column(name = "trigger_history_uuid")
+    private UUID triggerHistoryUuid;
+
+    /** The execution of the firing that started {@code successorUuid}. */
+    @Column(name = "execution_uuid")
+    private UUID executionUuid;
 
     @Override
     public boolean equals(Object o) {
