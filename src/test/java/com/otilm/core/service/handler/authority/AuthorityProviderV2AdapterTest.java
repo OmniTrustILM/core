@@ -442,6 +442,26 @@ class AuthorityProviderV2AdapterTest {
     }
 
     @Test
+    void keepsConnectorDetail_whenIdentifyRefusalHasAnEqualsSignBesideAPaddedListValue() throws Exception {
+        // given
+        when(attributeEngine.getStoredObjectDataAttributesContent(any()))
+                .thenReturn(List
+                        .of(createSealedRow("endEntity", AttributeContentType.OBJECT,
+                                "[EMPTY, c3RvcmVkLW5lc3RlZA==]")));
+        var refusal = identifyRefusal("certificate serialNumber==1234 not found");
+        when(certClient
+                .identifyCertificate(eq(connectorInfo), eq("auth-instance-uuid"),
+                        any(CertificateIdentificationRequestDto.class)))
+                .thenThrow(refusal);
+
+        // when
+        ThrowingCallable identify = () -> adapter.identify(raProfile, "dGVzdGNlcnQ=", List.of());
+
+        // then
+        assertThatThrownBy(identify).isSameAs(refusal);
+    }
+
+    @Test
     void keepsConnectorDetail_whenIdentifyRefusalQuotesNoSentSecret() throws Exception {
         // given
         when(attributeEngine.getStoredObjectDataAttributesContent(any()))
