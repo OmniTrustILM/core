@@ -133,7 +133,7 @@ public class NativeSigningServiceImpl implements NativeSigningExternalService {
 
     /**
      * A caller pins the certificate it prepared its digests for, so a signature under any other certificate would not
-     * verify where the caller puts it. The refusal comes before the key is used.
+     * verify for the caller. The refusal comes before the key is used.
      */
     private static void requirePinnedCertificate(ResolvedManagedRawSigningProfile profile, String pinnedFingerprint)
             throws SigningEngineException {
@@ -159,8 +159,8 @@ public class NativeSigningServiceImpl implements NativeSigningExternalService {
     }
 
     /**
-     * A certificate the profile resolved with was parsed from its encoding, so encoding or hashing it fails only on a
-     * platform fault.
+     * The profile's certificates were parsed from their encoding, so encoding or hashing one fails only on a platform
+     * fault.
      */
     private static SigningEngineException loggedCertificateFailure(ResolvedManagedRawSigningProfile profile,
             String failedStep, GeneralSecurityException cause) {
