@@ -1764,7 +1764,10 @@ class AuthorityProviderV3AdapterTest {
                                 .of(named("text nested in an object", AttributeContentType.OBJECT),
                                         new ObjectAttributeContentV3(
                                                 new HashMap<>(Map.of("passphrase", "nested-passphrase-7"))),
-                                        "nested-passphrase-7"));
+                                        "nested-passphrase-7"),
+                        Arguments
+                                .of(named("number nested in an object", AttributeContentType.OBJECT),
+                                        new ObjectAttributeContentV3(new HashMap<>(Map.of("pin", 731942))), "731942"));
     }
 
     private static ConnectorProblemException identifyRefusal(String detail) {

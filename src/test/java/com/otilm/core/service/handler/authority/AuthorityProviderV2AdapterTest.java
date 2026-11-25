@@ -50,7 +50,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -91,7 +90,6 @@ class AuthorityProviderV2AdapterTest {
     @Spy
     OutboundSecretContainment outboundContainment = new OutboundSecretContainment(new ObjectMapper());
 
-    @InjectMocks
     AuthorityProviderV2Adapter adapter;
 
     @Mock
@@ -109,6 +107,8 @@ class AuthorityProviderV2AdapterTest {
 
     @BeforeEach
     void setUp() throws NotFoundException, java.security.NoSuchAlgorithmException {
+        adapter = new AuthorityProviderV2Adapter(connectorService, connectorApiFactory, attributeEngine,
+                outboundContainment);
         UUID connectorUuid = UUID.randomUUID();
 
         connectorInfo = mock(ApiClientConnectorInfo.class);
@@ -371,7 +371,7 @@ class AuthorityProviderV2AdapterTest {
     @Test
     void sendsStoredRaProfileAttributes_whenIdentifying() throws Exception {
         // given
-        var storedRow = plainRow("endEntityProfile", "EMPTY");
+        var storedRow = createPlainRow("endEntityProfile", "EMPTY");
         when(attributeEngine.getStoredObjectDataAttributesContent(any())).thenReturn(List.of(storedRow));
         when(certClient
                 .identifyCertificate(eq(connectorInfo), eq("auth-instance-uuid"),
@@ -395,7 +395,7 @@ class AuthorityProviderV2AdapterTest {
         // given
         var encryptedValue = "upstream-api-password";
         when(attributeEngine.getStoredObjectDataAttributesContent(any()))
-                .thenReturn(List.of(sealedRow("apiPassword", encryptedValue)));
+                .thenReturn(List.of(createSealedRow("apiPassword", encryptedValue)));
         when(certClient
                 .identifyCertificate(eq(connectorInfo), eq("auth-instance-uuid"),
                         any(CertificateIdentificationRequestDto.class)))
@@ -416,7 +416,7 @@ class AuthorityProviderV2AdapterTest {
     void keepsConnectorDetail_whenIdentifyRefusalQuotesNoSentSecret() throws Exception {
         // given
         when(attributeEngine.getStoredObjectDataAttributesContent(any()))
-                .thenReturn(List.of(sealedRow("apiPassword", "upstream-api-password")));
+                .thenReturn(List.of(createSealedRow("apiPassword", "upstream-api-password")));
         var refusal = identifyRefusal("its issuing CA certificate could not be obtained; add it to the authority");
         when(certClient
                 .identifyCertificate(eq(connectorInfo), eq("auth-instance-uuid"),
@@ -623,13 +623,13 @@ class AuthorityProviderV2AdapterTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static ObjectAttributeContent plainRow(String name, String value) {
+    private static ObjectAttributeContent createPlainRow(String name, String value) {
         return new ObjectAttributeContent(UUID.randomUUID(), name, name, AttributeType.DATA,
                 AttributeContentType.STRING, new StringAttributeContentV2(value), 2, null);
     }
 
     /** A row as the attribute engine stores a protected value, sealed under the test application's key. */
-    private static ObjectAttributeContent sealedRow(String name, String value) {
+    private static ObjectAttributeContent createSealedRow(String name, String value) {
         Security.addProvider(new BouncyCastleProvider());
         new SecretsUtil().setEncryptionKeyStatic(TEST_APPLICATION_ENCRYPTION_KEY);
         String sealed = SecretsUtil.encryptAndEncodeSecretString(value, SecretEncodingVersion.V1);

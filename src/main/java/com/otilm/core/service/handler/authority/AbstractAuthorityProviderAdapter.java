@@ -110,9 +110,10 @@ public abstract class AbstractAuthorityProviderAdapter implements AuthorityProvi
         try {
             quotesSentSecret = OutboundSecretContainment.quotesAny(detail, sentSecrets.get());
         } catch (RuntimeException e) {
+            // Only the type is logged: the failure may have been raised while reading a protected value.
             logger
-                    .warn("Could not read the secrets sent for the {}; the connector's words are kept from the requester",
-                            refused, e);
+                    .warn("Could not read the secrets sent for the {} ({}); the connector's words are kept from the requester",
+                            refused, e.getClass().getName());
             quotesSentSecret = true;
         }
         return quotesSentSecret ? containment.withoutWords(refusal, refused) : refusal;
