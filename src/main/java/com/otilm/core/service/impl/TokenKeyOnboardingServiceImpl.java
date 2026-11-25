@@ -81,23 +81,22 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
 
     private static final Logger logger = LoggerFactory.getLogger(TokenKeyOnboardingServiceImpl.class);
 
-    static final String GONE = "The key storage no longer holds this key pair.";
-    static final String UNADDRESSABLE_PAIR = "The connector cannot address this key pair by its handle alone.";
-    static final String HELD = "Key '%s' already holds this key pair.";
-    static final String HELD_UNNAMED = "Another key in the inventory already holds this key pair.";
-    static final String HANDLE_REUSED = "The token reused the handle of key '%1$s' for this key pair. Remove key '%1$s' "
-            + "from the inventory to onboard this key pair.";
+    static final String GONE = "The key storage no longer holds this key.";
+    static final String UNADDRESSABLE_BY_HANDLE = "The connector cannot address this key by its handle alone.";
+    static final String HELD = "Key '%s' already holds this key.";
+    static final String HELD_UNNAMED = "Another key in the inventory already holds this key.";
+    static final String HANDLE_REUSED = "The token reused the handle of key '%1$s' for this key. Remove key '%1$s' "
+            + "from the inventory to onboard this one.";
     static final String HANDLE_REUSED_UNNAMED = "The token reused the handle of another key in the inventory for this "
-            + "key pair. That key must be removed from the inventory to onboard this key pair.";
+            + "key. That other key must be removed from the inventory to onboard this one.";
     static final String NOT_ACTIVE = "Key '%s' holds this public key without a token instance, but it is not active, so "
             + "the private key cannot join it.";
     static final String UNADDRESSABLE_KEY = "The connector cannot address this key alone.";
     static final String REFUSED_KEY = "The connector refuses to let the platform onboard this key.";
     static final String UNSUPPORTED_KEY_TYPE = "The connector cannot operate a key of this type.";
     static final String UNREADABLE_KEY = "The connector cannot read this key.";
-    static final String UNREADABLE_PAIR = "The connector cannot read this key pair.";
     static final String UNRECOGNISED_HANDLE = "The connector does not recognise this handle.";
-    static final String HELD_MEANWHILE = "The inventory came to hold this key pair while it was being onboarded.";
+    static final String HELD_MEANWHILE = "The inventory came to hold this key while it was being onboarded.";
     static final String PUBLIC_KEY_TAKEN_MEANWHILE = "Another key came to hold this public key while the key pair was "
             + "being onboarded. List the key storage again.";
     static final String RECORD_CHANGED = "The key holding this public key changed while the private key was joining "
@@ -106,7 +105,7 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
     static final String IMPORTING_ON_TOKEN = "An import of a key pair into this key storage is still in progress.";
     static final String PAGE_BEYOND_LAST_OFFSET = "The page must start at most " + Integer.MAX_VALUE
             + " entries into the listing.";
-    static final String ONBOARDING_FAILED = "Failed to onboard the key pair.";
+    static final String ONBOARDING_FAILED = "Failed to onboard this key.";
     private static final String FALLBACK_NAME = "Onboarded key";
     private static final int DIGEST_PREFIX_LENGTH = 8;
     private static final HolderReason HELD_BY_HANDLE = new HolderReason(HELD, HELD_UNNAMED);
@@ -501,9 +500,9 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
         return switch (resolution.status()) {
             case AVAILABLE, REFUSED -> onboardFoundPair(onboarding, selection, resolution, result);
             case NOT_FOUND -> blocked(result, TokenKeyStatus.GONE, GONE);
-            case UNADDRESSABLE -> blocked(result, TokenKeyStatus.UNADDRESSABLE, UNADDRESSABLE_PAIR);
+            case UNADDRESSABLE -> blocked(result, TokenKeyStatus.UNADDRESSABLE, UNADDRESSABLE_BY_HANDLE);
             case UNSUPPORTED_TYPE -> blocked(result, TokenKeyStatus.UNSUPPORTED_KEY_TYPE, UNSUPPORTED_KEY_TYPE);
-            case UNREADABLE -> blocked(result, TokenKeyStatus.UNREADABLE, UNREADABLE_PAIR);
+            case UNREADABLE -> blocked(result, TokenKeyStatus.UNREADABLE, UNREADABLE_KEY);
             case INVALID_HANDLE -> blockedByInvalidHandle(result);
         };
     }

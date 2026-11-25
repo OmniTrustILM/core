@@ -203,7 +203,7 @@ public class CryptographicKeyItem extends UniquelyIdentified
                 .convertSetToBitMask(usage.isEmpty() ? EnumSet.noneOf(KeyUsage.class) : EnumSet.copyOf(usage));
     }
 
-    /** The key's format, or {@code CUSTOM} when its connector reported none. */
+    /** The response requires a format, and a connector may report none for a private key listed alone. */
     private KeyFormat responseFormat() {
         return format == null ? KeyFormat.CUSTOM : format;
     }

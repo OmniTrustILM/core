@@ -422,7 +422,6 @@ public class CryptographicOperationServiceImpl
         }
     }
 
-    /** Callers run it before {@code requireUsage}. */
     private static void rejectPrivateKeyItem(CryptographicKeyItemOperationModel keyItem, String refusalTemplate) {
         if (keyItem.keyType() == KeyType.PRIVATE_KEY) {
             throw new ValidationException(

@@ -421,7 +421,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             // then
             assertThat(entry.getStatus()).isEqualTo(TokenKeyStatus.IN_INVENTORY);
             assertThat(entry.getInventoryKeyName()).isEqualTo(storageName);
-            assertThat(entry.getReason()).isEqualTo("Key '%s' already holds this key pair.".formatted(storageName));
+            assertThat(entry.getReason()).isEqualTo("Key '%s' already holds this key.".formatted(storageName));
         }
 
         @Test
@@ -502,7 +502,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             // then
             assertThat(entry.getStatus()).isEqualTo(TokenKeyStatus.IN_INVENTORY);
             assertThat(entry.getInventoryKeyName()).isEqualTo(storageName);
-            assertThat(entry.getReason()).isEqualTo("Key '%s' already holds this key pair.".formatted(storageName));
+            assertThat(entry.getReason()).isEqualTo("Key '%s' already holds this key.".formatted(storageName));
         }
 
         @Test
@@ -520,7 +520,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             // then
             assertThat(entry.getStatus()).isEqualTo(TokenKeyStatus.IN_INVENTORY);
             assertThat(entry.getInventoryKeyUuid()).isEqualTo(keyUuid);
-            assertThat(entry.getReason()).isEqualTo("Key '%s' already holds this key pair.".formatted(storageName));
+            assertThat(entry.getReason()).isEqualTo("Key '%s' already holds this key.".formatted(storageName));
         }
 
         @Test
@@ -622,7 +622,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
 
             // then
             assertThat(entry.getStatus()).isEqualTo(TokenKeyStatus.IN_INVENTORY);
-            assertThat(entry.getReason()).isEqualTo("Key '%s' already holds this key pair.".formatted(holderName));
+            assertThat(entry.getReason()).isEqualTo("Key '%s' already holds this key.".formatted(holderName));
         }
 
         @Test
@@ -641,7 +641,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             assertThat(entry)
                     .extracting(TokenKeyDto::getInventoryKeyUuid, TokenKeyDto::getInventoryKeyName)
                     .containsOnlyNulls();
-            assertThat(entry.getReason()).isEqualTo("Another key in the inventory already holds this key pair.");
+            assertThat(entry.getReason()).isEqualTo("Another key in the inventory already holds this key.");
         }
 
         @Test
@@ -659,8 +659,8 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             assertThat(entry.getStatus()).isEqualTo(TokenKeyStatus.IN_INVENTORY);
             assertThat(entry.getInventoryKeyName()).isNull();
             assertThat(entry.getReason())
-                    .isEqualTo("The token reused the handle of another key in the inventory for this key pair. "
-                            + "That key must be removed from the inventory to onboard this key pair.");
+                    .isEqualTo("The token reused the handle of another key in the inventory for this key. "
+                            + "That other key must be removed from the inventory to onboard this one.");
         }
 
         @Test
@@ -1015,7 +1015,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             assertThat(entry)
                     .extracting(TokenKeyDto::getStatus, TokenKeyDto::isPrivateOnly, TokenKeyDto::getInventoryKeyUuid)
                     .containsExactly(TokenKeyStatus.IN_INVENTORY, true, onboarded);
-            assertThat(entry.getReason()).isEqualTo("Key '%s' already holds this key pair.".formatted(storageName));
+            assertThat(entry.getReason()).isEqualTo("Key '%s' already holds this key.".formatted(storageName));
         }
 
         @Test
@@ -1120,7 +1120,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
                             arguments(KeyEntryStatus.UNREADABLE, TokenKeyStatus.UNREADABLE,
                                     "The connector cannot read this key."),
                             arguments(KeyEntryStatus.NOT_FOUND, TokenKeyStatus.GONE,
-                                    "The key storage no longer holds this key pair."));
+                                    "The key storage no longer holds this key."));
         }
     }
 
@@ -1478,8 +1478,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
                     .extracting(TokenKeyOnboardingResultDto::getOutcome, TokenKeyOnboardingResultDto::getKeyUuid)
                     .containsExactly(tuple(TokenKeyOnboardingOutcome.JOINED_EXISTING_KEY, publicKeyRecord),
                             tuple(TokenKeyOnboardingOutcome.BLOCKED, publicKeyRecord));
-            assertThat(results.get(1).getReason())
-                    .isEqualTo("Key '%s' already holds this key pair.".formatted(holderName));
+            assertThat(results.get(1).getReason()).isEqualTo("Key '%s' already holds this key.".formatted(holderName));
         }
 
         @Test
@@ -1529,7 +1528,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
                             TokenKeyOnboardingResultDto::getReason)
                     .containsExactly(
                             tuple(TokenKeyOnboardingOutcome.BLOCKED, TokenKeyStatus.IN_INVENTORY,
-                                    "The inventory came to hold this key pair while it was being onboarded."),
+                                    "The inventory came to hold this key while it was being onboarded."),
                             tuple(TokenKeyOnboardingOutcome.ONBOARDED, null, null));
             assertThat(results.getFirst().getKeyName()).isEqualTo(REGISTERED_MEANWHILE);
             assertThat(results.getFirst().getKeyUuid()).isNotNull();
@@ -1584,7 +1583,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
                     .extracting(TokenKeyOnboardingResultDto::getOutcome, TokenKeyOnboardingResultDto::getStatus,
                             TokenKeyOnboardingResultDto::getKeyUuid)
                     .containsExactly(TokenKeyOnboardingOutcome.BLOCKED, TokenKeyStatus.IN_INVENTORY, holder);
-            assertThat(result.getReason()).isEqualTo("Key '%s' already holds this key pair.".formatted(storageName));
+            assertThat(result.getReason()).isEqualTo("Key '%s' already holds this key.".formatted(storageName));
         }
 
         @Test
@@ -1640,7 +1639,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
                             TokenKeyOnboardingResultDto::getReason)
                     .containsExactly(
                             tuple(TokenKeyOnboardingOutcome.BLOCKED, TokenKeyStatus.IN_INVENTORY,
-                                    "The inventory came to hold this key pair while it was being onboarded."),
+                                    "The inventory came to hold this key while it was being onboarded."),
                             tuple(TokenKeyOnboardingOutcome.ONBOARDED, null, null));
             assertThat(results.getFirst().getKeyName()).isEqualTo(REGISTERED_MEANWHILE);
             assertThat(cryptographicKeyRepository.existsByName("contested")).isFalse();
@@ -1665,8 +1664,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
                     .extracting(TokenKeyOnboardingResultDto::getOutcome, TokenKeyOnboardingResultDto::getStatus,
                             TokenKeyOnboardingResultDto::getReason, TokenKeyOnboardingResultDto::getKeyName)
                     .containsExactly(tuple(TokenKeyOnboardingOutcome.BLOCKED, TokenKeyStatus.IN_INVENTORY,
-                            "The inventory came to hold this key pair while it was being onboarded.",
-                            REGISTERED_MEANWHILE));
+                            "The inventory came to hold this key while it was being onboarded.", REGISTERED_MEANWHILE));
             assertThat(cryptographicKeyRepository.existsByName("contested")).isFalse();
         }
 
@@ -2157,7 +2155,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
                     .extracting(TokenKeyOnboardingResultDto::getOutcome, TokenKeyOnboardingResultDto::getStatus,
                             TokenKeyOnboardingResultDto::getReason)
                     .containsExactly(TokenKeyOnboardingOutcome.BLOCKED, TokenKeyStatus.IN_INVENTORY,
-                            "The inventory came to hold this key pair while it was being onboarded.");
+                            "The inventory came to hold this key while it was being onboarded.");
             assertThat(cryptographicKeyRepository.existsByName("contested")).isFalse();
         }
 
@@ -2351,13 +2349,13 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         private static Stream<Arguments> answersWithoutAKeyPair() {
             return Stream
                     .of(arguments(KeyEntryStatus.NOT_FOUND, TokenKeyStatus.GONE,
-                            "The key storage no longer holds this key pair."),
+                            "The key storage no longer holds this key."),
                             arguments(KeyEntryStatus.UNADDRESSABLE, TokenKeyStatus.UNADDRESSABLE,
-                                    "The connector cannot address this key pair by its handle alone."),
+                                    "The connector cannot address this key by its handle alone."),
                             arguments(KeyEntryStatus.UNSUPPORTED_TYPE, TokenKeyStatus.UNSUPPORTED_KEY_TYPE,
                                     "The connector cannot operate a key of this type."),
                             arguments(KeyEntryStatus.UNREADABLE, TokenKeyStatus.UNREADABLE,
-                                    "The connector cannot read this key pair."),
+                                    "The connector cannot read this key."),
                             arguments(
                                     named("a handle the token does not recognise has no key to describe",
                                             KeyEntryStatus.INVALID_HANDLE),
@@ -2568,7 +2566,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             List<TokenKeyOnboardingResultDto> results = onboardThroughTheApi(first, second).getResults();
 
             // then
-            var gone = "The key storage no longer holds this key pair.";
+            var gone = "The key storage no longer holds this key.";
             assertThat(results)
                     .extracting(TokenKeyOnboardingResultDto::getOutcome, TokenKeyOnboardingResultDto::getReason)
                     .containsExactly(tuple(TokenKeyOnboardingOutcome.BLOCKED, gone),
@@ -2930,8 +2928,8 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
     }
 
     private static String formatHandleReuseReason(String holderName) {
-        return ("The token reused the handle of key '%1$s' for this key pair. "
-                + "Remove key '%1$s' from the inventory to onboard this key pair.").formatted(holderName);
+        return ("The token reused the handle of key '%1$s' for this key. "
+                + "Remove key '%1$s' from the inventory to onboard this one.").formatted(holderName);
     }
 
     /** Joins the key pair's private key to the record holding its public key, within the caller's transaction. */
