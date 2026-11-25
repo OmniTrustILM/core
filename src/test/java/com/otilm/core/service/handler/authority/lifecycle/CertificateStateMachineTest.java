@@ -6,6 +6,8 @@ import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.service.CertificateEventHistoryInternalService;
+import com.otilm.core.service.renewal.RenewalEnrolmentHook;
+import com.otilm.core.service.renewal.RenewalWindowWriter;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.UUID;
@@ -32,13 +34,18 @@ class CertificateStateMachineTest {
 
     private CertificateRepository certificateRepository;
     private CertificateEventHistoryInternalService eventHistoryService;
+    private RenewalWindowWriter renewalWindowWriter;
+    private RenewalEnrolmentHook renewalEnrolmentHook;
     private CertificateStateMachine sm;
 
     @BeforeEach
-    void setUp() {
+    void wireStateMachine() {
         certificateRepository = mock(CertificateRepository.class);
         eventHistoryService = mock(CertificateEventHistoryInternalService.class);
-        sm = new CertificateStateMachine(certificateRepository, eventHistoryService);
+        renewalWindowWriter = mock(RenewalWindowWriter.class);
+        renewalEnrolmentHook = mock(RenewalEnrolmentHook.class);
+        sm = new CertificateStateMachine(certificateRepository, eventHistoryService, renewalWindowWriter,
+                renewalEnrolmentHook);
     }
 
     @Test
@@ -241,6 +248,57 @@ class CertificateStateMachineTest {
 
         // then
         assertThat(pendingRevoke.getPendingIssueClaimedAt()).isEqualTo(claimedAt);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = CertificateState.class, names = {"PENDING_ISSUE", "PENDING_APPROVAL"})
+    void givesTheRenewalWindow_whenTheCertificateBecomesIssued(CertificateState from) {
+        // given
+        Certificate cert = certWithState(from);
+
+        // when
+        sm.transitionAuditedExternally(cert, CertificateState.ISSUED);
+
+        // then
+        verify(renewalWindowWriter).onIssued(cert);
+    }
+
+    @Test
+    void keepsTheRenewalWindow_whenAFailedRevocationReturnsTheCertificateToIssued() {
+        // given
+        Certificate pendingRevoke = certWithState(CertificateState.PENDING_REVOKE);
+
+        // when
+        sm.transition(pendingRevoke, CertificateState.ISSUED);
+
+        // then
+        verify(renewalWindowWriter, never()).onIssued(any());
+        verify(renewalEnrolmentHook).enrol(pendingRevoke);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = CertificateState.class, names = {"REVOKED", "PENDING_REVOKE"})
+    void reEvaluatesTheRenewalInfoRefresh_whenTheCertificateLeavesIssued(CertificateState to) {
+        // given
+        Certificate issued = certWithState(CertificateState.ISSUED);
+
+        // when
+        sm.transition(issued, to);
+
+        // then
+        verify(renewalEnrolmentHook).enrol(issued);
+    }
+
+    @Test
+    void leavesTheRenewalWindow_whenTheCertificateIsNotIssued() {
+        // given
+        Certificate requested = certWithState(CertificateState.REQUESTED);
+
+        // when
+        sm.transition(requested, CertificateState.PENDING_ISSUE);
+
+        // then
+        verify(renewalWindowWriter, never()).onIssued(any());
     }
 
     private Certificate certWithState(CertificateState state) {

@@ -29,5 +29,7 @@ public class AcmeConstants {
     public static final int DEFAULT_RETRY_INTERVAL = 30;
     /** How long orders and authorizations stay valid when their profile sets no validity, in seconds, as documented. */
     public static final int DEFAULT_ORDER_VALIDITY = 36000;
+    /** The Retry-After of a renewal information response when the profile sets none, in seconds. */
+    public static final int DEFAULT_RENEWAL_INFO_RETRY_AFTER = 21600;
 
 }

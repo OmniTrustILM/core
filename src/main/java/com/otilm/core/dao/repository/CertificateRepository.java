@@ -8,6 +8,7 @@ import com.otilm.core.aop.CertificateRepositoryCacheEvictionAspect;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.repository.custom.CustomCertificateRepository;
 import java.time.OffsetDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -36,6 +37,17 @@ import org.springframework.stereotype.Repository;
 public interface CertificateRepository extends CertificateBaseRepository<Certificate>, CustomCertificateRepository {
 
     List<String> FETCH_GROUPS_AND_OWNER = List.of("groups", "owner");
+
+    /**
+     * The certificates with what a renewal information request needs; the refresh calls the connector outside any
+     * transaction, so these associations are loaded eagerly.
+     */
+    @EntityGraph(attributePaths = {
+            "certificateContent",
+            "raProfile",
+            "raProfile.authorityInstanceReference",
+            "raProfile.authorityInstanceReference.connectorInterface"})
+    List<Certificate> findForRenewalInfoByUuidIn(Collection<UUID> uuids);
 
     /**
      * Finds the newest certificate, not archived, that the client requested through the EST Profile and the RA Profile
@@ -580,4 +592,25 @@ public interface CertificateRepository extends CertificateBaseRepository<Certifi
             """)
     List<CertificateDto> findCertificateDtosByUuidsIn(List<UUID> uuids);
 
+    /**
+     * The issued, not archived certificates of the RA profile with the serial number, content included. Serial numbers
+     * are unique only per issuer, so the caller must still tell the candidates apart by their issuer.
+     *
+     * @param serialNumber lower-case hexadecimal without leading zeros, as the certificate table stores it
+     */
+    @Query("""
+            SELECT c
+              FROM Certificate c
+              LEFT JOIN FETCH c.certificateContent
+             WHERE c.serialNumber = :serialNumber
+               AND c.raProfileUuid = :raProfileUuid
+               AND c.state = com.otilm.api.model.core.certificate.CertificateState.ISSUED
+               AND c.archived = false
+            """)
+    List<Certificate> findIssuedNotArchivedBySerialNumberAndRaProfile(@Param("serialNumber") String serialNumber,
+            @Param("raProfileUuid") UUID raProfileUuid);
+
+    /** Whether key-generating locations renewed the certificate, or are renewing it. */
+    @Query("SELECT COUNT(r) > 0 FROM CertificateRenewalLocation r WHERE r.certificateUuid = :certificateUuid")
+    boolean hasLocationRenewals(@Param("certificateUuid") UUID certificateUuid);
 }

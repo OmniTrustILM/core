@@ -46,6 +46,7 @@ public class UpdateCertificateStatusTask implements ScheduledJobTask {
         int certificatesToValidate = certificateService.updateCertificatesStatusScheduled();
         int expiredApprovals = approvalService.checkApprovalsExpiration();
         int expiringCertificates = certificateService.handleExpiringCertificates();
+        int renewalDueCertificates = certificateService.handleRenewalDueCertificates();
         int nonCompliantReminders = certificateService.handleNonCompliantCertificatesReminders();
 
         String message = "Queued %s certificates for status update.".formatted(certificatesToValidate);
@@ -54,6 +55,9 @@ public class UpdateCertificateStatusTask implements ScheduledJobTask {
         }
         if (expiringCertificates > 0) {
             message += " Handled %d expiring certificates.".formatted(expiringCertificates);
+        }
+        if (renewalDueCertificates > 0) {
+            message += " Handled %d certificates due for renewal.".formatted(renewalDueCertificates);
         }
 
         if (nonCompliantReminders > 0) {

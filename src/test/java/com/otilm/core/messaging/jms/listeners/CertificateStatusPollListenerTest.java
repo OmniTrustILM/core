@@ -33,6 +33,7 @@ import com.otilm.core.service.handler.authority.CertificateOperation;
 import com.otilm.core.service.handler.authority.StatusPollResult;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateRevocationFinalizer;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine;
+import com.otilm.core.service.renewal.auto.AsyncRenewalLocationReplacer;
 import com.otilm.core.service.writer.AcmeOrderWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationAuthorizationWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationWriter;
@@ -101,6 +102,8 @@ class CertificateStatusPollListenerTest {
     private LocationInternalService locationInternalService;
     @Mock
     private AcmeOrderWriter acmeOrderWriter;
+    @Mock
+    private AsyncRenewalLocationReplacer asyncRenewalLocationReplacer;
 
     /**
      * Combined mock implementing both AuthorityProviderAdapter and AsyncOperationCapability. The listener casts the
@@ -138,6 +141,7 @@ class CertificateStatusPollListenerTest {
         listener.setCertificateLocationRepository(certificateLocationRepository);
         listener.setLocationInternalService(locationInternalService);
         listener.setAcmeOrderWriter(acmeOrderWriter);
+        listener.setAsyncRenewalLocationReplacer(asyncRenewalLocationReplacer);
 
         StatusPollProperties.PollSchedule schedule = mock(StatusPollProperties.PollSchedule.class);
         lenient().when(schedule.maxAttempts()).thenReturn(3);
@@ -264,6 +268,39 @@ class CertificateStatusPollListenerTest {
         listener.processMessage(pollMsg(CertificateOperation.ISSUE, 0));
 
         verify(locationInternalService).pushRequestedCertificateToLocationAction(locationId, false);
+    }
+
+    @Test
+    void replacesTheRenewedCertificateInItsLocations_whenARenewalCompletes() throws Exception {
+        // given
+        Certificate cert = certInState(CertificateState.PENDING_ISSUE);
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(asyncAdapter.pollStatus(cert, CertificateOperation.RENEW))
+                .thenReturn(new StatusPollResult(CertificateOperationStatus.COMPLETED, "PEMDATA", null, "OK"));
+        when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+
+        // when
+        listener.processMessage(pollMsg(CertificateOperation.RENEW, 0));
+
+        // then
+        verify(asyncRenewalLocationReplacer).replaceInLocations(CERT_UUID);
+        verify(locationInternalService, never()).pushRequestedCertificateToLocationAction(any(), anyBoolean());
+    }
+
+    @Test
+    void replacesNothing_whenAnIssueCompletes() throws Exception {
+        // given
+        Certificate cert = certInState(CertificateState.PENDING_ISSUE);
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(asyncAdapter.pollStatus(cert, CertificateOperation.ISSUE))
+                .thenReturn(new StatusPollResult(CertificateOperationStatus.COMPLETED, "PEMDATA", null, "OK"));
+        when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+
+        // when
+        listener.processMessage(pollMsg(CertificateOperation.ISSUE, 0));
+
+        // then
+        verifyNoInteractions(asyncRenewalLocationReplacer);
     }
 
     @Test

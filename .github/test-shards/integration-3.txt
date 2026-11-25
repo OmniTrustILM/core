@@ -96,6 +96,8 @@ com/otilm/core/integration/service/acme/AcmeFinalizeRequestAttributeValidationIT
 com/otilm/core/integration/service/acme/AcmeFinalizeTransactionITest.java
 com/otilm/core/integration/service/acme/AcmePreauthorizedOrderITest.java
 com/otilm/core/integration/service/acme/AcmeProtocolFlowITest.java
+com/otilm/core/integration/service/acme/AcmeRenewalInfoITest.java
+com/otilm/core/integration/service/acme/AcmeReplacesITest.java
 com/otilm/core/integration/service/approval/ApprovalGrantedITest.java
 com/otilm/core/integration/service/approval/RevocationApprovalRejectedITest.java
 com/otilm/core/integration/service/scep/CryptographicProviderITest.java
