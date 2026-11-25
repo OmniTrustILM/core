@@ -2,6 +2,13 @@ package com.otilm.core.integration.api.web;
 
 import com.jayway.jsonpath.JsonPath;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.logging.enums.AuditLogOutput;
+import com.otilm.api.model.core.logging.enums.Operation;
+import com.otilm.api.model.core.logging.records.LogRecord;
+import com.otilm.api.model.core.logging.records.ResourceObjectIdentity;
+import com.otilm.api.model.core.settings.logging.AuditLoggingSettingsDto;
+import com.otilm.api.model.core.settings.logging.LoggingSettingsDto;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.Connector2FunctionGroupRepository;
@@ -9,10 +16,14 @@ import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.FunctionGroupRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
+import com.otilm.core.messaging.model.AuditLogMessage;
+import com.otilm.core.service.SettingExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.builders.AuthorityFixtures;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
@@ -40,6 +51,8 @@ class RaProfileRenewalSettingsITest extends BaseSpringBootTest {
     private RaProfileRepository raProfileRepository;
     @Autowired
     private ConnectorInterfaceRepository connectorInterfaceRepository;
+    @Autowired
+    private SettingExternalService settingExternalService;
 
     @Test
     void storesAndAnswersTheSettings_whenTheRequestIsValid() throws Exception {
@@ -87,6 +100,33 @@ class RaProfileRenewalSettingsITest extends BaseSpringBootTest {
         RaProfile stored = raProfileRepository.findByUuid(raProfile.getUuid()).orElseThrow();
         assertThat(stored.isAutoRenewalEnabled()).isTrue();
         assertThat(stored.getAutoRenewalMaxAttempts()).isEqualTo(3);
+    }
+
+    @Test
+    void auditsTheAuthorityAsAffiliatedResource_whenTheSettingsAreUpdated() throws Exception {
+        // given
+        turnOnAuditLogging();
+        RaProfile raProfile = seedRaProfile();
+
+        // when
+        patchRenewalSettings(raProfile.getAuthorityInstanceReferenceUuid(), raProfile.getUuid(),
+                "{\"autoRenewalEnabled\": true}");
+
+        // then
+        ArgumentCaptor<AuditLogMessage> captor = ArgumentCaptor.forClass(AuditLogMessage.class);
+        Mockito.verify(auditLogsProducer, Mockito.atLeastOnce()).produceMessage(captor.capture());
+        LogRecord record = captor
+                .getAllValues()
+                .stream()
+                .map(AuditLogMessage::getLogRecord)
+                .filter(logRecord -> logRecord.resource().type() == Resource.RA_PROFILE
+                        && logRecord.operation() == Operation.UPDATE)
+                .reduce((first, second) -> second)
+                .orElseThrow(() -> new AssertionError("No RA profile update audit record"));
+        assertThat(record.affiliatedResource().type()).isEqualTo(Resource.AUTHORITY);
+        assertThat(record.affiliatedResource().objects())
+                .extracting(ResourceObjectIdentity::uuid)
+                .containsExactly(raProfile.getAuthorityInstanceReferenceUuid());
     }
 
     @Test
@@ -160,6 +200,17 @@ class RaProfileRenewalSettingsITest extends BaseSpringBootTest {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private void turnOnAuditLogging() {
+        AuditLoggingSettingsDto auditLogging = new AuditLoggingSettingsDto();
+        auditLogging.setOutput(AuditLogOutput.ALL);
+        auditLogging.setLogAllModules(true);
+        auditLogging.setLogAllResources(true);
+        auditLogging.setVerbose(true);
+        LoggingSettingsDto settings = new LoggingSettingsDto();
+        settings.setAuditLogs(auditLogging);
+        settingExternalService.updateLoggingSettings(settings);
+    }
 
     private RaProfile seedRaProfile(FeatureFlag... features) {
         return AuthorityFixtures

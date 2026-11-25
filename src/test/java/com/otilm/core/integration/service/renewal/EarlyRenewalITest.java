@@ -8,6 +8,8 @@ import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.RenewalWindowSource;
 import com.otilm.api.model.core.logging.enums.AuditLogOutput;
 import com.otilm.api.model.core.logging.enums.Operation;
+import com.otilm.api.model.core.logging.records.LogRecord;
+import com.otilm.api.model.core.logging.records.ResourceObjectIdentity;
 import com.otilm.api.model.core.settings.logging.AuditLoggingSettingsDto;
 import com.otilm.api.model.core.settings.logging.LoggingSettingsDto;
 import com.otilm.core.dao.entity.Certificate;
@@ -305,6 +307,24 @@ class EarlyRenewalITest extends BaseSpringBootTest {
     }
 
     @Test
+    void auditsTheAuthorityAsAffiliatedResource_whenTheRaProfileActionRuns() throws Exception {
+        // given
+        turnOnAuditLogging();
+        RaProfile raProfile = seedRaProfile();
+        seedCertificate(raProfile, CertificateState.ISSUED, VALIDITY_LEFT, false);
+
+        // when
+        postRaProfileEarlyRenewal(raProfile, body(SPREAD_SECONDS, EXPLANATION_URL));
+
+        // then
+        LogRecord record = earlyRenewalAuditRecord();
+        assertThat(record.affiliatedResource().type()).isEqualTo(Resource.AUTHORITY);
+        assertThat(record.affiliatedResource().objects())
+                .extracting(ResourceObjectIdentity::uuid)
+                .containsExactly(raProfile.getAuthorityInstanceReferenceUuid());
+    }
+
+    @Test
     void auditsSpreadAndExplanationUrl_whenTheBulkActionRuns() throws Exception {
         // given
         turnOnAuditLogging();
@@ -335,6 +355,10 @@ class EarlyRenewalITest extends BaseSpringBootTest {
     }
 
     private Serializable earlyRenewalAuditData() {
+        return earlyRenewalAuditRecord().operationData();
+    }
+
+    private LogRecord earlyRenewalAuditRecord() {
         ArgumentCaptor<AuditLogMessage> captor = ArgumentCaptor.forClass(AuditLogMessage.class);
         Mockito.verify(auditLogsProducer, Mockito.atLeastOnce()).produceMessage(captor.capture());
         return captor
@@ -343,8 +367,7 @@ class EarlyRenewalITest extends BaseSpringBootTest {
                 .filter(message -> message.getLogRecord().operation() == Operation.REQUEST_EARLY_RENEWAL)
                 .reduce((first, second) -> second)
                 .orElseThrow(() -> new AssertionError("No REQUEST_EARLY_RENEWAL audit record"))
-                .getLogRecord()
-                .operationData();
+                .getLogRecord();
     }
 
     private RaProfile seedRaProfile() {

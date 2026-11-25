@@ -23,6 +23,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.transaction.PlatformTransactionManager;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -118,8 +119,8 @@ class AsyncRenewalLocationReplacerTest {
     private void stubSuccessorOf(UUID renewedUuid) {
         CertificateRelation relation = new CertificateRelation();
         relation.setId(new CertificateRelationId(SUCCESSOR_UUID, renewedUuid));
-        Certificate successor = mock(Certificate.class);
-        when(successor.getPredecessorRelations()).thenReturn(Set.of(relation));
+        Certificate successor = aCertificate().withUuid(SUCCESSOR_UUID).build();
+        successor.setPredecessorRelations(Set.of(relation));
         when(entityManager.find(Certificate.class, SUCCESSOR_UUID)).thenReturn(successor);
     }
 
