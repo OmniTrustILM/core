@@ -30,6 +30,7 @@ import com.otilm.core.key.description.KeyParameters;
 import com.otilm.core.logging.LoggingHelper;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.crypto.CryptographicKeyBasicModel;
+import com.otilm.core.model.crypto.HandleHolderSummary;
 import com.otilm.core.model.crypto.OnboardedKeys;
 import com.otilm.core.model.crypto.OnboardedKeys.OnboardedKey;
 import com.otilm.core.model.crypto.ProviderKeyEntry;
@@ -83,6 +84,11 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
     static final String GONE = "The key storage no longer holds this key pair.";
     static final String UNADDRESSABLE_PAIR = "The connector cannot address this key pair by its handle alone.";
     static final String HELD = "Key '%s' already holds this key pair.";
+    static final String HELD_UNNAMED = "Another key in the inventory already holds this key pair.";
+    static final String HANDLE_REUSED = "The token reused the handle of key '%1$s' for this key pair. Remove key '%1$s' "
+            + "from the inventory to onboard this key pair.";
+    static final String HANDLE_REUSED_UNNAMED = "The token reused the handle of another key in the inventory for this "
+            + "key pair. That key must be removed from the inventory to onboard this key pair.";
     static final String NOT_ACTIVE = "Key '%s' holds this public key without a token instance, but it is not active, so "
             + "the private key cannot join it.";
     static final String PUBLIC_KEY_MISSING = "The key storage holds no public key for this key pair.";
@@ -103,6 +109,9 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
     static final String ONBOARDING_FAILED = "Failed to onboard the key pair.";
     private static final String FALLBACK_NAME = "Onboarded key";
     private static final int FINGERPRINT_PREFIX_LENGTH = 8;
+    private static final HolderReason HELD_BY_HANDLE = new HolderReason(HELD, HELD_UNNAMED);
+    private static final HolderReason HELD_MEANWHILE_BY_HANDLE = HolderReason.fixed(HELD_MEANWHILE);
+    private static final HolderReason HANDLE_REUSED_BY_TOKEN = new HolderReason(HANDLE_REUSED, HANDLE_REUSED_UNNAMED);
 
     private final KeyListGates keyListGates;
     private final KeyImportGates keyImportGates;
@@ -141,7 +150,7 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
         ProviderKeyEntryPage listed = keyProviderAdapterFactory
                 .forToken(profile.tokenInstance())
                 .listKeyPairs(profile, page.offset(), page.itemsPerPage());
-        Inventory inventory = inventoryOf(listed.entries(), Set.of());
+        Inventory inventory = inventoryOf(profile.tokenInstanceReferenceUuid(), listed.entries(), Set.of());
         List<TokenKeyDto> entries = new ArrayList<>();
         for (ProviderKeyEntry entry : listed.entries()) {
             entries.add(describe(entry, inventory));
@@ -166,7 +175,8 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
         List<ProviderKeyEntry> resolutions = keyProviderAdapterFactory
                 .forToken(profile.tokenInstance())
                 .resolveKeyPairs(profile, handles);
-        Onboarding onboarding = new Onboarding(profile, inventoryOf(resolutions, importingBeforeResolution),
+        Onboarding onboarding = new Onboarding(profile,
+                inventoryOf(profile.tokenInstanceReferenceUuid(), resolutions, importingBeforeResolution),
                 customAttributes, customAttributePermissions, new ArrayList<>());
         OnboardTokenKeysResponseDto response = new OnboardTokenKeysResponseDto();
         try {
@@ -304,11 +314,14 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
     }
 
     /**
-     * One query each for the pairs' holders, unsettled imports and likely names, however many pairs a page lists.
+     * One query each for the pairs' holders by handle and by public key, unsettled imports and likely names, however
+     * many pairs a page lists.
      *
+     * @param tokenInstanceUuid the token instance that listed or resolved the entries
      * @param importingAlready fingerprints of unsettled imports read earlier, which count as importing too
      */
-    private Inventory inventoryOf(List<ProviderKeyEntry> entries, Set<String> importingAlready) {
+    private Inventory inventoryOf(UUID tokenInstanceUuid, List<ProviderKeyEntry> entries,
+            Set<String> importingAlready) {
         List<ProviderKeyEntry> carryingKeyPair = entriesCarryingKeyPair(entries);
         Set<String> fingerprints = carryingKeyPair
                 .stream()
@@ -319,7 +332,15 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
                 .stream()
                 .flatMap(TokenKeyOnboardingServiceImpl::likelyNamesOf)
                 .collect(Collectors.toSet());
-        Map<String, PublicKeyHolderSummary> holders = new HashMap<>(cryptographicKeyWriter.holdersOf(fingerprints));
+        Set<String> handleDigests = carryingKeyPair
+                .stream()
+                .map(entry -> entry.keyPair().privateKey().handleDigest())
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<String, HandleHolderSummary> handleHolders = new HashMap<>(
+                cryptographicKeyWriter.holdersOfHandles(tokenInstanceUuid, handleDigests));
+        Map<String, PublicKeyHolderSummary> publicKeyHolders = new HashMap<>(
+                cryptographicKeyWriter.holdersOf(fingerprints));
         Set<String> importing = new HashSet<>(importingAlready);
         if (!fingerprints.isEmpty()) {
             importing.addAll(keyImportRepository.findImportingSpkiFingerprints(fingerprints, KeyImportState.UNSETTLED));
@@ -329,18 +350,27 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
             Set<String> taken = Set.copyOf(cryptographicKeyRepository.findNamesIn(likelyNames));
             likelyNames.forEach(name -> nameTaken.put(name, taken.contains(name)));
         }
-        return new Inventory(holders, importing, nameTaken, cryptographicKeyRepository::existsByName);
+        return new Inventory(handleHolders, publicKeyHolders, importing, nameTaken,
+                cryptographicKeyRepository::existsByName);
     }
 
+    /**
+     * The key holding the pair's handle decides first, whatever the token lists of the public key. Otherwise the public
+     * key decides: whether the token lists one, then whether an unsettled import or a key holds it.
+     */
     private Standing standingOf(ProviderKeyPair pair, Inventory inventory) {
         String fingerprint = publicKeyFingerprint(pair);
+        HandleHolderSummary handleHolder = inventory.handleHolderOf(pair);
+        if (handleHolder != null) {
+            return standingHeldByHandle(pair, fingerprint, handleHolder, HELD_BY_HANDLE);
+        }
         if (fingerprint == null) {
             return new Standing(TokenKeyStatus.PUBLIC_KEY_UNAVAILABLE, null, null, false, PUBLIC_KEY_MISSING);
         }
         if (inventory.importing().contains(fingerprint)) {
             return new Standing(TokenKeyStatus.IMPORT_IN_PROGRESS, fingerprint, null, false, IMPORTING);
         }
-        PublicKeyHolderSummary holder = inventory.holders().get(fingerprint);
+        PublicKeyHolderSummary holder = inventory.publicKeyHolders().get(fingerprint);
         if (holder == null) {
             return new Standing(TokenKeyStatus.ONBOARDABLE, fingerprint, null, false, null);
         }
@@ -355,11 +385,24 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
     }
 
     /**
-     * The connector's refusal outranks every standing but {@code IN_INVENTORY}. No change on the platform's side lifts
-     * a refusal. {@code IN_INVENTORY} names the token key that already holds the key pair.
+     * A key holds the pair's handle: it holds the pair, or the token reused its handle for this pair. The reason names
+     * the key only to a caller who may see it in detail.
+     */
+    private Standing standingHeldByHandle(ProviderKeyPair pair, String fingerprint, HandleHolderSummary handleHolder,
+            HolderReason samePairReason) {
+        boolean visible = keyImportGates.maySeeInDetail(handleHolder.keyUuid(), handleHolder.tokenInstanceUuid());
+        boolean handleReused = !handleHolder.agreesWith(pair.privateKey(), fingerprint);
+        HolderReason reason = handleReused ? HANDLE_REUSED_BY_TOKEN : samePairReason;
+        return new Standing(TokenKeyStatus.IN_INVENTORY, fingerprint, handleHolder.asKeyPairHolder(), visible,
+                reason.forCaller(handleHolder.keyName(), visible), handleReused);
+    }
+
+    /**
+     * The connector's refusal outranks every standing but a key holding the pair, which tells the caller where the pair
+     * already is. No change on the platform's side lifts a refusal.
      */
     private static Standing withConnectorVerdict(Standing standing, ProviderKeyEntry entry) {
-        if (entry.status() == KeyEntryStatus.REFUSED && standing.status() != TokenKeyStatus.IN_INVENTORY) {
+        if (entry.status() == KeyEntryStatus.REFUSED && !standing.heldByKey()) {
             return new Standing(TokenKeyStatus.REFUSED, standing.fingerprint(), standing.holder(),
                     standing.holderVisible(), REFUSED_KEY);
         }
@@ -473,14 +516,32 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
             if (!UniqueViolations.isUniqueViolation(e)) {
                 throw e;
             }
-            return afterLosingThePublicKey(result, standing.fingerprint());
+            return blockedIfHandleHeldMeanwhile(profile, pair, standing.fingerprint(), result)
+                    .orElseGet(() -> afterLosingThePublicKey(result, standing.fingerprint()));
         }
         if (onboarded.isEmpty()) {
             return blocked(result, TokenKeyStatus.IMPORT_IN_PROGRESS, IMPORTING);
         }
         CryptographicKeyBasicModel key = onboarded.get();
-        onboarding.registered(standing.fingerprint(), heldAsKeyPair(key.uuid(), key.name(), profile), false);
+        onboarding.registered(pair, heldAsKeyPair(key, profile, pair, standing.fingerprint()), false);
         return onboardedAsNewKey(result, key);
+    }
+
+    /** Another key took the pair's handle first: it holds the pair, or the token reused the handle the key held. */
+    private Optional<TokenKeyOnboardingResultDto> blockedIfHandleHeldMeanwhile(TokenProfileFullModel profile,
+            ProviderKeyPair pair, String fingerprint,
+            TokenKeyOnboardingResultDto.TokenKeyOnboardingResultDtoBuilder result) {
+        String handleDigest = pair.privateKey().handleDigest();
+        if (handleDigest == null) {
+            return Optional.empty();
+        }
+        HandleHolderSummary handleHolder = cryptographicKeyWriter
+                .holdersOfHandles(profile.tokenInstanceReferenceUuid(), Set.of(handleDigest))
+                .get(handleDigest);
+        return Optional
+                .ofNullable(handleHolder)
+                .map(holder -> blockedByStanding(result,
+                        standingHeldByHandle(pair, fingerprint, holder, HELD_MEANWHILE_BY_HANDLE)));
     }
 
     /**
@@ -515,12 +576,18 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
                             pair.toOnboardedItems(publicKeyRecord.keyName()));
         } catch (ValidationException changedMeanwhile) {
             return failed(result, RECORD_CHANGED);
+        } catch (DataIntegrityViolationException e) {
+            if (!UniqueViolations.isUniqueViolation(e)) {
+                throw e;
+            }
+            return blockedIfHandleHeldMeanwhile(profile, pair, standing.fingerprint(), result)
+                    .orElseGet(() -> failed(result, RECORD_CHANGED));
         }
         if (onboarded.isEmpty()) {
             return blocked(result, TokenKeyStatus.IMPORT_IN_PROGRESS, IMPORTING);
         }
         CryptographicKeyBasicModel key = onboarded.get();
-        onboarding.registered(standing.fingerprint(), heldAsKeyPair(key.uuid(), key.name(), profile), true);
+        onboarding.registered(pair, heldAsKeyPair(key, profile, pair, standing.fingerprint()), true);
         result.outcome(TokenKeyOnboardingOutcome.JOINED_EXISTING_KEY);
         if (standing.holderVisible()) {
             result.keyUuid(key.uuid()).keyName(key.name());
@@ -534,10 +601,12 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
     }
 
     /** The key an onboarding registered the key pair in, which holds it with its private key on the profile's token. */
-    private static PublicKeyHolderSummary heldAsKeyPair(UUID keyUuid, String keyName, TokenProfileFullModel profile) {
+    private static HandleHolderSummary heldAsKeyPair(CryptographicKeyBasicModel key, TokenProfileFullModel profile,
+            ProviderKeyPair pair, String fingerprint) {
         boolean active = true;
-        return new PublicKeyHolderSummary(keyUuid, keyName, profile.tokenInstanceReferenceUuid(), Holding.KEY_PAIR,
-                active);
+        ProviderKeyItem privateKey = pair.privateKey();
+        return new HandleHolderSummary(key.uuid(), key.name(), profile.tokenInstanceReferenceUuid(),
+                privateKey.algorithm(), privateKey.parameterSet(), privateKey.length(), fingerprint, active);
     }
 
     private static TokenKeyOnboardingResultDto blockedByStanding(
@@ -576,16 +645,44 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
      * Where the inventory stands on a listed key pair.
      *
      * @param fingerprint the public key's fingerprint, or null for a pair listed without one
-     * @param holder the inventory key holding the public key, or null
+     * @param holder the inventory key holding the pair's public key or handle, or null
      * @param holderVisible whether the caller may see the holder in detail
      * @param refusal the reason the pair is refused, or null for an onboardable pair
+     * @param handleReused whether the holder holds the pair's handle only because the token reused it
      */
     private record Standing(TokenKeyStatus status, String fingerprint, PublicKeyHolderSummary holder,
-            boolean holderVisible, String refusal) {
+            boolean holderVisible, String refusal, boolean handleReused) {
+
+        Standing(TokenKeyStatus status, String fingerprint, PublicKeyHolderSummary holder, boolean holderVisible,
+                String refusal) {
+            this(status, fingerprint, holder, holderVisible, refusal, false);
+        }
+
+        boolean heldByKey() {
+            return status == TokenKeyStatus.IN_INVENTORY && !handleReused;
+        }
 
         /** The holder, when the caller may see it in detail. */
         PublicKeyHolderSummary visibleHolder() {
             return holderVisible ? holder : null;
+        }
+    }
+
+    /**
+     * The reason a key blocks a pair: named for a caller who may see the key in detail, unnamed for any other.
+     *
+     * @param named the reason for a caller who may see the key in detail
+     * @param unnamed the reason for any other caller
+     */
+    private record HolderReason(String named, String unnamed) {
+
+        /** A reason that names no key, so every caller gets it. */
+        static HolderReason fixed(String reason) {
+            return new HolderReason(reason, reason);
+        }
+
+        String forCaller(String keyName, boolean keyVisible) {
+            return keyVisible ? named.formatted(keyName) : unnamed;
         }
     }
 
@@ -595,17 +692,29 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
      * count as taken. A later key pair with the same storage name is then suggested that name with a prefix of its
      * fingerprint, lengthened until no key has the name.
      *
-     * @param holders the keys holding the pairs' public keys, by fingerprint
+     * @param handleHolders the keys holding the pairs' private key handles, by handle digest
+     * @param publicKeyHolders the keys holding the pairs' public keys, by fingerprint
      * @param importing the fingerprints of the pairs' public keys that an unsettled import holds
      * @param nameTaken whether a key has the name or a listed key pair was suggested it, for each name checked
      * @param inInventory whether a key has a name not checked yet
      */
-    private record Inventory(Map<String, PublicKeyHolderSummary> holders, Set<String> importing,
-            Map<String, Boolean> nameTaken, Predicate<String> inInventory) {
+    private record Inventory(Map<String, HandleHolderSummary> handleHolders,
+            Map<String, PublicKeyHolderSummary> publicKeyHolders, Set<String> importing, Map<String, Boolean> nameTaken,
+            Predicate<String> inInventory) {
 
-        void add(String fingerprint, PublicKeyHolderSummary holder) {
-            holders.put(fingerprint, holder);
+        void add(ProviderKeyPair pair, HandleHolderSummary holder) {
+            String handleDigest = pair.privateKey().handleDigest();
+            if (handleDigest != null) {
+                handleHolders.put(handleDigest, holder);
+            }
+            publicKeyHolders.put(holder.publicKeyFingerprint(), holder.asKeyPairHolder());
             nameTaken.put(holder.keyName(), true);
+        }
+
+        /** The key holding the pair's handle, or null when no key holds it or the pair has no handle. */
+        HandleHolderSummary handleHolderOf(ProviderKeyPair pair) {
+            String handleDigest = pair.privateKey().handleDigest();
+            return handleDigest == null ? null : handleHolders.get(handleDigest);
         }
 
         String suggestName(String storageName, String fingerprint) {
@@ -643,8 +752,8 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
             List<RequestAttribute> customAttributes, SecurityResourceFilter customAttributePermissions,
             List<OnboardedKey> onboardedKeys) {
 
-        void registered(String fingerprint, PublicKeyHolderSummary holder, boolean intoExistingKey) {
-            inventory.add(fingerprint, holder);
+        void registered(ProviderKeyPair pair, HandleHolderSummary holder, boolean intoExistingKey) {
+            inventory.add(pair, holder);
             onboardedKeys.add(new OnboardedKey(holder.keyUuid().toString(), holder.keyName(), intoExistingKey));
         }
     }
