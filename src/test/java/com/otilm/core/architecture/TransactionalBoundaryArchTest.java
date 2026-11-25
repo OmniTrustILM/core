@@ -1,5 +1,6 @@
 package com.otilm.core.architecture;
 
+import com.otilm.core.aop.OutsideTransaction;
 import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.domain.JavaAnnotation;
 import com.tngtech.archunit.core.domain.JavaCall;
@@ -7,6 +8,7 @@ import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.core.domain.JavaMethodCall;
 import com.tngtech.archunit.core.domain.properties.HasAnnotations;
+import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
@@ -15,8 +17,11 @@ import com.tngtech.archunit.lang.ArchRule;
 import com.tngtech.archunit.lang.ConditionEvents;
 import com.tngtech.archunit.lang.SimpleConditionEvent;
 import com.tngtech.archunit.library.freeze.FreezingArchRule;
+import java.lang.annotation.Annotation;
 import java.util.Optional;
 import java.util.Set;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.repository.Repository;
 import org.springframework.stereotype.Service;
@@ -26,6 +31,7 @@ import org.springframework.transaction.annotation.Transactional;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.methods;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Enforces the transactional-boundary refactor invariants.
@@ -173,26 +179,59 @@ public class TransactionalBoundaryArchTest {
                 }
             });
 
+    // ---- Rule A and Rule D see the propagation Spring applies ----
+
+    @ParameterizedTest
+    @ValueSource(classes = {SpringTransactionalService.class, JakartaTransactionalService.class})
+    void treatsAnOutsideTransactionMethodAsNotSupported(Class<?> service) {
+        JavaMethod method = new ClassFileImporter().importClass(service).getMethod("call");
+
+        assertThat(EFFECTIVELY_NOT_SUPPORTED.test(method)).isTrue();
+    }
+
+    @Transactional
+    static class SpringTransactionalService {
+
+        @OutsideTransaction
+        public void call() {
+            // only its annotations are read
+        }
+    }
+
+    @jakarta.transaction.Transactional
+    static class JakartaTransactionalService {
+
+        @OutsideTransaction
+        public void call() {
+            // only its annotations are read
+        }
+    }
+
     private static Propagation effectivePropagation(JavaMethod method) {
-        return transactionalOf(method)
-                .or(() -> transactionalOf(method.getOwner()))
+        return propagationOf(method).or(() -> propagationOf(method.getOwner())).orElse(null);
+    }
+
+    /** Spring honours both its own and Jakarta's {@code @Transactional}, Spring's first, as it reads them. */
+    private static Optional<Propagation> propagationOf(HasAnnotations<?> element) {
+        return transactionalOf(element, Transactional.class)
                 .map(Transactional::propagation)
-                .orElse(null);
+                .or(() -> transactionalOf(element, jakarta.transaction.Transactional.class)
+                        .map(transactional -> Propagation.valueOf(transactional.value().name())));
     }
 
     /**
      * Spring also honours a {@code @Transactional} placed on a composed annotation such as {@code @OutsideTransaction}.
      */
-    private static Optional<Transactional> transactionalOf(HasAnnotations<?> element) {
-        if (element.isAnnotatedWith(Transactional.class)) {
-            return Optional.of(element.getAnnotationOfType(Transactional.class));
+    private static <A extends Annotation> Optional<A> transactionalOf(HasAnnotations<?> element, Class<A> type) {
+        if (element.isAnnotatedWith(type)) {
+            return Optional.of(element.getAnnotationOfType(type));
         }
         return element
                 .getAnnotations()
                 .stream()
                 .map(JavaAnnotation::getRawType)
-                .filter(annotationType -> annotationType.isAnnotatedWith(Transactional.class))
-                .map(annotationType -> annotationType.getAnnotationOfType(Transactional.class))
+                .filter(annotationType -> annotationType.isAnnotatedWith(type))
+                .map(annotationType -> annotationType.getAnnotationOfType(type))
                 .findFirst();
     }
 }

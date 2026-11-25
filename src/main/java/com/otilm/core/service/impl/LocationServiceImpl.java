@@ -986,13 +986,36 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
     @Override
     @ExternalAuthorization(resource = Resource.LOCATION, action = ResourceAction.UPDATE,
             parentResource = Resource.ENTITY, parentAction = ResourceAction.DETAIL)
+    @OutsideTransaction
     public LocationDto renewCertificateInLocation(SecuredParentUUID entityUuid, SecuredUUID locationUuid,
             String certificateUuid) throws ConnectorException, LocationException, NotFoundException {
-        Location location = locationRepository
-                .findByUuidAndEnabledIsTrue(locationUuid.getValue())
-                .orElseThrow(() -> new NotFoundException(Location.class, locationUuid));
-        renewInLocation(location, entityUuid, locationUuid, certificateUuid);
+        LocationRenewal renewal = readRenewalInLocation(entityUuid, locationUuid, certificateUuid);
+        Location location = renewal.location();
 
+        GenerateCsrResponseDto generateCsrResponseDto = generateCsrLocation(location, renewal.csrAttributes(), true);
+        logger.info("Received certificate signing request from Location {}", location.getName());
+
+        UUID renewedUuid = renewCertificateForLocation(renewal, generateCsrResponseDto.getCsr(), null);
+
+        try {
+            linkIssuedCertificateInNewTransaction(location, renewedUuid, generateCsrResponseDto,
+                    renewal.csrAttributes());
+        } catch (Exception e) {
+            logger.error("Failed to add new Certificate", RedactedFailure.forLog(e));
+            throw new LocationException("Failed to add the new certificate to the location. Reason: " + e.getMessage());
+        }
+
+        logger
+                .info("Certificate {} successfully requested for renew and prepared to be pushed to Location {}",
+                        renewedUuid, location.getName());
+        return transactionHandler.runInTransaction(() -> renewedLocationDto(location.getUuid()));
+    }
+
+    /** Maps the location the certificate was renewed in, with its attributes, in the caller's transaction. */
+    private LocationDto renewedLocationDto(UUID locationUuid) {
+        Location location = locationRepository
+                .findByUuid(locationUuid)
+                .orElseThrow(() -> new IllegalStateException("Location " + locationUuid + " no longer exists"));
         LocationDto locationDto = mapLocationToDto(location);
         locationDto
                 .setCustomAttributes(
@@ -1031,15 +1054,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
             linkIssuedCertificateInNewTransaction(location, renewedUuid, generateCsrResponseDto,
                     renewal.csrAttributes());
         };
-        UUID renewedUuid;
-        try {
-            renewedUuid = renewCertificate(renewal, generateCsrResponseDto.getCsr(), trackAndLink);
-        } catch (Exception e) {
-            logger.error("Failed to renew Certificate", RedactedFailure.forLog(e));
-            throw new LocationException(
-                    "Failed to renew certificate to the location. Error Issuing certificate from Authority. "
-                            + e.getMessage());
-        }
+        UUID renewedUuid = renewCertificateForLocation(renewal, generateCsrResponseDto.getCsr(), trackAndLink);
 
         logger
                 .info("Certificate {} successfully requested for renew and prepared to be pushed to Location {}",
@@ -1073,48 +1088,17 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
         return renewal;
     }
 
-    /** Renews the certificate with a key and request the location generates, in the caller's transaction. */
-    private void renewInLocation(Location location, SecuredParentUUID entityUuid, SecuredUUID locationUuid,
-            String certificateUuid) throws LocationException, NotFoundException {
-        CertificateLocation certificateLocation = requireRenewableInLocation(location, entityUuid, locationUuid,
-                certificateUuid);
-        LocationRenewal renewal = LocationRenewal.of(certificateLocation);
-
-        // generate new CSR
-        GenerateCsrResponseDto generateCsrResponseDto = generateCsrLocation(certificateLocation.getLocation(),
-                renewal.csrAttributes(), true);
-        logger
-                .info("Received certificate signing request from Location {}",
-                        certificateLocation.getLocation().getName());
-
-        // renew existing Certificate
-        UUID renewedUuid = null;
-        Certificate certificate = null;
-
+    /** Renews the certificate with the request the location generated, reporting any failure as the location's. */
+    private UUID renewCertificateForLocation(LocationRenewal renewal, String csr, Consumer<UUID> beforeDispatch)
+            throws LocationException {
         try {
-            renewedUuid = renewCertificate(renewal, generateCsrResponseDto.getCsr(), null);
-            certificate = certificateService.getCertificateEntity(SecuredUUID.fromUUID(renewedUuid));
+            return renewCertificate(renewal, csr, beforeDispatch);
         } catch (Exception e) {
             logger.error("Failed to renew Certificate", RedactedFailure.forLog(e));
             throw new LocationException(
                     "Failed to renew certificate to the location. Error Issuing certificate from Authority. "
                             + e.getMessage());
         }
-
-        // add renewed Certificate to Location
-        try {
-            addCertificateToLocation(certificateLocation.getLocation(), certificate,
-                    generateCsrResponseDto.getPushAttributes(), renewal.csrAttributes(),
-                    generateCsrResponseDto.getMetadata());
-
-        } catch (Exception e) {
-            logger.error("Failed to add new Certificate", RedactedFailure.forLog(e));
-            throw new LocationException("Failed to add the new certificate to the location. Reason: " + e.getMessage());
-        }
-
-        logger
-                .info("Certificate {} successfully requested for renew and prepared to be pushed to Location {}",
-                        renewedUuid, certificateLocation.getLocation().getName());
     }
 
     /** Checks that the certificate can be renewed in the location before the location generates a key for it. */

@@ -1431,27 +1431,8 @@ class LocationServiceITest extends BaseSpringBootTest {
         prepareCertificateForRenewalInLocation();
         X509CertificateEntity renewedCertificate = aCertificate().build();
         certificateRepository.save(renewedCertificate);
-        ClientCertificateDataResponseDto responseDto = new ClientCertificateDataResponseDto();
-        responseDto.setUuid(renewedCertificate.getUuid().toString());
         Map<String, Boolean> transactionActiveInCall = new LinkedHashMap<>();
-        LocationSyncApiClient locationClient = mock(LocationSyncApiClient.class);
-        doReturn(locationClient).when(connectorApiFactory).getLocationApiClient(any());
-        when(locationClient.generateCsrLocation(any(), any(), any()))
-                .thenAnswer(recordingTransaction(transactionActiveInCall, "generateCsr", new GenerateCsrResponseDto()));
-        when(locationClient.listPushCertificateAttributes(any(), any()))
-                .thenAnswer(recordingTransaction(transactionActiveInCall, "listPushAttributes", List.of()));
-        when(locationClient.listGenerateCsrAttributes(any(), any()))
-                .thenAnswer(recordingTransaction(transactionActiveInCall, "listCsrAttributes", List.of()));
-        when(clientOperationService.renewalFor(any(), any(), any(), any(), any()))
-                .thenAnswer(recordingTransaction(transactionActiveInCall, "renewalFor", Optional.empty()));
-        Answer<Object> recordingRenewal = recordingTransaction(transactionActiveInCall, "renewCertificate",
-                responseDto);
-        when(clientOperationService.renewCertificate(any(), any(), any(), any(), any(), any()))
-                .thenAnswer(invocation -> {
-                    Object answer = recordingRenewal.answer(invocation);
-                    invocation.<Consumer<UUID>>getArgument(5).accept(renewedCertificate.getUuid());
-                    return answer;
-                });
+        recordTransactionInLocationAndAuthorityCalls(transactionActiveInCall, renewedCertificate.getUuid());
 
         // when
         UUID successorUuid = locationService
@@ -1466,6 +1447,46 @@ class LocationServiceITest extends BaseSpringBootTest {
                 .doesNotContainValue(true);
         assertThat(certificateLocationRepository
                 .findById(new CertificateLocationId(location.getUuid(), renewedCertificate.getUuid()))).isPresent();
+    }
+
+    @Test
+    void callsTheLocationAndTheAuthorityWithoutATransaction_whenRenewingInTheLocation() throws Exception {
+        // given
+        prepareCertificateForRenewalInLocation();
+        X509CertificateEntity renewedCertificate = aCertificate().build();
+        certificateRepository.save(renewedCertificate);
+        Map<String, Boolean> transactionActiveInCall = new LinkedHashMap<>();
+        recordTransactionInLocationAndAuthorityCalls(transactionActiveInCall, renewedCertificate.getUuid());
+
+        // when
+        LocationDto locationDto = locationService
+                .renewCertificateInLocation(entityInstanceReference.getSecuredParentUuid(), location.getSecuredUuid(),
+                        certificate.getUuid().toString());
+
+        // then
+        assertThat(transactionActiveInCall)
+                .containsOnlyKeys("generateCsr", "renewalFor", "renewCertificate", "listPushAttributes",
+                        "listCsrAttributes")
+                .doesNotContainValue(true);
+        assertThat(locationDto.getCertificates())
+                .anyMatch(entry -> entry.getCertificateUuid().equals(renewedCertificate.getUuid().toString()));
+    }
+
+    @Test
+    void refusesTheRenewal_whenTheRenewedCertificateCannotBeAddedToTheLocation() throws Exception {
+        // given
+        prepareCertificateForRenewalInLocation();
+        recordTransactionInLocationAndAuthorityCalls(new LinkedHashMap<>(), UUID.randomUUID());
+
+        // when
+        LocationException exception = Assertions
+                .assertThrows(LocationException.class,
+                        () -> locationService
+                                .renewCertificateInLocation(entityInstanceReference.getSecuredParentUuid(),
+                                        location.getSecuredUuid(), certificate.getUuid().toString()));
+
+        // then
+        assertThat(exception.getMessage()).startsWith("Failed to add the new certificate to the location.");
     }
 
     @Test
@@ -1921,6 +1942,37 @@ class LocationServiceITest extends BaseSpringBootTest {
             transactionActiveInCall.put(call, TransactionSynchronizationManager.isActualTransactionActive());
             return result;
         };
+    }
+
+    /**
+     * Stubs the location and the authority to record whether a transaction is active in each call, and to renew the
+     * certificate into the given one.
+     */
+    private void recordTransactionInLocationAndAuthorityCalls(Map<String, Boolean> transactionActiveInCall,
+            UUID renewedUuid) throws Exception {
+        ClientCertificateDataResponseDto responseDto = new ClientCertificateDataResponseDto();
+        responseDto.setUuid(renewedUuid.toString());
+        LocationSyncApiClient locationClient = mock(LocationSyncApiClient.class);
+        doReturn(locationClient).when(connectorApiFactory).getLocationApiClient(any());
+        when(locationClient.generateCsrLocation(any(), any(), any()))
+                .thenAnswer(recordingTransaction(transactionActiveInCall, "generateCsr", new GenerateCsrResponseDto()));
+        when(locationClient.listPushCertificateAttributes(any(), any()))
+                .thenAnswer(recordingTransaction(transactionActiveInCall, "listPushAttributes", List.of()));
+        when(locationClient.listGenerateCsrAttributes(any(), any()))
+                .thenAnswer(recordingTransaction(transactionActiveInCall, "listCsrAttributes", List.of()));
+        when(clientOperationService.renewalFor(any(), any(), any(), any(), any()))
+                .thenAnswer(recordingTransaction(transactionActiveInCall, "renewalFor", Optional.empty()));
+        Answer<Object> recordingRenewal = recordingTransaction(transactionActiveInCall, "renewCertificate",
+                responseDto);
+        when(clientOperationService.renewCertificate(any(), any(), any(), any(), any(), any()))
+                .thenAnswer(invocation -> {
+                    Object answer = recordingRenewal.answer(invocation);
+                    Consumer<UUID> beforeDispatch = invocation.getArgument(5);
+                    if (beforeDispatch != null) {
+                        beforeDispatch.accept(renewedUuid);
+                    }
+                    return answer;
+                });
     }
 
     private void prepareCertificateForRenewalInLocation() {
