@@ -13,6 +13,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.authentication.TestingAuthenticationToken;
@@ -284,10 +285,13 @@ class AutoRenewalAfterCommitTest {
             commit();
 
             // then
+            ArgumentCaptor<String> recordedMessage = ArgumentCaptor.forClass(String.class);
             verify(triggerService)
-                    .createTriggerHistoryRecord(FIRING_UUID, null, EXECUTION_UUID,
-                            AutoRenewalAfterCommit.UNEXPECTED_FAILURE);
-            assertThat(AutoRenewalAfterCommit.UNEXPECTED_FAILURE).doesNotContain(internalDetail);
+                    .createTriggerHistoryRecord(eq(FIRING_UUID), isNull(), eq(EXECUTION_UUID),
+                            recordedMessage.capture());
+            assertThat(recordedMessage.getValue())
+                    .isEqualTo(AutoRenewalAfterCommit.UNEXPECTED_FAILURE)
+                    .doesNotContain(internalDetail);
         }
 
         @Test

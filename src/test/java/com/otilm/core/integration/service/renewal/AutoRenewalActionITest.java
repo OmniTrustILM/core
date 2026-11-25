@@ -269,7 +269,7 @@ class AutoRenewalActionITest extends BaseSpringBootTest {
         return triggerHistoryRecordRepository
                 .findAll()
                 .stream()
-                .filter(record -> history.getUuid().equals(record.getTriggerHistoryUuid()))
+                .filter(entry -> history.getUuid().equals(entry.getTriggerHistoryUuid()))
                 .toList();
     }
 

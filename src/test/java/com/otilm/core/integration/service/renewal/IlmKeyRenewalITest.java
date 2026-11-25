@@ -244,7 +244,7 @@ class IlmKeyRenewalITest extends BaseSpringBootTest {
 
         // then
         assertThat(triggerHistoryRecordRepository.findAll())
-                .filteredOn(record -> trigger.triggerHistoryUuid().equals(record.getTriggerHistoryUuid()))
+                .filteredOn(entry -> trigger.triggerHistoryUuid().equals(entry.getTriggerHistoryUuid()))
                 .singleElement()
                 .extracting(TriggerHistoryRecord::getMessage)
                 .asString()
