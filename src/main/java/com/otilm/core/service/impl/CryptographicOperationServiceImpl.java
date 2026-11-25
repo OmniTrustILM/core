@@ -98,6 +98,10 @@ public class CryptographicOperationServiceImpl
 
     private static final Logger logger = LoggerFactory.getLogger(CryptographicOperationServiceImpl.class);
 
+    static final String VERIFICATION_NEEDS_PUBLIC_KEY = "Key item '%s' is a private key. Verification needs a public "
+            + "key.";
+    static final String ENCRYPTION_NEEDS_PUBLIC_KEY = "Key item '%s' is a private key. Encryption needs a public key.";
+
     // --------------------------------------------------------------------------------
     // Services & API Clients
     // --------------------------------------------------------------------------------
@@ -191,6 +195,7 @@ public class CryptographicOperationServiceImpl
         logger.info("Requesting to list encryption attributes for Key: {}", keyItemUuid);
         CryptographicKeyItemOperationModel keyItem = cryptographicKeyService.getKeyItemModel(keyItemUuid);
         requirePathAssociation(keyItem, tokenInstanceUuid.getValue(), tokenProfileUuid.getValue(), uuid);
+        rejectPrivateKeyItem(keyItem, ENCRYPTION_NEEDS_PUBLIC_KEY);
         KeyProviderAdapter adapter = adapterInUnchangedScopeFor(keyItem);
         return adapter.listEncryptAttributes(keyItem);
     }
@@ -219,6 +224,7 @@ public class CryptographicOperationServiceImpl
         logger.info("Request to encrypt data using key: {}", keyItemUuid);
         CryptographicKeyItemOperationModel keyItem = cryptographicKeyService.getKeyItemModel(keyItemUuid);
         requirePathAssociation(keyItem, tokenInstanceUuid.getValue(), tokenProfileUuid.getValue(), uuid);
+        rejectPrivateKeyItem(keyItem, ENCRYPTION_NEEDS_PUBLIC_KEY);
         requireActive(keyItem);
         if (request.getCipherData() == null) {
             throw new ValidationException(ValidationError.create("Cannot encrypt null data"));
@@ -297,6 +303,7 @@ public class CryptographicOperationServiceImpl
         logger.info("Requesting to list verification attributes for Key: {}", keyItemUuid);
         CryptographicKeyItemOperationModel keyItem = cryptographicKeyService.getKeyItemModel(keyItemUuid);
         requirePathAssociation(keyItem, tokenInstanceUuid.getValue(), tokenProfileUuid.getValue(), uuid);
+        rejectPrivateKeyItem(keyItem, VERIFICATION_NEEDS_PUBLIC_KEY);
         KeyProviderAdapter adapter = adapterFor(keyItem);
         return adapter.listVerifyAttributes(keyItem);
     }
@@ -393,6 +400,7 @@ public class CryptographicOperationServiceImpl
         logger.info("Request to verify data for key: {}", keyItemUuid);
         CryptographicKeyItemOperationModel keyItem = cryptographicKeyService.getKeyItemModel(keyItemUuid);
         requirePathAssociation(keyItem, tokenInstanceUuid.getValue(), tokenProfileUuid.getValue(), uuid);
+        rejectPrivateKeyItem(keyItem, VERIFICATION_NEEDS_PUBLIC_KEY);
         requireActive(keyItem);
         if (request.getSignatures() == null) {
             throw new ValidationException(ValidationError.create("Cannot verify empty data"));
@@ -411,6 +419,13 @@ public class CryptographicOperationServiceImpl
         if (!Objects.equals(keyItem.keyUuid(), keyUuid) || !Objects.equals(keyItem.tokenProfileUuid(), tokenProfileUuid)
                 || !Objects.equals(keyItem.tokenInstanceReferenceUuid(), tokenInstanceUuid)) {
             throw new ValidationException("Token, token profile, key and key item in the request are not associated.");
+        }
+    }
+
+    private static void rejectPrivateKeyItem(CryptographicKeyItemOperationModel keyItem, String refusalTemplate) {
+        if (keyItem.keyType() == KeyType.PRIVATE_KEY) {
+            throw new ValidationException(
+                    ValidationError.create(refusalTemplate.formatted(keyItem.toIdentifierString())));
         }
     }
 
@@ -628,11 +643,11 @@ public class CryptographicOperationServiceImpl
                 // do nothing
             }
         }
-        if (privateKeyItem == null || publicKeyItem == null) {
-            throw new ValidationException(
-                    ValidationError.create("Selected item does not contain the complete keypair"));
+        if (privateKeyItem == null) {
+            throw new ValidationException(ValidationError
+                    .create("Key {} holds no private key to sign a certificate request.", key.getName()));
         }
-        if (publicKeyItem.getKeyData() == null) {
+        if (publicKeyItem == null || publicKeyItem.getKeyData() == null) {
             throw new ValidationException(ValidationError
                     .create("Key {} holds no public key to put in a certificate request.", key.getName()));
         }
