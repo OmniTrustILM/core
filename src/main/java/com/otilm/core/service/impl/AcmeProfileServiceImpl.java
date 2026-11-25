@@ -194,6 +194,7 @@ public class AcmeProfileServiceImpl implements AcmeProfileExternalService, AcmeP
         acmeProfile
                 .setValidity(Optional.ofNullable(request.getValidity()).orElse(AcmeConstants.DEFAULT_ORDER_VALIDITY));
         acmeProfile.setWebsite(request.getWebsiteUrl());
+        applyRenewalInfo(acmeProfile, request.getRenewalInfoEnabled(), request.getRenewalInfoRetryAfter());
         acmeProfile.setTermsOfServiceUrl(request.getTermsOfServiceUrl());
         acmeProfile.setRequireContact(request.isRequireContact());
         acmeProfile.setRequireTermsOfService(request.isRequireTermsOfService());
@@ -308,6 +309,12 @@ public class AcmeProfileServiceImpl implements AcmeProfileExternalService, AcmeP
         }
         acmeProfile.setTermsOfServiceUrl(request.getTermsOfServiceUrl());
         acmeProfile.setWebsite(request.getWebsiteUrl());
+        if (request.getRenewalInfoEnabled() != null) {
+            acmeProfile.setRenewalInfoEnabled(request.getRenewalInfoEnabled());
+        }
+        if (request.getRenewalInfoRetryAfter() != null) {
+            acmeProfile.setRenewalInfoRetryAfter(request.getRenewalInfoRetryAfter());
+        }
         acmeProfile.setTermsOfServiceChangeUrl(request.getTermsOfServiceChangeUrl());
         if (request.getEabSecretUuids() != null) {
             acmeProfile.setEabSecretUuids(resolveEabSecrets(request.getEabSecretUuids()));
@@ -392,6 +399,14 @@ public class AcmeProfileServiceImpl implements AcmeProfileExternalService, AcmeP
                                 .map(SecuredUUID::fromUUID)
                                 .toList());
         return new ArrayList<>(distinct);
+    }
+
+    /** An absent value means the default. */
+    private static void applyRenewalInfo(AcmeProfile acmeProfile, Boolean enabled, Integer retryAfter) {
+        acmeProfile.setRenewalInfoEnabled(Boolean.TRUE.equals(enabled));
+        acmeProfile
+                .setRenewalInfoRetryAfter(
+                        Optional.ofNullable(retryAfter).orElse(AcmeConstants.DEFAULT_RENEWAL_INFO_RETRY_AFTER));
     }
 
     /**

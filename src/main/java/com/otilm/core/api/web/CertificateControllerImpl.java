@@ -24,6 +24,7 @@ import com.otilm.api.model.client.certificate.UploadCertificateRequestDto;
 import com.otilm.api.model.common.UuidDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.BulkEarlyRenewalRequestDto;
 import com.otilm.api.model.core.certificate.BulkOperationStatus;
 import com.otilm.api.model.core.certificate.CertificateChainDownloadResponseDto;
 import com.otilm.api.model.core.certificate.CertificateChainResponseDto;
@@ -44,8 +45,10 @@ import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.api.model.core.v2.ClientCertificateRequestDto;
 import com.otilm.core.aop.AuditLogged;
+import com.otilm.core.aop.AuditOperationDataOverride;
 import com.otilm.core.logging.LogResource;
 import com.otilm.core.model.certificate.DownloadedKeystore;
+import com.otilm.core.model.certificate.EarlyRenewalAuditData;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.ApprovalExternalService;
@@ -53,6 +56,7 @@ import com.otilm.core.service.CertificateEventHistoryExternalService;
 import com.otilm.core.service.CertificateExternalService;
 import com.otilm.core.service.CertificateImportExternalService;
 import com.otilm.core.service.CertificateKeystoreExternalService;
+import com.otilm.core.service.renewal.EarlyRenewalExternalService;
 import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.util.converter.CertificateFormatConverter;
 import com.otilm.core.util.converter.CertificateFormatEncodingConverter;
@@ -86,6 +90,10 @@ public class CertificateControllerImpl implements CertificateController {
     private CertificateImportExternalService certificateImportService;
 
     private CertificateKeystoreExternalService certificateKeystoreService;
+
+    private EarlyRenewalExternalService earlyRenewalService;
+
+    private AuditOperationDataOverride auditOperationDataOverride;
 
     @InitBinder
     public void initBinder(final WebDataBinder webdataBinder) {
@@ -204,6 +212,14 @@ public class CertificateControllerImpl implements CertificateController {
         response.setMessage("Initiated bulk delete Certificates. Please refresh after some time");
         response.setStatus(BulkOperationStatus.SUCCESS);
         return response;
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE,
+            operation = Operation.REQUEST_EARLY_RENEWAL)
+    public BulkOperationResponse bulkRequestEarlyRenewal(BulkEarlyRenewalRequestDto request) {
+        auditOperationDataOverride.set(EarlyRenewalAuditData.of(request));
+        return earlyRenewalService.requestForCertificates(SecurityFilter.create(), request);
     }
 
     @Override
@@ -370,5 +386,15 @@ public class CertificateControllerImpl implements CertificateController {
     @Autowired
     public void setCertificateKeystoreService(CertificateKeystoreExternalService certificateKeystoreService) {
         this.certificateKeystoreService = certificateKeystoreService;
+    }
+
+    @Autowired
+    public void setEarlyRenewalService(EarlyRenewalExternalService earlyRenewalService) {
+        this.earlyRenewalService = earlyRenewalService;
+    }
+
+    @Autowired
+    public void setAuditOperationDataOverride(AuditOperationDataOverride auditOperationDataOverride) {
+        this.auditOperationDataOverride = auditOperationDataOverride;
     }
 }

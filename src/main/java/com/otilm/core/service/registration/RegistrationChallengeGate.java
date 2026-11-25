@@ -90,6 +90,22 @@ public class RegistrationChallengeGate {
     }
 
     /**
+     * Whether an operation on the certificate has to present its registration challenge, read without a lock and
+     * without recording anything. Such an operation without a secret is denied by {@link #verify}.
+     */
+    public boolean requiresChallenge(UUID certificateUuid) {
+        return registrationAuthorizationRepository
+                .findByCertificateUuid(certificateUuid)
+                .filter(RegistrationChallengeGate::isChallengeProtected)
+                .isPresent();
+    }
+
+    /** A closed authorization no longer protects the certificate. */
+    private static boolean isChallengeProtected(CertificateRegistrationAuthorization authorization) {
+        return authorization.getState() != RegistrationState.CLOSED;
+    }
+
+    /**
      * Whether a caller supplied a registration secret at all; a null or blank value is missing, not a guess.
      */
     public static boolean isPresented(@Sensitive String secret) {
@@ -167,7 +183,7 @@ public class RegistrationChallengeGate {
             Predicate<CertificateRegistrationAuthorization> matches) {
         UUID certificateUuid = authorization.getCertificateUuid();
         RegistrationState state = authorization.getState();
-        if (state == RegistrationState.CLOSED) {
+        if (!isChallengeProtected(authorization)) {
             return RegistrationChallengeOutcome.notChallengeProtected();
         }
         if (state == RegistrationState.LOCKED) {

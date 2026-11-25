@@ -11,11 +11,13 @@ import com.otilm.api.model.core.acme.Authorization;
 import com.otilm.api.model.core.acme.Challenge;
 import com.otilm.api.model.core.acme.Directory;
 import com.otilm.api.model.core.acme.Order;
+import com.otilm.api.model.core.acme.RenewalInfo;
 import com.otilm.api.model.core.logging.enums.Module;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.logging.LogResource;
 import com.otilm.core.service.acme.AcmeExternalService;
+import com.otilm.core.service.acme.AcmeRenewalInfoExternalService;
 import java.net.URI;
 import java.security.NoSuchAlgorithmException;
 import java.security.cert.CertificateException;
@@ -32,6 +34,13 @@ public class AcmeControllerImpl implements AcmeController {
 
     private AcmeExternalService acmeService;
 
+    private AcmeRenewalInfoExternalService renewalInfoService;
+
+    @Autowired
+    public void setRenewalInfoService(AcmeRenewalInfoExternalService renewalInfoService) {
+        this.renewalInfoService = renewalInfoService;
+    }
+
     @Autowired
     public void setAcmeService(AcmeExternalService acmeService) {
         this.acmeService = acmeService;
@@ -43,6 +52,14 @@ public class AcmeControllerImpl implements AcmeController {
     public ResponseEntity<Directory> getDirectory(@LogResource(name = true) String acmeProfileName)
             throws NotFoundException, AcmeProblemDocumentException {
         return acmeService.getDirectory(acmeProfileName, getRequestUri(), false);
+    }
+
+    @Override
+    @AuditLogged(module = Module.PROTOCOLS, resource = com.otilm.api.model.core.auth.Resource.ACME_PROFILE,
+            operation = Operation.DETAIL)
+    public ResponseEntity<RenewalInfo> getRenewalInfo(@LogResource(name = true) String acmeProfileName, String certId)
+            throws AcmeProblemDocumentException {
+        return renewalInfoService.getRenewalInfo(acmeProfileName, false, certId);
     }
 
     @Override

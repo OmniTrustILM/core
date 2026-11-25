@@ -13,6 +13,7 @@ import com.otilm.api.model.core.workflows.ActionRequestDto;
 import com.otilm.api.model.core.workflows.ExecutionDto;
 import com.otilm.api.model.core.workflows.ExecutionItemRequestDto;
 import com.otilm.api.model.core.workflows.ExecutionRequestDto;
+import com.otilm.api.model.core.workflows.ExecutionType;
 import com.otilm.api.model.core.workflows.UpdateActionRequestDto;
 import com.otilm.api.model.core.workflows.UpdateExecutionRequestDto;
 import com.otilm.core.dao.entity.notifications.NotificationProfile;
@@ -93,7 +94,7 @@ public class ActionServiceImpl implements ActionExternalService {
     @Override
     @ExternalAuthorization(resource = Resource.ACTION, action = ResourceAction.CREATE)
     public ExecutionDto createExecution(ExecutionRequestDto request) throws AlreadyExistException, NotFoundException {
-        if (request.getItems().isEmpty()) {
+        if (request.getItems().isEmpty() && request.getType() != ExecutionType.RENEW_CERTIFICATE) {
             throw new ValidationException("Cannot create an execution without any execution items.");
         }
         if (request.getName() == null) {
@@ -122,13 +123,12 @@ public class ActionServiceImpl implements ActionExternalService {
     @ExternalAuthorization(resource = Resource.ACTION, action = ResourceAction.UPDATE)
     public ExecutionDto updateExecution(String executionUuid, UpdateExecutionRequestDto request)
             throws NotFoundException, AlreadyExistException {
-        if (request.getItems().isEmpty()) {
-            throw new ValidationException("Cannot update an execution without any execution items.");
-        }
-
         Execution execution = executionRepository
                 .findByUuid(SecuredUUID.fromString(executionUuid))
                 .orElseThrow(() -> new NotFoundException(Execution.class, executionUuid));
+        if (request.getItems().isEmpty() && execution.getType() != ExecutionType.RENEW_CERTIFICATE) {
+            throw new ValidationException("Cannot update an execution without any execution items.");
+        }
         if (request.getName() != null) {
             if (executionRepository.existsByNameAndUuidNot(request.getName(), UUID.fromString(executionUuid))) {
                 throw new AlreadyExistException("Execution with same name already exists.");
@@ -166,11 +166,17 @@ public class ActionServiceImpl implements ActionExternalService {
 
     private Set<ExecutionItem> createExecutionItems(List<ExecutionItemRequestDto> executionItemRequestDtos,
             Execution execution) throws NotFoundException {
+        if (execution.getType() == ExecutionType.RENEW_CERTIFICATE && execution.getResource() != Resource.CERTIFICATE) {
+            throw new ValidationException("Resource %s is not allowed for execution type %s"
+                    .formatted(execution.getResource().getLabel(), execution.getType().getLabel()));
+        }
         Set<ExecutionItem> executionItems = new HashSet<>();
         for (ExecutionItemRequestDto executionItemRequestDto : executionItemRequestDtos) {
             ExecutionItem executionItem = switch (execution.getType()) {
                 case SET_FIELD -> createSetFieldExecutionItem(execution, executionItemRequestDto);
                 case SEND_NOTIFICATION -> createSendNotificationExecutionItem(execution, executionItemRequestDto);
+                case RENEW_CERTIFICATE -> throw new ValidationException(
+                        "An execution of type %s takes no execution items.".formatted(execution.getType().getLabel()));
             };
 
             executionItems.add(executionItem);
