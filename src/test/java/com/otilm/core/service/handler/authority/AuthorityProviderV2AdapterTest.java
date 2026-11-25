@@ -44,11 +44,15 @@ import java.security.Security;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Stream;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.Spy;
@@ -67,6 +71,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Named.named;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
@@ -412,14 +417,16 @@ class AuthorityProviderV2AdapterTest {
         });
     }
 
-    @Test
-    void replacesConnectorWords_whenIdentifyRefusalQuotesAValueNestedInAnEncryptedRaProfileObject() throws Exception {
+    @ParameterizedTest
+    @MethodSource("sealedObjectForms")
+    void replacesConnectorWords_whenIdentifyRefusalQuotesAValueNestedInAnEncryptedRaProfileObject(
+            String sealedObjectForm) throws Exception {
         // given
         var nestedPassphrase = "stored-nested-passphrase-9";
         when(attributeEngine.getStoredObjectDataAttributesContent(any()))
                 .thenReturn(List
                         .of(createSealedRow("endEntity", AttributeContentType.OBJECT,
-                                "{\"profile\": \"EMPTY\", \"passphrase\": \"" + nestedPassphrase + "\"}")));
+                                sealedObjectForm.formatted(nestedPassphrase))));
         when(certClient
                 .identifyCertificate(eq(connectorInfo), eq("auth-instance-uuid"),
                         any(CertificateIdentificationRequestDto.class)))
@@ -645,6 +652,13 @@ class AuthorityProviderV2AdapterTest {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static Stream<Arguments> sealedObjectForms() {
+        return Stream
+                .of(Arguments.of(named("JSON text", "{\"profile\": \"EMPTY\", \"passphrase\": \"%s\"}")),
+                        Arguments.of(named("map in its toString form", "{profile=EMPTY, passphrase=%s}")),
+                        Arguments.of(named("list in its toString form", "[EMPTY, %s]")));
+    }
 
     private static ObjectAttributeContent createPlainRow(String name, String value) {
         return new ObjectAttributeContent(UUID.randomUUID(), name, name, AttributeType.DATA,

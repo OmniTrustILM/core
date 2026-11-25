@@ -621,9 +621,7 @@ public class AuthorityProviderV3Adapter extends AbstractAuthorityProviderAdapter
 
     private void recordSentSecrets(List<ObjectAttributeContent> storedRows, List<RequestAttribute> sent,
             Set<String> sentSecrets) {
-        outboundContainment.recordExpandedSecretsFromRequest(sent, sentSecrets);
-        outboundContainment.recordProtectedValuesFromRequest(storedRows, sent, sentSecrets);
-        outboundContainment.recordProtectedNumbersFromRequest(storedRows, sent, sentSecrets);
+        sentSecrets.addAll(secretsSent(outboundContainment, storedRows, sent));
     }
 
     private List<RequestAttribute> resolvedForConnector(AuthorityInstanceReference authority,

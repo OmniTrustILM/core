@@ -618,15 +618,13 @@ class AuthorityProviderV3AdapterTest {
                 .thenThrow(identifyRefusal("its issuing CA certificate could not be obtained"));
 
         // when
-        List<String> logged;
-        try (SecretLeakProbe probe = SecretLeakProbe.capture()) {
-            assertThatThrownBy(() -> adapter.identify(raProfile, "dGVzdGNlcnQ=", List.of()))
-                    .isInstanceOf(ConnectorProblemException.class);
-            logged = probe.logged();
-        }
+        ThrowingCallable identify = () -> adapter.identify(raProfile, "dGVzdGNlcnQ=", List.of());
 
         // then
-        SecretLeakProbe.assertNoneReveals(logged, sentSecret);
+        try (SecretLeakProbe probe = SecretLeakProbe.capture()) {
+            assertThatThrownBy(identify).isInstanceOf(ConnectorProblemException.class);
+            SecretLeakProbe.assertNoneReveals(probe.logged(), sentSecret);
+        }
     }
 
     @Test
