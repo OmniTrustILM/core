@@ -351,6 +351,90 @@ class IlmKeyRenewalITest extends BaseSpringBootTest {
     }
 
     @Test
+    void reopensTheRenewal_whenTheIssuedSuccessorIsRevoked() throws Exception {
+        // given
+        Certificate revoked = seedRevokedSuccessor();
+
+        // when
+        Throwable firing = fire();
+
+        // then
+        assertThat(firing).isNull();
+        verifyRenewals(0);
+        CertificateRenewalInfo row = seeder.renewalRow(certificate.getUuid());
+        assertThat(row.getRenewSuccessorUuid()).isNull();
+        assertThat(row.getRenewAt()).isNull();
+        assertThat(row.getRenewAttempt()).isEqualTo(1);
+        assertThat(row.getRenewNotBefore()).isNull();
+        assertThat(renewHistory())
+                .extracting(CertificateEventHistory::getMessage)
+                .anyMatch(message -> message.contains("%s was revoked".formatted(revoked.getUuid())));
+    }
+
+    @Test
+    void recordsThatRenewalStops_whenTheRevokedSuccessorReachesTheAttemptLimit() throws Exception {
+        // given
+        Certificate revoked = seedRevokedSuccessor();
+        int maxAttempts = raProfile.getAutoRenewalMaxAttempts();
+        CertificateRenewalInfo atLastAttempt = seeder.renewalRow(certificate.getUuid());
+        atLastAttempt.setRenewAttempt(maxAttempts - 1);
+        renewalInfoRepository.save(atLastAttempt);
+
+        // when
+        fire();
+
+        // then
+        assertThat(seeder.renewalRow(certificate.getUuid()).getRenewAttempt()).isEqualTo(maxAttempts);
+        assertThat(renewHistory())
+                .extracting(CertificateEventHistory::getMessage)
+                .contains(
+                        "The renewed certificate %s was revoked; the attempt limit is reached, so it is not renewed again (attempt %d of %d)"
+                                .formatted(revoked.getUuid(), maxAttempts, maxAttempts))
+                .noneMatch(message -> message.contains("is renewed again"));
+    }
+
+    @Test
+    void recordsThatRenewalStops_whenTheAttemptLimitWasLoweredBelowTheStoredCount() throws Exception {
+        // given
+        Certificate revoked = seedRevokedSuccessor();
+        int maxAttempts = raProfile.getAutoRenewalMaxAttempts();
+        CertificateRenewalInfo pastTheLimit = seeder.renewalRow(certificate.getUuid());
+        pastTheLimit.setRenewAttempt(maxAttempts + 2);
+        renewalInfoRepository.save(pastTheLimit);
+
+        // when
+        fire();
+
+        // then
+        assertThat(renewHistory())
+                .extracting(CertificateEventHistory::getMessage)
+                .anyMatch(message -> message
+                        .startsWith("The renewed certificate %s was revoked; the attempt limit is reached"
+                                .formatted(revoked.getUuid())))
+                .noneMatch(message -> message.contains("is renewed again"));
+    }
+
+    @Test
+    void renewsAgain_whenTheReopenedRenewalIsDueDespiteTheRevokedSuccessorsRelation() throws Exception {
+        // given
+        seedRevokedSuccessor();
+        fire();
+        CertificateRenewalInfo reopened = seeder.renewalRow(certificate.getUuid());
+        reopened.setRenewAt(Instant.now().minus(Duration.ofMinutes(1)));
+        renewalInfoRepository.save(reopened);
+        AtomicReference<Certificate> successor = stubRenewal();
+
+        // when
+        Throwable firing = fire();
+
+        // then
+        assertThat(firing).isNull();
+        verifyRenewals(1);
+        assertThat(seeder.renewalRow(certificate.getUuid()).getRenewSuccessorUuid())
+                .isEqualTo(successor.get().getUuid());
+    }
+
+    @Test
     void replacesNothingAgain_whenTheRenewalIssuedAtOnceHasReplacedTheOldCertificate() throws Exception {
         // given
         seeder.seedPushOnlyLocations(mockServer, certificate, "web", "mail");
@@ -722,6 +806,16 @@ class IlmKeyRenewalITest extends BaseSpringBootTest {
                 .stream()
                 .filter(entry -> entry.getEvent() == CertificateEvent.UPDATE_LOCATION)
                 .toList();
+    }
+
+    /** A successor this certificate's automatic renewal started, issued and then revoked. */
+    private Certificate seedRevokedSuccessor() {
+        Certificate revoked = seeder.seedSuccessor(raProfile, CertificateState.REVOKED);
+        seeder.seedRenewalRelation(certificate, revoked);
+        CertificateRenewalInfo row = seeder.renewalRow(certificate.getUuid());
+        row.setRenewSuccessorUuid(revoked.getUuid());
+        renewalInfoRepository.save(row);
+        return revoked;
     }
 
     private List<CertificateEventHistory> renewHistory() {

@@ -2,8 +2,12 @@ package com.otilm.core.service.renewal.auto;
 
 import com.otilm.api.model.core.certificate.AutoRenewalMode;
 import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.core.dao.entity.CertificateRelation;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collection;
+import java.util.Set;
+import java.util.UUID;
 
 /**
  * The guards of automatic renewal as pure functions. The common guards decide whether a firing renews the certificate
@@ -51,7 +55,13 @@ public final class AutoRenewalGuards {
         NONE,
         IN_FLIGHT,
         ISSUED,
+        REVOKED,
         FAILED;
+
+        /** Whether the successor was issued, including one revoked since. */
+        public boolean wasIssued() {
+            return this == ISSUED || this == REVOKED;
+        }
 
         /** Reads the state of a successor; a successor that no longer exists is read as failed. */
         public static SuccessorStatus of(CertificateState state) {
@@ -59,7 +69,8 @@ public final class AutoRenewalGuards {
                 return FAILED;
             }
             return switch (state) {
-                case ISSUED, REVOKED -> ISSUED;
+                case ISSUED -> ISSUED;
+                case REVOKED -> REVOKED;
                 case FAILED, REJECTED -> FAILED;
                 default -> IN_FLIGHT;
             };
@@ -79,6 +90,7 @@ public final class AutoRenewalGuards {
         START,
         COMPLETED,
         MARK_COMPLETED,
+        REOPEN,
         IN_FLIGHT,
         FOREIGN_RENEWAL,
         MAX_ATTEMPTS,
@@ -93,8 +105,10 @@ public final class AutoRenewalGuards {
     }
 
     /**
-     * The outcome of the unit guards. {@code failure} is set when the unit's successor was found failed, rejected or
-     * gone: the caller stores the count and clears the successor.
+     * The outcome of the unit guards. {@code failure} is set when the unit's successor was found failed, rejected,
+     * revoked or gone before the unit completed: the caller stores the count and clears the successor. On
+     * {@code REOPEN} the successor of a completed unit was revoked: the caller clears the completion, the successor and
+     * the renewal time, and stores {@link #countReopen}.
      */
     public record UnitGuardResult(UnitOutcome outcome, FailureCount failure) {
     }
@@ -132,13 +146,16 @@ public final class AutoRenewalGuards {
     }
 
     /**
-     * Applies the unit guards in order: not completed; no successor in flight (an issued one completes the unit, a
-     * failed, rejected or gone one counts a failure and is cleared); no renewal by another actor; attempts below the
-     * limit; backoff over.
+     * Applies the unit guards in order: not completed, unless its successor was revoked since, which reopens it; no
+     * successor in flight (an issued one completes the unit, a failed, rejected, revoked or gone one counts a failure
+     * and is cleared); no renewal by another actor; attempts below the limit; backoff over.
      */
     public static UnitGuardResult unit(UnitInput input, Instant now) {
         if (input.completed()) {
-            return new UnitGuardResult(UnitOutcome.COMPLETED, null);
+            UnitOutcome outcome = input.successor() == SuccessorStatus.REVOKED
+                    ? UnitOutcome.REOPEN
+                    : UnitOutcome.COMPLETED;
+            return new UnitGuardResult(outcome, null);
         }
         FailureCount failure = null;
         int attempt = input.attempt();
@@ -150,7 +167,7 @@ public final class AutoRenewalGuards {
             case IN_FLIGHT -> {
                 return new UnitGuardResult(UnitOutcome.IN_FLIGHT, null);
             }
-            case FAILED -> {
+            case FAILED, REVOKED -> {
                 failure = countFailure(attempt, input.maxAttempts(), now);
                 attempt = failure.attempt();
                 notBefore = failure.notBefore();
@@ -175,8 +192,30 @@ public final class AutoRenewalGuards {
     /** Counts one more failed renewal and backs off by 1 h, 6 h, then 24 h. */
     public static FailureCount countFailure(int previousAttempts, int maxAttempts, Instant now) {
         int attempt = previousAttempts + 1;
-        boolean limitReached = previousAttempts < maxAttempts && attempt >= maxAttempts;
-        return new FailureCount(attempt, now.plus(backoff(attempt)), limitReached);
+        return new FailureCount(attempt, now.plus(backoff(attempt)), reachesLimit(previousAttempts, maxAttempts));
+    }
+
+    /**
+     * Counts a reopened unit as one more attempt, without backoff as no renewal failed; the count bounds how often
+     * revoked successors renew the certificate again.
+     */
+    public static FailureCount countReopen(int previousAttempts, int maxAttempts) {
+        return new FailureCount(previousAttempts + 1, null, reachesLimit(previousAttempts, maxAttempts));
+    }
+
+    /**
+     * Whether another actor renews the certificate: one of its successors was not started by the unit and is not
+     * revoked. Core deletes the relations of failed successors, so such a successor is a renewal under way or done.
+     */
+    public static boolean foreignRenewal(Collection<CertificateRelation> successorRelations, Set<UUID> started) {
+        return successorRelations
+                .stream()
+                .filter(relation -> !started.contains(relation.getId().getSuccessorCertificateUuid()))
+                .anyMatch(relation -> relation.getSuccessorCertificate().getState() != CertificateState.REVOKED);
+    }
+
+    private static boolean reachesLimit(int previousAttempts, int maxAttempts) {
+        return previousAttempts < maxAttempts && previousAttempts + 1 >= maxAttempts;
     }
 
     private static Duration backoff(int attempt) {

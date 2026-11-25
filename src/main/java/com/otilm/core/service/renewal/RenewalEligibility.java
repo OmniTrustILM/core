@@ -30,18 +30,29 @@ public final class RenewalEligibility {
 
     /**
      * Issued, unarchived and unexpired certificates that have no issued successor yet, or that a key-generating
-     * location has still to renew after another location's successor was issued.
+     * location has still to renew after another location's successor was issued, or whose renewal in a location
+     * completed with a successor revoked since.
      */
     public static Predicate awaitingRenewalOrLocationRenewal(Root<Certificate> certificate, CriteriaBuilder cb,
             CriteriaQuery<?> query) {
         Subquery<Integer> openLocation = query.subquery(Integer.class);
         Root<CertificateRenewalLocation> location = openLocation.from(CertificateRenewalLocation.class);
+        Subquery<Integer> revokedSuccessor = openLocation.subquery(Integer.class);
+        Root<Certificate> successor = revokedSuccessor.from(Certificate.class);
+        revokedSuccessor
+                .select(cb.literal(1))
+                .where(cb
+                        .equal(successor.get(UniquelyIdentifiedAndAudited_.uuid),
+                                location.get(CertificateRenewalLocation_.successorUuid)),
+                        cb.equal(successor.get(Certificate_.state), CertificateState.REVOKED));
         openLocation
                 .select(cb.literal(1))
                 .where(cb
                         .equal(location.get(CertificateRenewalLocation_.certificateUuid),
                                 certificate.get(UniquelyIdentifiedAndAudited_.uuid)),
-                        cb.isNull(location.get(CertificateRenewalLocation_.completedAt)));
+                        cb
+                                .or(cb.isNull(location.get(CertificateRenewalLocation_.completedAt)),
+                                        cb.exists(revokedSuccessor)));
         return cb
                 .and(live(certificate, cb),
                         cb.or(cb.not(cb.exists(issuedSuccessor(certificate, cb, query))), cb.exists(openLocation)));
