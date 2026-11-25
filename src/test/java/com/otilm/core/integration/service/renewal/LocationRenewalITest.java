@@ -538,6 +538,30 @@ class LocationRenewalITest extends BaseSpringBootTest {
     }
 
     @Test
+    void recordsThatRenewalStopsAfterTheReopen_whenTheRevokedSuccessorReachesTheAttemptLimit() throws Exception {
+        // given
+        Location web = seeder.seedKeyGeneratingLocation(certificate, "web");
+        Certificate revoked = seeder.seedSuccessor(certificate.getRaProfile(), CertificateState.REVOKED);
+        int maxAttempts = certificate.getRaProfile().getAutoRenewalMaxAttempts();
+        CertificateRenewalLocation completed = seeder.seedLocationRenewal(certificate, web, revoked);
+        completed.setCompletedAt(Instant.now().minus(Duration.ofDays(1)));
+        completed.setAttempt(maxAttempts - 1);
+        renewalLocationRepository.save(completed);
+
+        // when
+        action.perform(certificate, trigger);
+
+        // then
+        assertThat(seeder.locationRow(certificate, web).getAttempt()).isEqualTo(maxAttempts);
+        assertThat(renewHistory())
+                .extracting(CertificateEventHistory::getMessage)
+                .contains("Automatic renewal in location web stopped after %d attempts".formatted(maxAttempts),
+                        ("Automatic renewal in location web: the renewed certificate %s was revoked; the attempt limit"
+                                + " is reached, so it is not renewed there again (attempt %d of %d)")
+                                .formatted(revoked.getUuid(), maxAttempts, maxAttempts));
+    }
+
+    @Test
     void dropsTheCompletedRow_whenItsSuccessorIsRevokedAndTheLocationNoLongerHoldsTheCertificate() throws Exception {
         // given
         Location web = seeder.seedKeyGeneratingLocation(certificate, "web");

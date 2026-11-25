@@ -204,9 +204,12 @@ public class AutoRenewalAction {
     private void reopen(CertificateRenewalInfo row, UUID successorUuid, int maxAttempts) {
         row.setRenewSuccessorUuid(null);
         row.setRenewAt(null);
-        String message = "The renewed certificate %s was revoked; the certificate is renewed again"
-                .formatted(successorUuid);
-        storeFailure(row, AutoRenewalGuards.countReopen(row.getRenewAttempt(), maxAttempts), message, maxAttempts);
+        FailureCount count = AutoRenewalGuards.countReopen(row.getRenewAttempt(), maxAttempts);
+        String outcome = count.limitReached()
+                ? "the attempt limit is reached, so it is not renewed again"
+                : "the certificate is renewed again";
+        String message = "The renewed certificate %s was revoked; %s".formatted(successorUuid, outcome);
+        storeFailure(row, count, message, maxAttempts);
         logger.info("Automatic renewal of certificate {} reopened: {}", row.getCertificateUuid(), message);
     }
 

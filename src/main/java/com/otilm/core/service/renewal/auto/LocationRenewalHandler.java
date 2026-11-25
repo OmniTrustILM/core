@@ -264,11 +264,14 @@ public class LocationRenewalHandler implements AutoRenewalHandler {
         UUID revokedUuid = row.getSuccessorUuid();
         row.setCompletedAt(null);
         row.setSuccessorUuid(null);
-        String reason = "the renewed certificate %s was revoked; the certificate is renewed there again"
-                .formatted(revokedUuid);
-        String message = storeFailure(row, target, AutoRenewalGuards.countReopen(row.getAttempt(), maxAttempts), reason,
-                maxAttempts);
-        addHistory(row.getCertificateUuid(), "Automatic renewal in " + message);
+        FailureCount count = AutoRenewalGuards.countReopen(row.getAttempt(), maxAttempts);
+        String outcome = count.limitReached()
+                ? "the attempt limit is reached, so it is not renewed there again"
+                : "the certificate is renewed there again";
+        String reason = "the renewed certificate %s was revoked; %s".formatted(revokedUuid, outcome);
+        addHistory(row.getCertificateUuid(), "Automatic renewal in location %s: %s (attempt %d of %d)"
+                .formatted(target.name(), reason, count.attempt(), maxAttempts));
+        storeFailure(row, target, count, reason, maxAttempts);
         logger
                 .info("Automatic renewal of certificate {} in location {} reopened: {}", row.getCertificateUuid(),
                         target.locationUuid(), reason);
