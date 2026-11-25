@@ -2034,17 +2034,26 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         }
 
         @Test
-        void listsOnlyKeyListableProfiles_whenTheConnectorDeclaresAnUnlistableToken() {
+        void listsTheProfileAsKeyListable_whenTheConnectorDeclaresNoRestriction() {
             // given — a v2 token whose connector declares no restriction
 
             // when
-            List<String> whileListing = keyListableProfiles();
-            connectorDeclaresAnUnlistableToken();
-            List<String> afterDeclaring = keyListableProfiles();
+            List<String> profiles = keyListableProfiles();
 
             // then
-            assertThat(whileListing).containsExactly(profileUuid.toString());
-            assertThat(afterDeclaring).isEmpty();
+            assertThat(profiles).containsExactly(profileUuid.toString());
+        }
+
+        @Test
+        void listsNoKeyListableProfile_whenTheConnectorDeclaresAnUnlistableToken() {
+            // given
+            connectorDeclaresAnUnlistableToken();
+
+            // when
+            List<String> profiles = keyListableProfiles();
+
+            // then
+            assertThat(profiles).isEmpty();
         }
 
         @Test
