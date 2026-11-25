@@ -3,16 +3,20 @@ package com.otilm.core.util.crl;
 import com.otilm.core.util.LdapUtils;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InterruptedIOException;
 import java.net.HttpURLConnection;
 import java.net.URI;
+import java.net.URL;
+import java.net.URLConnection;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Locale;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.TimeoutException;
 import javax.naming.NamingException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -21,18 +25,18 @@ import org.springframework.util.unit.DataSize;
 
 /**
  * Downloads CRLs within a size limit and a deadline, since a CRL is held whole in memory and the read timeout bounds
- * each read only. Until the response headers arrive, which includes connecting, the TLS handshake and redirects, a
- * watchdog closes the connection at the deadline; after that the deadline is checked after each read. A body read
- * blocked at the deadline ends within one read timeout: closing the body stream would wait for that read.
+ * each read only. The caller interrupts the HTTP download at the deadline. The worker also checks the deadline between
+ * reads because buffered reads can finish without blocking.
  */
 @Component
 public class CrlDownloader {
 
     private static final int INITIAL_BUFFER_SIZE = 64 * 1024;
 
-    private static final ScheduledExecutorService WATCHDOG = Executors
-            .newSingleThreadScheduledExecutor(Thread.ofPlatform().daemon().name("crl-download-watchdog").factory());
+    private static final ExecutorService DOWNLOADS = Executors
+            .newThreadPerTaskExecutor(Thread.ofVirtual().name("crl-download-", 0).factory());
 
+    private final ConnectionOpener connectionOpener;
     private final int connectTimeoutMillis;
     private final int readTimeoutMillis;
     private final DataSize maxSize;
@@ -43,9 +47,15 @@ public class CrlDownloader {
             @Value("${validation.crl.read-timeout:2000}") int readTimeoutMillis,
             @Value("${validation.crl.max-size:64MB}") DataSize maxSize,
             @Value("${validation.crl.download-timeout:60s}") Duration downloadTimeout) {
+        this(URL::openConnection, connectTimeoutMillis, readTimeoutMillis, maxSize, downloadTimeout);
+    }
+
+    CrlDownloader(ConnectionOpener connectionOpener, int connectTimeoutMillis, int readTimeoutMillis, DataSize maxSize,
+            Duration downloadTimeout) {
         if (maxSize.toBytes() <= 0 || maxSize.toBytes() > Integer.MAX_VALUE - 8) {
             throw new IllegalArgumentException("validation.crl.max-size must be between 1 byte and 2 GB");
         }
+        this.connectionOpener = connectionOpener;
         this.connectTimeoutMillis = connectTimeoutMillis;
         this.readTimeoutMillis = readTimeoutMillis;
         this.maxSize = maxSize;
@@ -86,31 +96,53 @@ public class CrlDownloader {
         if (ldap) {
             return downloadFromLdap(crlUrl, remaining);
         }
-        HttpURLConnection connection = (HttpURLConnection) URI.create(crlUrl).toURL().openConnection();
+        return downloadFromHttp(crlUrl, URI.create(crlUrl).toURL(), deadline);
+    }
+
+    /**
+     * Runs the download on a virtual thread and stops waiting for it at the deadline. Disconnecting cannot bound the
+     * download: it has no effect while the JDK opens a connection, for a redirect it follows or a request it retries by
+     * itself, and one read of a chunked body runs until a chunk's data arrives, however slowly its framing comes in.
+     * Interrupting a virtual thread instead closes the socket it is blocked on, whichever phase the download is in. A
+     * name lookup cannot be interrupted; it ends at the resolver's own time-out, and the caller no longer waits for it.
+     */
+    private byte[] downloadFromHttp(String crlUrl, URL url, long deadline) throws IOException {
+        Future<byte[]> download = DOWNLOADS.submit(() -> readFromHttp(crlUrl, url, deadline));
+        try {
+            return download.get(deadline - System.nanoTime(), TimeUnit.NANOSECONDS);
+        } catch (TimeoutException e) {
+            throw tooSlow(crlUrl);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new InterruptedIOException("Interrupted while reading a CRL");
+        } catch (ExecutionException e) {
+            throw workerFailure(e);
+        } finally {
+            download.cancel(true);
+        }
+    }
+
+    /** The worker throws only IOException or an unchecked exception, which reaches the caller unchanged. */
+    private static IOException workerFailure(ExecutionException e) {
+        return switch (e.getCause()) {
+            case IOException failure -> failure;
+            case RuntimeException failure -> throw failure;
+            case Error failure -> throw failure;
+            default -> throw new IllegalStateException("The CRL download failed unexpectedly", e.getCause());
+        };
+    }
+
+    private byte[] readFromHttp(String crlUrl, URL url, long deadline) throws IOException {
+        HttpURLConnection connection = (HttpURLConnection) connectionOpener.open(url);
         connection.setConnectTimeout(connectTimeoutMillis);
         connection.setReadTimeout(readTimeoutMillis);
-        AtomicBoolean timedOut = new AtomicBoolean();
-        ScheduledFuture<?> watchdog = WATCHDOG.schedule(() -> {
-            timedOut.set(true);
-            connection.disconnect();
-        }, remaining, TimeUnit.NANOSECONDS);
-        try {
-            InputStream body = connection.getInputStream();
-            watchdog.cancel(false);
-            try (body) {
-                long declaredLength = connection.getContentLengthLong();
-                if (declaredLength > maxSize.toBytes()) {
-                    throw tooLarge(crlUrl);
-                }
-                return readWithinLimits(crlUrl, body, declaredLength, deadline);
+        try (InputStream body = connection.getInputStream()) {
+            long declaredLength = connection.getContentLengthLong();
+            if (declaredLength > maxSize.toBytes()) {
+                throw tooLarge(crlUrl);
             }
-        } catch (IOException e) {
-            if (timedOut.get()) {
-                throw tooSlow(crlUrl);
-            }
-            throw e;
+            return readWithinLimits(crlUrl, body, declaredLength, deadline);
         } finally {
-            watchdog.cancel(false);
             connection.disconnect();
         }
     }
@@ -205,5 +237,10 @@ public class CrlDownloader {
             return duration.toSeconds() + " s";
         }
         return duration.toMillis() + " ms";
+    }
+
+    @FunctionalInterface
+    interface ConnectionOpener {
+        URLConnection open(URL url) throws IOException;
     }
 }

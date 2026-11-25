@@ -7,10 +7,10 @@ import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateLocation;
 import com.otilm.core.dao.entity.CertificateLocationId;
-import com.otilm.core.dao.entity.CertificateRelation;
 import com.otilm.core.dao.entity.CertificateRenewalLocation;
 import com.otilm.core.dao.entity.Location;
 import com.otilm.core.dao.repository.CertificateLocationRepository;
+import com.otilm.core.dao.repository.CertificateRenewalInfoRepository;
 import com.otilm.core.dao.repository.CertificateRenewalLocationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.security.authz.SecuredParentUUID;
@@ -55,6 +55,7 @@ public class LocationRenewalHandler implements AutoRenewalHandler {
 
     private final LocationExternalService locationService;
     private final CertificateRenewalLocationRepository renewalLocationRepository;
+    private final CertificateRenewalInfoRepository renewalInfoRepository;
     private final CertificateRepository certificateRepository;
     private final CertificateLocationRepository certificateLocationRepository;
     private final CertificateEventHistoryInternalService eventHistoryService;
@@ -64,12 +65,14 @@ public class LocationRenewalHandler implements AutoRenewalHandler {
 
     /** The location service reaches the trigger evaluator through the certificate service, so it is injected lazily. */
     public LocationRenewalHandler(@Lazy LocationExternalService locationService,
-            CertificateRenewalLocationRepository renewalLocationRepository, CertificateRepository certificateRepository,
+            CertificateRenewalLocationRepository renewalLocationRepository,
+            CertificateRenewalInfoRepository renewalInfoRepository, CertificateRepository certificateRepository,
             CertificateLocationRepository certificateLocationRepository,
             CertificateEventHistoryInternalService eventHistoryService, EntityManager entityManager,
             PlatformTransactionManager transactionManager) {
         this.locationService = locationService;
         this.renewalLocationRepository = renewalLocationRepository;
+        this.renewalInfoRepository = renewalInfoRepository;
         this.certificateRepository = certificateRepository;
         this.certificateLocationRepository = certificateLocationRepository;
         this.eventHistoryService = eventHistoryService;
@@ -125,6 +128,9 @@ public class LocationRenewalHandler implements AutoRenewalHandler {
     /** Renews in one location when its guards allow; answers the failure to record, if any. */
     private Optional<String> renewIn(UUID certificateUuid, Target target, RenewalContext context) {
         LocationClaim claim = inNewTransaction(() -> claim(certificateUuid, target, context));
+        if (claim.reopened()) {
+            inNewTransaction(() -> clearRenewAt(certificateUuid));
+        }
         if (claim.failure() != null) {
             return Optional.of(claim.failure());
         }
@@ -166,14 +172,16 @@ public class LocationRenewalHandler implements AutoRenewalHandler {
     }
 
     /**
-     * Settles the open rows of locations that no longer hold the certificate, as a location replaces it with the
-     * successor it renews it with. An issued successor completes the row and one in flight keeps it; with none the
-     * location has nothing left to renew, so the row is dropped.
+     * Settles the rows of locations that no longer hold the certificate, as a location replaces it with the successor
+     * it renews it with. An issued successor completes an open row and one in flight keeps it; with none, or with a
+     * revoked one, the location has nothing left to renew, so the row is dropped, completed or not.
      */
     private Void settleDetached(UUID certificateUuid, List<Target> targets, Instant now) {
         Set<UUID> held = targets.stream().map(Target::locationUuid).collect(Collectors.toSet());
         for (CertificateRenewalLocation tracked : renewalLocationRepository.findByCertificateUuid(certificateUuid)) {
-            if (tracked.getCompletedAt() == null && !held.contains(tracked.getLocationUuid())) {
+            boolean settled = tracked.getCompletedAt() != null
+                    && successorStatus(tracked.getSuccessorUuid()) != SuccessorStatus.REVOKED;
+            if (!settled && !held.contains(tracked.getLocationUuid())) {
                 renewalLocationRepository
                         .findAndLockSkipLocked(certificateUuid, tracked.getLocationUuid())
                         .filter(row -> !AutoRenewalGuards.markerHeld(row.getStartedAt(), now))
@@ -184,21 +192,14 @@ public class LocationRenewalHandler implements AutoRenewalHandler {
     }
 
     private void settleDetached(CertificateRenewalLocation row, Instant now) {
-        SuccessorStatus successor = row.getSuccessorUuid() == null
-                ? SuccessorStatus.NONE
-                : SuccessorStatus
-                        .of(certificateRepository
-                                .findById(row.getSuccessorUuid())
-                                .map(Certificate::getState)
-                                .orElse(null));
-        switch (successor) {
+        switch (successorStatus(row.getSuccessorUuid())) {
             case ISSUED -> {
                 row.setCompletedAt(now);
                 logger
                         .info("Automatic renewal of certificate {} in location {} completed", row.getCertificateUuid(),
                                 row.getLocationUuid());
             }
-            case NONE, FAILED -> {
+            case NONE, FAILED, REVOKED -> {
                 renewalLocationRepository.delete(row);
                 logger
                         .info("Automatic renewal of certificate {} in location {} dropped: the location no longer "
@@ -219,16 +220,18 @@ public class LocationRenewalHandler implements AutoRenewalHandler {
         }
         CertificateRenewalLocation row = locked.get();
         UUID successorUuid = row.getSuccessorUuid();
-        SuccessorStatus successor = successorUuid == null
-                ? SuccessorStatus.NONE
-                : SuccessorStatus
-                        .of(certificateRepository.findById(successorUuid).map(Certificate::getState).orElse(null));
         UnitGuardResult result = AutoRenewalGuards
-                .unit(new UnitInput(row.getCompletedAt() != null, successor, foreignRenewal(certificateUuid),
-                        row.getAttempt(), row.getNotBefore(), context.maxAttempts()), now);
+                .unit(new UnitInput(row.getCompletedAt() != null, successorStatus(successorUuid),
+                        foreignRenewal(certificateUuid), row.getAttempt(), row.getNotBefore(), context.maxAttempts()),
+                        now);
+        if (result.outcome() == UnitOutcome.REOPEN) {
+            reopen(row, target, context.maxAttempts());
+            return LocationClaim.REOPEN;
+        }
         if (result.failure() != null) {
             row.setSuccessorUuid(null);
-            String reason = "the renewed certificate %s was rejected, failed or removed".formatted(successorUuid);
+            String reason = "the renewed certificate %s was rejected, failed, revoked or removed"
+                    .formatted(successorUuid);
             return LocationClaim.failed(storeFailure(row, target, result.failure(), reason, context.maxAttempts()));
         }
         if (result.outcome() == UnitOutcome.MARK_COMPLETED) {
@@ -252,9 +255,44 @@ public class LocationRenewalHandler implements AutoRenewalHandler {
     }
 
     /**
-     * Another actor renews the certificate when it has a successor that none of its locations started. Core deletes the
-     * relations of failed successors, so a remaining one is a renewal under way or done.
+     * Reopens a completed location whose successor was revoked: clears the completion and the successor, so that the
+     * location is renewed again once the certificate's renewal time, cleared after this claim commits, is reached.
      */
+    private void reopen(CertificateRenewalLocation row, Target target, int maxAttempts) {
+        UUID revokedUuid = row.getSuccessorUuid();
+        row.setCompletedAt(null);
+        row.setSuccessorUuid(null);
+        FailureCount count = AutoRenewalGuards.countReopen(row.getAttempt(), maxAttempts);
+        String outcome = count.attempt() >= maxAttempts
+                ? "the attempt limit is reached, so it is not renewed there again"
+                : "the certificate is renewed there again";
+        String reason = "the renewed certificate %s was revoked; %s".formatted(revokedUuid, outcome);
+        addHistory(row.getCertificateUuid(), "Automatic renewal in location %s: %s (attempt %d of %d)"
+                .formatted(target.name(), reason, count.attempt(), maxAttempts));
+        storeFailure(row, target, count, reason, maxAttempts);
+        logger
+                .info("Automatic renewal of certificate {} in location {} reopened: {}", row.getCertificateUuid(),
+                        target.locationUuid(), reason);
+    }
+
+    /**
+     * Clears the certificate's renewal time so that the next firing chooses a new one. It runs in a transaction of its
+     * own, as the window writer locks the certificate's row before its location rows.
+     */
+    private Void clearRenewAt(UUID certificateUuid) {
+        renewalInfoRepository.findAndLockByCertificateUuid(certificateUuid).ifPresent(info -> info.setRenewAt(null));
+        return null;
+    }
+
+    private SuccessorStatus successorStatus(UUID successorUuid) {
+        if (successorUuid == null) {
+            return SuccessorStatus.NONE;
+        }
+        return SuccessorStatus
+                .of(certificateRepository.findById(successorUuid).map(Certificate::getState).orElse(null));
+    }
+
+    /** Another actor renews the certificate when it has a live successor that none of its locations started. */
     private boolean foreignRenewal(UUID certificateUuid) {
         Set<UUID> started = renewalLocationRepository
                 .findByCertificateUuid(certificateUuid)
@@ -264,11 +302,7 @@ public class LocationRenewalHandler implements AutoRenewalHandler {
                 .collect(Collectors.toSet());
         return certificateRepository
                 .findById(certificateUuid)
-                .map(certificate -> certificate
-                        .getSuccessorRelations()
-                        .stream()
-                        .map(CertificateRelation::getId)
-                        .anyMatch(id -> !started.contains(id.getSuccessorCertificateUuid())))
+                .map(certificate -> AutoRenewalGuards.foreignRenewal(certificate.getSuccessorRelations(), started))
                 .orElse(false);
     }
 
@@ -341,7 +375,7 @@ public class LocationRenewalHandler implements AutoRenewalHandler {
         row.setAttempt(failure.attempt());
         row.setNotBefore(failure.notBefore());
         if (failure.limitReached()) {
-            addHistory(row.getCertificateUuid(), "Automatic renewal in location %s stopped after %d failed attempts"
+            addHistory(row.getCertificateUuid(), "Automatic renewal in location %s stopped after %d attempts"
                     .formatted(target.name(), failure.attempt()));
         }
         return "location %s: %s (attempt %d of %d)".formatted(target.name(), reason, failure.attempt(), maxAttempts);
@@ -378,13 +412,14 @@ public class LocationRenewalHandler implements AutoRenewalHandler {
     private record Target(UUID locationUuid, UUID entityUuid, String name) {
     }
 
-    private record LocationClaim(boolean start, String failure) {
+    private record LocationClaim(boolean start, boolean reopened, String failure) {
 
-        static final LocationClaim SKIP = new LocationClaim(false, null);
-        static final LocationClaim PROCEED = new LocationClaim(true, null);
+        static final LocationClaim SKIP = new LocationClaim(false, false, null);
+        static final LocationClaim PROCEED = new LocationClaim(true, false, null);
+        static final LocationClaim REOPEN = new LocationClaim(false, true, null);
 
         static LocationClaim failed(String failure) {
-            return new LocationClaim(false, failure);
+            return new LocationClaim(false, false, failure);
         }
     }
 

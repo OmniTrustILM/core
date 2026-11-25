@@ -2,6 +2,7 @@ package com.otilm.core.service.handler.authority;
 
 import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.ConnectorProblemException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.interfaces.client.v2.CertificateSyncApiClient;
 import com.otilm.api.model.client.attribute.RequestAttribute;
@@ -22,6 +23,9 @@ import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
+import com.otilm.core.attribute.engine.AttributeVersionHelper;
+import com.otilm.core.attribute.engine.OutboundSecretContainment;
+import com.otilm.core.attribute.engine.records.ObjectAttributeContent;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
@@ -49,10 +53,14 @@ import org.springframework.stereotype.Component;
 @Component
 public class AuthorityProviderV2Adapter extends AbstractAuthorityProviderAdapter {
 
+    private final OutboundSecretContainment outboundContainment;
+
     @Autowired
     public AuthorityProviderV2Adapter(ConnectorInternalService connectorService,
-            ConnectorApiFactory connectorApiFactory, AttributeEngine attributeEngine) {
+            ConnectorApiFactory connectorApiFactory, AttributeEngine attributeEngine,
+            OutboundSecretContainment outboundContainment) {
         super(connectorService, connectorApiFactory, attributeEngine);
+        this.outboundContainment = outboundContainment;
     }
 
     @Override
@@ -128,14 +136,24 @@ public class AuthorityProviderV2Adapter extends AbstractAuthorityProviderAdapter
         // attributes ignored: the v2 identification contract carries no operation attributes.
         AuthorityInstanceReference authority = raProfile.getAuthorityInstanceReference();
 
+        // One snapshot for the request and the secrets it carries; see AuthorityProviderV3Adapter#identify.
+        List<ObjectAttributeContent> raProfileRows = storedAttributeRows(Resource.RA_PROFILE, raProfile.getUuid(),
+                authority);
         CertificateIdentificationRequestDto wire = new CertificateIdentificationRequestDto();
         wire.setCertificate(certificateContent);
-        wire.setRaProfileAttributes(raProfileAttributesFor(raProfile, authority));
+        wire.setRaProfileAttributes(AttributeVersionHelper.toRequestAttributes(raProfileRows));
 
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
-        CertificateIdentificationResponseDto response = connectorApiFactory
-                .getCertificateApiClientV2(connectorDto)
-                .identifyCertificate(connectorDto, authority.getAuthorityInstanceUuid(), wire);
+        CertificateIdentificationResponseDto response;
+        try {
+            response = connectorApiFactory
+                    .getCertificateApiClientV2(connectorDto)
+                    .identifyCertificate(connectorDto, authority.getAuthorityInstanceUuid(), wire);
+        } catch (ConnectorProblemException e) {
+            throw withoutQuotedSecrets(e,
+                    () -> secretsSent(outboundContainment, raProfileRows, wire.getRaProfileAttributes()),
+                    outboundContainment, IDENTIFICATION);
+        }
         return response.getMeta() != null ? response.getMeta() : List.of();
     }
 
