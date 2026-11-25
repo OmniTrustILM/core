@@ -41,6 +41,7 @@ import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
@@ -80,7 +81,6 @@ import static com.otilm.core.util.builders.CrlBuilder.aCrl;
 import static com.otilm.core.util.builders.X509CrlBuilder.anX509Crl;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.junit.jupiter.api.Assertions.assertTimeout;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -482,6 +482,7 @@ class CrlServiceImplTest {
 
     @Nested
     class DownloadFailureMemory {
+
         @BeforeEach
         void configureTwoPermits() {
             crlDownloadGuard = new CrlDownloadGuard(2, Duration.ofSeconds(3), Duration.ofMinutes(1));
@@ -521,13 +522,16 @@ class CrlServiceImplTest {
             holdDownloadPermit(releasePermit);
 
             // when
+            long start = System.nanoTime();
             ThrowingCallable check = () -> crlService.getCurrentCrl(certificate, certificate);
 
             // then
-            assertTimeout(Duration.ofSeconds(1),
-                    () -> assertThatThrownBy(check)
-                            .isInstanceOf(IOException.class)
-                            .hasMessageContaining("Failed to read a usable CRL from 1 available URL(s)"));
+            assertThatThrownBy(check)
+                    .isInstanceOf(IOException.class)
+                    .hasMessageContaining("Failed to read a usable CRL from 1 available URL(s)");
+            assertThat(Duration.ofNanos(System.nanoTime() - start))
+                    .as("answered without waiting for a download permit")
+                    .isLessThan(Duration.ofSeconds(1));
             verify(crlDownloader, times(1)).download(eq(BASE_CRL_URL), anyLong());
         }
 
@@ -543,13 +547,16 @@ class CrlServiceImplTest {
             holdDownloadPermit(releasePermit);
 
             // when
+            long start = System.nanoTime();
             ThrowingCallable check = () -> crlService.getCurrentCrl(certificate, certificate);
 
             // then
-            assertTimeout(Duration.ofSeconds(1),
-                    () -> assertThatThrownBy(check)
-                            .isInstanceOf(IOException.class)
-                            .hasMessageContaining("Failed to read a usable delta CRL from 1 available URL(s)"));
+            assertThatThrownBy(check)
+                    .isInstanceOf(IOException.class)
+                    .hasMessageContaining("Failed to read a usable delta CRL from 1 available URL(s)");
+            assertThat(Duration.ofNanos(System.nanoTime() - start))
+                    .as("answered without waiting for a download permit")
+                    .isLessThan(Duration.ofSeconds(1));
             verify(crlDownloader, times(1)).download(eq(DELTA_CRL_URL), anyLong());
         }
 
@@ -571,7 +578,7 @@ class CrlServiceImplTest {
 
             // when
             CountDownLatch started = new CountDownLatch(1);
-            var check = executor.submit(() -> {
+            Future<UUID> check = executor.submit(() -> {
                 started.countDown();
                 return crlService.getCurrentCrl(certificate, certificate);
             });

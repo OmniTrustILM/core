@@ -63,21 +63,33 @@ class CrlDownloaderTest {
     }
 
     @Test
-    void propagatesWorkerRuntimeException() {
+    void rethrowsRuntimeExceptionUnchanged_whenDownloadThreadFailsWithOne() {
+        // given
         var failure = new IllegalArgumentException("worker failure");
         var downloader = new CrlDownloader(url -> {
             throw failure;
         }, CONNECT_TIMEOUT_MILLIS, READ_TIMEOUT_MILLIS, SIZE_LIMIT, DOWNLOAD_TIMEOUT);
-        assertThatThrownBy(() -> downloader.download(crlUrl())).isSameAs(failure);
+
+        // when
+        ThrowingCallable download = () -> downloader.download(crlUrl());
+
+        // then
+        assertThatThrownBy(download).isSameAs(failure);
     }
 
     @Test
-    void propagatesWorkerError() {
+    void rethrowsErrorUnchanged_whenDownloadThreadFailsWithOne() {
+        // given
         var failure = new AssertionError("worker failure");
         var downloader = new CrlDownloader(url -> {
             throw failure;
         }, CONNECT_TIMEOUT_MILLIS, READ_TIMEOUT_MILLIS, SIZE_LIMIT, DOWNLOAD_TIMEOUT);
-        assertThatThrownBy(() -> downloader.download(crlUrl())).isSameAs(failure);
+
+        // when
+        ThrowingCallable download = () -> downloader.download(crlUrl());
+
+        // then
+        assertThatThrownBy(download).isSameAs(failure);
     }
 
     @Test
@@ -260,7 +272,7 @@ class CrlDownloaderTest {
             var framingConnection = new FutureTask<Void>(() -> serveEndlessChunkSizeLine(framingServer), null);
             Thread.ofVirtual().start(framingConnection);
             String url = LoopbackWireMock.url(framingServer.getLocalPort()) + CRL_PATH;
-            var downloader = downloader(deadlineShorterThanFraming);
+            CrlDownloader downloader = downloader(deadlineShorterThanFraming);
 
             // when
             long start = System.nanoTime();
@@ -292,8 +304,8 @@ class CrlDownloaderTest {
         try (ServerSocket silentProxy = new ServerSocket(0, 1, InetAddress.getByName(LoopbackWireMock.HOST))) {
             var heldConnection = new FutureTask<Void>(() -> readRequestWithoutAnswering(silentProxy), null);
             Thread.ofVirtual().start(heldConnection);
-            var downloader = new CrlDownloader(throughSocksProxy(silentProxy.getLocalPort()), connectTimeoutMillis,
-                    READ_TIMEOUT_MILLIS, SIZE_LIMIT, deadlineShorterThanConnectTimeout);
+            var downloader = new CrlDownloader(openConnectionsThroughSocksProxy(silentProxy.getLocalPort()),
+                    connectTimeoutMillis, READ_TIMEOUT_MILLIS, SIZE_LIMIT, deadlineShorterThanConnectTimeout);
 
             // when
             long start = System.nanoTime();
@@ -422,7 +434,7 @@ class CrlDownloaderTest {
         return LoopbackWireMock.url(crlServer) + CRL_PATH;
     }
 
-    private static CrlDownloader.ConnectionOpener throughSocksProxy(int proxyPort) {
+    private static CrlDownloader.ConnectionOpener openConnectionsThroughSocksProxy(int proxyPort) {
         var proxy = new Proxy(Proxy.Type.SOCKS, new InetSocketAddress(LoopbackWireMock.HOST, proxyPort));
         return url -> url.openConnection(proxy);
     }

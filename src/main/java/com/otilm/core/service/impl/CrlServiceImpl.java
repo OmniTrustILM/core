@@ -157,15 +157,15 @@ public class CrlServiceImpl implements CrlService {
      */
     private void rethrowRecentFailureOfFirstDownload(X509Certificate certificate, Crl storedCrl, String issuerDn,
             String issuerSerialNumber) throws IOException {
+        String downloadKey;
         if (storedCrl == null || isBaseCrlDue(storedCrl)) {
-            crlDownloadGuard
-                    .rethrowRecentFailure(downloadKey("base", issuerDn, issuerSerialNumber,
-                            certificate.getExtensionValue(Extension.cRLDistributionPoints.getId())));
+            byte[] crlDistributionPoints = certificate.getExtensionValue(Extension.cRLDistributionPoints.getId());
+            downloadKey = downloadKey("base", issuerDn, issuerSerialNumber, crlDistributionPoints);
         } else {
-            crlDownloadGuard
-                    .rethrowRecentFailure(downloadKey("delta", issuerDn, issuerSerialNumber,
-                            certificate.getExtensionValue(Extension.freshestCRL.getId())));
+            byte[] freshestCrl = certificate.getExtensionValue(Extension.freshestCRL.getId());
+            downloadKey = downloadKey("delta", issuerDn, issuerSerialNumber, freshestCrl);
         }
+        crlDownloadGuard.rethrowRecentFailure(downloadKey);
     }
 
     private static boolean isDue(Crl crl, X509Certificate certificate) {
