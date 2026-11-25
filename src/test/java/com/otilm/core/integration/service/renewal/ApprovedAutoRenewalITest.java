@@ -133,21 +133,27 @@ class ApprovedAutoRenewalITest extends BaseSpringBootTest {
 
         private final ClientOperationInternalService renewalStub = mock(ClientOperationInternalService.class);
 
+        @BeforeEach
+        void createIlmKeyAction() {
+            action = createActionWith(
+                    new IlmKeyRenewalHandler(renewalStub, renewalInfoRepository, entityManager, transactionManager));
+        }
+
         @Test
         void replacesTheOldCertificateInItsLocations_whenTheApprovedRenewalIsIssuedAtOnce() throws Exception {
             // given
             requestApprovedRenewal(seeder.seedRaProfile(authority));
             stubAuthorityRenewingAtOnce();
-            approvals.approveAs(APPROVER_UUID, theOnlyApprovalUuid());
+            approvals.approveAs(APPROVER_UUID, findOnlyApprovalUuid());
 
             // when
             delivery.deliverApprovalAnswers();
 
             // then
-            Certificate successor = theRenewalSuccessor();
+            Certificate successor = findRenewalSuccessor();
             assertThat(successor.getState()).isEqualTo(CertificateState.ISSUED);
-            assertThat(locationNames(successor)).containsExactlyInAnyOrder("web", "mail");
-            assertThat(locationNames(certificate)).isEmpty();
+            assertThat(readLocationNames(successor)).containsExactlyInAnyOrder("web", "mail");
+            assertThat(readLocationNames(certificate)).isEmpty();
         }
 
         @Test
@@ -156,27 +162,27 @@ class ApprovedAutoRenewalITest extends BaseSpringBootTest {
             requestApprovedRenewal(seeder.seedLaterIssuingRaProfile(authority));
             V3ConnectorStubs.stubAttributesAndValidate(authority);
             V3ConnectorStubs.stubV3RenewAsync(authority);
-            approvals.approveAs(APPROVER_UUID, theOnlyApprovalUuid());
+            approvals.approveAs(APPROVER_UUID, findOnlyApprovalUuid());
             delivery.deliverApprovalAnswers();
-            UUID successorUuid = theRenewalSuccessor().getUuid();
-            V3ConnectorStubs.stubIssueStatusCompleted(authority, issuedCertificateData());
+            UUID successorUuid = findRenewalSuccessor().getUuid();
+            V3ConnectorStubs.stubIssueStatusCompleted(authority, loadIssuedCertificateData());
 
             // when
             delivery.pollStatus(successorUuid, CertificateOperation.RENEW);
 
             // then
-            Certificate successor = theRenewalSuccessor();
+            Certificate successor = findRenewalSuccessor();
             assertThat(successor.getState()).isEqualTo(CertificateState.ISSUED);
-            assertThat(locationNames(successor)).containsExactlyInAnyOrder("web", "mail");
-            assertThat(locationNames(certificate)).isEmpty();
+            assertThat(readLocationNames(successor)).containsExactlyInAnyOrder("web", "mail");
+            assertThat(readLocationNames(certificate)).isEmpty();
         }
 
         @Test
         void countsOneFailedAttemptWithoutTouchingTheLocations_whenTheApprovalIsRefused() throws Exception {
             // given
             requestApprovedRenewal(seeder.seedRaProfile(authority));
-            UUID successorUuid = theRenewalSuccessor().getUuid();
-            approvals.refuseAs(APPROVER_UUID, theOnlyApprovalUuid());
+            UUID successorUuid = findRenewalSuccessor().getUuid();
+            approvals.refuseAs(APPROVER_UUID, findOnlyApprovalUuid());
             delivery.deliverApprovalAnswers();
 
             // when
@@ -187,7 +193,7 @@ class ApprovedAutoRenewalITest extends BaseSpringBootTest {
             assertThat(certificateRepository.findById(successorUuid).orElseThrow().getState())
                     .isEqualTo(CertificateState.REJECTED);
             assertThat(seeder.renewalRow(certificate.getUuid()).getRenewAttempt()).isEqualTo(1);
-            assertThat(locationNames(certificate)).containsExactlyInAnyOrder("web", "mail");
+            assertThat(readLocationNames(certificate)).containsExactlyInAnyOrder("web", "mail");
             authority.verify(0, WireMock.postRequestedFor(WireMock.urlPathMatching(AUTHORITY_RENEW_PATH)));
             entityProvider.verify(0, WireMock.postRequestedFor(WireMock.urlPathMatching(LOCATION_PATH + "/.*")));
         }
@@ -203,8 +209,6 @@ class ApprovedAutoRenewalITest extends BaseSpringBootTest {
             seeder.seedPushOnlyLocations(entityProvider, certificate, "web", "mail");
             stubLocationsAnswering();
             approvals.requireApproval(raProfile, APPROVER_UUID);
-            action = actionWith(
-                    new IlmKeyRenewalHandler(renewalStub, renewalInfoRepository, entityManager, transactionManager));
             when(renewalStub
                     .renewCertificate(any(SecuredParentUUID.class), any(SecuredUUID.class),
                             eq(certificate.getUuid().toString()), any(ClientCertificateRenewRequestDto.class), isNull(),
@@ -219,7 +223,7 @@ class ApprovedAutoRenewalITest extends BaseSpringBootTest {
             action.perform(certificate, trigger);
         }
 
-        private Certificate theRenewalSuccessor() {
+        private Certificate findRenewalSuccessor() {
             UUID successorUuid = seeder.renewalRow(certificate.getUuid()).getRenewSuccessorUuid();
             return certificateRepository.findById(successorUuid).orElseThrow();
         }
@@ -250,22 +254,29 @@ class ApprovedAutoRenewalITest extends BaseSpringBootTest {
         private final LocationExternalService locationStub = mock(LocationExternalService.class);
         private Location web;
 
+        @BeforeEach
+        void createLocationAction() {
+            action = createActionWith(
+                    new LocationRenewalHandler(locationStub, renewalLocationRepository, certificateRepository,
+                            certificateLocationRepository, eventHistoryService, entityManager, transactionManager));
+        }
+
         @Test
         void pushesTheRenewedCertificateInPlaceOfTheOldOne_whenTheApprovedRenewalIsIssuedAtOnce() throws Exception {
             // given
             requestApprovedRenewalInWeb(seeder.seedRaProfile(authority));
             stubAuthorityRenewingAtOnce();
-            approvals.approveAs(APPROVER_UUID, theOnlyApprovalUuid());
+            approvals.approveAs(APPROVER_UUID, findOnlyApprovalUuid());
 
             // when
             delivery.deliverApprovalAnswers();
 
             // then
-            Certificate successor = theRenewalSuccessor();
+            Certificate successor = findRenewalSuccessor();
             assertThat(successor.getState()).isEqualTo(CertificateState.ISSUED);
             entityProvider.verify(1, WireMock.postRequestedFor(WireMock.urlPathMatching(LOCATION_PATH + "/push")));
-            assertThat(locationNames(successor)).containsExactly("web");
-            assertThat(locationNames(certificate)).isEmpty();
+            assertThat(readLocationNames(successor)).containsExactly("web");
+            assertThat(readLocationNames(certificate)).isEmpty();
         }
 
         @Test
@@ -273,7 +284,7 @@ class ApprovedAutoRenewalITest extends BaseSpringBootTest {
             // given
             requestApprovedRenewalInWeb(seeder.seedRaProfile(authority));
             stubAuthorityRenewingAtOnce();
-            approvals.approveAs(APPROVER_UUID, theOnlyApprovalUuid());
+            approvals.approveAs(APPROVER_UUID, findOnlyApprovalUuid());
             delivery.deliverApprovalAnswers();
 
             // when
@@ -284,26 +295,25 @@ class ApprovedAutoRenewalITest extends BaseSpringBootTest {
         }
 
         @Test
-        void pushesTheRenewedCertificateAndCompletesTheLocation_whenTheAuthorityIssuesTheApprovedRenewalLater()
-                throws Exception {
+        void completesTheRenewalInTheLocation_whenTheAuthorityIssuesTheApprovedRenewalLater() throws Exception {
             // given
             requestApprovedRenewalInWeb(seeder.seedLaterIssuingRaProfile(authority));
             V3ConnectorStubs.stubAttributesAndValidate(authority);
             V3ConnectorStubs.stubV3RenewAsync(authority);
-            approvals.approveAs(APPROVER_UUID, theOnlyApprovalUuid());
+            approvals.approveAs(APPROVER_UUID, findOnlyApprovalUuid());
             delivery.deliverApprovalAnswers();
-            UUID successorUuid = theRenewalSuccessor().getUuid();
-            V3ConnectorStubs.stubIssueStatusCompleted(authority, issuedCertificateData());
+            UUID successorUuid = findRenewalSuccessor().getUuid();
+            V3ConnectorStubs.stubIssueStatusCompleted(authority, loadIssuedCertificateData());
 
             // when
             delivery.pollStatus(successorUuid, CertificateOperation.RENEW);
 
             // then
-            Certificate successor = theRenewalSuccessor();
+            Certificate successor = findRenewalSuccessor();
             assertThat(successor.getState()).isEqualTo(CertificateState.ISSUED);
             entityProvider.verify(1, WireMock.postRequestedFor(WireMock.urlPathMatching(LOCATION_PATH + "/push")));
-            assertThat(locationNames(successor)).containsExactly("web");
-            assertThat(locationNames(certificate)).isEmpty();
+            assertThat(readLocationNames(successor)).containsExactly("web");
+            assertThat(readLocationNames(certificate)).isEmpty();
             assertThat(seeder.locationRow(certificate, web).getCompletedAt()).isNotNull();
         }
 
@@ -311,8 +321,8 @@ class ApprovedAutoRenewalITest extends BaseSpringBootTest {
         void countsOneFailedAttemptWithoutPushing_whenTheApprovalIsRefused() throws Exception {
             // given
             requestApprovedRenewalInWeb(seeder.seedRaProfile(authority));
-            UUID successorUuid = theRenewalSuccessor().getUuid();
-            approvals.refuseAs(APPROVER_UUID, theOnlyApprovalUuid());
+            UUID successorUuid = findRenewalSuccessor().getUuid();
+            approvals.refuseAs(APPROVER_UUID, findOnlyApprovalUuid());
             delivery.deliverApprovalAnswers();
 
             // when
@@ -323,7 +333,7 @@ class ApprovedAutoRenewalITest extends BaseSpringBootTest {
             assertThat(certificateRepository.findById(successorUuid).orElseThrow().getState())
                     .isEqualTo(CertificateState.REJECTED);
             assertThat(seeder.locationRow(certificate, web).getAttempt()).isEqualTo(1);
-            assertThat(locationNames(certificate)).containsExactly("web");
+            assertThat(readLocationNames(certificate)).containsExactly("web");
             authority.verify(0, WireMock.postRequestedFor(WireMock.urlPathMatching(AUTHORITY_RENEW_PATH)));
             entityProvider.verify(0, WireMock.postRequestedFor(WireMock.urlPathMatching(LOCATION_PATH + "/push")));
         }
@@ -343,9 +353,6 @@ class ApprovedAutoRenewalITest extends BaseSpringBootTest {
                             .post(WireMock.urlPathMatching(LOCATION_PATH + "/push"))
                             .willReturn(WireMock.okJson("{\"withKey\": true}")));
             approvals.requireApproval(raProfile, APPROVER_UUID);
-            action = actionWith(
-                    new LocationRenewalHandler(locationStub, renewalLocationRepository, certificateRepository,
-                            certificateLocationRepository, eventHistoryService, entityManager, transactionManager));
             when(locationStub
                     .renewCertificateInLocationForSuccessor(any(SecuredParentUUID.class),
                             argThat(location -> web.getUuid().equals(location.getValue())), eq(certificate.getUuid()),
@@ -363,7 +370,7 @@ class ApprovedAutoRenewalITest extends BaseSpringBootTest {
             action.perform(certificate, trigger);
         }
 
-        private Certificate theRenewalSuccessor() {
+        private Certificate findRenewalSuccessor() {
             UUID successorUuid = seeder.locationRow(certificate, web).getSuccessorUuid();
             return certificateRepository.findById(successorUuid).orElseThrow();
         }
@@ -371,7 +378,7 @@ class ApprovedAutoRenewalITest extends BaseSpringBootTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private AutoRenewalAction actionWith(AutoRenewalHandler handler) {
+    private AutoRenewalAction createActionWith(AutoRenewalHandler handler) {
         return new AutoRenewalAction(renewalInfoRepository, certificateRepository, eventHistoryService, entityManager,
                 transactionManager, typeHandlerRegistry, List.of(handler));
     }
@@ -398,7 +405,7 @@ class ApprovedAutoRenewalITest extends BaseSpringBootTest {
         delivery.deliver(message);
     }
 
-    private UUID theOnlyApprovalUuid() {
+    private UUID findOnlyApprovalUuid() {
         List<Approval> stored = approvalRepository.findAll();
         assertThat(stored).hasSize(1);
         return stored.getFirst().getUuid();
@@ -408,10 +415,11 @@ class ApprovedAutoRenewalITest extends BaseSpringBootTest {
         authority
                 .stubFor(WireMock
                         .post(WireMock.urlPathMatching(AUTHORITY_RENEW_PATH))
-                        .willReturn(WireMock.okJson("{ \"certificateData\": \"" + issuedCertificateData() + "\" }")));
+                        .willReturn(
+                                WireMock.okJson("{ \"certificateData\": \"" + loadIssuedCertificateData() + "\" }")));
     }
 
-    private String issuedCertificateData() throws Exception {
+    private String loadIssuedCertificateData() throws Exception {
         KeyStore keyStore = KeyStore.getInstance("PKCS12");
         try (InputStream stream = getClass().getClassLoader().getResourceAsStream("client1.p12")) {
             keyStore.load(stream, "123456".toCharArray());
@@ -419,7 +427,7 @@ class ApprovedAutoRenewalITest extends BaseSpringBootTest {
         return Base64.getEncoder().encodeToString(keyStore.getCertificate("1").getEncoded());
     }
 
-    private List<String> locationNames(Certificate owner) {
+    private List<String> readLocationNames(Certificate owner) {
         return new TransactionTemplate(transactionManager)
                 .execute(status -> certificateLocationRepository
                         .findByCertificateUuid(owner.getUuid())
