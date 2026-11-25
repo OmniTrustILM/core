@@ -34,9 +34,9 @@ public interface AcmeOrderRepository extends SecurityFilterRepository<AcmeOrder,
               AND o.status <> com.otilm.api.model.core.acme.OrderStatus.INVALID
               AND (o.status NOT IN (com.otilm.api.model.core.acme.OrderStatus.PENDING,
                                     com.otilm.api.model.core.acme.OrderStatus.READY)
-                   OR o.expires IS NULL OR o.expires > :now)
+                   OR o.expires IS NULL OR o.expires > CURRENT_TIMESTAMP)
             """)
-    boolean existsLiveOrderReplacing(@Param("certificateUuid") UUID certificateUuid, @Param("now") Date now);
+    boolean existsLiveOrderReplacing(@Param("certificateUuid") UUID certificateUuid);
 
     /**
      * Locks the order row ({@code SELECT ... FOR UPDATE}) so that every status write to the order, its authorizations

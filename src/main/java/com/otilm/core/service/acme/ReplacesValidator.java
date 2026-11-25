@@ -16,7 +16,6 @@ import com.otilm.core.service.acme.identifier.AcmeIdentifierPolicy;
 import com.otilm.core.util.CertificateUtil;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -85,10 +84,9 @@ public class ReplacesValidator {
                 .findAndLockFreshByUuid(found.getUuid())
                 .filter(certificate -> isIssuedUnderProfile(certificate, raProfile))
                 .orElseThrow(() -> refusal(account));
-        if (acmeOrderRepository.existsLiveOrderReplacing(predecessor.getUuid(), new Date())
-                || certificateRelationRepository
-                        .existsByIdPredecessorCertificateUuidAndSuccessorCertificateState(predecessor.getUuid(),
-                                CertificateState.ISSUED)) {
+        if (acmeOrderRepository.existsLiveOrderReplacing(predecessor.getUuid()) || certificateRelationRepository
+                .existsByIdPredecessorCertificateUuidAndSuccessorCertificateState(predecessor.getUuid(),
+                        CertificateState.ISSUED)) {
             throw new AcmeProblemDocumentException(HttpStatus.CONFLICT, Problem.ALREADY_REPLACED);
         }
         return predecessor;

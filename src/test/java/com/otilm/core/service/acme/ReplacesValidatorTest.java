@@ -11,7 +11,6 @@ import com.otilm.core.dao.entity.acme.AcmeAccount;
 import com.otilm.core.dao.repository.CertificateRelationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.acme.AcmeOrderRepository;
-import java.util.Date;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -95,7 +94,7 @@ class ReplacesValidatorTest {
         assertThat(validated).isSameAs(predecessor);
         InOrder lockThenCheck = inOrder(certificateRepository, acmeOrderRepository, certificateRelationRepository);
         lockThenCheck.verify(certificateRepository).findAndLockFreshByUuid(predecessor.getUuid());
-        lockThenCheck.verify(acmeOrderRepository).existsLiveOrderReplacing(eq(predecessor.getUuid()), any(Date.class));
+        lockThenCheck.verify(acmeOrderRepository).existsLiveOrderReplacing(predecessor.getUuid());
         lockThenCheck
                 .verify(certificateRelationRepository)
                 .existsByIdPredecessorCertificateUuidAndSuccessorCertificateState(predecessor.getUuid(),
@@ -280,7 +279,7 @@ class ReplacesValidatorTest {
     @Test
     void refusesAsAlreadyReplaced_whenALiveOrderReplacesIt() {
         // given
-        when(acmeOrderRepository.existsLiveOrderReplacing(eq(predecessor.getUuid()), any(Date.class))).thenReturn(true);
+        when(acmeOrderRepository.existsLiveOrderReplacing(predecessor.getUuid())).thenReturn(true);
 
         // when
         ThrowingCallable validate = () -> validator.validate(CERT_ID, account, List.of(dns("example.com")), raProfile);
