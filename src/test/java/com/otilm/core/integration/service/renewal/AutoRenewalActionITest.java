@@ -14,6 +14,7 @@ import com.otilm.core.dao.entity.workflows.TriggerHistoryRecord;
 import com.otilm.core.dao.repository.CertificateEventHistoryRepository;
 import com.otilm.core.dao.repository.CertificateRenewalInfoRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
+import com.otilm.core.dao.repository.workflows.TriggerHistoryRecordRepository;
 import com.otilm.core.evaluator.CertificateTriggerEvaluator;
 import com.otilm.core.service.CertificateEventHistoryInternalService;
 import com.otilm.core.service.TriggerInternalService;
@@ -74,6 +75,8 @@ class AutoRenewalActionITest extends BaseSpringBootTest {
     private EntityManager entityManager;
     @Autowired
     private PlatformTransactionManager transactionManager;
+    @Autowired
+    private TriggerHistoryRecordRepository triggerHistoryRecordRepository;
 
     @Test
     void skipsWithoutARecord_whenAutomaticRenewalIsDisabled() throws Exception {
@@ -86,7 +89,7 @@ class AutoRenewalActionITest extends BaseSpringBootTest {
         TriggerHistory history = fire(association, certificate);
 
         // then
-        assertThat(history.getRecords()).isEmpty();
+        assertThat(recordsOf(history)).isEmpty();
         assertThat(seeder.renewalRow(certificate.getUuid()).getRenewStartedAt()).isNull();
         assertThat(renewHistory(certificate)).isEmpty();
     }
@@ -105,7 +108,7 @@ class AutoRenewalActionITest extends BaseSpringBootTest {
         TriggerHistory history = fire(association, certificate);
 
         // then
-        assertThat(history.getRecords()).isEmpty();
+        assertThat(recordsOf(history)).isEmpty();
         CertificateRenewalInfo stored = seeder.renewalRow(certificate.getUuid());
         assertThat(stored.getRenewAt()).isEqualTo(later);
         assertThat(stored.getRenewStartedAt()).isNull();
@@ -122,7 +125,7 @@ class AutoRenewalActionITest extends BaseSpringBootTest {
                 .of(fire(association, certificate), fire(association, certificate), fire(association, certificate));
 
         // then
-        assertThat(histories).isNotEmpty().allSatisfy(history -> assertThat(history.getRecords()).isEmpty());
+        assertThat(histories).isNotEmpty().allSatisfy(history -> assertThat(recordsOf(history)).isEmpty());
         assertThat(seeder.renewalRow(certificate.getUuid()).getRenewBlockedReason())
                 .isEqualTo(AutoRenewalModeResolver.NO_KEY);
         assertThat(renewHistory(certificate))
@@ -161,7 +164,7 @@ class AutoRenewalActionITest extends BaseSpringBootTest {
         TriggerHistory history = fire(ownerless, certificate);
 
         // then
-        assertThat(history.getRecords())
+        assertThat(recordsOf(history))
                 .singleElement()
                 .extracting(TriggerHistoryRecord::getMessage)
                 .asString()
@@ -212,7 +215,7 @@ class AutoRenewalActionITest extends BaseSpringBootTest {
         }
 
         // then
-        assertThat(histories).isNotEmpty().allSatisfy(history -> assertThat(history.getRecords()).isEmpty());
+        assertThat(histories).isNotEmpty().allSatisfy(history -> assertThat(recordsOf(history)).isEmpty());
         assertThat(certificateRepository.findById(certificate.getUuid()).orElseThrow().getRaProfileUuid()).isNull();
         assertThat(seeder.renewalRow(certificate.getUuid()).getRenewStartedAt()).isNull();
     }
@@ -259,6 +262,15 @@ class AutoRenewalActionITest extends BaseSpringBootTest {
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }
+    }
+
+    /** The records stored for the firing, including those the renewal adds after the evaluation committed. */
+    private List<TriggerHistoryRecord> recordsOf(TriggerHistory history) {
+        return triggerHistoryRecordRepository
+                .findAll()
+                .stream()
+                .filter(record -> history.getUuid().equals(record.getTriggerHistoryUuid()))
+                .toList();
     }
 
     private List<CertificateEventHistory> renewHistory(Certificate certificate) {
