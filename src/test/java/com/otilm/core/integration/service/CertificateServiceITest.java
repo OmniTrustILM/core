@@ -30,6 +30,8 @@ import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.common.error.ErrorCode;
+import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateContentDto;
@@ -137,6 +139,7 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.security.authz.opa.dto.OpaObjectAccessResult;
 import com.otilm.core.security.authz.opa.dto.OpaRequestedResource;
+import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.service.AttributeExternalService;
 import com.otilm.core.service.CertificateEventHistoryExternalService;
 import com.otilm.core.service.ResourceObjectAssociationService;
@@ -2301,6 +2304,67 @@ class CertificateServiceITest extends BaseSpringBootTest {
         }
 
         @Test
+        void recordsConnectorReason_whenIdentifyAnswersProblemWithDetail() throws Exception {
+            // given
+            var connectorReason = "its issuing CA certificate could not be obtained; add it to the authority";
+            var problem = ProblemDetailExtended
+                    .fromErrorCode(ErrorCode.RESOURCE_NOT_FOUND, connectorReason, null, null);
+            mockServer
+                    .stubFor(WireMock
+                            .post(WireMock
+                                    .urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/identify"))
+                            .willReturn(WireMock
+                                    .aResponse()
+                                    .withStatus(404)
+                                    .withHeader("Content-Type", "application/problem+json")
+                                    .withBody(ObjectMapperFactory.wire().writeValueAsString(problem))));
+            var request = aCertificateUpdateObjectsRequest().withRaProfileUuid(raProfile.getUuid().toString()).build();
+            SecuredUUID certificateSecuredUuid = certificate.getSecuredUuid();
+
+            // when
+            ThrowingCallable switchRaProfile = () -> certificateService
+                    .updateCertificateObjects(certificateSecuredUuid, request);
+
+            // then
+            assertThatThrownBy(switchRaProfile)
+                    .isInstanceOf(CertificateOperationException.class)
+                    .hasMessageContaining(connectorReason)
+                    .hasMessageNotContaining("reissued");
+            assertThat(failedRaProfileUpdateMessages())
+                    .singleElement()
+                    .asString()
+                    .contains(connectorReason)
+                    .doesNotContain("reissued");
+        }
+
+        @Test
+        void recordsReissueAdvice_whenIdentifyAnswersNotFoundWithoutProblemDocument() {
+            // given
+            mockServer
+                    .stubFor(WireMock
+                            .post(WireMock
+                                    .urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/identify"))
+                            .willReturn(WireMock
+                                    .jsonResponse("{\"message\": \"Object of type 'Certificate' not identified.\"}",
+                                            404)));
+            var request = aCertificateUpdateObjectsRequest().withRaProfileUuid(raProfile.getUuid().toString()).build();
+            SecuredUUID certificateSecuredUuid = certificate.getSecuredUuid();
+
+            // when
+            ThrowingCallable switchRaProfile = () -> certificateService
+                    .updateCertificateObjects(certificateSecuredUuid, request);
+
+            // then
+            assertThatThrownBy(switchRaProfile)
+                    .isInstanceOf(CertificateOperationException.class)
+                    .hasMessageNotContaining("Object of type");
+            assertThat(failedRaProfileUpdateMessages())
+                    .singleElement()
+                    .asString()
+                    .endsWith("Certificate needs to be reissued.");
+        }
+
+        @Test
         void recordsFailedHistory_whenDeletingCertificateWithUser() {
             // given
             certificate.setUserUuid(UUID.randomUUID());
@@ -2321,6 +2385,18 @@ class CertificateServiceITest extends BaseSpringBootTest {
                     .as("Refused certificate deletion must produce a FAILED DELETE history record; history: "
                             + history.stream().map(h -> h.getEvent() + "/" + h.getStatus()).toList())
                     .isTrue();
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────────
+
+        private List<String> failedRaProfileUpdateMessages() {
+            return certificateEventHistoryRepository
+                    .findByCertificateOrderByCreatedDesc(certificate)
+                    .stream()
+                    .filter(h -> h.getEvent() == CertificateEvent.UPDATE_RA_PROFILE
+                            && h.getStatus() == CertificateEventStatus.FAILED)
+                    .map(CertificateEventHistory::getMessage)
+                    .toList();
         }
     }
 

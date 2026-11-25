@@ -155,6 +155,25 @@ public class OutboundSecretContainment {
         });
     }
 
+    /**
+     * Record the text and numbers of each sent attribute whose definition keeps it encrypted, for operation attributes
+     * that are sent before any row stores them. Rows and attributes are matched by definition UUID.
+     */
+    public void recordProtectedOperationValues(List<DataAttribute> definitions, List<RequestAttribute> sent,
+            Set<String> sentSecrets) {
+        Set<UUID> protectedDefinitions = definitions
+                .stream()
+                .filter(OutboundSecretContainment::isStoredEncrypted)
+                .map(definition -> UUID.fromString(definition.getUuid()))
+                .collect(Collectors.toSet());
+        forEachProtectedData(protectedDefinitions, sent, data -> {
+            addIfPresent(protectedText(data), sentSecrets);
+            if (data instanceof Number number) {
+                sentSecrets.add(number.toString());
+            }
+        });
+    }
+
     private static void forEachProtectedData(List<ObjectAttributeContent> storedRows, List<RequestAttribute> resolved,
             Consumer<Object> dataVisitor) {
         Set<UUID> protectedDefinitions = storedRows
@@ -162,6 +181,14 @@ public class OutboundSecretContainment {
                 .filter(row -> row.encryptedContent() != null)
                 .map(ObjectAttributeContent::uuid)
                 .collect(Collectors.toSet());
+        forEachProtectedData(protectedDefinitions, resolved, dataVisitor);
+    }
+
+    private static void forEachProtectedData(Set<UUID> protectedDefinitions, List<RequestAttribute> resolved,
+            Consumer<Object> dataVisitor) {
+        if (resolved == null) {
+            return;
+        }
         for (RequestAttribute attribute : resolved) {
             List<? extends AttributeContent> content = attribute.getContent();
             if (protectedDefinitions.contains(attribute.getUuid()) && content != null) {

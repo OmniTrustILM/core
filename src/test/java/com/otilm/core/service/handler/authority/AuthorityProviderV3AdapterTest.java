@@ -19,6 +19,7 @@ import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.content.data.ProtectionLevel;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.IntegerAttributeContentV3;
@@ -119,6 +120,7 @@ import org.springframework.http.ResponseEntity;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static com.otilm.core.util.builders.CertificateRequestEntityBuilder.aCertificateRequest;
+import static com.otilm.core.util.builders.DataAttributeV3Builder.aDataAttribute;
 import static com.otilm.core.util.builders.RequestAttributeV3Builder.aCustomAttribute;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -528,6 +530,86 @@ class AuthorityProviderV3AdapterTest {
                 .forClass(CertificateIdentificationRequestDtoV3.class);
         verify(certClientV3).identify(eq(connectorInfo), wire.capture());
         assertEquals(identifyValues, wire.getValue().getAttributes());
+    }
+
+    @Test
+    void replacesConnectorWords_whenIdentifyRefusalQuotesASentSecret() throws Exception {
+        // given
+        var sentSecret = "s3cr3t-account-key";
+        resolveAttributesToSecret(sentSecret);
+        when(certClientV3.identify(eq(connectorInfo), any(CertificateIdentificationRequestDtoV3.class)))
+                .thenThrow(identifyRefusal("the account key " + sentSecret + " is not registered"));
+
+        // when
+        ThrowingCallable identify = () -> adapter.identify(raProfile, "dGVzdGNlcnQ=", List.of());
+
+        // then
+        assertThatThrownBy(identify).isInstanceOfSatisfying(ConnectorProblemException.class, e -> {
+            assertThat(e.getProblemDetail().getDetail()).doesNotContain(sentSecret);
+            assertThat(e.getProblemDetail().getErrorCode()).isEqualTo(ErrorCode.RESOURCE_NOT_FOUND);
+        });
+    }
+
+    @Test
+    void replacesConnectorWords_whenIdentifyRefusalQuotesAnEncryptedIdentifyValue() throws Exception {
+        // given
+        var encryptedIdentifyValue = "agent-passphrase-42";
+        var identifyDefinitionUuid = UUID.randomUUID();
+        var identifyDefinition = aDataAttribute().withUuid(identifyDefinitionUuid).withName("agentPassphrase").build();
+        identifyDefinition.getProperties().setProtectionLevel(ProtectionLevel.ENCRYPTED);
+        when(attributeEngine
+                .getDataAttributeDefinitionStrict(authority.getConnectorUuid(), identifyDefinitionUuid,
+                        "agentPassphrase"))
+                .thenReturn(identifyDefinition);
+        List<RequestAttribute> identifyValues = List
+                .of(aCustomAttribute()
+                        .withUuid(identifyDefinitionUuid)
+                        .withName("agentPassphrase")
+                        .withStringContent(encryptedIdentifyValue)
+                        .build());
+        when(certClientV3.identify(eq(connectorInfo), any(CertificateIdentificationRequestDtoV3.class)))
+                .thenThrow(identifyRefusal("agent " + encryptedIdentifyValue + " is unknown"));
+
+        // when
+        ThrowingCallable identify = () -> adapter.identify(raProfile, "dGVzdGNlcnQ=", identifyValues);
+
+        // then
+        assertThatThrownBy(identify)
+                .isInstanceOfSatisfying(ConnectorProblemException.class,
+                        e -> assertThat(e.getProblemDetail().getDetail()).doesNotContain(encryptedIdentifyValue));
+    }
+
+    @Test
+    void keepsConnectorDetail_whenIdentifyRefusalQuotesNoSentSecret() throws Exception {
+        // given
+        resolveAttributesToSecret("s3cr3t-account-key");
+        var refusal = identifyRefusal("its issuing CA certificate could not be obtained; add it to the authority");
+        when(certClientV3.identify(eq(connectorInfo), any(CertificateIdentificationRequestDtoV3.class)))
+                .thenThrow(refusal);
+
+        // when
+        ThrowingCallable identify = () -> adapter.identify(raProfile, "dGVzdGNlcnQ=", List.of());
+
+        // then
+        assertThatThrownBy(identify).isSameAs(refusal);
+    }
+
+    @Test
+    void replacesConnectorWords_whenSecretsSentForIdentifyCannotBeRead() throws Exception {
+        // given
+        var connectorReason = "its issuing CA certificate could not be obtained; add it to the authority";
+        when(attributeEngine.getStoredObjectDataAttributesContent(any()))
+                .thenThrow(new IllegalStateException("stored attributes unreadable"));
+        when(certClientV3.identify(eq(connectorInfo), any(CertificateIdentificationRequestDtoV3.class)))
+                .thenThrow(identifyRefusal(connectorReason));
+
+        // when
+        ThrowingCallable identify = () -> adapter.identify(raProfile, "dGVzdGNlcnQ=", List.of());
+
+        // then
+        assertThatThrownBy(identify)
+                .isInstanceOfSatisfying(ConnectorProblemException.class,
+                        e -> assertThat(e.getProblemDetail().getDetail()).doesNotContain(connectorReason));
     }
 
     // ---- getCaCertificates ----
@@ -1636,5 +1718,10 @@ class AuthorityProviderV3AdapterTest {
         String sealed = SecretsUtil.encryptAndEncodeSecretString(value, SecretEncodingVersion.V1);
         return new ObjectAttributeContent(UUID.randomUUID(), name, name, AttributeType.DATA,
                 AttributeContentType.STRING, new StringAttributeContentV3(), 3, sealed);
+    }
+
+    private static ConnectorProblemException identifyRefusal(String detail) {
+        var problem = ProblemDetailExtended.fromErrorCode(ErrorCode.RESOURCE_NOT_FOUND, detail, null, null);
+        return new ConnectorProblemException(problem);
     }
 }

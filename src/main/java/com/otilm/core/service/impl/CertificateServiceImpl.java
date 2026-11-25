@@ -5,6 +5,7 @@ import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.CertificateOperationException;
 import com.otilm.api.exception.CertificateRequestException;
 import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.ConnectorProblemException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.NotSupportedException;
 import com.otilm.api.exception.ValidationError;
@@ -3404,16 +3405,7 @@ public class CertificateServiceImpl
                     .identify(newRaProfile, certificate.getCertificateContent().getContent(),
                             identifyAttributes != null ? identifyAttributes : List.of());
         } catch (ConnectorException e) {
-            certificateEventHistoryService
-                    .addEventHistorySurvivingRollback(certificate.getUuid(), CertificateEvent.UPDATE_RA_PROFILE,
-                            CertificateEventStatus.FAILED,
-                            String
-                                    .format("Certificate not identified by authority of new RA profile %s. Certificate needs to be reissued.",
-                                            newRaProfile.getName()),
-                            null);
-            throw new CertificateOperationException(String
-                    .format("Cannot switch RA profile for certificate. Certificate not identified by authority of new RA profile %s. Certificate: %s",
-                            newRaProfile.getName(), certificate.toStringShort()));
+            throw identifyConnectorFailure(certificate, newRaProfile, e);
         } catch (ValidationException e) {
             // A connector may reject identification for any policy it implements: trust anchor mismatch, validity,
             // key usage, RA-profile attribute violation. Forward its own reason so the operator sees the cause.
@@ -3466,6 +3458,34 @@ public class CertificateServiceImpl
                             e.getMessage(), certificate.toStringShort()));
         }
         return identifiedMeta;
+    }
+
+    /**
+     * Records the failed identification and builds the error to raise. A connector that explains the failure in its
+     * problem document's {@code detail} gets its words forwarded, as the contract obliges it to keep that field free of
+     * secrets and internals; without one, the failure is reported as the certificate needing to be reissued.
+     */
+    private CertificateOperationException identifyConnectorFailure(Certificate certificate, RaProfile newRaProfile,
+            ConnectorException e) {
+        String reason = identifyConnectorReason(e);
+        String notIdentified = "Certificate not identified by authority of new RA profile %s"
+                .formatted(newRaProfile.getName());
+        String cause = reason == null ? notIdentified : notIdentified + ": " + reason;
+        String historyMessage = reason == null ? notIdentified + ". Certificate needs to be reissued." : cause;
+        certificateEventHistoryService
+                .addEventHistorySurvivingRollback(certificate.getUuid(), CertificateEvent.UPDATE_RA_PROFILE,
+                        CertificateEventStatus.FAILED, historyMessage, null);
+        return new CertificateOperationException("Cannot switch RA profile for certificate. %s. Certificate: %s"
+                .formatted(cause, certificate.toStringShort()));
+    }
+
+    /** The {@code detail} of the connector's problem document, or {@code null} when it sent none. */
+    static String identifyConnectorReason(ConnectorException e) {
+        if (!(e instanceof ConnectorProblemException problem)) {
+            return null;
+        }
+        String detail = problem.getProblemDetail().getDetail();
+        return detail == null || detail.isBlank() ? null : detail.strip();
     }
 
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.UPDATE)
