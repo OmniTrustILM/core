@@ -69,7 +69,7 @@ public class AsyncRenewalLocationReplacer {
                             certificateUuid, e);
             return;
         }
-        if (pending == null || pending.isEmpty()) {
+        if (pending.isEmpty()) {
             return;
         }
         Replacement replacement = pending.get();
