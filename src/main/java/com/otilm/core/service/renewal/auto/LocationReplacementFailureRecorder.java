@@ -60,7 +60,7 @@ public class LocationReplacementFailureRecorder {
         try {
             Optional<RenewalInfoSnapshot> recorded = newTransaction
                     .execute(status -> recordHistory(predecessorUuid, successorUuid, reason));
-            if (recorded == null || recorded.isEmpty()) {
+            if (recorded.isEmpty()) {
                 return;
             }
             RenewalInfoSnapshot snapshot = recorded.get();
