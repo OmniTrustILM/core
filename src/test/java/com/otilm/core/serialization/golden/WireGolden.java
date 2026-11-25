@@ -18,7 +18,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.springframework.http.ProblemDetail;
 
-/** Wire output compared against goldens recorded on the Spring Boot 3.5 line, under {@code src/test/resources/wire}. */
+/** Wire output compared against recorded goldens under {@code src/test/resources/wire}. */
 public final class WireGolden {
 
     private static final String DIR = "wire/";
@@ -99,7 +99,7 @@ public final class WireGolden {
         return !feature.matches() || recordedFeatures.contains(feature.group(1));
     }
 
-    /** Regenerating with -Dgolden.regenerate=true is for the 3.5 line only. */
+    /** Regenerating with -Dgolden.regenerate=true is for the 3.5 line or a deliberate wire change. */
     public static void assertMatches(String name, String actual) {
         GoldenJson.assertMatchesGoldenText(DIR + name, actual);
     }
