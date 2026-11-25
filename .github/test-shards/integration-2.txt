@@ -96,6 +96,7 @@ com/otilm/core/integration/service/UserManagementServiceCacheEvictionITest.java
 com/otilm/core/integration/service/UserManagementServiceITest.java
 com/otilm/core/integration/service/registration/RegistrationChallengeGateITest.java
 com/otilm/core/integration/service/registration/RegistrationChallengeStoreITest.java
+com/otilm/core/integration/service/renewal/ApprovedAutoRenewalITest.java
 com/otilm/core/integration/service/renewal/AutoRenewalActionITest.java
 com/otilm/core/integration/service/renewal/AutoRenewalConcurrencyITest.java
 com/otilm/core/integration/service/writer/registration/CertificateRegistrationAuthorizationWriterITest.java
