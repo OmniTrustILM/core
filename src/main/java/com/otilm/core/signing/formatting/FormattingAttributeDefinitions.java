@@ -134,8 +134,11 @@ public class FormattingAttributeDefinitions {
         }
     }
 
-    /** The store replaces an encrypted attribute's content with a placeholder, which the cached original must keep. */
-    private static List<BaseAttribute> storableCopies(List<BaseAttribute> published) throws AttributeException {
+    /**
+     * Copies the data attributes for the attribute store. The store overwrites an encrypted attribute's content with a
+     * placeholder, and the cached definitions must keep the real content.
+     */
+    public static List<BaseAttribute> storableCopies(List<BaseAttribute> published) throws AttributeException {
         List<BaseAttribute> copies = new ArrayList<>(published.size());
         for (BaseAttribute attribute : published) {
             copies.add(attribute instanceof DataAttribute data ? storableCopy(data) : attribute);

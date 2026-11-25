@@ -6,6 +6,8 @@ import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.service.CertificateEventHistoryInternalService;
+import com.otilm.core.service.renewal.RenewalEnrolmentHook;
+import com.otilm.core.service.renewal.RenewalWindowWriter;
 import java.util.Objects;
 import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
@@ -21,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
  * <li>Mutate cert.state + persist via repository</li>
  * <li>Clear the pending-issue claim stamp when a certificate leaves {@code PENDING_ISSUE}</li>
  * <li>Write audit history entry via {@link CertificateEventHistoryInternalService}</li>
+ * <li>Give a newly issued certificate its policy renewal window via {@link RenewalWindowWriter}</li>
  * </ol>
  *
  * <p>
@@ -51,11 +54,16 @@ public class CertificateStateMachine {
 
     private final CertificateRepository certificateRepository;
     private final CertificateEventHistoryInternalService eventHistoryService;
+    private final RenewalWindowWriter renewalWindowWriter;
+    private final RenewalEnrolmentHook renewalEnrolmentHook;
 
     public CertificateStateMachine(CertificateRepository certificateRepository,
-            CertificateEventHistoryInternalService eventHistoryService) {
+            CertificateEventHistoryInternalService eventHistoryService, RenewalWindowWriter renewalWindowWriter,
+            RenewalEnrolmentHook renewalEnrolmentHook) {
         this.certificateRepository = certificateRepository;
         this.eventHistoryService = eventHistoryService;
+        this.renewalWindowWriter = renewalWindowWriter;
+        this.renewalEnrolmentHook = renewalEnrolmentHook;
     }
 
     /**
@@ -151,6 +159,13 @@ public class CertificateStateMachine {
             cert.setPendingIssueClaimedAt(null);
         }
         certificateRepository.save(cert);
+        // A failed revocation returns a certificate that kept its renewal window.
+        if (toState == CertificateState.ISSUED && fromState != CertificateState.PENDING_REVOKE) {
+            renewalWindowWriter.onIssued(cert);
+        } else if (fromState == CertificateState.ISSUED || toState == CertificateState.ISSUED) {
+            // Leaving the issued state ends the refresh of renewal information; a failed revocation resumes it.
+            renewalEnrolmentHook.enrol(cert);
+        }
         return row;
     }
 }

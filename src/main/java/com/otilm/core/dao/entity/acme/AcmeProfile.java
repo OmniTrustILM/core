@@ -115,6 +115,12 @@ public class AcmeProfile extends UniquelyIdentifiedAndAudited
     @Enumerated(EnumType.STRING)
     private AcmeIdentifierAuthorizationMode identifierAuthorizationMode = AcmeIdentifierAuthorizationMode.PREAUTHORIZED_OR_CHALLENGE;
 
+    @Column(name = "renewal_info_enabled", nullable = false)
+    private boolean renewalInfoEnabled;
+
+    @Column(name = "renewal_info_retry_after", nullable = false)
+    private int renewalInfoRetryAfter = AcmeConstants.DEFAULT_RENEWAL_INFO_RETRY_AFTER;
+
     /**
      * Whether a newAccount request must carry an External Account Binding. Derived from the configured keys rather than
      * stored, so a profile can never advertise the requirement with nothing to verify a binding against.
@@ -158,6 +164,8 @@ public class AcmeProfile extends UniquelyIdentifiedAndAudited
         acmeProfileDto.setEabSecretUuids(eabSecretUuids == null ? new ArrayList<>() : List.copyOf(eabSecretUuids));
         acmeProfileDto.setPreauthorizedIdentifiers(List.copyOf(preauthorizedIdentifierList()));
         acmeProfileDto.setIdentifierAuthorizationMode(effectiveIdentifierAuthorizationMode());
+        acmeProfileDto.setRenewalInfoEnabled(renewalInfoEnabled);
+        acmeProfileDto.setRenewalInfoRetryAfter(renewalInfoRetryAfter);
         if (raProfile != null) {
             acmeProfileDto
                     .setDirectoryUrl(ServletUriComponentsBuilder.fromCurrentContextPath().build().toUriString()

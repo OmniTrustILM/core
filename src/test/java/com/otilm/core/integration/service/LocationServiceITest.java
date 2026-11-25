@@ -10,6 +10,7 @@ import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.LocationException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.interfaces.client.v1.LocationSyncApiClient;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.RequestAttributeV2;
 import com.otilm.api.model.client.certificate.LocationsResponseDto;
@@ -27,6 +28,7 @@ import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
+import com.otilm.api.model.connector.entity.GenerateCsrResponseDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
@@ -42,6 +44,7 @@ import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
 import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
 import com.otilm.core.certificate.type.X509CertificateTypeHandler;
+import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
@@ -84,7 +87,10 @@ import java.security.NoSuchAlgorithmException;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
@@ -97,9 +103,12 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.mockito.stubbing.Answer;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import static com.otilm.core.util.RestrictedTypeHandlerFixtures.registryWithX509Lacking;
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
@@ -109,6 +118,10 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -160,6 +173,8 @@ class LocationServiceITest extends BaseSpringBootTest {
     private RegistrationChallengeStore registrationChallengeStore;
     @MockitoBean
     private ClientOperationServiceImpl clientOperationService;
+    @MockitoSpyBean
+    private ConnectorApiFactory connectorApiFactory;
 
     private DataAttributeV2 testAttribute;
     private DataAttributeV2 testAttribute2;
@@ -889,7 +904,8 @@ class LocationServiceITest extends BaseSpringBootTest {
         var authorityRefusal = new CertificateOperationException("refused by the authority");
         stubConnectorAccepting();
         prepareCertificateForRenewalInLocation();
-        when(clientOperationService.renewCertificate(any(), any(), any(), any())).thenThrow(authorityRefusal);
+        when(clientOperationService.renewCertificate(any(), any(), any(), any(), any(), any()))
+                .thenThrow(authorityRefusal);
 
         // when
         List<String> logged = logsDuring(() -> locationService
@@ -1276,7 +1292,7 @@ class LocationServiceITest extends BaseSpringBootTest {
 
         ClientCertificateDataResponseDto responseDto = new ClientCertificateDataResponseDto();
         responseDto.setUuid(renewedCertificate.getUuid().toString());
-        when(clientOperationService.renewCertificate(any(), any(), any(), any())).thenReturn(responseDto);
+        when(clientOperationService.renewCertificate(any(), any(), any(), any(), any(), any())).thenReturn(responseDto);
 
         mockServer
                 .stubFor(WireMock
@@ -1310,6 +1326,146 @@ class LocationServiceITest extends BaseSpringBootTest {
                         .filter(cl -> cl.getCertificateUuid().equals(renewedCertificate.getUuid().toString()))
                         .findFirst()
                         .orElse(null));
+    }
+
+    @Test
+    void returnsTheNewCertificate_whenRenewingInTheLocationForASuccessor() throws Exception {
+        // given
+        CertificateLocation certificateLocation = location.getCertificates().stream().findFirst().get();
+        DataAttributeV2 pushAttribute = new DataAttributeV2();
+        pushAttribute.setUuid(UUID.randomUUID().toString());
+        pushAttribute.setContent(List.of(new StringAttributeContentV2("data", "ref")));
+        DataAttributeV3 csrAttribute = new DataAttributeV3();
+        csrAttribute.setUuid(UUID.randomUUID().toString());
+        csrAttribute.setContent(List.of(new StringAttributeContentV3("data", "ref")));
+        certificateLocation.setPushAttributes(List.of(pushAttribute));
+        certificateLocation.setCsrAttributes(List.of(csrAttribute));
+        locationRepository.save(location);
+        certificate.setRaProfile(getRaProfile());
+        certificateRepository.save(certificate);
+        X509CertificateEntity renewedCertificate = aCertificate().build();
+        certificateRepository.save(renewedCertificate);
+        ClientCertificateDataResponseDto responseDto = new ClientCertificateDataResponseDto();
+        responseDto.setUuid(renewedCertificate.getUuid().toString());
+        when(clientOperationService.renewCertificate(any(), any(), any(), any(), any(), any()))
+                .thenAnswer(runStepBeforeDispatchAndReturn(renewedCertificate.getUuid(), responseDto));
+        mockServer.stubFor(WireMock.post(WireMock.urlPathMatching(CSR_PATH)).willReturn(WireMock.okJson("{}")));
+        mockServer
+                .stubFor(
+                        WireMock.get(WireMock.urlPathMatching(PUSH_ATTRIBUTES_PATH)).willReturn(WireMock.okJson("[]")));
+        mockServer
+                .stubFor(WireMock.get(WireMock.urlPathMatching(CSR_ATTRIBUTES_PATH)).willReturn(WireMock.okJson("[]")));
+
+        // when
+        UUID successorUuid = locationService
+                .renewCertificateInLocationForSuccessor(entityInstanceReference.getSecuredParentUuid(),
+                        location.getSecuredUuid(), certificate.getUuid(), null);
+
+        // then
+        assertThat(successorUuid).isEqualTo(renewedCertificate.getUuid());
+        assertThat(certificateLocationRepository
+                .findById(new CertificateLocationId(location.getUuid(), renewedCertificate.getUuid()))).isPresent();
+    }
+
+    @Test
+    void rekeysTheCertificate_whenTheLocationGeneratesARequestWithANewKey() throws Exception {
+        // given
+        stubConnectorAccepting();
+        prepareCertificateForRenewalInLocation();
+        X509CertificateEntity rekeyedCertificate = aCertificate().build();
+        certificateRepository.save(rekeyedCertificate);
+        ClientCertificateDataResponseDto responseDto = new ClientCertificateDataResponseDto();
+        responseDto.setUuid(rekeyedCertificate.getUuid().toString());
+        when(clientOperationService.renewalFor(any(), any(), eq(certificate.getUuid()), any(), any()))
+                .thenReturn(Optional.of(ResourceAction.REKEY));
+        when(clientOperationService.rekeyCertificate(any(), any(), any(), any(), any(), any()))
+                .thenAnswer(runStepBeforeDispatchAndReturn(rekeyedCertificate.getUuid(), responseDto));
+        List<UUID> trackedBeforeDispatch = new ArrayList<>();
+
+        // when
+        UUID successorUuid = locationService
+                .renewCertificateInLocationForSuccessor(entityInstanceReference.getSecuredParentUuid(),
+                        location.getSecuredUuid(), certificate.getUuid(), trackedBeforeDispatch::add);
+
+        // then
+        assertThat(successorUuid).isEqualTo(rekeyedCertificate.getUuid());
+        assertThat(trackedBeforeDispatch).containsExactly(rekeyedCertificate.getUuid());
+        verify(clientOperationService)
+                .rekeyCertificate(any(), any(), eq(certificate.getUuid().toString()), any(), isNull(), any());
+        verify(clientOperationService, never()).renewCertificate(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void commitsTheLinkAfterTheCallersStepBeforeTheRenewalIsQueued_whenRenewingForASuccessor() throws Exception {
+        // given
+        stubConnectorAccepting();
+        prepareCertificateForRenewalInLocation();
+        X509CertificateEntity renewedCertificate = aCertificate().build();
+        certificateRepository.save(renewedCertificate);
+        ClientCertificateDataResponseDto responseDto = new ClientCertificateDataResponseDto();
+        responseDto.setUuid(renewedCertificate.getUuid().toString());
+        CertificateLocationId renewedEntry = new CertificateLocationId(location.getUuid(),
+                renewedCertificate.getUuid());
+        Map<String, Boolean> linkedAt = new LinkedHashMap<>();
+        when(clientOperationService.renewCertificate(any(), any(), any(), any(), any(), any()))
+                .thenAnswer(invocation -> {
+                    invocation.<Consumer<UUID>>getArgument(5).accept(renewedCertificate.getUuid());
+                    linkedAt.put("dispatch", certificateLocationRepository.existsById(renewedEntry));
+                    return responseDto;
+                });
+        Consumer<UUID> callersStep = successorUuid -> linkedAt
+                .put("callersStep", certificateLocationRepository.existsById(renewedEntry));
+
+        // when
+        locationService
+                .renewCertificateInLocationForSuccessor(entityInstanceReference.getSecuredParentUuid(),
+                        location.getSecuredUuid(), certificate.getUuid(), callersStep);
+
+        // then
+        assertThat(linkedAt).containsExactly(Map.entry("callersStep", false), Map.entry("dispatch", true));
+    }
+
+    @Test
+    void callsTheLocationAndTheAuthorityWithoutATransaction_whenRenewingForASuccessor() throws Exception {
+        // given
+        prepareCertificateForRenewalInLocation();
+        X509CertificateEntity renewedCertificate = aCertificate().build();
+        certificateRepository.save(renewedCertificate);
+        ClientCertificateDataResponseDto responseDto = new ClientCertificateDataResponseDto();
+        responseDto.setUuid(renewedCertificate.getUuid().toString());
+        Map<String, Boolean> transactionActiveInCall = new LinkedHashMap<>();
+        LocationSyncApiClient locationClient = mock(LocationSyncApiClient.class);
+        doReturn(locationClient).when(connectorApiFactory).getLocationApiClient(any());
+        when(locationClient.generateCsrLocation(any(), any(), any()))
+                .thenAnswer(recordingTransaction(transactionActiveInCall, "generateCsr", new GenerateCsrResponseDto()));
+        when(locationClient.listPushCertificateAttributes(any(), any()))
+                .thenAnswer(recordingTransaction(transactionActiveInCall, "listPushAttributes", List.of()));
+        when(locationClient.listGenerateCsrAttributes(any(), any()))
+                .thenAnswer(recordingTransaction(transactionActiveInCall, "listCsrAttributes", List.of()));
+        when(clientOperationService.renewalFor(any(), any(), any(), any(), any()))
+                .thenAnswer(recordingTransaction(transactionActiveInCall, "renewalFor", Optional.empty()));
+        Answer<Object> recordingRenewal = recordingTransaction(transactionActiveInCall, "renewCertificate",
+                responseDto);
+        when(clientOperationService.renewCertificate(any(), any(), any(), any(), any(), any()))
+                .thenAnswer(invocation -> {
+                    Object answer = recordingRenewal.answer(invocation);
+                    invocation.<Consumer<UUID>>getArgument(5).accept(renewedCertificate.getUuid());
+                    return answer;
+                });
+
+        // when
+        UUID successorUuid = locationService
+                .renewCertificateInLocationForSuccessor(entityInstanceReference.getSecuredParentUuid(),
+                        location.getSecuredUuid(), certificate.getUuid(), null);
+
+        // then
+        assertThat(successorUuid).isEqualTo(renewedCertificate.getUuid());
+        assertThat(transactionActiveInCall)
+                .containsOnlyKeys("generateCsr", "renewalFor", "renewCertificate", "listPushAttributes",
+                        "listCsrAttributes")
+                .doesNotContainValue(true);
+        assertThat(certificateLocationRepository
+                .findById(new CertificateLocationId(location.getUuid(), renewedCertificate.getUuid()))).isPresent();
     }
 
     @Test
@@ -1359,7 +1515,7 @@ class LocationServiceITest extends BaseSpringBootTest {
         mockServer
                 .verify(0, WireMock
                         .postRequestedFor(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/csr")));
-        verify(clientOperationService, never()).renewCertificate(any(), any(), any(), any());
+        verify(clientOperationService, never()).renewCertificate(any(), any(), any(), any(), any(), any());
         Assertions
                 .assertTrue(
                         eventHistoryRepository
@@ -1395,7 +1551,7 @@ class LocationServiceITest extends BaseSpringBootTest {
         Certificate renewedCertificate = certificateRepository.save(aCertificate().build());
         ClientCertificateDataResponseDto responseDto = new ClientCertificateDataResponseDto();
         responseDto.setUuid(renewedCertificate.getUuid().toString());
-        when(clientOperationService.renewCertificate(any(), any(), any(), any())).thenReturn(responseDto);
+        when(clientOperationService.renewCertificate(any(), any(), any(), any(), any(), any())).thenReturn(responseDto);
         mockServer
                 .stubFor(WireMock
                         .post(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/csr"))
@@ -1413,7 +1569,7 @@ class LocationServiceITest extends BaseSpringBootTest {
                 .renewCertificateInLocation(entityInstanceReference.getSecuredParentUuid(), location.getSecuredUuid(),
                         certificate.getUuid().toString());
 
-        verify(clientOperationService).renewCertificate(any(), any(), any(), any());
+        verify(clientOperationService).renewCertificate(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -1748,6 +1904,23 @@ class LocationServiceITest extends BaseSpringBootTest {
         locationService
                 .pushCertificateToLocation(getEntityUuid(), location.getSecuredUuid(), certificate.getUuid().toString(),
                         pushRequest);
+    }
+
+    /** Answers as Core does: runs the caller's step before dispatch with the new certificate, then returns. */
+    private static Answer<Object> runStepBeforeDispatchAndReturn(UUID successorUuid,
+            ClientCertificateDataResponseDto response) {
+        return invocation -> {
+            invocation.<Consumer<UUID>>getArgument(5).accept(successorUuid);
+            return response;
+        };
+    }
+
+    private static Answer<Object> recordingTransaction(Map<String, Boolean> transactionActiveInCall, String call,
+            Object result) {
+        return invocation -> {
+            transactionActiveInCall.put(call, TransactionSynchronizationManager.isActualTransactionActive());
+            return result;
+        };
     }
 
     private void prepareCertificateForRenewalInLocation() {
