@@ -256,9 +256,9 @@ class ApprovedAutoRenewalITest extends BaseSpringBootTest {
 
         @BeforeEach
         void createLocationAction() {
-            action = createActionWith(
-                    new LocationRenewalHandler(locationStub, renewalLocationRepository, certificateRepository,
-                            certificateLocationRepository, eventHistoryService, entityManager, transactionManager));
+            action = createActionWith(new LocationRenewalHandler(locationStub, renewalLocationRepository,
+                    renewalInfoRepository, certificateRepository, certificateLocationRepository, eventHistoryService,
+                    entityManager, transactionManager));
         }
 
         @Test
