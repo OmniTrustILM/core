@@ -45,7 +45,6 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
@@ -80,9 +79,8 @@ public class OutboundSecretContainment {
 
     private static final int MAX_WALK_DEPTH = 12;
 
-    /** One value or map key of an object in its {@code toString()} form, with the {@code =} that marks a key. */
-    private static final Pattern TO_STRING_TOKEN = Pattern.compile("([^,{}\\[\\]=]+)(=?)");
-
+    /** The characters that delimit the values of a map or a list in its {@code toString()} form. */
+    private static final Pattern TO_STRING_STRUCTURE = Pattern.compile("[,{}\\[\\]]");
     /**
      * How deep the recording walk follows a resolved request. Each nesting level adds five wrappers (attribute list,
      * attribute, content list, reference, data), so a secret at {@link ReferenceTraversal#MAX_DEPTH} sits deeper than a
@@ -217,15 +215,17 @@ public class OutboundSecretContainment {
 
     /**
      * The values of an object sealed in its {@code toString()} form, as an OBJECT attribute holding a map or a list is
-     * encrypted: {@code {profile=EMPTY, passphrases=[x, y]}}, nested to any depth. Map keys are left out, as they name
-     * fields rather than hold secrets.
+     * encrypted: {@code {profile=EMPTY, passphrases=[x, y]}}, nested to any depth. Each piece between the structural
+     * characters counts whole, and a map entry also counts from its first {@code =} on, so a value padded with
+     * {@code =} keeps its padding.
      */
     private static void collectToStringValues(String text, Set<String> sentSecrets) {
-        Matcher tokens = TO_STRING_TOKEN.matcher(text);
-        while (tokens.find()) {
-            boolean isMapKey = !tokens.group(2).isEmpty();
-            if (!isMapKey) {
-                addIfPresent(tokens.group(1).strip(), sentSecrets);
+        for (String piece : TO_STRING_STRUCTURE.split(text)) {
+            String entry = piece.strip();
+            addIfPresent(entry, sentSecrets);
+            int keyEnd = entry.indexOf('=');
+            if (keyEnd >= 0) {
+                addIfPresent(entry.substring(keyEnd + 1).strip(), sentSecrets);
             }
         }
     }
