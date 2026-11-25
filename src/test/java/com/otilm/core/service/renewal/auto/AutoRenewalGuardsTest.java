@@ -260,8 +260,11 @@ class AutoRenewalGuardsTest {
     @ParameterizedTest(name = "attempt {0} of 3 -> limit reached {1}")
     @CsvSource({"1, false", "2, true", "3, false"})
     void reachesTheLimitThroughAReopen_whenTheCountFirstGetsThere(int previousAttempts, boolean limitReached) {
+        // given
+        int maxAttempts = 3;
+
         // when
-        FailureCount reopen = AutoRenewalGuards.countReopen(previousAttempts, 3);
+        FailureCount reopen = AutoRenewalGuards.countReopen(previousAttempts, maxAttempts);
 
         // then
         assertThat(reopen.limitReached()).isEqualTo(limitReached);
@@ -390,6 +393,8 @@ class AutoRenewalGuardsTest {
         // then
         assertThat(foreignRenewal).isFalse();
     }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static CertificateRelation relationTo(CertificateState successorState) {
         var successor = aCertificate().withUuid(UUID.randomUUID()).withState(successorState).build();

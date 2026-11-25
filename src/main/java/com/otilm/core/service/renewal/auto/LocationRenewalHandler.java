@@ -194,12 +194,10 @@ public class LocationRenewalHandler implements AutoRenewalHandler {
     private void settleDetached(CertificateRenewalLocation row, Instant now) {
         switch (successorStatus(row.getSuccessorUuid())) {
             case ISSUED -> {
-                if (row.getCompletedAt() == null) {
-                    row.setCompletedAt(now);
-                    logger
-                            .info("Automatic renewal of certificate {} in location {} completed",
-                                    row.getCertificateUuid(), row.getLocationUuid());
-                }
+                row.setCompletedAt(now);
+                logger
+                        .info("Automatic renewal of certificate {} in location {} completed", row.getCertificateUuid(),
+                                row.getLocationUuid());
             }
             case NONE, FAILED, REVOKED -> {
                 renewalLocationRepository.delete(row);
@@ -265,7 +263,7 @@ public class LocationRenewalHandler implements AutoRenewalHandler {
         row.setCompletedAt(null);
         row.setSuccessorUuid(null);
         FailureCount count = AutoRenewalGuards.countReopen(row.getAttempt(), maxAttempts);
-        String outcome = count.limitReached()
+        String outcome = count.attempt() >= maxAttempts
                 ? "the attempt limit is reached, so it is not renewed there again"
                 : "the certificate is renewed there again";
         String reason = "the renewed certificate %s was revoked; %s".formatted(revokedUuid, outcome);

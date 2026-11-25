@@ -342,6 +342,27 @@ class IlmKeyRenewalITest extends BaseSpringBootTest {
     }
 
     @Test
+    void recordsThatRenewalStops_whenTheAttemptLimitWasLoweredBelowTheStoredCount() throws Exception {
+        // given
+        Certificate revoked = seedRevokedSuccessor();
+        int maxAttempts = raProfile.getAutoRenewalMaxAttempts();
+        CertificateRenewalInfo pastTheLimit = seeder.renewalRow(certificate.getUuid());
+        pastTheLimit.setRenewAttempt(maxAttempts + 2);
+        renewalInfoRepository.save(pastTheLimit);
+
+        // when
+        fire();
+
+        // then
+        assertThat(renewHistory())
+                .extracting(CertificateEventHistory::getMessage)
+                .anyMatch(message -> message
+                        .startsWith("The renewed certificate %s was revoked; the attempt limit is reached"
+                                .formatted(revoked.getUuid())))
+                .noneMatch(message -> message.contains("is renewed again"));
+    }
+
+    @Test
     void renewsAgain_whenTheReopenedRenewalIsDueDespiteTheRevokedSuccessorsRelation() throws Exception {
         // given
         seedRevokedSuccessor();

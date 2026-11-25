@@ -205,7 +205,7 @@ public class AutoRenewalAction {
         row.setRenewSuccessorUuid(null);
         row.setRenewAt(null);
         FailureCount count = AutoRenewalGuards.countReopen(row.getRenewAttempt(), maxAttempts);
-        String outcome = count.limitReached()
+        String outcome = count.attempt() >= maxAttempts
                 ? "the attempt limit is reached, so it is not renewed again"
                 : "the certificate is renewed again";
         String message = "The renewed certificate %s was revoked; %s".formatted(successorUuid, outcome);
