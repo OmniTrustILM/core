@@ -41,7 +41,10 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 @ToString
 @RequiredArgsConstructor
 @Entity
-@Table(name = "acme_order", indexes = @Index(name = "idx_acme_order_certificate_ref", columnList = "certificate_ref"))
+@Table(name = "acme_order",
+        indexes = {
+                @Index(name = "idx_acme_order_certificate_ref", columnList = "certificate_ref"),
+                @Index(name = "idx_acme_order_replaces_certificate", columnList = "replaces_certificate_uuid")})
 public class AcmeOrder extends UniquelyIdentifiedAndAudited implements Serializable, DtoMapper<Order> {
 
     @Column(name = "order_id")
@@ -85,6 +88,14 @@ public class AcmeOrder extends UniquelyIdentifiedAndAudited implements Serializa
     @Column(name = "error_detail", length = Integer.MAX_VALUE)
     private String errorDetail;
 
+    /** The certificate identifier of RFC 9773 the client named in {@code replaces}, as it sent it. */
+    @Column(name = "replaces_cert_id", length = Integer.MAX_VALUE)
+    private String replacesCertId;
+
+    /** The certificate the order replaces. */
+    @Column(name = "replaces_certificate_uuid")
+    private UUID replacesCertificateUuid;
+
     @JsonBackReference
     @OneToMany(mappedBy = "order", fetch = FetchType.LAZY)
     @ToString.Exclude
@@ -104,6 +115,7 @@ public class AcmeOrder extends UniquelyIdentifiedAndAudited implements Serializa
         order.setNotBefore(AcmeCommonHelper.getStringFromDate(notBefore));
         order.setIdentifiers(SerializationUtil.deserializeIdentifiers(identifiers));
         order.setError(mapErrorToDto());
+        order.setReplaces(replacesCertId);
         return order;
     }
 

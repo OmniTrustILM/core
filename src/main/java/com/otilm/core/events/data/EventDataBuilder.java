@@ -9,6 +9,7 @@ import com.otilm.api.model.common.events.data.CertificateEventData;
 import com.otilm.api.model.common.events.data.CertificateExpiringEventData;
 import com.otilm.api.model.common.events.data.CertificateNotCompliantEventData;
 import com.otilm.api.model.common.events.data.CertificateRegisteredEventData;
+import com.otilm.api.model.common.events.data.CertificateRenewalDueEventData;
 import com.otilm.api.model.common.events.data.CertificateStatusChangedEventData;
 import com.otilm.api.model.common.events.data.DiscoveryFinishedEventData;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
@@ -17,6 +18,7 @@ import com.otilm.api.model.core.notification.RecipientType;
 import com.otilm.core.dao.entity.Approval;
 import com.otilm.core.dao.entity.ApprovalProfile;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.CertificateRenewalInfo;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.model.auth.ResourceAction;
@@ -131,6 +133,24 @@ public class EventDataBuilder {
         eventData.setNotBefore(certificate.getNotBefore().toInstant().atZone(ZoneId.systemDefault()));
         eventData.setExpiresAt(certificate.getNotAfter().toInstant().atZone(ZoneId.systemDefault()));
 
+        return eventData;
+    }
+
+    public static CertificateRenewalDueEventData getCertificateRenewalDueEventData(Certificate certificate) {
+        CertificateRenewalDueEventData eventData = new CertificateRenewalDueEventData();
+        setCertificateEventData(eventData, certificate);
+        setCertificateAuthorityData(eventData, certificate);
+        eventData.setNotBefore(certificate.getNotBefore().toInstant().atZone(ZoneId.systemDefault()));
+        eventData.setExpiresAt(certificate.getNotAfter().toInstant().atZone(ZoneId.systemDefault()));
+
+        CertificateRenewalInfo renewalInfo = certificate.getRenewalInfo();
+        if (renewalInfo != null && renewalInfo.getWindowStart() != null) {
+            eventData.setWindowStart(renewalInfo.getWindowStart().atZone(ZoneId.systemDefault()));
+            eventData.setWindowEnd(renewalInfo.getWindowEnd().atZone(ZoneId.systemDefault()));
+            eventData.setExplanationUrl(renewalInfo.getExplanationUrl());
+            eventData.setSource(renewalInfo.getSource());
+            eventData.setAdvanced(renewalInfo.isAdvanced());
+        }
         return eventData;
     }
 

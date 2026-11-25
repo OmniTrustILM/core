@@ -249,6 +249,76 @@ class AcmeProfileServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void storesTheRenewalInfoSettings_whenTheProfileIsCreated() throws Exception {
+        // given
+        AcmeProfileRequestDto create = new AcmeProfileRequestDto();
+        create.setName("renewalInfoProfile");
+        create.setRenewalInfoEnabled(true);
+        int retryAfter = 900;
+        create.setRenewalInfoRetryAfter(retryAfter);
+
+        // when
+        AcmeProfileDto created = acmeProfileService.createAcmeProfile(create);
+
+        // then
+        assertThat(created.getRenewalInfoEnabled()).isTrue();
+        assertThat(created.getRenewalInfoRetryAfter()).isEqualTo(retryAfter);
+    }
+
+    @Test
+    void usesTheRenewalInfoDefaults_whenTheCreateOmitsThem() throws Exception {
+        // given
+        AcmeProfileRequestDto withoutRenewalInfo = new AcmeProfileRequestDto();
+        withoutRenewalInfo.setName("renewalInfoDefaults");
+
+        // when
+        AcmeProfileDto created = acmeProfileService.createAcmeProfile(withoutRenewalInfo);
+
+        // then
+        assertThat(created.getRenewalInfoEnabled()).isFalse();
+        assertThat(created.getRenewalInfoRetryAfter()).isEqualTo(21600);
+    }
+
+    @Test
+    void keepsTheRenewalInfoSettings_whenTheEditOmitsThem() throws Exception {
+        // given
+        AcmeProfileRequestDto create = new AcmeProfileRequestDto();
+        create.setName("renewalInfoKept");
+        create.setRenewalInfoEnabled(true);
+        int retryAfter = 900;
+        create.setRenewalInfoRetryAfter(retryAfter);
+        AcmeProfileDto created = acmeProfileService.createAcmeProfile(create);
+        AcmeProfileEditRequestDto omitted = new AcmeProfileEditRequestDto();
+
+        // when
+        AcmeProfileDto edited = acmeProfileService.editAcmeProfile(SecuredUUID.fromString(created.getUuid()), omitted);
+
+        // then
+        assertThat(edited.getRenewalInfoEnabled()).isTrue();
+        assertThat(edited.getRenewalInfoRetryAfter()).isEqualTo(retryAfter);
+    }
+
+    @Test
+    void changesTheRenewalInfoSettings_whenTheEditGivesThem() throws Exception {
+        // given
+        AcmeProfileRequestDto create = new AcmeProfileRequestDto();
+        create.setName("renewalInfoChanged");
+        create.setRenewalInfoEnabled(true);
+        AcmeProfileDto created = acmeProfileService.createAcmeProfile(create);
+        AcmeProfileEditRequestDto edit = new AcmeProfileEditRequestDto();
+        edit.setRenewalInfoEnabled(false);
+        int newRetryAfter = 3600;
+        edit.setRenewalInfoRetryAfter(newRetryAfter);
+
+        // when
+        AcmeProfileDto edited = acmeProfileService.editAcmeProfile(SecuredUUID.fromString(created.getUuid()), edit);
+
+        // then
+        assertThat(edited.getRenewalInfoEnabled()).isFalse();
+        assertThat(edited.getRenewalInfoRetryAfter()).isEqualTo(newRetryAfter);
+    }
+
+    @Test
     void requiringTermsAgreementNeedsATermsUrlOnCreateAndEdit() throws Exception {
         AcmeProfileRequestDto create = new AcmeProfileRequestDto();
         create.setName("termsWithoutUrl");

@@ -15,6 +15,8 @@ import com.otilm.api.model.core.settings.BrandingSettingsUpdateDto;
 import com.otilm.api.model.core.settings.BrandingTheme;
 import com.otilm.api.model.core.settings.CertificateRegistrationSettingsDto;
 import com.otilm.api.model.core.settings.CertificateRegistrationSettingsUpdateDto;
+import com.otilm.api.model.core.settings.CertificateRenewalInfoSettingsDto;
+import com.otilm.api.model.core.settings.CertificateRenewalInfoSettingsUpdateDto;
 import com.otilm.api.model.core.settings.CertificateRequestAttributesSettingsDto;
 import com.otilm.api.model.core.settings.CertificateRequestAttributesSettingsUpdateDto;
 import com.otilm.api.model.core.settings.CertificateSettingsDto;
@@ -56,12 +58,14 @@ import com.otilm.core.service.TaggedOAuth2ProviderSettings;
 import com.otilm.core.service.TriggerExternalService;
 import com.otilm.core.service.TriggerInternalService;
 import com.otilm.core.service.registration.CertificateRegistrationDefaults;
+import com.otilm.core.service.renewal.refresh.RenewalInfoSettings;
 import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.settings.branding.BrandingSettingsValidator;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.SecretEncodingVersion;
 import com.otilm.core.util.SecretsUtil;
 import jakarta.annotation.PostConstruct;
+import jakarta.validation.Validator;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.MalformedURLException;
@@ -114,6 +118,7 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
     public static final String CERTIFICATES_VALIDATION_SETTINGS_NAME = "certificatesValidation";
     public static final String CERTIFICATES_REGISTRATION_SETTINGS_NAME = "certificatesRegistration";
     public static final String CERTIFICATES_UPLOAD_SETTINGS_NAME = "certificatesUpload";
+    public static final String CERTIFICATES_RENEWAL_INFO_SETTINGS_NAME = "certificatesRenewalInfo";
 
     public static final String LOGGING_AUDIT_LOG_OUTPUT_NAME = "output";
     public static final String LOGGING_AUDIT_LOG_VERBOSE_NAME = "verbose";
@@ -142,6 +147,7 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
     private final SettingsCache settingsCache;
     private final SettingRepository settingRepository;
 
+    private Validator validator;
     private TriggerExternalService triggerService;
     private TriggerInternalService triggerInternalService;
 
@@ -154,6 +160,11 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
         this.wireMapper = wireMapper;
         this.settingsCache = settingsCache;
         this.settingRepository = settingRepository;
+    }
+
+    @Autowired
+    public void setValidator(Validator validator) {
+        this.validator = validator;
     }
 
     @Autowired
@@ -297,6 +308,8 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
             certificateSettingsDto.setUpload(defaultUploadSettings);
         }
 
+        certificateSettingsDto.setRenewalInfo(readRenewalInfoSettings(certificateSettings));
+
         platformSettings.setCertificates(certificateSettingsDto);
 
         // Branding
@@ -427,6 +440,23 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
         }
         setting.setValue(value);
         settingRepository.save(setting);
+    }
+
+    private CertificateRenewalInfoSettingsDto readRenewalInfoSettings(Map<String, Setting> certificateSettings) {
+        Setting stored = certificateSettings == null
+                ? null
+                : certificateSettings.get(CERTIFICATES_RENEWAL_INFO_SETTINGS_NAME);
+        if (stored != null) {
+            try {
+                return RenewalInfoSettings
+                        .from(storageMapper.readValue(stored.getValue(), CertificateRenewalInfoSettingsDto.class))
+                        .toDto();
+            } catch (JsonProcessingException e) {
+                logger
+                        .warn("Cannot deserialize platform certificates renewal info settings. Returning default settings.");
+            }
+        }
+        return RenewalInfoSettings.DEFAULTS.toDto();
     }
 
     private Setting certificateSetting(Map<String, Setting> certificateSettings, String name) {
@@ -699,6 +729,22 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
                 throw new ValidationException("Cannot serialize platform certificates settings.");
             }
             settingRepository.save(uploadSetting);
+        }
+
+        CertificateRenewalInfoSettingsUpdateDto renewalInfo = platformSettings.getCertificates().getRenewalInfo();
+        if (renewalInfo != null) {
+            if (!validator.validate(renewalInfo).isEmpty()) {
+                throw new ValidationException("Invalid renewal information settings.");
+            }
+            Setting renewalInfoSetting = certificateSetting(certificateSettings,
+                    CERTIFICATES_RENEWAL_INFO_SETTINGS_NAME);
+            try {
+                renewalInfoSetting.setValue(storageMapper.writeValueAsString(renewalInfo));
+            } catch (JsonProcessingException e) {
+                logger.warn("Failed to serialize platform certificates renewal info settings", e);
+                throw new ValidationException("Cannot serialize platform certificates settings.");
+            }
+            settingRepository.save(renewalInfoSetting);
         }
     }
 

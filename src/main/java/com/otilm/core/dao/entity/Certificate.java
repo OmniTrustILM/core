@@ -6,6 +6,7 @@ import com.otilm.api.model.common.enums.IPlatformEnum;
 import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateDto;
 import com.otilm.api.model.core.certificate.CertificateFormat;
+import com.otilm.api.model.core.certificate.CertificateOperation;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
 import com.otilm.api.model.core.certificate.CertificateSimpleDto;
 import com.otilm.api.model.core.certificate.CertificateState;
@@ -281,6 +282,14 @@ public abstract class Certificate extends UniquelyIdentifiedAndAudited
     @ToString.Exclude
     private CertificateProtocolAssociation protocolAssociation;
 
+    @OneToOne(fetch = FetchType.LAZY, mappedBy = "certificate")
+    @ToString.Exclude
+    private CertificateRenewalInfo renewalInfo;
+
+    @OneToMany(mappedBy = "certificate", fetch = FetchType.LAZY)
+    @ToString.Exclude
+    private Set<CertificateRenewalLocation> renewalLocations = new HashSet<>();
+
     @OneToMany(mappedBy = "predecessorCertificate", fetch = FetchType.LAZY)
     @JsonBackReference
     @ToString.Exclude
@@ -294,6 +303,11 @@ public abstract class Certificate extends UniquelyIdentifiedAndAudited
     @Override
     public CertificateDetail mapToDto() {
         return CertificateDetailDtoMapper.toDetailDto(this);
+    }
+
+    /** The detail with the automatic renewal mode, for the operations the handler of the type supports. */
+    public CertificateDetail mapToDto(Set<CertificateOperation> typeOperations) {
+        return CertificateDetailDtoMapper.toDetailDto(this, typeOperations);
     }
 
     /**

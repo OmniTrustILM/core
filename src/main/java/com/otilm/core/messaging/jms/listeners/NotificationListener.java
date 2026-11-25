@@ -20,6 +20,7 @@ import com.otilm.api.model.common.events.data.CertificateEventData;
 import com.otilm.api.model.common.events.data.CertificateExpiringEventData;
 import com.otilm.api.model.common.events.data.CertificateNotCompliantEventData;
 import com.otilm.api.model.common.events.data.CertificateRegisteredEventData;
+import com.otilm.api.model.common.events.data.CertificateRenewalDueEventData;
 import com.otilm.api.model.common.events.data.CertificateStatusChangedEventData;
 import com.otilm.api.model.common.events.data.CommentEventData;
 import com.otilm.api.model.common.events.data.CryptoAssetPqcNotReadyEventData;
@@ -555,7 +556,8 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
         List<NotificationRecipient> recipients = new ArrayList<>();
         switch (event) {
             case CERTIFICATE_STATUS_CHANGED, CERTIFICATE_ACTION_PERFORMED, CERTIFICATE_EXPIRING,
-                    CERTIFICATE_NOT_COMPLIANT, CERTIFICATE_UPLOADED, COMMENT_CREATED, COMMENT_RESOLVED -> {
+                    CERTIFICATE_RENEWAL_DUE, CERTIFICATE_NOT_COMPLIANT, CERTIFICATE_UPLOADED, COMMENT_CREATED,
+                    COMMENT_RESOLVED -> {
                 NameAndUuidDto ownerInfo = resourceObjectAssociationService.getOwner(resource, objectUuid);
                 if (ownerInfo != null) {
                     recipients.add(new NotificationRecipient(RecipientType.USER, UUID.fromString(ownerInfo.getUuid())));
@@ -882,6 +884,12 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
         return text.toString();
     }
 
+    static String renewalDueText(CertificateRenewalDueEventData data) {
+        String text = "Certificate %s should be renewed between %s and %s"
+                .formatted(describeCertificate(data), data.getWindowStart(), data.getWindowEnd());
+        return data.getExplanationUrl() == null ? text : text + ". See %s.".formatted(data.getExplanationUrl());
+    }
+
     static String describeIssuance(CertificateEventData data) {
         if (data.getSerialNumber() == null && data.getIssuerDn() == null) {
             return null;
@@ -935,6 +943,10 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
                 yield new InternalNotificationEventData(
                         "Certificate %s is expiring on %s".formatted(describeCertificate(data), data.getExpiresAt()),
                         null);
+            }
+            case CERTIFICATE_RENEWAL_DUE -> {
+                CertificateRenewalDueEventData data = (CertificateRenewalDueEventData) eventData;
+                yield new InternalNotificationEventData(renewalDueText(data), null);
             }
             case CERTIFICATE_NOT_COMPLIANT -> {
                 CertificateNotCompliantEventData data = (CertificateNotCompliantEventData) eventData;

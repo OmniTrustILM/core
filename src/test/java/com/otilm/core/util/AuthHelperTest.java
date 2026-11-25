@@ -7,12 +7,15 @@ import com.otilm.api.model.core.logging.records.ActorRecord;
 import com.otilm.api.model.core.logging.records.DelegateRecord;
 import com.otilm.core.logging.LoggingHelper;
 import com.otilm.core.security.authn.PlatformAnonymousToken;
+import com.otilm.core.security.authn.PlatformAuthenticationException;
 import com.otilm.core.security.authn.PlatformAuthenticationToken;
 import com.otilm.core.security.authn.PlatformUserDetails;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
 import com.otilm.core.security.authn.client.PlatformAuthenticationClient;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -20,6 +23,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -231,6 +235,31 @@ class AuthHelperTest {
         assertThat(actor.type()).isEqualTo(ActorType.PROTOCOL);
         assertThat(actor.name()).isEqualTo(AuthHelper.EST_USERNAME);
         assertThat(AuthHelper.isLoggedProtocolUser()).isTrue();
+    }
+
+    @Test
+    void refusesToRunTheAction_whenTheAuthServiceAnswersAnotherUserForTheRequestedOne() {
+        // given
+        UUID refusedUser = UUID.randomUUID();
+        PlatformAuthenticationClient authenticationClient = mock(PlatformAuthenticationClient.class);
+        when(authenticationClient.authenticateByUserUuid(refusedUser))
+                .thenReturn(AuthenticationInfo.getAnonymousAuthenticationInfo());
+        AuthHelper unstubbedAuthHelper = new AuthHelper();
+        unstubbedAuthHelper.setAuthenticationClient(authenticationClient);
+        AtomicBoolean actionRan = new AtomicBoolean();
+
+        // when
+        ThrowingCallable runAsRefusedUser = () -> unstubbedAuthHelper.runAsUser(refusedUser, () -> {
+            actionRan.set(true);
+            return null;
+        });
+
+        // then
+        assertThatThrownBy(runAsRefusedUser)
+                .isInstanceOf(PlatformAuthenticationException.class)
+                .hasMessageContaining(refusedUser.toString());
+        assertThat(actionRan).isFalse();
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
     }
 
     @Test
