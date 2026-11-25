@@ -66,6 +66,22 @@ class ActionServiceRenewExecutionITest extends BaseSpringBootTest {
     }
 
     @Test
+    void refusesARenewExecution_whenItsResourceIsNotCertificates() {
+        // given
+        ExecutionRequestDto request = request("renew", ExecutionType.RENEW_CERTIFICATE);
+        var notCertificates = Resource.CRYPTOGRAPHIC_KEY;
+        request.setResource(notCertificates);
+
+        // when
+        ThrowingCallable create = () -> actionService.createExecution(request);
+
+        // then
+        assertThatThrownBy(create)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Resource %s is not allowed".formatted(notCertificates.getLabel()));
+    }
+
+    @Test
     void refusesASetFieldExecution_whenItHasNoItems() {
         // given
         ExecutionRequestDto request = request("set", ExecutionType.SET_FIELD);

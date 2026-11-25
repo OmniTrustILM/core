@@ -39,7 +39,7 @@ class CertificateStateMachineTest {
     private CertificateStateMachine sm;
 
     @BeforeEach
-    void setUp() {
+    void wireStateMachine() {
         certificateRepository = mock(CertificateRepository.class);
         eventHistoryService = mock(CertificateEventHistoryInternalService.class);
         renewalWindowWriter = mock(RenewalWindowWriter.class);

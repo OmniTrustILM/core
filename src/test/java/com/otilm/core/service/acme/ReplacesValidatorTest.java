@@ -70,8 +70,14 @@ class ReplacesValidatorTest {
                 .withUuid(UUID.randomUUID())
                 .withCommonName("example.com")
                 .withSubjectAlternativeNames(SANS)
+                .withState(CertificateState.ISSUED)
+                .withArchived(false)
+                .withRaProfileUuid(raProfile.getUuid())
                 .build();
         lenient().when(ariCertificateLookup.find(any(), any())).thenReturn(Optional.of(predecessor));
+        lenient()
+                .when(certificateRepository.findAndLockFreshByUuid(predecessor.getUuid()))
+                .thenReturn(Optional.of(predecessor));
         lenient()
                 .when(acmeOrderRepository
                         .existsByCertificateReferenceUuidAndAcmeAccountUuid(predecessor.getUuid(), account.getUuid()))
@@ -126,6 +132,86 @@ class ReplacesValidatorTest {
 
         // then
         assertThat(validated).isSameAs(predecessor);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"example.com.", "www.example.com."})
+    void acceptsADnsIdentifier_whenOnlyATrailingRootDotDiffers(String rootedName) throws Exception {
+        // when
+        Certificate validated = validator.validate(CERT_ID, account, List.of(dns(rootedName)), raProfile);
+
+        // then
+        assertThat(validated).isSameAs(predecessor);
+    }
+
+    @Test
+    void acceptsADnsIdentifier_whenTheSubjectAlternativeNameHasATrailingRootDot() throws Exception {
+        // given
+        predecessor.setSubjectAlternativeNames("{\"dNSName\":[\"rooted.example.com.\"]}");
+        var unrootedName = dns("rooted.example.com");
+
+        // when
+        Certificate validated = validator.validate(CERT_ID, account, List.of(unrootedName), raProfile);
+
+        // then
+        assertThat(validated).isSameAs(predecessor);
+    }
+
+    @Test
+    void refusesAsMalformed_whenTheCertificateWasArchivedBeforeTheLock() {
+        // given
+        var archivedMeanwhile = aCertificate()
+                .withUuid(predecessor.getUuid())
+                .withState(CertificateState.ISSUED)
+                .withArchived(true)
+                .withRaProfileUuid(raProfile.getUuid())
+                .build();
+        when(certificateRepository.findAndLockFreshByUuid(predecessor.getUuid()))
+                .thenReturn(Optional.of(archivedMeanwhile));
+
+        // when
+        ThrowingCallable validate = () -> validator.validate(CERT_ID, account, List.of(dns("example.com")), raProfile);
+
+        // then
+        assertRefused(validate);
+    }
+
+    @Test
+    void refusesAsMalformed_whenTheCertificateLeftTheRaProfileBeforeTheLock() {
+        // given
+        var movedMeanwhile = aCertificate()
+                .withUuid(predecessor.getUuid())
+                .withState(CertificateState.ISSUED)
+                .withArchived(false)
+                .withRaProfileUuid(UUID.randomUUID())
+                .build();
+        when(certificateRepository.findAndLockFreshByUuid(predecessor.getUuid()))
+                .thenReturn(Optional.of(movedMeanwhile));
+
+        // when
+        ThrowingCallable validate = () -> validator.validate(CERT_ID, account, List.of(dns("example.com")), raProfile);
+
+        // then
+        assertRefused(validate);
+    }
+
+    @Test
+    void refusesAsMalformed_whenTheCertificateIsNoLongerIssuedAtTheLock() {
+        // given
+        var revokedMeanwhile = aCertificate()
+                .withUuid(predecessor.getUuid())
+                .withState(CertificateState.REVOKED)
+                .withArchived(false)
+                .withRaProfileUuid(raProfile.getUuid())
+                .build();
+        when(certificateRepository.findAndLockFreshByUuid(predecessor.getUuid()))
+                .thenReturn(Optional.of(revokedMeanwhile));
+
+        // when
+        ThrowingCallable validate = () -> validator.validate(CERT_ID, account, List.of(dns("example.com")), raProfile);
+
+        // then
+        assertRefused(validate);
     }
 
     @Test

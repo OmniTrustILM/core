@@ -166,6 +166,10 @@ public class ActionServiceImpl implements ActionExternalService {
 
     private Set<ExecutionItem> createExecutionItems(List<ExecutionItemRequestDto> executionItemRequestDtos,
             Execution execution) throws NotFoundException {
+        if (execution.getType() == ExecutionType.RENEW_CERTIFICATE && execution.getResource() != Resource.CERTIFICATE) {
+            throw new ValidationException("Resource %s is not allowed for execution type %s"
+                    .formatted(execution.getResource().getLabel(), execution.getType().getLabel()));
+        }
         Set<ExecutionItem> executionItems = new HashSet<>();
         for (ExecutionItemRequestDto executionItemRequestDto : executionItemRequestDtos) {
             ExecutionItem executionItem = switch (execution.getType()) {

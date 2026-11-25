@@ -76,14 +76,15 @@ public class ReplacesValidator {
      */
     public Certificate validate(String replaces, AcmeAccount account, List<Identifier> identifiers, RaProfile raProfile)
             throws AcmeProblemDocumentException {
-        Certificate predecessor = findOrderedByAccount(replaces, account, raProfile)
+        Certificate found = findOrderedByAccount(replaces, account, raProfile)
                 .filter(certificate -> sharesIdentifier(certificate, identifiers))
-                .orElseThrow(() -> {
-                    logger.debug("Refused replaces of an order of ACME account {}", account.getAccountId());
-                    return new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.MALFORMED, REFUSAL_DETAIL);
-                });
+                .orElseThrow(() -> refusal(account));
         // Serializes the check and the insert of the order that follows, across replicas, until the order commits.
-        certificateRepository.findAndLockFreshByUuid(predecessor.getUuid());
+        // The certificate may have been archived or moved to another RA profile since it was found.
+        Certificate predecessor = certificateRepository
+                .findAndLockFreshByUuid(found.getUuid())
+                .filter(certificate -> isIssuedUnderProfile(certificate, raProfile))
+                .orElseThrow(() -> refusal(account));
         if (acmeOrderRepository.existsLiveOrderReplacing(predecessor.getUuid(), new Date())
                 || certificateRelationRepository
                         .existsByIdPredecessorCertificateUuidAndSuccessorCertificateState(predecessor.getUuid(),
@@ -91,6 +92,16 @@ public class ReplacesValidator {
             throw new AcmeProblemDocumentException(HttpStatus.CONFLICT, Problem.ALREADY_REPLACED);
         }
         return predecessor;
+    }
+
+    private static AcmeProblemDocumentException refusal(AcmeAccount account) {
+        logger.debug("Refused replaces of an order of ACME account {}", account.getAccountId());
+        return new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.MALFORMED, REFUSAL_DETAIL);
+    }
+
+    private static boolean isIssuedUnderProfile(Certificate certificate, RaProfile raProfile) {
+        return certificate.getState() == CertificateState.ISSUED && !certificate.isArchived()
+                && raProfile.getUuid().equals(certificate.getRaProfileUuid());
     }
 
     private Optional<Certificate> findOrderedByAccount(String replaces, AcmeAccount account, RaProfile raProfile) {
@@ -108,7 +119,8 @@ public class ReplacesValidator {
 
     /**
      * Whether a DNS or IP identifier of the order is one of the certificate's subject alternative names of that type. A
-     * DNS identifier may also be the common name. Names compare ignoring case, addresses by their octets.
+     * DNS identifier may also be the common name. Names compare ignoring case and one trailing root dot, addresses by
+     * their octets.
      */
     private static boolean sharesIdentifier(Certificate certificate, List<Identifier> identifiers) {
         X509CertificateEntity x509 = X509CertificateEntity.fromOrNull(certificate);
@@ -126,7 +138,8 @@ public class ReplacesValidator {
 
     private static boolean matchesAny(Identifier identifier, List<String> names, List<String> addresses) {
         if (AcmeIdentifierType.DNS.getCode().equalsIgnoreCase(identifier.getType())) {
-            return names.stream().anyMatch(name -> name.equalsIgnoreCase(identifier.getValue()));
+            String ordered = withoutRootDot(identifier.getValue());
+            return names.stream().anyMatch(name -> withoutRootDot(name).equalsIgnoreCase(ordered));
         }
         if (AcmeIdentifierType.IP.getCode().equalsIgnoreCase(identifier.getType())) {
             Optional<byte[]> ordered = AcmeIdentifierPolicy.addressBytes(identifier.getValue());
@@ -137,5 +150,9 @@ public class ReplacesValidator {
                     .anyMatch(address -> Arrays.equals(address, ordered.get()));
         }
         return false;
+    }
+
+    private static String withoutRootDot(String name) {
+        return name.endsWith(".") ? name.substring(0, name.length() - 1) : name;
     }
 }
