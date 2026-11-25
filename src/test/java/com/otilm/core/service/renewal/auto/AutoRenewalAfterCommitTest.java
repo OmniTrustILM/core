@@ -262,26 +262,55 @@ class AutoRenewalAfterCommitTest {
                             AutoRenewalAfterCommit.UNEXPECTED_FAILURE);
             assertThat(AutoRenewalAfterCommit.UNEXPECTED_FAILURE).doesNotContain(internalDetail);
         }
-    }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
+        @Test
+        void leavesAnUnauthenticatedCallerUnauthenticated_whenTheActionHasRun() throws Exception {
+            // given
+            authenticate("trigger-owner");
+            afterCommit.perform(certificate, firing);
+            SecurityContextHolder.clearContext();
 
-    /** Runs what a transaction manager runs once the caller's transaction has committed. */
-    private static void commit() {
-        complete(TransactionSynchronization.STATUS_COMMITTED);
-    }
+            // when
+            commit();
 
-    private static void complete(int status) {
-        TransactionSynchronizationManager
-                .getSynchronizations()
-                .forEach(synchronization -> synchronization.afterCompletion(status));
-    }
+            // then
+            assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+        }
 
-    private static Authentication authenticate(String name) {
-        var authentication = new TestingAuthenticationToken(name, null);
-        SecurityContext context = SecurityContextHolder.createEmptyContext();
-        context.setAuthentication(authentication);
-        SecurityContextHolder.setContext(context);
-        return authentication;
+        @Test
+        void leavesAnUnauthenticatedCallerUnauthenticated_whenTheActionFails() throws Exception {
+            // given
+            authenticate("trigger-owner");
+            doThrow(new RuleException("refused")).when(action).perform(certificate, firing);
+            afterCommit.perform(certificate, firing);
+            SecurityContextHolder.clearContext();
+
+            // when
+            commit();
+
+            // then
+            assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────────
+
+        /** Runs what a transaction manager runs once the caller's transaction has committed. */
+        private static void commit() {
+            complete(TransactionSynchronization.STATUS_COMMITTED);
+        }
+
+        private static void complete(int status) {
+            TransactionSynchronizationManager
+                    .getSynchronizations()
+                    .forEach(synchronization -> synchronization.afterCompletion(status));
+        }
+
+        private static Authentication authenticate(String name) {
+            var authentication = new TestingAuthenticationToken(name, null);
+            SecurityContext context = SecurityContextHolder.createEmptyContext();
+            context.setAuthentication(authentication);
+            SecurityContextHolder.setContext(context);
+            return authentication;
+        }
     }
 }
