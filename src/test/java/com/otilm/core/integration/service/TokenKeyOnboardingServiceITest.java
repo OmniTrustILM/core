@@ -65,6 +65,7 @@ import com.otilm.core.model.crypto.CryptographicKeyItemBasicModel;
 import com.otilm.core.model.crypto.KeyImportTerms;
 import com.otilm.core.model.crypto.OnboardedKeys;
 import com.otilm.core.model.crypto.OnboardedKeys.OnboardedKey;
+import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.ProviderKeyPair;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
 import com.otilm.core.security.authz.SecuredParentUUID;
@@ -87,7 +88,9 @@ import com.otilm.core.util.RefusedDefinitionInserts;
 import com.otilm.core.util.SqlCapture;
 import com.otilm.core.util.TestPublicKeys;
 import com.otilm.core.util.builders.CertificateBuilder;
+import com.otilm.core.util.builders.ListedKeyEntryV2DtoBuilder;
 import com.otilm.core.util.mocks.CryptographyProviderV2ConnectorMock;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.PublicKey;
 import java.util.ArrayList;
@@ -100,6 +103,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
+import org.bouncycastle.asn1.ASN1ObjectIdentifier;
+import org.bouncycastle.asn1.teletrust.TeleTrusTObjectIdentifiers;
+import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
+import org.bouncycastle.asn1.x9.X9ObjectIdentifiers;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
@@ -119,6 +126,7 @@ import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
 import static com.otilm.core.util.KeyMetaFixtures.keyIdMeta;
+import static com.otilm.core.util.TestPublicKeys.ecPublicKey;
 import static com.otilm.core.util.TestPublicKeys.rsaPublicKey;
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static com.otilm.core.util.builders.CertificateContentBuilder.aCertificateContent;
@@ -199,331 +207,6 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
     void stopConnectorAndStoreEveryDefinitionAgain() {
         connectorMock.stop();
         RefusedDefinitionInserts.remove(jdbcTemplate);
-    }
-
-    // ── Helpers ───────────────────────────────────────────────────────────────
-
-    /** The token lists the key pairs and resolves a selection of each of them, in listing order. */
-    private void tokenLists(ListedKeyEntryV2Dto... entries) throws Exception {
-        connectorMock.stubKeyListing(aKeyListing().withEntries(entries).build());
-        tokenResolves(entries);
-    }
-
-    /** The token answers each selection with the answer at its position, whatever the selection names. */
-    private void tokenResolves(ListedKeyEntryV2Dto... answers) throws Exception {
-        connectorMock.stubKeyResolution(aKeyResolutionResponse().withAnswers(answers).build());
-    }
-
-    private void connectorDropsKeyListing() {
-        v2TokenFixture.declare(v2Token, FeatureFlag.STATELESS);
-    }
-
-    private TokenKeyListResponseDto firstPage() throws Exception {
-        return tokenKeyOnboardingService.listTokenKeys(tokenUuid, profileUuid, 1, 10);
-    }
-
-    private TokenKeyDto firstListedEntry() throws Exception {
-        return firstPage().getItems().getFirst();
-    }
-
-    private TokenKeySelectionDto theFirstListedPair() throws Exception {
-        return selecting(firstListedEntry());
-    }
-
-    private TokenKeySelectionDto theFirstListedPairNamed(String name) throws Exception {
-        return new TokenKeySelectionDto(firstListedEntry().getKeyPairMeta(), name);
-    }
-
-    private static TokenKeySelectionDto selecting(TokenKeyDto entry) {
-        return new TokenKeySelectionDto(entry.getKeyPairMeta(), null);
-    }
-
-    private TokenKeyOnboardingResultDto onboard(TokenKeySelectionDto selection) throws Exception {
-        return onboard(selection, null);
-    }
-
-    private TokenKeyOnboardingResultDto onboard(TokenKeySelectionDto selection, List<RequestAttribute> customAttributes)
-            throws Exception {
-        return tokenKeyOnboardingService
-                .onboardTokenKeys(tokenUuid, profileUuid,
-                        new OnboardTokenKeysRequestDto(List.of(selection), customAttributes))
-                .getResults()
-                .getFirst();
-    }
-
-    private List<TokenKeyOnboardingResultDto> onboardTogether(TokenKeySelectionDto... selections) throws Exception {
-        return tokenKeyOnboardingService
-                .onboardTokenKeys(tokenUuid, profileUuid, new OnboardTokenKeysRequestDto(List.of(selections), null))
-                .getResults();
-    }
-
-    private TokenKeyOnboardingResultDto onboardTheFirstListedPair() throws Exception {
-        return onboard(theFirstListedPair());
-    }
-
-    /** A key onboarded from a key pair the token lists. */
-    private UUID anOnboardedKey() throws Exception {
-        tokenLists(aListedKeyPair().build());
-        return onboardTheFirstListedPair().getKeyUuid();
-    }
-
-    private UUID keyPairThePlatformCreated(String name) throws Exception {
-        return keyPairThePlatformCreated(name, aProviderKeyPair().build());
-    }
-
-    /** A key pair the platform created on the token, as key creation registers it. */
-    private UUID keyPairThePlatformCreated(String name, ProviderKeyPair pair) throws Exception {
-        TokenProfileFullModel profile = profileModel();
-        return cryptographicKeyWriter
-                .createKeyWithItems(aKeyPairRequest().withName(name).build(), profile, profile.tokenInstance(),
-                        pair.toOnboardedItems(name), false, true)
-                .uuid();
-    }
-
-    /** Joins the key pair's private key to the record holding its public key, within the caller's transaction. */
-    private void privateKeyJoinedMeanwhile(UUID recordUuid, PublicKey publicKey) {
-        try {
-            var items = aProviderKeyPair().withPublicKey(publicKey).build().toOnboardedItems("joined meanwhile");
-            cryptographicKeyWriter
-                    .onboardIntoRecordUnlessImporting(recordUuid, profileModel(), fingerprintOf(publicKey), items);
-            cryptographicKeyItemRepository.flush();
-        } catch (Exception e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
-    private void removeFromInventory(UUID keyUuid) throws Exception {
-        cryptographicKeyService.removeKeyFromInventory(SecuredUUID.fromUUID(keyUuid));
-    }
-
-    private KeyDetailDto keyDetail(UUID keyUuid) throws Exception {
-        return cryptographicKeyService.getKey(SecuredUUID.fromUUID(keyUuid));
-    }
-
-    private List<String> keyListableProfiles() {
-        return tokenProfileService
-                .listTokenProfiles(Optional.empty(), List.of(), true, SecurityFilter.create())
-                .stream()
-                .map(TokenProfileDto::getUuid)
-                .toList();
-    }
-
-    private TokenProfileFullModel profileModel() {
-        return tokenProfileRepository
-                .findFullModelByUuidAndTokenInstanceReferenceUuid(profileUuid, tokenUuid)
-                .orElseThrow();
-    }
-
-    /** An attempt to import a key pair holding the public key, in the given state. */
-    private UUID importOf(PublicKey publicKey, KeyImportState state) throws Exception {
-        KeyImportTerms terms = new KeyImportTerms(profileModel(), KeyRequestType.KEY_PAIR, KeyAlgorithm.RSA,
-                fingerprintOf(publicKey), false, List.of(),
-                new NameAndUuidDto(UUID.randomUUID().toString(), "requester"));
-        UUID attempt = keyImportWriter
-                .open(terms, "import-" + UUID.randomUUID(), "imported key", List.of("sent-secret-digest"))
-                .uuid();
-        jdbcTemplate.update("UPDATE key_import SET state = ? WHERE uuid = ?", state.name(), attempt);
-        return attempt;
-    }
-
-    /** A public-key-only record, as an uploaded certificate brings it into the inventory. */
-    private UUID recordHolding(String name, PublicKey publicKey) throws Exception {
-        return certificateKeyWriter.uploadCertificatePublicKey(name, publicKey, 2048, fingerprintOf(publicKey));
-    }
-
-    private UUID publicKeyInTheToken(String name, PublicKey publicKey) throws Exception {
-        return publicKeyIn(tokenUuid, profileUuid, name, publicKey);
-    }
-
-    /** A token other than the listing one, whose provider is never asked. */
-    private V2TokenFixture.V2Token anotherToken() {
-        V2TokenFixture.V2Token another = v2TokenFixture.start();
-        another.connectorMock().stop();
-        return another;
-    }
-
-    private UUID publicKeyIn(V2TokenFixture.V2Token token, String name, PublicKey publicKey) throws Exception {
-        return publicKeyIn(token.token().getUuid(), token.profile().getUuid(), name, publicKey);
-    }
-
-    private UUID publicKeyIn(UUID tokenInstanceUuid, UUID tokenProfileUuid, String name, PublicKey publicKey)
-            throws Exception {
-        UUID publicKeyRecord = recordHolding(name, publicKey);
-        CryptographicKey inToken = cryptographicKeyRepository.findByUuid(publicKeyRecord).orElseThrow();
-        inToken.setTokenProfileUuid(tokenProfileUuid);
-        inToken.setTokenInstanceReferenceUuid(tokenInstanceUuid);
-        cryptographicKeyRepository.saveAndFlush(inToken);
-        return publicKeyRecord;
-    }
-
-    /** A listed key pair whose public key a key in the listing token holds without its private key. */
-    private ListedKeyEntryV2Dto pairHeldInTheToken(String recordName) throws Exception {
-        PublicKey publicKey = rsaPublicKey();
-        publicKeyInTheToken(recordName, publicKey);
-        return aListedKeyPair().withPublicKey(publicKey).build();
-    }
-
-    /** A listed key pair whose public key an uploaded certificate brought into the inventory. */
-    private ListedKeyEntryV2Dto heldPair(String recordName) throws Exception {
-        PublicKey publicKey = rsaPublicKey();
-        recordHolding(recordName, publicKey);
-        return aListedKeyPair().withPublicKey(publicKey).build();
-    }
-
-    /** An ML-DSA key pair, which a token lists without a length. */
-    private static ListedKeyEntryV2Dto postQuantumPair() throws Exception {
-        return aListedKeyPair()
-                .withAlgorithm(KeyAlgorithm.MLDSA)
-                .withLength(null)
-                .withPublicKey(PqcKeyFixtures.keyPair().getPublic())
-                .build();
-    }
-
-    private void withItemsIn(UUID keyUuid, KeyState state) {
-        List<CryptographicKeyItem> items = cryptographicKeyItemRepository.findByKeyUuidIn(List.of(keyUuid));
-        items.forEach(item -> item.setState(state));
-        cryptographicKeyItemRepository.saveAllAndFlush(items);
-    }
-
-    private static Map<UUID, KeyState> itemStatesOf(CryptographicKeyFullModel key) {
-        return key
-                .items()
-                .stream()
-                .collect(Collectors.toMap(CryptographicKeyItemBasicModel::uuid, CryptographicKeyItemBasicModel::state));
-    }
-
-    /** Hands the key to another owner, whom an action denied on the key leaves allowed. */
-    private void ownedBySomeoneElse(UUID keyUuid) {
-        objectAssociationService.setOwner(Resource.CRYPTOGRAPHIC_KEY, keyUuid, UUID.randomUUID(), "another");
-    }
-
-    /** Gives the record a description, an owner, a group and a department, as another user would have. */
-    private void describedOwnedAndGrouped(UUID recordUuid, String description, UUID ownerUuid, Group group,
-            RequestAttribute department) throws Exception {
-        CryptographicKey described = cryptographicKeyRepository.findById(recordUuid).orElseThrow();
-        described.setDescription(description);
-        cryptographicKeyRepository.saveAndFlush(described);
-        objectAssociationService.setOwner(Resource.CRYPTOGRAPHIC_KEY, recordUuid, ownerUuid, "owner");
-        objectAssociationService.addGroup(Resource.CRYPTOGRAPHIC_KEY, recordUuid, group.getUuid());
-        attributeEngine
-                .updateObjectCustomAttributesContent(Resource.CRYPTOGRAPHIC_KEY, recordUuid, List.of(department));
-    }
-
-    private Group group(String name) {
-        Group group = new Group();
-        group.setName(name);
-        return groupRepository.save(group);
-    }
-
-    private CustomAttributeV3 departmentAttribute() throws Exception {
-        CustomAttributeV3 department = new CustomAttributeV3();
-        department.setUuid(UUID.randomUUID().toString());
-        department.setName("department");
-        department.setType(AttributeType.CUSTOM);
-        department.setContentType(AttributeContentType.STRING);
-        CustomAttributeProperties properties = new CustomAttributeProperties();
-        properties.setLabel("Department");
-        department.setProperties(properties);
-        attributeEngine.updateCustomAttributeDefinition(department, List.of(Resource.CRYPTOGRAPHIC_KEY));
-        return department;
-    }
-
-    private static RequestAttribute departmentValue(CustomAttributeV3 department, String value) {
-        return aCustomAttribute()
-                .withUuid(department.getUuid())
-                .withName(department.getName())
-                .withStringContent(value)
-                .build();
-    }
-
-    private String departmentOf(UUID keyUuid) {
-        List<ResponseAttribute> attributes = attributeEngine
-                .getObjectCustomAttributesContent(Resource.CRYPTOGRAPHIC_KEY, keyUuid);
-        assertThat(attributes).singleElement().extracting(ResponseAttribute::getName).isEqualTo("department");
-        return ((ResponseAttributeV3) attributes.getFirst()).getContent().getFirst().getData().toString();
-    }
-
-    /** Lists the page once, so what only a first listing loads stays out of the query count. */
-    private void warmUpListing(ListKeysResponseV2Dto page) throws Exception {
-        queriesListing(page);
-    }
-
-    private int queriesListing(ListKeysResponseV2Dto page) throws Exception {
-        connectorMock.stubKeyListing(page);
-        return SqlCapture.during(this::firstPage).statements().size();
-    }
-
-    /** Onboards the pairs once, so what only a first onboarding loads stays out of the query count. */
-    private void warmUpOnboarding(List<ListedKeyEntryV2Dto> pairs) throws Exception {
-        queriesOnboarding(pairs);
-    }
-
-    private int queriesOnboarding(List<ListedKeyEntryV2Dto> pairs) throws Exception {
-        tokenLists(pairs.toArray(ListedKeyEntryV2Dto[]::new));
-        TokenKeySelectionDto[] selections = firstPage()
-                .getItems()
-                .stream()
-                .map(TokenKeyOnboardingServiceITest::selecting)
-                .toArray(TokenKeySelectionDto[]::new);
-        return SqlCapture.during(() -> onboardTogether(selections)).statements().size();
-    }
-
-    private UUID certificateCarrying(PublicKey publicKey) throws Exception {
-        return certificateRepository.saveAndFlush(issuedCertificateCarrying(publicKey).build()).getUuid();
-    }
-
-    private UUID certificateOf(UUID keyUuid, PublicKey publicKey) throws Exception {
-        return certificateRepository
-                .saveAndFlush(issuedCertificateCarrying(publicKey).withKeyUuid(keyUuid).build())
-                .getUuid();
-    }
-
-    /** A hybrid certificate whose alternative key carries the public key. */
-    private UUID hybridCertificateWithAlternativeKey(PublicKey altPublicKey) throws Exception {
-        X509CertificateEntity certificate = X509CertificateEntity
-                .from(issuedCertificateCarrying(rsaPublicKey()).build());
-        certificate.setHybridCertificate(true);
-        certificate.setAltKeyFingerprint(fingerprintOf(altPublicKey));
-        return certificateRepository.saveAndFlush(certificate).getUuid();
-    }
-
-    private CertificateBuilder issuedCertificateCarrying(PublicKey publicKey) throws Exception {
-        CertificateContent content = certificateContentRepository
-                .saveAndFlush(aCertificateContent().withContent("certificate-" + UUID.randomUUID()).build());
-        return aCertificate()
-                .withCommonName("signer")
-                .withSubjectDn("CN=signer")
-                .withIssuerDn("CN=issuer")
-                .withSerialNumber(UUID.randomUUID().toString())
-                .withState(CertificateState.ISSUED)
-                .withValidationStatus(CertificateValidationStatus.VALID)
-                .withCertificateContentId(content.getId())
-                .withPublicKeyFingerprint(fingerprintOf(publicKey));
-    }
-
-    private static String fingerprintOf(PublicKey publicKey) throws Exception {
-        return CertificateUtil.getThumbprint(TestPublicKeys.spkiBase64(publicKey).getBytes(StandardCharsets.UTF_8));
-    }
-
-    /** A metadata attribute the connector reports on its keys, with no content yet. */
-    private static MetadataAttributeV3 slotMetadata(AttributeContentType contentType) {
-        MetadataAttributeV3 slot = new MetadataAttributeV3();
-        slot.setUuid(SLOT_ATTRIBUTE_UUID);
-        slot.setName("slot");
-        slot.setContentType(contentType);
-        MetadataAttributeProperties properties = new MetadataAttributeProperties();
-        properties.setLabel("Slot");
-        slot.setProperties(properties);
-        return slot;
-    }
-
-    /** A metadata definition the connector registered on an earlier operation. */
-    private void connectorRegistered(MetadataAttributeV3 definition) throws Exception {
-        attributeEngine.updateMetadataAttributeDefinition(definition, profileModel().tokenInstance().connectorUuid());
-    }
-
-    private static ListedKeyEntryV2Dto pairWithPrivateKeyMetadata(String storageName, MetadataAttributeV3 metadata) {
-        return aListedKeyPair().withStorageName(storageName).withMetadata(List.of(metadata)).build();
     }
 
     // ── Listing ───────────────────────────────────────────────────────────────
@@ -762,6 +445,206 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         }
 
         @Test
+        void namesTheKeyHoldingTheHandle_whenTheTokenListsThePairWithoutItsPublicKey() throws Exception {
+            // given
+            var keyId = "pair-handle";
+            var privateKeyId = "a1b2";
+            var storageName = "signer";
+            tokenLists(aListedKeyPair()
+                    .withKeyId(keyId)
+                    .withPrivateKeyId(privateKeyId)
+                    .withStorageName(storageName)
+                    .build());
+            onboardTheFirstListedPair();
+            tokenLists(aListedKeyPair()
+                    .withKeyId(keyId)
+                    .withPrivateKeyId(privateKeyId)
+                    .withStorageName(storageName)
+                    .withoutPublicKey()
+                    .build());
+
+            // when
+            TokenKeyDto entry = firstListedEntry();
+
+            // then
+            assertThat(entry.getStatus()).isEqualTo(TokenKeyStatus.IN_INVENTORY);
+            assertThat(entry.getInventoryKeyName()).isEqualTo(storageName);
+            assertThat(entry.getReason()).isEqualTo("Key '%s' already holds this key pair.".formatted(storageName));
+        }
+
+        @Test
+        void namesTheKeyHoldingThePublicKey_whenTheKeyHoldsNoHandle() throws Exception {
+            // given
+            var publicKey = rsaPublicKey();
+            var storageName = "signer";
+            tokenLists(aListedKeyPair().withStorageName(storageName).withPublicKey(publicKey).build());
+            UUID keyUuid = onboardTheFirstListedPair().getKeyUuid();
+            clearHandleDigest(keyUuid);
+
+            // when
+            TokenKeyDto entry = firstListedEntry();
+
+            // then
+            assertThat(entry.getStatus()).isEqualTo(TokenKeyStatus.IN_INVENTORY);
+            assertThat(entry.getInventoryKeyUuid()).isEqualTo(keyUuid);
+            assertThat(entry.getReason()).isEqualTo("Key '%s' already holds this key pair.".formatted(storageName));
+        }
+
+        @Test
+        void asksToRemoveTheKeyHoldingTheHandle_whenTheTokenReusedItForAnotherPublicKey() throws Exception {
+            // given
+            var keyId = "a1b2";
+            var holderName = "retired signer";
+            tokenLists(aListedKeyPair().withKeyId(keyId).withStorageName(holderName).build());
+            onboardTheFirstListedPair();
+            tokenLists(aListedKeyPair()
+                    .withKeyId(keyId)
+                    .withStorageName("new signer")
+                    .withPublicKey(rsaPublicKey())
+                    .build());
+
+            // when
+            TokenKeyDto entry = firstListedEntry();
+
+            // then
+            assertThat(entry.getStatus()).isEqualTo(TokenKeyStatus.IN_INVENTORY);
+            assertThat(entry.getInventoryKeyName()).isEqualTo(holderName);
+            assertThat(entry.getReason()).isEqualTo(formatHandleReuseReason(holderName));
+        }
+
+        @Test
+        void asksToRemoveTheKeyHoldingTheHandle_whenTheTokenReusedItForAKeyOfAnotherLength() throws Exception {
+            // given
+            var keyId = "a1b2";
+            var holderName = "retired signer";
+            tokenLists(aListedKeyPair().withKeyId(keyId).withStorageName(holderName).build());
+            onboardTheFirstListedPair();
+            tokenLists(aListedKeyPair().withKeyId(keyId).withLength(4096).withoutPublicKey().build());
+
+            // when
+            TokenKeyDto entry = firstListedEntry();
+
+            // then
+            assertThat(entry.getStatus()).isEqualTo(TokenKeyStatus.IN_INVENTORY);
+            assertThat(entry.getReason()).isEqualTo(formatHandleReuseReason(holderName));
+        }
+
+        @Test
+        void asksToRemoveTheKeyHoldingTheHandle_whenTheTokenReusedItForAKeyOfAnotherAlgorithm() throws Exception {
+            // given
+            var keyId = "a1b2";
+            var holderName = "retired signer";
+            var sameLength = 2048;
+            tokenLists(aListedKeyPair().withKeyId(keyId).withStorageName(holderName).withLength(sameLength).build());
+            onboardTheFirstListedPair();
+            tokenLists(aListedKeyPair()
+                    .withKeyId(keyId)
+                    .withAlgorithm(KeyAlgorithm.ECDSA)
+                    .withLength(sameLength)
+                    .withoutPublicKey()
+                    .build());
+
+            // when
+            TokenKeyDto entry = firstListedEntry();
+
+            // then
+            assertThat(entry.getStatus()).isEqualTo(TokenKeyStatus.IN_INVENTORY);
+            assertThat(entry.getReason()).isEqualTo(formatHandleReuseReason(holderName));
+        }
+
+        @Test
+        void asksToRemoveTheKeyHoldingTheHandle_whenTheTokenReusedItForAKeyOnAnotherCurveOfTheSameSize()
+                throws Exception {
+            // given
+            var keyId = "a1b2";
+            var holderName = "retired signer";
+            tokenLists(anEcKeyPair().withKeyId(keyId).withStorageName(holderName).build());
+            onboardTheFirstListedPair();
+            var sameSizeOtherCurve = encodeEcIdentifier(TeleTrusTObjectIdentifiers.brainpoolP256r1);
+            tokenLists(anEcKeyPair()
+                    .withKeyId(keyId)
+                    .withAlgorithmIdentifier(sameSizeOtherCurve)
+                    .withoutPublicKey()
+                    .build());
+
+            // when
+            TokenKeyDto entry = firstListedEntry();
+
+            // then
+            assertThat(entry.getStatus()).isEqualTo(TokenKeyStatus.IN_INVENTORY);
+            assertThat(entry.getReason()).isEqualTo(formatHandleReuseReason(holderName));
+        }
+
+        @Test
+        void namesTheKeyHoldingTheHandle_whenTheTokenListsItsPrivateKeyWithoutParameters() throws Exception {
+            // given
+            var keyId = "a1b2";
+            var holderName = "signer";
+            tokenLists(anEcKeyPair().withKeyId(keyId).withStorageName(holderName).build());
+            onboardTheFirstListedPair();
+            tokenLists(anEcKeyPair().withKeyId(keyId).withoutPublicKey().build());
+
+            // when
+            TokenKeyDto entry = firstListedEntry();
+
+            // then
+            assertThat(entry.getStatus()).isEqualTo(TokenKeyStatus.IN_INVENTORY);
+            assertThat(entry.getReason()).isEqualTo("Key '%s' already holds this key pair.".formatted(holderName));
+        }
+
+        @Test
+        void givesANeutralReason_whenAKeyTheCallerMayNotSeeHoldsTheHandle() throws Exception {
+            // given
+            var keyId = "a1b2";
+            UUID hidden = keyPairThePlatformCreated("certKey_hidden", aProviderKeyPair().withKeyId(keyId).build());
+            denyResourceAccess(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.DETAIL, hidden);
+            tokenLists(aListedKeyPair().withKeyId(keyId).withoutPublicKey().build());
+
+            // when
+            TokenKeyDto entry = firstListedEntry();
+
+            // then
+            assertThat(entry.getStatus()).isEqualTo(TokenKeyStatus.IN_INVENTORY);
+            assertThat(entry)
+                    .extracting(TokenKeyDto::getInventoryKeyUuid, TokenKeyDto::getInventoryKeyName)
+                    .containsOnlyNulls();
+            assertThat(entry.getReason()).isEqualTo("Another key in the inventory already holds this key pair.");
+        }
+
+        @Test
+        void givesANeutralReason_whenTheTokenReusedTheHandleOfAKeyTheCallerMayNotSee() throws Exception {
+            // given
+            var keyId = "a1b2";
+            UUID hidden = keyPairThePlatformCreated("certKey_hidden", aProviderKeyPair().withKeyId(keyId).build());
+            denyResourceAccess(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.DETAIL, hidden);
+            tokenLists(aListedKeyPair().withKeyId(keyId).withPublicKey(rsaPublicKey()).build());
+
+            // when
+            TokenKeyDto entry = firstListedEntry();
+
+            // then
+            assertThat(entry.getStatus()).isEqualTo(TokenKeyStatus.IN_INVENTORY);
+            assertThat(entry.getInventoryKeyName()).isNull();
+            assertThat(entry.getReason())
+                    .isEqualTo("The token reused the handle of another key in the inventory for this key pair. "
+                            + "That key must be removed from the inventory to onboard this key pair.");
+        }
+
+        @Test
+        void listsItOnboardable_whenAKeyOnAnotherTokenHoldsTheSameHandle() throws Exception {
+            // given
+            var keyId = "a1b2";
+            createKeyPairOn(anotherToken(), aProviderKeyPair().withKeyId(keyId).build());
+            tokenLists(aListedKeyPair().withKeyId(keyId).build());
+
+            // when
+            TokenKeyDto entry = firstListedEntry();
+
+            // then
+            assertThat(entry.getStatus()).isEqualTo(TokenKeyStatus.ONBOARDABLE);
+        }
+
+        @Test
         void listsEachKeyInTheTokensOrder_whenAnUnusableKeySitsBetweenKeyPairs() throws Exception {
             // given
             var first = aListedKeyPair().withStorageName("first").build();
@@ -931,6 +814,28 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
 
             // then
             assertThat(entry.getStatus()).isEqualTo(TokenKeyStatus.IN_INVENTORY);
+        }
+
+        @Test
+        void listsItAsRefused_whenTheConnectorRefusesAKeyPairWhoseHandleTheTokenReused() throws Exception {
+            // given
+            var keyId = "a1b2";
+            tokenLists(aListedKeyPair().withKeyId(keyId).withStorageName("retired signer").build());
+            onboardTheFirstListedPair();
+            tokenLists(aListedKeyPair()
+                    .withKeyId(keyId)
+                    .withPublicKey(rsaPublicKey())
+                    .withStatus(KeyEntryStatus.REFUSED)
+                    .build());
+
+            // when
+            TokenKeyDto entry = firstListedEntry();
+
+            // then
+            assertThat(entry)
+                    .extracting(TokenKeyDto::getStatus, TokenKeyDto::getReason)
+                    .containsExactly(TokenKeyStatus.REFUSED,
+                            "The connector refuses to let the platform onboard this key.");
         }
 
         @Test
@@ -1345,6 +1250,52 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         }
 
         @Test
+        void storesTheHandleOfThePrivateKey_whenItOnboardsTheKeyPairAsAKeyOfItsOwn() throws Exception {
+            // given
+            var privateKeyId = "a1b2";
+            tokenLists(aListedKeyPair().withKeyId("pair-handle").withPrivateKeyId(privateKeyId).build());
+            var selection = theFirstListedPair();
+
+            // when
+            TokenKeyOnboardingResultDto result = onboard(selection);
+
+            // then
+            assertThat(readHandleDigest(result.getKeyUuid())).isNotNull().isEqualTo(digestHandleOfKeyId(privateKeyId));
+        }
+
+        @Test
+        void storesTheHandleOfThePrivateKey_whenItJoinsTheRecord() throws Exception {
+            // given
+            var keyId = "a1b2";
+            var publicKey = rsaPublicKey();
+            var publicKeyRecord = recordHolding("certKey_signer", publicKey);
+            tokenLists(aListedKeyPair().withKeyId(keyId).withPublicKey(publicKey).build());
+            var selection = theFirstListedPair();
+
+            // when
+            onboard(selection);
+
+            // then
+            assertThat(readHandleDigest(publicKeyRecord)).isNotNull().isEqualTo(digestHandleOfKeyId(keyId));
+        }
+
+        @Test
+        void onboardsTheKeyPair_whenAKeyOnAnotherTokenHoldsTheSameHandle() throws Exception {
+            // given
+            var keyId = "a1b2";
+            UUID elsewhere = createKeyPairOn(anotherToken(), aProviderKeyPair().withKeyId(keyId).build());
+            tokenLists(aListedKeyPair().withKeyId(keyId).build());
+            var selection = theFirstListedPair();
+
+            // when
+            TokenKeyOnboardingResultDto result = onboard(selection);
+
+            // then
+            assertThat(result.getOutcome()).isEqualTo(TokenKeyOnboardingOutcome.ONBOARDED);
+            assertThat(readHandleDigest(result.getKeyUuid())).isNotNull().isEqualTo(readHandleDigest(elsewhere));
+        }
+
+        @Test
         void keepsTheRecordsDescriptionOwnerGroupAndAttributes_whenItJoinsTheRecord() throws Exception {
             // given
             var publicKey = rsaPublicKey();
@@ -1536,6 +1487,156 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         }
 
         @Test
+        void skipsTheKeyPair_whenTheKeyHoldingItsHandleHoldsIt() throws Exception {
+            // given
+            var keyId = "a1b2";
+            var storageName = "signer";
+            tokenLists(aListedKeyPair().withKeyId(keyId).withStorageName(storageName).build());
+            UUID holder = onboardTheFirstListedPair().getKeyUuid();
+            tokenLists(aListedKeyPair().withKeyId(keyId).withStorageName(storageName).withoutPublicKey().build());
+            var selection = theFirstListedPair();
+
+            // when
+            TokenKeyOnboardingResultDto result = onboard(selection);
+
+            // then
+            assertThat(result)
+                    .extracting(TokenKeyOnboardingResultDto::getOutcome, TokenKeyOnboardingResultDto::getStatus,
+                            TokenKeyOnboardingResultDto::getKeyUuid)
+                    .containsExactly(TokenKeyOnboardingOutcome.BLOCKED, TokenKeyStatus.IN_INVENTORY, holder);
+            assertThat(result.getReason()).isEqualTo("Key '%s' already holds this key pair.".formatted(storageName));
+        }
+
+        @Test
+        void skipsTheKeyPair_whenTheTokenReusedTheHandleOfAKeyInTheInventory() throws Exception {
+            // given
+            var keyId = "a1b2";
+            var holderName = "retired signer";
+            tokenLists(aListedKeyPair().withKeyId(keyId).withStorageName(holderName).build());
+            onboardTheFirstListedPair();
+            tokenLists(aListedKeyPair()
+                    .withKeyId(keyId)
+                    .withStorageName("new signer")
+                    .withPublicKey(rsaPublicKey())
+                    .build());
+            var selection = theFirstListedPair();
+
+            // when
+            TokenKeyOnboardingResultDto result = onboard(selection);
+
+            // then
+            assertThat(result)
+                    .extracting(TokenKeyOnboardingResultDto::getOutcome, TokenKeyOnboardingResultDto::getStatus,
+                            TokenKeyOnboardingResultDto::getReason)
+                    .containsExactly(TokenKeyOnboardingOutcome.BLOCKED, TokenKeyStatus.IN_INVENTORY,
+                            formatHandleReuseReason(holderName));
+            assertThat(cryptographicKeyRepository.existsByName("new signer")).isFalse();
+        }
+
+        @Test
+        void skipsOnlyThatKeyPair_whenAKeyComesToHoldItsHandleWhileItIsWritten() throws Exception {
+            // given
+            var keyId = "a1b2";
+            var publicKey = rsaPublicKey();
+            tokenLists(aListedKeyPair().withKeyId(keyId).withStorageName("contested").withPublicKey(publicKey).build(),
+                    aListedKeyPair().withStorageName("uncontested").build());
+            List<TokenKeyDto> entries = firstPage().getItems();
+            var contested = selecting(entries.get(0));
+            var uncontested = selecting(entries.get(1));
+            var securityContext = SecurityContextHolder.getContext();
+
+            // when
+            Future<List<TokenKeyOnboardingResultDto>> onboarding = lockContention
+                    .callBlockedBy(
+                            () -> registeredMeanwhile(
+                                    aProviderKeyPair().withKeyId(keyId).withPublicKey(publicKey).build()),
+                            DelegatingSecurityContextCallable
+                                    .create(() -> onboardTogether(contested, uncontested), securityContext));
+
+            // then
+            List<TokenKeyOnboardingResultDto> results = onboarding.get(10, TimeUnit.SECONDS);
+            assertThat(results)
+                    .extracting(TokenKeyOnboardingResultDto::getOutcome, TokenKeyOnboardingResultDto::getStatus,
+                            TokenKeyOnboardingResultDto::getReason)
+                    .containsExactly(
+                            tuple(TokenKeyOnboardingOutcome.BLOCKED, TokenKeyStatus.IN_INVENTORY,
+                                    "The inventory came to hold this key pair while it was being onboarded."),
+                            tuple(TokenKeyOnboardingOutcome.ONBOARDED, null, null));
+            assertThat(results.getFirst().getKeyName()).isEqualTo(REGISTERED_MEANWHILE);
+            assertThat(cryptographicKeyRepository.existsByName("contested")).isFalse();
+        }
+
+        @Test
+        void skipsTheKeyPair_whenAKeyHoldingOnlyItsPrivateKeyComesToHoldItsHandleWhileItIsWritten() throws Exception {
+            // given
+            var keyId = "a1b2";
+            tokenLists(aListedKeyPair().withKeyId(keyId).withStorageName("contested").build());
+            var contested = theFirstListedPair();
+            var securityContext = SecurityContextHolder.getContext();
+
+            // when
+            Future<List<TokenKeyOnboardingResultDto>> onboarding = lockContention
+                    .callBlockedBy(() -> registerPrivateKeyMeanwhile(keyId), DelegatingSecurityContextCallable
+                            .create(() -> onboardTogether(contested), securityContext));
+
+            // then
+            List<TokenKeyOnboardingResultDto> results = onboarding.get(10, TimeUnit.SECONDS);
+            assertThat(results)
+                    .extracting(TokenKeyOnboardingResultDto::getOutcome, TokenKeyOnboardingResultDto::getStatus,
+                            TokenKeyOnboardingResultDto::getReason, TokenKeyOnboardingResultDto::getKeyName)
+                    .containsExactly(tuple(TokenKeyOnboardingOutcome.BLOCKED, TokenKeyStatus.IN_INVENTORY,
+                            "The inventory came to hold this key pair while it was being onboarded.",
+                            REGISTERED_MEANWHILE));
+            assertThat(cryptographicKeyRepository.existsByName("contested")).isFalse();
+        }
+
+        @Test
+        void skipsTheKeyPair_whenTheTokenReusesItsHandleForAKeyRegisteredWhileItIsWritten() throws Exception {
+            // given
+            var keyId = "a1b2";
+            tokenLists(aListedKeyPair().withKeyId(keyId).withStorageName("contested").build());
+            var contested = theFirstListedPair();
+            var securityContext = SecurityContextHolder.getContext();
+
+            // when
+            Future<TokenKeyOnboardingResultDto> onboarding = lockContention
+                    .callBlockedBy(() -> registeredMeanwhile(aProviderKeyPair().withKeyId(keyId).build()),
+                            DelegatingSecurityContextCallable.create(() -> onboard(contested), securityContext));
+
+            // then
+            assertThat(onboarding.get(10, TimeUnit.SECONDS))
+                    .extracting(TokenKeyOnboardingResultDto::getOutcome, TokenKeyOnboardingResultDto::getStatus,
+                            TokenKeyOnboardingResultDto::getReason)
+                    .containsExactly(TokenKeyOnboardingOutcome.BLOCKED, TokenKeyStatus.IN_INVENTORY,
+                            formatHandleReuseReason(REGISTERED_MEANWHILE));
+            assertThat(cryptographicKeyRepository.existsByName("contested")).isFalse();
+        }
+
+        @Test
+        void refusesToJoinTheRecord_whenAKeyComesToHoldItsHandleWhileThePrivateKeyJoinsIt() throws Exception {
+            // given
+            var keyId = "a1b2";
+            var publicKey = rsaPublicKey();
+            var publicKeyRecord = recordHolding("certKey_joined", publicKey);
+            tokenLists(aListedKeyPair().withKeyId(keyId).withPublicKey(publicKey).build());
+            var selection = theFirstListedPair();
+            var securityContext = SecurityContextHolder.getContext();
+
+            // when
+            Future<TokenKeyOnboardingResultDto> onboarding = lockContention
+                    .callBlockedBy(() -> registeredMeanwhile(aProviderKeyPair().withKeyId(keyId).build()),
+                            DelegatingSecurityContextCallable.create(() -> onboard(selection), securityContext));
+
+            // then
+            assertThat(onboarding.get(10, TimeUnit.SECONDS))
+                    .extracting(TokenKeyOnboardingResultDto::getOutcome, TokenKeyOnboardingResultDto::getStatus,
+                            TokenKeyOnboardingResultDto::getReason)
+                    .containsExactly(TokenKeyOnboardingOutcome.BLOCKED, TokenKeyStatus.IN_INVENTORY,
+                            formatHandleReuseReason(REGISTERED_MEANWHILE));
+            assertThat(cryptographicKeyItemRepository.findByKeyUuidIn(List.of(publicKeyRecord))).hasSize(1);
+        }
+
+        @Test
         void reportsTheFailureAndOnboardsTheNext_whenOnboardingAKeyPairFails() throws Exception {
             // given
             connectorRegistered(slotMetadata(AttributeContentType.STRING));
@@ -1604,6 +1705,35 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
                     .extracting(TokenKeyOnboardingResultDto::getOutcome, TokenKeyOnboardingResultDto::getKeyName)
                     .containsExactly(tuple(TokenKeyOnboardingOutcome.ONBOARDED, storageName),
                             tuple(TokenKeyOnboardingOutcome.ONBOARDED, fingerprinted));
+        }
+
+        @Test
+        void skipsTheRepeatedKeyPairByItsHandle_whenTheTokenResolvesItAgainWithoutItsPublicKey() throws Exception {
+            // given
+            var keyId = "signer-id";
+            var storageName = "signer";
+            var pair = aListedKeyPair().withKeyId(keyId).withStorageName(storageName).build();
+            var pairWithoutPublicKey = aListedKeyPair()
+                    .withKeyId(keyId)
+                    .withStorageName(storageName)
+                    .withoutPublicKey()
+                    .build();
+            tokenLists(pair);
+            var once = theFirstListedPair();
+            var again = theFirstListedPairNamed("again");
+            tokenResolves(pair, pairWithoutPublicKey);
+
+            // when
+            List<TokenKeyOnboardingResultDto> results = onboardTogether(once, again);
+
+            // then
+            TokenKeyOnboardingResultDto onboarded = results.get(0);
+            TokenKeyOnboardingResultDto skipped = results.get(1);
+            assertThat(skipped)
+                    .extracting(TokenKeyOnboardingResultDto::getOutcome, TokenKeyOnboardingResultDto::getStatus,
+                            TokenKeyOnboardingResultDto::getKeyUuid)
+                    .containsExactly(TokenKeyOnboardingOutcome.BLOCKED, TokenKeyStatus.IN_INVENTORY,
+                            onboarded.getKeyUuid());
         }
 
         @Test
@@ -1997,8 +2127,31 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
 
         /** Registers a key pair holding the public key, as key creation does, within the caller's transaction. */
         private void registeredMeanwhile(PublicKey publicKey) {
+            registeredMeanwhile(aProviderKeyPair().withPublicKey(publicKey).build());
+        }
+
+        /** Registers a key holding only the private key under the handle, within the caller's transaction. */
+        private void registerPrivateKeyMeanwhile(String keyId) {
+            ProviderKeyItem privateKey = aProviderKeyPair()
+                    .withKeyId(keyId)
+                    .build()
+                    .toOnboardedItems(REGISTERED_MEANWHILE)
+                    .getLast();
             try {
-                keyPairThePlatformCreated(REGISTERED_MEANWHILE, aProviderKeyPair().withPublicKey(publicKey).build());
+                TokenProfileFullModel profile = profileModel();
+                cryptographicKeyWriter
+                        .createKeyWithItems(aKeyPairRequest().withName(REGISTERED_MEANWHILE).build(), profile,
+                                profile.tokenInstance(), List.of(privateKey), false, true);
+                cryptographicKeyItemRepository.flush();
+            } catch (Exception e) {
+                throw new IllegalStateException(e);
+            }
+        }
+
+        /** Registers the key pair as key creation does, within the caller's transaction. */
+        private void registeredMeanwhile(ProviderKeyPair pair) {
+            try {
+                keyPairThePlatformCreated(REGISTERED_MEANWHILE, pair);
                 cryptographicKeyItemRepository.flush();
             } catch (Exception e) {
                 throw new IllegalStateException(e);
@@ -2387,5 +2540,369 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
                     .isInstanceOf(AccessDeniedException.class);
             assertThat(cryptographicKeyRepository.findByUuid(onboarded)).isPresent();
         }
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /** The token lists the key pairs and resolves a selection of each of them, in listing order. */
+    private void tokenLists(ListedKeyEntryV2Dto... entries) throws Exception {
+        connectorMock.stubKeyListing(aKeyListing().withEntries(entries).build());
+        tokenResolves(entries);
+    }
+
+    /** The token answers each selection with the answer at its position, whatever the selection names. */
+    private void tokenResolves(ListedKeyEntryV2Dto... answers) throws Exception {
+        connectorMock.stubKeyResolution(aKeyResolutionResponse().withAnswers(answers).build());
+    }
+
+    private void connectorDropsKeyListing() {
+        v2TokenFixture.declare(v2Token, FeatureFlag.STATELESS);
+    }
+
+    private TokenKeyListResponseDto firstPage() throws Exception {
+        return tokenKeyOnboardingService.listTokenKeys(tokenUuid, profileUuid, 1, 10);
+    }
+
+    private TokenKeyDto firstListedEntry() throws Exception {
+        return firstPage().getItems().getFirst();
+    }
+
+    private TokenKeySelectionDto theFirstListedPair() throws Exception {
+        return selecting(firstListedEntry());
+    }
+
+    private TokenKeySelectionDto theFirstListedPairNamed(String name) throws Exception {
+        return new TokenKeySelectionDto(firstListedEntry().getKeyPairMeta(), name);
+    }
+
+    private static TokenKeySelectionDto selecting(TokenKeyDto entry) {
+        return new TokenKeySelectionDto(entry.getKeyPairMeta(), null);
+    }
+
+    private TokenKeyOnboardingResultDto onboard(TokenKeySelectionDto selection) throws Exception {
+        return onboard(selection, null);
+    }
+
+    private TokenKeyOnboardingResultDto onboard(TokenKeySelectionDto selection, List<RequestAttribute> customAttributes)
+            throws Exception {
+        return tokenKeyOnboardingService
+                .onboardTokenKeys(tokenUuid, profileUuid,
+                        new OnboardTokenKeysRequestDto(List.of(selection), customAttributes))
+                .getResults()
+                .getFirst();
+    }
+
+    private List<TokenKeyOnboardingResultDto> onboardTogether(TokenKeySelectionDto... selections) throws Exception {
+        return tokenKeyOnboardingService
+                .onboardTokenKeys(tokenUuid, profileUuid, new OnboardTokenKeysRequestDto(List.of(selections), null))
+                .getResults();
+    }
+
+    private TokenKeyOnboardingResultDto onboardTheFirstListedPair() throws Exception {
+        return onboard(theFirstListedPair());
+    }
+
+    /** A key onboarded from a key pair the token lists. */
+    private UUID anOnboardedKey() throws Exception {
+        tokenLists(aListedKeyPair().build());
+        return onboardTheFirstListedPair().getKeyUuid();
+    }
+
+    private UUID keyPairThePlatformCreated(String name) throws Exception {
+        return keyPairThePlatformCreated(name, aProviderKeyPair().build());
+    }
+
+    /** A key pair the platform created on the token, as key creation registers it. */
+    private UUID keyPairThePlatformCreated(String name, ProviderKeyPair pair) throws Exception {
+        TokenProfileFullModel profile = profileModel();
+        return cryptographicKeyWriter
+                .createKeyWithItems(aKeyPairRequest().withName(name).build(), profile, profile.tokenInstance(),
+                        pair.toOnboardedItems(name), false, true)
+                .uuid();
+    }
+
+    /** Registers the pair on the token as key creation does. */
+    private UUID createKeyPairOn(V2TokenFixture.V2Token token, ProviderKeyPair pair) throws Exception {
+        TokenProfileFullModel profile = tokenProfileRepository
+                .findFullModelByUuidAndTokenInstanceReferenceUuid(token.profile().getUuid(), token.token().getUuid())
+                .orElseThrow();
+        return cryptographicKeyWriter
+                .createKeyWithItems(aKeyPairRequest().withName("elsewhere").build(), profile, profile.tokenInstance(),
+                        pair.toOnboardedItems("elsewhere"), false, true)
+                .uuid();
+    }
+
+    private String readHandleDigest(UUID keyUuid) {
+        return jdbcTemplate
+                .queryForObject("SELECT handle_digest FROM cryptographic_key WHERE uuid = ?", String.class, keyUuid);
+    }
+
+    private static String digestHandleOfKeyId(String keyId) {
+        return aProviderKeyPair().withKeyId(keyId).build().privateKey().handleDigest();
+    }
+
+    /** A key inventoried before handle digests were recorded. */
+    private void clearHandleDigest(UUID keyUuid) {
+        jdbcTemplate.update("UPDATE cryptographic_key SET handle_digest = NULL WHERE uuid = ?", keyUuid);
+    }
+
+    /** An EC P-256 pair whose private key the token lists without its parameters. */
+    private static ListedKeyEntryV2DtoBuilder anEcKeyPair() {
+        return aListedKeyPair().withAlgorithm(KeyAlgorithm.ECDSA).withLength(null).withPublicKey(ecPublicKey());
+    }
+
+    private static byte[] encodeEcIdentifier(ASN1ObjectIdentifier curve) throws IOException {
+        return new AlgorithmIdentifier(X9ObjectIdentifiers.id_ecPublicKey, curve).getEncoded();
+    }
+
+    private static String formatHandleReuseReason(String holderName) {
+        return ("The token reused the handle of key '%1$s' for this key pair. "
+                + "Remove key '%1$s' from the inventory to onboard this key pair.").formatted(holderName);
+    }
+
+    /** Joins the key pair's private key to the record holding its public key, within the caller's transaction. */
+    private void privateKeyJoinedMeanwhile(UUID recordUuid, PublicKey publicKey) {
+        try {
+            var items = aProviderKeyPair().withPublicKey(publicKey).build().toOnboardedItems("joined meanwhile");
+            cryptographicKeyWriter
+                    .onboardIntoRecordUnlessImporting(recordUuid, profileModel(), fingerprintOf(publicKey), items);
+            cryptographicKeyItemRepository.flush();
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private void removeFromInventory(UUID keyUuid) throws Exception {
+        cryptographicKeyService.removeKeyFromInventory(SecuredUUID.fromUUID(keyUuid));
+    }
+
+    private KeyDetailDto keyDetail(UUID keyUuid) throws Exception {
+        return cryptographicKeyService.getKey(SecuredUUID.fromUUID(keyUuid));
+    }
+
+    private List<String> keyListableProfiles() {
+        return tokenProfileService
+                .listTokenProfiles(Optional.empty(), List.of(), true, SecurityFilter.create())
+                .stream()
+                .map(TokenProfileDto::getUuid)
+                .toList();
+    }
+
+    private TokenProfileFullModel profileModel() {
+        return tokenProfileRepository
+                .findFullModelByUuidAndTokenInstanceReferenceUuid(profileUuid, tokenUuid)
+                .orElseThrow();
+    }
+
+    /** An attempt to import a key pair holding the public key, in the given state. */
+    private UUID importOf(PublicKey publicKey, KeyImportState state) throws Exception {
+        KeyImportTerms terms = new KeyImportTerms(profileModel(), KeyRequestType.KEY_PAIR, KeyAlgorithm.RSA,
+                fingerprintOf(publicKey), false, List.of(),
+                new NameAndUuidDto(UUID.randomUUID().toString(), "requester"));
+        UUID attempt = keyImportWriter
+                .open(terms, "import-" + UUID.randomUUID(), "imported key", List.of("sent-secret-digest"))
+                .uuid();
+        jdbcTemplate.update("UPDATE key_import SET state = ? WHERE uuid = ?", state.name(), attempt);
+        return attempt;
+    }
+
+    /** A public-key-only record, as an uploaded certificate brings it into the inventory. */
+    private UUID recordHolding(String name, PublicKey publicKey) throws Exception {
+        return certificateKeyWriter.uploadCertificatePublicKey(name, publicKey, 2048, fingerprintOf(publicKey));
+    }
+
+    private UUID publicKeyInTheToken(String name, PublicKey publicKey) throws Exception {
+        return publicKeyIn(tokenUuid, profileUuid, name, publicKey);
+    }
+
+    /** A token other than the listing one, whose provider is never asked. */
+    private V2TokenFixture.V2Token anotherToken() {
+        V2TokenFixture.V2Token another = v2TokenFixture.start();
+        another.connectorMock().stop();
+        return another;
+    }
+
+    private UUID publicKeyIn(V2TokenFixture.V2Token token, String name, PublicKey publicKey) throws Exception {
+        return publicKeyIn(token.token().getUuid(), token.profile().getUuid(), name, publicKey);
+    }
+
+    private UUID publicKeyIn(UUID tokenInstanceUuid, UUID tokenProfileUuid, String name, PublicKey publicKey)
+            throws Exception {
+        UUID publicKeyRecord = recordHolding(name, publicKey);
+        CryptographicKey inToken = cryptographicKeyRepository.findByUuid(publicKeyRecord).orElseThrow();
+        inToken.setTokenProfileUuid(tokenProfileUuid);
+        inToken.setTokenInstanceReferenceUuid(tokenInstanceUuid);
+        cryptographicKeyRepository.saveAndFlush(inToken);
+        return publicKeyRecord;
+    }
+
+    /** A listed key pair whose public key a key in the listing token holds without its private key. */
+    private ListedKeyEntryV2Dto pairHeldInTheToken(String recordName) throws Exception {
+        PublicKey publicKey = rsaPublicKey();
+        publicKeyInTheToken(recordName, publicKey);
+        return aListedKeyPair().withPublicKey(publicKey).build();
+    }
+
+    /** A listed key pair whose public key an uploaded certificate brought into the inventory. */
+    private ListedKeyEntryV2Dto heldPair(String recordName) throws Exception {
+        PublicKey publicKey = rsaPublicKey();
+        recordHolding(recordName, publicKey);
+        return aListedKeyPair().withPublicKey(publicKey).build();
+    }
+
+    /** An ML-DSA key pair, which a token lists without a length. */
+    private static ListedKeyEntryV2Dto postQuantumPair() throws Exception {
+        return aListedKeyPair()
+                .withAlgorithm(KeyAlgorithm.MLDSA)
+                .withLength(null)
+                .withPublicKey(PqcKeyFixtures.keyPair().getPublic())
+                .build();
+    }
+
+    private void withItemsIn(UUID keyUuid, KeyState state) {
+        List<CryptographicKeyItem> items = cryptographicKeyItemRepository.findByKeyUuidIn(List.of(keyUuid));
+        items.forEach(item -> item.setState(state));
+        cryptographicKeyItemRepository.saveAllAndFlush(items);
+    }
+
+    private static Map<UUID, KeyState> itemStatesOf(CryptographicKeyFullModel key) {
+        return key
+                .items()
+                .stream()
+                .collect(Collectors.toMap(CryptographicKeyItemBasicModel::uuid, CryptographicKeyItemBasicModel::state));
+    }
+
+    /** Hands the key to another owner, whom an action denied on the key leaves allowed. */
+    private void ownedBySomeoneElse(UUID keyUuid) {
+        objectAssociationService.setOwner(Resource.CRYPTOGRAPHIC_KEY, keyUuid, UUID.randomUUID(), "another");
+    }
+
+    /** Gives the record a description, an owner, a group and a department, as another user would have. */
+    private void describedOwnedAndGrouped(UUID recordUuid, String description, UUID ownerUuid, Group group,
+            RequestAttribute department) throws Exception {
+        CryptographicKey described = cryptographicKeyRepository.findById(recordUuid).orElseThrow();
+        described.setDescription(description);
+        cryptographicKeyRepository.saveAndFlush(described);
+        objectAssociationService.setOwner(Resource.CRYPTOGRAPHIC_KEY, recordUuid, ownerUuid, "owner");
+        objectAssociationService.addGroup(Resource.CRYPTOGRAPHIC_KEY, recordUuid, group.getUuid());
+        attributeEngine
+                .updateObjectCustomAttributesContent(Resource.CRYPTOGRAPHIC_KEY, recordUuid, List.of(department));
+    }
+
+    private Group group(String name) {
+        Group group = new Group();
+        group.setName(name);
+        return groupRepository.save(group);
+    }
+
+    private CustomAttributeV3 departmentAttribute() throws Exception {
+        CustomAttributeV3 department = new CustomAttributeV3();
+        department.setUuid(UUID.randomUUID().toString());
+        department.setName("department");
+        department.setType(AttributeType.CUSTOM);
+        department.setContentType(AttributeContentType.STRING);
+        CustomAttributeProperties properties = new CustomAttributeProperties();
+        properties.setLabel("Department");
+        department.setProperties(properties);
+        attributeEngine.updateCustomAttributeDefinition(department, List.of(Resource.CRYPTOGRAPHIC_KEY));
+        return department;
+    }
+
+    private static RequestAttribute departmentValue(CustomAttributeV3 department, String value) {
+        return aCustomAttribute()
+                .withUuid(department.getUuid())
+                .withName(department.getName())
+                .withStringContent(value)
+                .build();
+    }
+
+    private String departmentOf(UUID keyUuid) {
+        List<ResponseAttribute> attributes = attributeEngine
+                .getObjectCustomAttributesContent(Resource.CRYPTOGRAPHIC_KEY, keyUuid);
+        assertThat(attributes).singleElement().extracting(ResponseAttribute::getName).isEqualTo("department");
+        return ((ResponseAttributeV3) attributes.getFirst()).getContent().getFirst().getData().toString();
+    }
+
+    /** Lists the page once, so what only a first listing loads stays out of the query count. */
+    private void warmUpListing(ListKeysResponseV2Dto page) throws Exception {
+        queriesListing(page);
+    }
+
+    private int queriesListing(ListKeysResponseV2Dto page) throws Exception {
+        connectorMock.stubKeyListing(page);
+        return SqlCapture.during(this::firstPage).statements().size();
+    }
+
+    /** Onboards the pairs once, so what only a first onboarding loads stays out of the query count. */
+    private void warmUpOnboarding(List<ListedKeyEntryV2Dto> pairs) throws Exception {
+        queriesOnboarding(pairs);
+    }
+
+    private int queriesOnboarding(List<ListedKeyEntryV2Dto> pairs) throws Exception {
+        tokenLists(pairs.toArray(ListedKeyEntryV2Dto[]::new));
+        TokenKeySelectionDto[] selections = firstPage()
+                .getItems()
+                .stream()
+                .map(TokenKeyOnboardingServiceITest::selecting)
+                .toArray(TokenKeySelectionDto[]::new);
+        return SqlCapture.during(() -> onboardTogether(selections)).statements().size();
+    }
+
+    private UUID certificateCarrying(PublicKey publicKey) throws Exception {
+        return certificateRepository.saveAndFlush(issuedCertificateCarrying(publicKey).build()).getUuid();
+    }
+
+    private UUID certificateOf(UUID keyUuid, PublicKey publicKey) throws Exception {
+        return certificateRepository
+                .saveAndFlush(issuedCertificateCarrying(publicKey).withKeyUuid(keyUuid).build())
+                .getUuid();
+    }
+
+    /** A hybrid certificate whose alternative key carries the public key. */
+    private UUID hybridCertificateWithAlternativeKey(PublicKey altPublicKey) throws Exception {
+        X509CertificateEntity certificate = X509CertificateEntity
+                .from(issuedCertificateCarrying(rsaPublicKey()).build());
+        certificate.setHybridCertificate(true);
+        certificate.setAltKeyFingerprint(fingerprintOf(altPublicKey));
+        return certificateRepository.saveAndFlush(certificate).getUuid();
+    }
+
+    private CertificateBuilder issuedCertificateCarrying(PublicKey publicKey) throws Exception {
+        CertificateContent content = certificateContentRepository
+                .saveAndFlush(aCertificateContent().withContent("certificate-" + UUID.randomUUID()).build());
+        return aCertificate()
+                .withCommonName("signer")
+                .withSubjectDn("CN=signer")
+                .withIssuerDn("CN=issuer")
+                .withSerialNumber(UUID.randomUUID().toString())
+                .withState(CertificateState.ISSUED)
+                .withValidationStatus(CertificateValidationStatus.VALID)
+                .withCertificateContentId(content.getId())
+                .withPublicKeyFingerprint(fingerprintOf(publicKey));
+    }
+
+    private static String fingerprintOf(PublicKey publicKey) throws Exception {
+        return CertificateUtil.getThumbprint(TestPublicKeys.spkiBase64(publicKey).getBytes(StandardCharsets.UTF_8));
+    }
+
+    /** A metadata attribute the connector reports on its keys, with no content yet. */
+    private static MetadataAttributeV3 slotMetadata(AttributeContentType contentType) {
+        MetadataAttributeV3 slot = new MetadataAttributeV3();
+        slot.setUuid(SLOT_ATTRIBUTE_UUID);
+        slot.setName("slot");
+        slot.setContentType(contentType);
+        MetadataAttributeProperties properties = new MetadataAttributeProperties();
+        properties.setLabel("Slot");
+        slot.setProperties(properties);
+        return slot;
+    }
+
+    /** A metadata definition the connector registered on an earlier operation. */
+    private void connectorRegistered(MetadataAttributeV3 definition) throws Exception {
+        attributeEngine.updateMetadataAttributeDefinition(definition, profileModel().tokenInstance().connectorUuid());
+    }
+
+    private static ListedKeyEntryV2Dto pairWithPrivateKeyMetadata(String storageName, MetadataAttributeV3 metadata) {
+        return aListedKeyPair().withStorageName(storageName).withMetadata(List.of(metadata)).build();
     }
 }
