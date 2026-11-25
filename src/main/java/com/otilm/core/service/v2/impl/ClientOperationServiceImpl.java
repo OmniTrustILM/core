@@ -191,6 +191,11 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.DefaultTransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import static com.otilm.api.model.core.certificate.CertificateOperation.PUSH_TO_LOCATION;
+import static com.otilm.api.model.core.certificate.CertificateOperation.REKEY;
+import static com.otilm.api.model.core.certificate.CertificateOperation.RENEW;
+import static com.otilm.api.model.core.certificate.CertificateOperation.REVOKE;
+
 @Service("clientOperationServiceImplV2")
 // Roll back on any exception, checked included, so a connector or attribute failure never commits partial state.
 // The issue/renew/rekey entry points override this with their own NOT_SUPPORTED boundary and manage the persistence
@@ -2713,9 +2718,15 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             CertificateOperationException, CertificateRequestException, ConnectorException, AttributeException {
         Certificate oldCertificate = validateOldCertificateForOperation(certificateUuid, raProfileUuid.toString(),
                 ResourceAction.RENEW, authorityUuid);
+        typeHandlerRegistry.requireSupport(oldCertificate, RENEW);
         requireAuthoritySupport(oldCertificate.getCertificateType(), oldCertificate.getRaProfile(),
                 protocolInfo != null);
         if (request != null) {
+            // the old certificate is removed from its locations before the new one is pushed, so a type that cannot
+            // be pushed is refused here and not after the removal
+            if (request.isReplaceInLocations()) {
+                typeHandlerRegistry.requireSupport(oldCertificate, PUSH_TO_LOCATION);
+            }
             request.setFormat(requestFormatResolver.resolve(request.getFormat(), oldCertificate.getCertificateType()));
         }
 
@@ -2996,8 +3007,14 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             AttributeException {
         Certificate oldCertificate = validateOldCertificateForOperation(certificateUuid, raProfileUuid.toString(),
                 ResourceAction.REKEY, authorityUuid);
+        typeHandlerRegistry.requireSupport(oldCertificate, REKEY);
         requireAuthoritySupport(oldCertificate.getCertificateType(), oldCertificate.getRaProfile(), throughProtocol);
         if (request != null) {
+            // the old certificate is removed from its locations before the new one is pushed, so a type that cannot
+            // be pushed is refused here and not after the removal
+            if (request.isReplaceInLocations()) {
+                typeHandlerRegistry.requireSupport(oldCertificate, PUSH_TO_LOCATION);
+            }
             request.setFormat(requestFormatResolver.resolve(request.getFormat(), oldCertificate.getCertificateType()));
         }
 
@@ -3219,6 +3236,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             ClientCertificateRevocationDto request) throws ConnectorException, AttributeException, NotFoundException {
         Certificate certificate = validateOldCertificateForOperation(certificateUuid, raProfileUuid.toString(),
                 ResourceAction.REVOKE, authorityUuid);
+        typeHandlerRegistry.requireSupport(certificate, REVOKE);
 
         // validate revoke attributes
         extendedAttributeService.mergeAndValidateRevokeAttributes(certificate.getRaProfile(), request.getAttributes());
@@ -4016,7 +4034,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         Certificate refreshed = certificateRepository
                 .findByUuid(certUuid)
                 .orElseThrow(() -> new NotFoundException(Certificate.class, certUuid));
-        return refreshed.mapToDto();
+        CertificateDetail detail = refreshed.mapToDto();
+        typeHandlerRegistry.declareSupportedOperations(detail);
+        return detail;
     }
 
     /**
@@ -4586,6 +4606,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             // post-cancel state (the locked `fresh`, not the stale pre-cancel `cert`) and its lazy
             // associations resolve here rather than after the session closes.
             CertificateDetail dto = fresh.mapToDto();
+            typeHandlerRegistry.declareSupportedOperations(dto);
             transactionManager.commit(cleanupTx);
             return dto;
         } catch (RuntimeException e) {
