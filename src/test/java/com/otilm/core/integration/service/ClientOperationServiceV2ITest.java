@@ -6934,7 +6934,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                                                         test.authorityInstanceReference.getSecuredParentUuid(),
                                                         test.raProfile.getSecuredUuid(),
                                                         test.certificate.getUuid().toString(),
-                                                        renewalReplacingInLocations())),
+                                                        createRenewalRequestReplacingInLocations())),
                         Arguments
                                 .of(named("rekey replacing in locations", CertificateOperation.PUSH_TO_LOCATION),
                                         (OperationOnACertificate) test -> test.clientOperationService
@@ -6942,16 +6942,16 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                                                         test.authorityInstanceReference.getSecuredParentUuid(),
                                                         test.raProfile.getSecuredUuid(),
                                                         test.certificate.getUuid().toString(),
-                                                        rekeyReplacingInLocations())));
+                                                        createRekeyRequestReplacingInLocations())));
     }
 
-    private static ClientCertificateRekeyRequestDto rekeyReplacingInLocations() {
+    private static ClientCertificateRekeyRequestDto createRekeyRequestReplacingInLocations() {
         ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
         request.setReplaceInLocations(true);
         return request;
     }
 
-    private static ClientCertificateRenewRequestDto renewalReplacingInLocations() {
+    private static ClientCertificateRenewRequestDto createRenewalRequestReplacingInLocations() {
         ClientCertificateRenewRequestDto request = new ClientCertificateRenewRequestDto();
         request.setReplaceInLocations(true);
         return request;

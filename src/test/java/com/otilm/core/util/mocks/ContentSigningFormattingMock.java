@@ -4,18 +4,24 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.tomakehurst.wiremock.client.WireMock;
+import com.github.tomakehurst.wiremock.http.Fault;
 import com.otilm.api.clients.signing.contentsigning.ContentSigningFormattingPaths;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.attribute.common.content.data.ProtectionLevel;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
+import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.common.error.ProblemDetailExtended;
+import com.otilm.api.model.common.signature.DocumentTransferMode;
 import com.otilm.api.model.common.signature.SignatureLevel;
 import com.otilm.api.model.connector.signatures.contentsigning.common.ContentSigningFormattingAttributesDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.ContentSigningFormattingOperation;
+import com.otilm.api.model.connector.signatures.contentsigning.common.ProfileAttributeErrorDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.SignedDocumentResponseDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.TimestampImprintResponseDto;
+import com.otilm.api.model.connector.signatures.contentsigning.common.ValidateProfileResponseDto;
 import com.otilm.api.model.connector.signatures.contentsigning.declaration.ContentSigningDeclarationDto;
 import com.otilm.api.model.connector.signatures.contentsigning.declaration.SignatureFamilyDeclarationDto;
 import com.otilm.core.serialization.ObjectMapperFactory;
@@ -25,6 +31,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.util.unit.DataSize;
 
@@ -51,6 +58,7 @@ public class ContentSigningFormattingMock extends BaseConnectorMock {
                         interfaceInfo(ConnectorInterface.SIGNATURE_FORMATTING, List.of()),
                         interfaceInfo(ConnectorInterface.CONTENT_SIGNING_FORMATTING, List.of())));
         stubAdesFamiliesUpTo(SignatureLevel.SIGNED);
+        stubValidateProfileAnswering(Set.of(DocumentTransferMode.INLINE));
     }
 
     /** Stubs the declaration route with the four AdES families up to {@code highestLevel}. */
@@ -71,6 +79,37 @@ public class ContentSigningFormattingMock extends BaseConnectorMock {
                 .stubFor(WireMock
                         .get(WireMock.urlPathMatching(".*" + ContentSigningFormattingPaths.DECLARATION))
                         .willReturn(WireMock.okJson(serialize(declaration, "content-signing declaration"))));
+        return this;
+    }
+
+    /**
+     * Answers {@code validateProfile}, which Signing Profile save calls, with no errors and {@code transferModes}. The
+     * constructor stubs {@code INLINE}, which every family the mock declares accepts.
+     */
+    public ContentSigningFormattingMock stubValidateProfileAnswering(Set<DocumentTransferMode> transferModes) {
+        return stubValidateProfile(new ValidateProfileResponseDto(List.of(), transferModes));
+    }
+
+    /** Answers {@code validateProfile}, which Signing Profile save calls, with one error for {@code attributeName}. */
+    public ContentSigningFormattingMock stubValidateProfileReporting(String attributeName, String reason) {
+        return stubValidateProfile(new ValidateProfileResponseDto(
+                List.of(new ProfileAttributeErrorDto(attributeName, reason)), Set.of(DocumentTransferMode.INLINE)));
+    }
+
+    /** Drops the connection on {@code validateProfile}, as an unreachable connector does to Signing Profile save. */
+    public ContentSigningFormattingMock stubValidateProfileUnreachable() {
+        server
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching(".*" + ContentSigningFormattingPaths.VALIDATE_PROFILE))
+                        .willReturn(WireMock.aResponse().withFault(Fault.CONNECTION_RESET_BY_PEER)));
+        return this;
+    }
+
+    private ContentSigningFormattingMock stubValidateProfile(ValidateProfileResponseDto response) {
+        server
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching(".*" + ContentSigningFormattingPaths.VALIDATE_PROFILE))
+                        .willReturn(WireMock.okJson(serialize(response, "profile validation result"))));
         return this;
     }
 
@@ -274,6 +313,31 @@ public class ContentSigningFormattingMock extends BaseConnectorMock {
     }
 
     /**
+     * Lists one encrypted, read-only STRING profile attribute whose fixed value is {@code fixedValue} on every
+     * operation, as profile save fetches them.
+     */
+    public ContentSigningFormattingMock stubEncryptedReadOnlyProfileAttributeDefinition(UUID attrUuid, String attrName,
+            String fixedValue) {
+        DataAttributeV3 definition = aDataAttribute().withUuid(attrUuid).withName(attrName).build();
+        definition.setContent(List.of(new StringAttributeContentV3(fixedValue)));
+        definition.getProperties().setReadOnly(true);
+        definition.getProperties().setProtectionLevel(ProtectionLevel.ENCRYPTED);
+        try {
+            String body = profileListing(List.of(definition));
+            for (ContentSigningFormattingOperation operation : ContentSigningFormattingOperation.values()) {
+                server
+                        .stubFor(WireMock
+                                .get(WireMock
+                                        .urlPathMatching(".*" + ContentSigningFormattingPaths.attributes(operation)))
+                                .willReturn(WireMock.okJson(body)));
+            }
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException("Failed to serialize attribute definition for WireMock stub", e);
+        }
+        return this;
+    }
+
+    /**
      * Declares one attribute on a single operation, so a caller can tell which operations an aggregate actually fetched
      * from the names it returns.
      */
@@ -371,10 +435,17 @@ public class ContentSigningFormattingMock extends BaseConnectorMock {
     }
 
     private List<JsonNode> bodiesReceivedBy(ContentSigningFormattingOperation operation) {
+        return bodiesPostedTo(ContentSigningFormattingPaths.operation(operation));
+    }
+
+    /** The bodies of the {@code validateProfile} requests Core sent, in call order. */
+    public List<JsonNode> validateProfileRequests() {
+        return bodiesPostedTo(ContentSigningFormattingPaths.VALIDATE_PROFILE);
+    }
+
+    private List<JsonNode> bodiesPostedTo(String path) {
         return server
-                .findAll(WireMock
-                        .postRequestedFor(
-                                WireMock.urlPathMatching(".*" + ContentSigningFormattingPaths.operation(operation))))
+                .findAll(WireMock.postRequestedFor(WireMock.urlPathMatching(".*" + path)))
                 .stream()
                 .map(request -> parse(request.getBodyAsString()))
                 .toList();

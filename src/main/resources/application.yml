@@ -203,6 +203,25 @@ provider:
           - PT5M
         max-attempts: 50
 
+  # Refresh of the renewal information that authorities give (ARI).
+  renewal-info:
+    # How often each node looks for certificates due for a refresh (one node sweeps at a time).
+    sweep-interval-ms: ${PROVIDER_RENEWAL_INFO_SWEEP_INTERVAL_MS:60000}
+    # Certificates of one authority claimed per sweep.
+    max-per-authority: ${PROVIDER_RENEWAL_INFO_MAX_PER_AUTHORITY:200}
+    # Certificates without refresh state enrolled per sweep.
+    enrol-per-sweep: ${PROVIDER_RENEWAL_INFO_ENROL_PER_SWEEP:500}
+    # Delays after failed refreshes; the last one repeats.
+    backoff:
+      - PT5M
+      - PT15M
+      - PT1H
+      - PT6H
+    # How long a claimed certificate stays claimed before another node may claim it again.
+    lease: ${PROVIDER_RENEWAL_INFO_LEASE:PT15M}
+    # Threads calling connectors.
+    executor-threads: ${PROVIDER_RENEWAL_INFO_EXECUTOR_THREADS:4}
+
 info:
   app:
     name: ILM Core

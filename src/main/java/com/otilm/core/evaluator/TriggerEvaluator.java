@@ -24,6 +24,7 @@ import com.otilm.api.model.core.workflows.ExecutionType;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeVersionHelper;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
+import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.ComplianceInternalRule;
 import com.otilm.core.dao.entity.UniquelyIdentifiedObject;
 import com.otilm.core.dao.entity.workflows.Action;
@@ -42,11 +43,14 @@ import com.otilm.core.enums.ResourceToClass;
 import com.otilm.core.messaging.model.NotificationMessage;
 import com.otilm.core.security.authz.SecurityResourceFilter;
 import com.otilm.core.service.TriggerInternalService;
+import com.otilm.core.service.renewal.auto.AutoRenewalAction;
+import com.otilm.core.service.renewal.auto.TriggerContext;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.FilterPredicatesBuilder;
 import jakarta.persistence.metamodel.Attribute;
 import java.lang.reflect.InvocationTargetException;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
@@ -86,10 +90,16 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
     protected AttributeEngine attributeEngine;
     private TriggerInternalService triggerService;
     private ApplicationEventPublisher applicationEventPublisher;
+    private AutoRenewalAction autoRenewalAction;
 
     @Autowired
     public void setApplicationEventPublisher(ApplicationEventPublisher applicationEventPublisher) {
         this.applicationEventPublisher = applicationEventPublisher;
+    }
+
+    @Autowired
+    public void setAutoRenewalAction(AutoRenewalAction autoRenewalAction) {
+        this.autoRenewalAction = autoRenewalAction;
     }
 
     @Autowired
@@ -494,6 +504,8 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
                     try {
                         if (execution.getType() == ExecutionType.SET_FIELD) {
                             performSetFieldExecution(trigger.getResource(), execution, object);
+                        } else if (execution.getType() == ExecutionType.RENEW_CERTIFICATE) {
+                            performRenewCertificateExecution(trigger, triggerHistory, execution, object);
                         } else {
                             performSendNotificationAction(trigger.getResource(), event, execution, object, data,
                                     triggerHistory);
@@ -514,6 +526,19 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
                 logger.debug("Action '{}' has been performed.", action.getName());
             }
         }
+    }
+
+    private void performRenewCertificateExecution(Trigger trigger, TriggerHistory triggerHistory, Execution execution,
+            T object) throws RuleException {
+        if (!(object instanceof Certificate certificate)) {
+            throw new RuleException("Only a certificate can be renewed, not " + trigger.getResource().getLabel());
+        }
+        UUID ownerUuid = triggerHistory.getTriggerAssociationUuid() == null
+                ? null
+                : triggerHistory.getTriggerAssociation().getTriggeredBy();
+        autoRenewalAction
+                .perform(certificate, new TriggerContext(trigger.getUuid(), ownerUuid, triggerHistory.getUuid(),
+                        execution.getUuid()));
     }
 
     private List<BaseAttributeContentV3<?>> resolveSourceAttributeContent(Resource resource,
@@ -848,8 +873,8 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
 
     }
 
-    // Entity date attributes arrive as java.util.Date from the legacy columns and as OffsetDateTime from the
-    // timestamptz ones; both normalize over the same instant, so the operators need not care which they got.
+    // Entity date attributes arrive as java.util.Date from the legacy columns and as OffsetDateTime or Instant from
+    // the timestamptz ones; all normalize over the same instant, so the operators need not care which they got.
     private static LocalDate getLocalDate(Object o) {
         return toSystemZoned(o).toLocalDate();
     }
@@ -861,6 +886,9 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
     private static ZonedDateTime toSystemZoned(Object o) {
         if (o instanceof OffsetDateTime offsetDateTime) {
             return offsetDateTime.atZoneSameInstant(ZoneId.systemDefault());
+        }
+        if (o instanceof Instant instant) {
+            return instant.atZone(ZoneId.systemDefault());
         }
         return ((Date) o).toInstant().atZone(ZoneId.systemDefault());
     }
