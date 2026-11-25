@@ -34,9 +34,9 @@ import org.slf4j.LoggerFactory;
  */
 // Flyway mandates the V<version>__<Description> class-name format, which cannot match Sonar's S101 identifier pattern.
 @SuppressWarnings("java:S101")
-public class V202611241201__BackfillKeyHandleDigests extends BaseJavaMigration {
+public class V202611251201__BackfillKeyHandleDigests extends BaseJavaMigration {
 
-    private static final Logger logger = LoggerFactory.getLogger(V202611241201__BackfillKeyHandleDigests.class);
+    private static final Logger logger = LoggerFactory.getLogger(V202611251201__BackfillKeyHandleDigests.class);
 
     private static final ObjectReader KEY_META_READER = ObjectMapperFactory
             .jsonColumn()
@@ -69,7 +69,7 @@ public class V202611241201__BackfillKeyHandleDigests extends BaseJavaMigration {
 
     @Override
     public Integer getChecksum() {
-        return DatabaseMigration.JavaMigrationChecksums.V202611241201__BackfillKeyHandleDigests.getChecksum();
+        return DatabaseMigration.JavaMigrationChecksums.V202611251201__BackfillKeyHandleDigests.getChecksum();
     }
 
     @Override

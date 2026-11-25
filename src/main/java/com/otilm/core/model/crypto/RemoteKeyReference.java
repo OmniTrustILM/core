@@ -2,8 +2,7 @@ package com.otilm.core.model.crypto;
 
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectWriter;
-import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.api.model.common.attribute.common.AttributeContent;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.core.attribute.MetadataIdentifier;
@@ -49,10 +48,7 @@ public sealed interface RemoteKeyReference {
      */
     record MetadataReference(List<MetadataAttribute> keyMeta) implements RemoteKeyReference {
 
-        private static final ObjectWriter KEY_ORDERED_WRITER = ObjectMapperFactory
-                .storage()
-                .writer()
-                .with(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS);
+        private static final ObjectMapper DIGEST_MAPPER = ObjectMapperFactory.keyHandleDigest();
 
         /**
          * Includes attribute names and permitted scalar values for provider-side correlation.
@@ -92,7 +88,7 @@ public sealed interface RemoteKeyReference {
 
         private static String canonicalJson(Object value) {
             try {
-                return KEY_ORDERED_WRITER.writeValueAsString(value);
+                return DIGEST_MAPPER.writeValueAsString(value);
             } catch (JsonProcessingException e) {
                 throw new IllegalStateException("A key handle could not be rendered for its digest", e);
             }

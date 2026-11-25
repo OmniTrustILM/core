@@ -35,6 +35,23 @@ class RemoteKeyReferenceDigestTest {
     }
 
     @Test
+    void returnsTheSha256OfTheCanonicalForm_whenTheValueIsAnObject() {
+        // given — members are written in key order and numbers as JSON numbers
+        var location = new LinkedHashMap<String, Object>();
+        location.put("slot", 1);
+        location.put("keyId", "a1b2");
+        var handle = new MetadataReference(List.of(buildAttribute("location", new ObjectAttributeContentV3(location))));
+        var canonicalForm = "[{\"name\":\"location\",\"data\":[{\"keyId\":\"a1b2\",\"slot\":1}]}]";
+        var sha256OfCanonicalForm = "1be412bf56ec5ad0903b9b7aec4d008af7bbe8d93236dfd9472a84e3f62c9c36";
+
+        // when
+        String digest = handle.digest();
+
+        // then
+        assertThat(digest).as("SHA-256 of %s", canonicalForm).isEqualTo(sha256OfCanonicalForm);
+    }
+
+    @Test
     void returnsTheSameDigest_whenTheAttributesComeInAnotherOrder() {
         // given
         var keyId = buildKeyId("a1b2");
