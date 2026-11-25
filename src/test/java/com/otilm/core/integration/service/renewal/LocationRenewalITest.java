@@ -7,6 +7,7 @@ import com.otilm.api.exception.RuleException;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.v2.ClientCertificateRekeyRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateEventHistory;
@@ -76,6 +77,7 @@ class LocationRenewalITest extends BaseSpringBootTest {
 
     private static final String PUSH_ONLY_ENTRY = "push-only locations";
     private static final String LOCATION_PUSH_PATH = "/v1/entityProvider/entities/[^/]+/locations/push";
+    private static final String AUTHORITY_RENEW_PATH = "/v2/authorityProvider/authorities/[^/]+/certificates/renew";
 
     @Autowired
     private AutoRenewalSeeder seeder;
@@ -111,6 +113,7 @@ class LocationRenewalITest extends BaseSpringBootTest {
     private WireMockServer entityProvider;
     private WireMockServer laterIssuingAuthority;
     private WireMockServer authService;
+    private WireMockServer authority;
 
     @BeforeEach
     void seedDueCertificate() {
@@ -511,6 +514,36 @@ class LocationRenewalITest extends BaseSpringBootTest {
                                 .formatted(successorUuid)));
         assertThat(locationNames(certificate)).containsExactly("web");
         assertThat(seeder.locationRow(certificate, web).getCompletedAt()).isNull();
+    }
+
+    @Test
+    void pushesTheRekeyedCertificateInPlaceOfTheOldOne_whenTheAuthorityRekeysTheLocationRenewalAtOnce()
+            throws Exception {
+        // given
+        entityProvider = LoopbackWireMock.start();
+        authority = LoopbackWireMock.start();
+        certificate = seeder.seedDueCertificate(seeder.seedRaProfile(authority));
+        Location web = seeder.seedKeyGeneratingLocation(entityProvider, certificate, "web");
+        Certificate successor = seeder.seedRequestedSuccessor(certificate);
+        seeder.seedLocationEntry(web, successor);
+        authority
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching(AUTHORITY_RENEW_PATH))
+                        .willReturn(WireMock.okJson("{ \"certificateData\": \"" + issuedCertificateData() + "\" }")));
+        entityProvider
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching(LOCATION_PUSH_PATH))
+                        .willReturn(WireMock.okJson("{\"withKey\": true}")));
+        ClientCertificateRekeyRequestDto inLocation = ClientCertificateRekeyRequestDto.builder().build();
+        inLocation.setReplaceInLocations(false);
+
+        // when
+        clientOperationService.rekeyCertificateAction(successor.getUuid(), inLocation, true);
+
+        // then
+        entityProvider.verify(1, WireMock.postRequestedFor(WireMock.urlPathMatching(LOCATION_PUSH_PATH)));
+        assertThat(locationNames(successor)).containsExactly("web");
+        assertThat(locationNames(certificate)).isEmpty();
     }
 
     @Test

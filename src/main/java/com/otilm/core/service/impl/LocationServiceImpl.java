@@ -38,7 +38,6 @@ import com.otilm.api.model.core.auth.AttributeResource;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
-import com.otilm.api.model.core.certificate.CertificateRelationType;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.connector.ConnectorStatus;
@@ -773,10 +772,10 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
                         CertificateEventStatus.SUCCESS, message, additionalInformation);
 
         if (isRenewal) {
-            // Delete current certificate in location table
+            // Remove the certificate the renewal or rekey replaced: the relation its request created comes first, and
+            // its type, set at issuance from the keys and names, may be any of renewal, rekey or replacement.
             CertificateRelation certificateRelation = certificateRelationRepository
-                    .findFirstByIdSuccessorCertificateUuidAndRelationTypeOrderByCreatedAtAsc(certificate.getUuid(),
-                            CertificateRelationType.RENEWAL)
+                    .findFirstByIdSuccessorCertificateUuidOrderByCreatedAtAsc(certificate.getUuid())
                     .orElse(null);
             if (certificateRelation != null) {
                 CertificateLocationId clId = new CertificateLocationId(location.getUuid(),

@@ -2937,14 +2937,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         if (request.isReplaceInLocations()) {
             replaceRenewedInLocations(oldCertificate, certificate);
         } else {
-            // push certificate to locations
-            for (CertificateLocation cl : certificate.getLocations()) {
-                try {
-                    locationInternalService.pushRequestedCertificateToLocationAction(cl.getId(), true);
-                } catch (Exception e) {
-                    logger.error("Failed to push renewed certificate to location", RedactedFailure.forLog(e));
-                }
-            }
+            pushRenewedToLocations(certificate);
         }
 
         // raise event
@@ -2953,6 +2946,20 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                         .constructEventMessage(certificate.getUuid(), ResourceAction.RENEW));
 
         logger.debug("Certificate Renewed: {}", certificate);
+    }
+
+    /**
+     * Pushes a renewed or rekeyed certificate to the locations it was linked to when it was requested, each in place of
+     * the certificate it replaces there.
+     */
+    private void pushRenewedToLocations(Certificate certificate) {
+        for (CertificateLocation cl : certificate.getLocations()) {
+            try {
+                locationInternalService.pushRequestedCertificateToLocationAction(cl.getId(), true);
+            } catch (Exception e) {
+                logger.error("Failed to push renewed certificate to location", RedactedFailure.forLog(e));
+            }
+        }
     }
 
     @Override
@@ -3200,6 +3207,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
         if (request.isReplaceInLocations()) {
             replaceInLocations(oldCertificate, certificate, "rekey");
+        } else {
+            pushRenewedToLocations(certificate);
         }
 
         // raise event

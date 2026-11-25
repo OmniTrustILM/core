@@ -15,6 +15,9 @@ public interface CertificateRelationRepository
     Optional<CertificateRelation> findFirstByIdSuccessorCertificateUuidAndRelationTypeOrderByCreatedAtAsc(
             UUID successorCertificateUuid, CertificateRelationType relationType);
 
+    Optional<CertificateRelation> findFirstByIdSuccessorCertificateUuidOrderByCreatedAtAsc(
+            UUID successorCertificateUuid);
+
     boolean existsByIdPredecessorCertificateUuidAndSuccessorCertificateState(UUID predecessorCertificateUuid,
             CertificateState successorState);
 }
