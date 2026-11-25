@@ -428,10 +428,10 @@ class NotificationListenerTest {
     void rendersTheRenewalWindowAndTheExplanation_whenTheRenewalDueEventHasAnExplanationUrl() {
         // given
         var explanationUrl = "https://ca.example.com/why";
-        CertificateRenewalDueEventData data = renewalDueEventData(explanationUrl);
+        CertificateRenewalDueEventData data = createRenewalDueEventData(explanationUrl);
 
         // when
-        String text = renderedRenewalDueNotification(data);
+        String text = renderRenewalDueNotification(data);
 
         // then
         assertThat(text)
@@ -442,10 +442,10 @@ class NotificationListenerTest {
     @Test
     void rendersTheRenewalWindowOnly_whenTheRenewalDueEventHasNoExplanationUrl() {
         // given
-        CertificateRenewalDueEventData data = renewalDueEventData(null);
+        CertificateRenewalDueEventData data = createRenewalDueEventData(null);
 
         // when
-        String text = renderedRenewalDueNotification(data);
+        String text = renderRenewalDueNotification(data);
 
         // then
         assertThat(text)
@@ -715,7 +715,7 @@ class NotificationListenerTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static CertificateRenewalDueEventData renewalDueEventData(String explanationUrl) {
+    private static CertificateRenewalDueEventData createRenewalDueEventData(String explanationUrl) {
         CertificateRenewalDueEventData data = new CertificateRenewalDueEventData();
         data.setCertificateUuid(UUID.randomUUID());
         data.setDisplayName("holder");
@@ -725,7 +725,7 @@ class NotificationListenerTest {
         return data;
     }
 
-    private String renderedRenewalDueNotification(CertificateRenewalDueEventData data) {
+    private String renderRenewalDueNotification(CertificateRenewalDueEventData data) {
         UUID recipientUuid = UUID.randomUUID();
         NotificationMessage message = new NotificationMessage(ResourceEvent.CERTIFICATE_RENEWAL_DUE,
                 Resource.CERTIFICATE, data.getCertificateUuid(), null,

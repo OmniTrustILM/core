@@ -33,8 +33,8 @@ class RenewalRefreshWriterITest extends BaseSpringBootTest {
     @Test
     void setsRefreshStateOfOnlyTheScheduledRow_whenSchedulingOneCertificate() {
         // given
-        UUID certificateUuid = rowFor();
-        UUID other = rowFor();
+        UUID certificateUuid = createRenewalRow();
+        UUID other = createRenewalRow();
 
         // when
         writer.schedule(certificateUuid, DUE, 3, true);
@@ -53,9 +53,9 @@ class RenewalRefreshWriterITest extends BaseSpringBootTest {
     @Test
     void movesOnlyTheDueTimeOfTheGivenRows_whenPostponingSelectedCertificates() {
         // given
-        UUID first = rowFor();
-        UUID second = rowFor();
-        UUID other = rowFor();
+        UUID first = createRenewalRow();
+        UUID second = createRenewalRow();
+        UUID other = createRenewalRow();
         writer.schedule(first, DUE, 2, false);
         Instant postponedTo = DUE.plusSeconds(600);
 
@@ -74,7 +74,7 @@ class RenewalRefreshWriterITest extends BaseSpringBootTest {
     @Test
     void countsEachFailureAndDerivesTheTimeFromTheNewCount_whenBackingOffRepeatedly() {
         // given
-        UUID certificateUuid = rowFor();
+        UUID certificateUuid = createRenewalRow();
         writer.schedule(certificateUuid, DUE, 0, true);
 
         // when
@@ -91,7 +91,7 @@ class RenewalRefreshWriterITest extends BaseSpringBootTest {
     @Test
     void createsNoRow_whenBackingOffACertificateWithoutOne() {
         // given
-        UUID existing = rowFor();
+        UUID existing = createRenewalRow();
         UUID withoutRow = UUID.randomUUID();
 
         // when
@@ -107,7 +107,7 @@ class RenewalRefreshWriterITest extends BaseSpringBootTest {
     @Test
     void leavesRowsUntouched_whenPostponingNoCertificates() {
         // given
-        UUID existing = rowFor();
+        UUID existing = createRenewalRow();
 
         // when
         writer.postpone(List.of(), DUE);
@@ -118,7 +118,7 @@ class RenewalRefreshWriterITest extends BaseSpringBootTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private UUID rowFor() {
+    private UUID createRenewalRow() {
         Certificate certificate = certificateRepository.save(aCertificate().build());
         transactionTemplate
                 .executeWithoutResult(

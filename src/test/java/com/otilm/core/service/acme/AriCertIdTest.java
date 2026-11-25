@@ -104,11 +104,11 @@ class AriCertIdTest {
     @Test
     void roundTripsKeyIdentifierAndSerial_whenBuildingIdOfCertificate() throws Exception {
         // given
-        KeyPair issuerKeys = keyPair();
+        KeyPair issuerKeys = generateKeyPair();
         byte[] keyIdentifier = new JcaX509ExtensionUtils()
                 .createAuthorityKeyIdentifier(issuerKeys.getPublic())
                 .getKeyIdentifier();
-        X509Certificate certificate = certificate(issuerKeys, new BigInteger("8a01", 16),
+        X509Certificate certificate = createCertificate(issuerKeys, new BigInteger("8a01", 16),
                 new AuthorityKeyIdentifier(keyIdentifier));
 
         // when
@@ -122,7 +122,7 @@ class AriCertIdTest {
     @Test
     void refusesId_whenCertificateHasNoAuthorityKeyIdentifier() throws Exception {
         // given
-        X509Certificate withoutAuthorityKeyIdentifier = certificate(keyPair(), BigInteger.TEN, null);
+        X509Certificate withoutAuthorityKeyIdentifier = createCertificate(generateKeyPair(), BigInteger.TEN, null);
 
         // when
         ThrowingCallable buildId = () -> AriCertId.of(withoutAuthorityKeyIdentifier);
@@ -133,13 +133,13 @@ class AriCertIdTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static KeyPair keyPair() throws Exception {
+    private static KeyPair generateKeyPair() throws Exception {
         KeyPairGenerator generator = KeyPairGenerator.getInstance("EC");
         generator.initialize(256);
         return generator.generateKeyPair();
     }
 
-    private static X509Certificate certificate(KeyPair keys, BigInteger serial, AuthorityKeyIdentifier aki)
+    private static X509Certificate createCertificate(KeyPair keys, BigInteger serial, AuthorityKeyIdentifier aki)
             throws Exception {
         X500Name name = new X500Name("CN=ari-test");
         X509v3CertificateBuilder builder = new JcaX509v3CertificateBuilder(name, serial,

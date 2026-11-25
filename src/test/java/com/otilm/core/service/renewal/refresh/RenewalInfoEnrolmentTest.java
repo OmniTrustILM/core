@@ -35,7 +35,7 @@ class RenewalInfoEnrolmentTest {
     @Test
     void reEnrolsTheCertificate_whenItsRaProfileUsesTheAuthorityInformation() {
         // given
-        Certificate certificate = certificateUnder(raProfileUsingAuthorityInfo(true));
+        Certificate certificate = createCertificateUnder(createRaProfileUsingAuthorityInfo(true));
 
         // when
         enrolment.enrol(certificate);
@@ -47,7 +47,7 @@ class RenewalInfoEnrolmentTest {
     @Test
     void writesNothing_whenItsRaProfileDoesNotUseTheAuthorityInformation() {
         // given
-        Certificate certificate = certificateUnder(raProfileUsingAuthorityInfo(false));
+        Certificate certificate = createCertificateUnder(createRaProfileUsingAuthorityInfo(false));
 
         // when
         enrolment.enrol(certificate);
@@ -59,7 +59,7 @@ class RenewalInfoEnrolmentTest {
     @Test
     void writesNothing_whenTheCertificateHasNoRaProfile() {
         // given
-        Certificate withoutRaProfile = certificateUnder(null);
+        Certificate withoutRaProfile = createCertificateUnder(null);
 
         // when
         enrolment.enrol(withoutRaProfile);
@@ -70,13 +70,13 @@ class RenewalInfoEnrolmentTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static RaProfile raProfileUsingAuthorityInfo(boolean useAuthorityInfo) {
+    private static RaProfile createRaProfileUsingAuthorityInfo(boolean useAuthorityInfo) {
         RaProfile raProfile = new RaProfile();
         raProfile.setRenewalUseAuthorityInfo(useAuthorityInfo);
         return raProfile;
     }
 
-    private static Certificate certificateUnder(RaProfile raProfile) {
+    private static Certificate createCertificateUnder(RaProfile raProfile) {
         return aCertificate().withUuid(UUID.randomUUID()).withRaProfile(raProfile).build();
     }
 }

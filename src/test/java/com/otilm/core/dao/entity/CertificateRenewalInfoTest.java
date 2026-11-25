@@ -10,7 +10,7 @@ class CertificateRenewalInfoTest {
     @Test
     void equalsItself_whenComparedToTheSameInstance() {
         // given
-        CertificateRenewalInfo info = anInfoWithUuid(UUID.randomUUID());
+        CertificateRenewalInfo info = createInfoWithUuid(UUID.randomUUID());
 
         // when
         boolean equal = info.equals(info);
@@ -22,7 +22,7 @@ class CertificateRenewalInfoTest {
     @Test
     void isNotEqual_whenComparedToNull() {
         // given
-        CertificateRenewalInfo info = anInfoWithUuid(UUID.randomUUID());
+        CertificateRenewalInfo info = createInfoWithUuid(UUID.randomUUID());
 
         // when
         boolean equal = info.equals(null);
@@ -34,7 +34,7 @@ class CertificateRenewalInfoTest {
     @Test
     void isNotEqual_whenComparedToAnObjectOfAnotherClass() {
         // given
-        CertificateRenewalInfo info = anInfoWithUuid(UUID.randomUUID());
+        CertificateRenewalInfo info = createInfoWithUuid(UUID.randomUUID());
         Object anotherClass = "not a renewal info";
 
         // when
@@ -48,8 +48,8 @@ class CertificateRenewalInfoTest {
     void equalsWithEqualHashCode_whenInstancesShareTheSameUuid() {
         // given
         UUID uuid = UUID.randomUUID();
-        CertificateRenewalInfo first = anInfoWithUuid(uuid);
-        CertificateRenewalInfo second = anInfoWithUuid(uuid);
+        CertificateRenewalInfo first = createInfoWithUuid(uuid);
+        CertificateRenewalInfo second = createInfoWithUuid(uuid);
 
         // when
         boolean equal = first.equals(second);
@@ -77,8 +77,8 @@ class CertificateRenewalInfoTest {
     @Test
     void isNotEqual_whenUuidsDiffer() {
         // given
-        CertificateRenewalInfo first = anInfoWithUuid(UUID.randomUUID());
-        CertificateRenewalInfo second = anInfoWithUuid(UUID.randomUUID());
+        CertificateRenewalInfo first = createInfoWithUuid(UUID.randomUUID());
+        CertificateRenewalInfo second = createInfoWithUuid(UUID.randomUUID());
 
         // when
         boolean equal = first.equals(second);
@@ -89,7 +89,7 @@ class CertificateRenewalInfoTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static CertificateRenewalInfo anInfoWithUuid(UUID uuid) {
+    private static CertificateRenewalInfo createInfoWithUuid(UUID uuid) {
         CertificateRenewalInfo info = new CertificateRenewalInfo();
         info.setUuid(uuid);
         return info;
