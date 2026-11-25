@@ -270,10 +270,10 @@ public class LocationRenewalHandler implements AutoRenewalHandler {
     }
 
     /**
-     * Renews in the location without a transaction of this handler, as the renewal calls out to connectors; the
-     * location service runs it in a transaction of its own. The successor is stored on the row before its renewal is
-     * queued, in a transaction of its own, so it stays tracked when a later step of the location's renewal fails after
-     * the request was committed.
+     * Renews in the location without a transaction, as the renewal calls out to connectors; the location service opens
+     * only short transactions of its own around its local reads and writes. The successor is stored on the row before
+     * its renewal is queued, in a transaction of its own, so it stays tracked when a later step of the location's
+     * renewal fails after the request was committed.
      */
     private UUID renewAndStoreSuccessor(UUID certificateUuid, Target target) {
         Consumer<UUID> trackSuccessor = successorUuid -> inNewTransaction(() -> {
