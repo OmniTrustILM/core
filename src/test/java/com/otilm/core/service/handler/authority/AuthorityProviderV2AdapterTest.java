@@ -1,13 +1,20 @@
 package com.otilm.core.service.handler.authority;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.ConnectorProblemException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.interfaces.client.v1.AuthorityInstanceSyncApiClient;
 import com.otilm.api.interfaces.client.v2.CertificateSyncApiClient;
 import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
+import com.otilm.api.model.common.error.ErrorCode;
+import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.api.model.connector.authority.CaCertificatesRequestDto;
 import com.otilm.api.model.connector.authority.CaCertificatesResponseDto;
 import com.otilm.api.model.connector.v2.CertRevocationDto;
@@ -22,6 +29,8 @@ import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.OutboundSecretContainment;
+import com.otilm.core.attribute.engine.records.ObjectAttributeContent;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
@@ -29,15 +38,21 @@ import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.X509CertificateRequestEntity;
 import com.otilm.core.service.v2.ConnectorInternalService;
+import com.otilm.core.util.SecretEncodingVersion;
+import com.otilm.core.util.SecretsUtil;
+import java.security.Security;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -45,6 +60,7 @@ import org.springframework.http.ResponseEntity;
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static com.otilm.core.util.builders.CertificateRequestEntityBuilder.aCertificateRequest;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -54,6 +70,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -63,12 +80,16 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class AuthorityProviderV2AdapterTest {
 
+    private static final String TEST_APPLICATION_ENCRYPTION_KEY = "test123";
+
     @Mock
     ConnectorInternalService connectorService;
     @Mock
     ConnectorApiFactory connectorApiFactory;
     @Mock
     AttributeEngine attributeEngine;
+    @Spy
+    OutboundSecretContainment outboundContainment = new OutboundSecretContainment(new ObjectMapper());
 
     @InjectMocks
     AuthorityProviderV2Adapter adapter;
@@ -348,21 +369,86 @@ class AuthorityProviderV2AdapterTest {
     }
 
     @Test
-    void identify_passesStoredRaProfileAttributesUnchanged() throws Exception {
-        // v2 is stateful: stored ra-profile attributes must reach the wire exactly as stored (no dereference).
-        List<RequestAttribute> stored = List.of(mock(RequestAttribute.class));
-        when(attributeEngine.getRequestObjectDataAttributesContent(any())).thenReturn(stored);
+    void sendsStoredRaProfileAttributes_whenIdentifying() throws Exception {
+        // given
+        var storedRow = plainRow("endEntityProfile", "EMPTY");
+        when(attributeEngine.getStoredObjectDataAttributesContent(any())).thenReturn(List.of(storedRow));
         when(certClient
                 .identifyCertificate(eq(connectorInfo), eq("auth-instance-uuid"),
                         any(CertificateIdentificationRequestDto.class)))
                 .thenReturn(new CertificateIdentificationResponseDto());
 
+        // when
         adapter.identify(raProfile, "dGVzdGNlcnQ=", List.of());
 
-        ArgumentCaptor<CertificateIdentificationRequestDto> captor = ArgumentCaptor
+        // then
+        ArgumentCaptor<CertificateIdentificationRequestDto> wire = ArgumentCaptor
                 .forClass(CertificateIdentificationRequestDto.class);
-        verify(certClient).identifyCertificate(eq(connectorInfo), eq("auth-instance-uuid"), captor.capture());
-        assertSame(stored, captor.getValue().getRaProfileAttributes());
+        verify(certClient).identifyCertificate(eq(connectorInfo), eq("auth-instance-uuid"), wire.capture());
+        assertThat(wire.getValue().getRaProfileAttributes())
+                .singleElement()
+                .satisfies(attribute -> assertThat(attribute.getUuid()).isEqualTo(storedRow.uuid()));
+    }
+
+    @Test
+    void replacesConnectorWords_whenIdentifyRefusalQuotesAnEncryptedRaProfileValue() throws Exception {
+        // given
+        var encryptedValue = "upstream-api-password";
+        when(attributeEngine.getStoredObjectDataAttributesContent(any()))
+                .thenReturn(List.of(sealedRow("apiPassword", encryptedValue)));
+        when(certClient
+                .identifyCertificate(eq(connectorInfo), eq("auth-instance-uuid"),
+                        any(CertificateIdentificationRequestDto.class)))
+                .thenThrow(identifyRefusal("login with " + encryptedValue + " refused"));
+
+        // when
+        ThrowingCallable identify = () -> adapter.identify(raProfile, "dGVzdGNlcnQ=", List.of());
+
+        // then
+        assertThatThrownBy(identify).isInstanceOfSatisfying(ConnectorProblemException.class, e -> {
+            assertThat(e.getProblemDetail().getDetail()).doesNotContain(encryptedValue);
+            assertThat(e.getProblemDetail().getErrorCode()).isEqualTo(ErrorCode.RESOURCE_NOT_FOUND);
+            assertThat(e.getProblemDetail().getStatus()).isEqualTo(HttpStatus.NOT_FOUND.value());
+        });
+    }
+
+    @Test
+    void keepsConnectorDetail_whenIdentifyRefusalQuotesNoSentSecret() throws Exception {
+        // given
+        when(attributeEngine.getStoredObjectDataAttributesContent(any()))
+                .thenReturn(List.of(sealedRow("apiPassword", "upstream-api-password")));
+        var refusal = identifyRefusal("its issuing CA certificate could not be obtained; add it to the authority");
+        when(certClient
+                .identifyCertificate(eq(connectorInfo), eq("auth-instance-uuid"),
+                        any(CertificateIdentificationRequestDto.class)))
+                .thenThrow(refusal);
+
+        // when
+        ThrowingCallable identify = () -> adapter.identify(raProfile, "dGVzdGNlcnQ=", List.of());
+
+        // then
+        assertThatThrownBy(identify).isSameAs(refusal);
+    }
+
+    @Test
+    void replacesConnectorWords_whenSecretsSentForIdentifyCannotBeRead() throws Exception {
+        // given
+        var connectorReason = "its issuing CA certificate could not be obtained; add it to the authority";
+        doThrow(new IllegalStateException("sent attributes unreadable"))
+                .when(outboundContainment)
+                .recordExpandedSecretsFromRequest(any(), any());
+        when(certClient
+                .identifyCertificate(eq(connectorInfo), eq("auth-instance-uuid"),
+                        any(CertificateIdentificationRequestDto.class)))
+                .thenThrow(identifyRefusal(connectorReason));
+
+        // when
+        ThrowingCallable identify = () -> adapter.identify(raProfile, "dGVzdGNlcnQ=", List.of());
+
+        // then
+        assertThatThrownBy(identify)
+                .isInstanceOfSatisfying(ConnectorProblemException.class,
+                        e -> assertThat(e.getProblemDetail().getDetail()).doesNotContain(connectorReason));
     }
 
     @Test
@@ -533,5 +619,26 @@ class AuthorityProviderV2AdapterTest {
 
         // then
         assertThat(types).containsExactly(CertificateType.X509);
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static ObjectAttributeContent plainRow(String name, String value) {
+        return new ObjectAttributeContent(UUID.randomUUID(), name, name, AttributeType.DATA,
+                AttributeContentType.STRING, new StringAttributeContentV2(value), 2, null);
+    }
+
+    /** A row as the attribute engine stores a protected value, sealed under the test application's key. */
+    private static ObjectAttributeContent sealedRow(String name, String value) {
+        Security.addProvider(new BouncyCastleProvider());
+        new SecretsUtil().setEncryptionKeyStatic(TEST_APPLICATION_ENCRYPTION_KEY);
+        String sealed = SecretsUtil.encryptAndEncodeSecretString(value, SecretEncodingVersion.V1);
+        return new ObjectAttributeContent(UUID.randomUUID(), name, name, AttributeType.DATA,
+                AttributeContentType.STRING, new StringAttributeContentV2(), 2, sealed);
+    }
+
+    private static ConnectorProblemException identifyRefusal(String detail) {
+        var problem = ProblemDetailExtended.fromErrorCode(ErrorCode.RESOURCE_NOT_FOUND, detail, null, null);
+        return new ConnectorProblemException(problem);
     }
 }

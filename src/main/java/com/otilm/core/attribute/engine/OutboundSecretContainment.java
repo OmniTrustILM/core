@@ -157,7 +157,7 @@ public class OutboundSecretContainment {
 
     /**
      * Record the text and numbers of each sent attribute whose definition keeps it encrypted, for operation attributes
-     * that are sent before any row stores them. Rows and attributes are matched by definition UUID.
+     * that are sent before any row stores them. Definitions and attributes are matched by definition UUID.
      */
     public void recordProtectedOperationValues(List<DataAttribute> definitions, List<RequestAttribute> sent,
             Set<String> sentSecrets) {
@@ -166,12 +166,30 @@ public class OutboundSecretContainment {
                 .filter(OutboundSecretContainment::isStoredEncrypted)
                 .map(definition -> UUID.fromString(definition.getUuid()))
                 .collect(Collectors.toSet());
-        forEachProtectedData(protectedDefinitions, sent, data -> {
-            addIfPresent(protectedText(data), sentSecrets);
-            if (data instanceof Number number) {
-                sentSecrets.add(number.toString());
-            }
-        });
+        forEachProtectedData(protectedDefinitions, sent, data -> recordProtectedOperationValue(data, sentSecrets));
+    }
+
+    /**
+     * The text of a protected value, its decimal form for a number, and every text or number nested in an object or a
+     * list, such as a passphrase inside an object attribute. Flags are left out, as they match any benign answer.
+     */
+    private void recordProtectedOperationValue(Object data, Set<String> sentSecrets) {
+        String text = protectedText(data);
+        if (text != null) {
+            addIfPresent(text, sentSecrets);
+        } else if (data instanceof Number number) {
+            sentSecrets.add(number.toString());
+        } else if (data != null && !(data instanceof Boolean)) {
+            collectTextAndNumbers(objectMapper.valueToTree(data), sentSecrets);
+        }
+    }
+
+    private static void collectTextAndNumbers(JsonNode node, Set<String> sink) {
+        if (node.isTextual() || node.isNumber()) {
+            addIfPresent(node.asText(), sink);
+        } else if (node.isContainerNode()) {
+            node.elements().forEachRemaining(child -> collectTextAndNumbers(child, sink));
+        }
     }
 
     private static void forEachProtectedData(List<ObjectAttributeContent> storedRows, List<RequestAttribute> resolved,

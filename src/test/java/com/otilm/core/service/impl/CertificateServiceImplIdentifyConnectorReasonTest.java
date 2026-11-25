@@ -43,7 +43,7 @@ class CertificateServiceImplIdentifyConnectorReasonTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    static Stream<Arguments> failuresWithoutReason() {
+    private static Stream<Arguments> failuresWithoutReason() {
         return Stream
                 .of(Arguments
                         .of(named("plain 404 body",

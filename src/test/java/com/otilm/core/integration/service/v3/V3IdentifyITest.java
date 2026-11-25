@@ -38,7 +38,6 @@ import java.util.List;
 import java.util.UUID;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -103,7 +102,8 @@ class V3IdentifyITest extends BaseSpringBootTest {
     }
 
     @Test
-    void raProfileSwitch_carriesIdentifyAttributeValuesOnTheWireAndDetail() throws Exception {
+    void carriesIdentifyAttributes_whenSwitchingRaProfile() throws Exception {
+        // given
         AuthorityFixtures.Fixture fixture = createV3Authority();
         V3ConnectorStubs.stubAttributesAndValidate(wireMockServer);
         wireMockServer
@@ -129,26 +129,27 @@ class V3IdentifyITest extends BaseSpringBootTest {
                                 .withBody("{\"meta\": []}")));
 
         X509CertificateEntity certificate = createIssuedCertificate();
-
         RequestAttributeV3 identifyValue = new RequestAttributeV3(
                 UUID.fromString("2c8f3d4b-0000-4000-8000-000000000001"), "agentReference", AttributeContentType.STRING,
                 List.of(new StringAttributeContentV3("agent-42")));
+
+        // when
         certificateInternalService
                 .switchRaProfile(certificate.getSecuredUuid(), fixture.raProfile().getSecuredUuid(),
                         List.of(identifyValue));
 
+        // then
         wireMockServer
                 .verify(1, postRequestedFor(urlEqualTo(V3_IDENTIFY_PATH))
                         .withRequestBody(matchingJsonPath("$.attributes[0].name", equalTo("agentReference")))
                         .withRequestBody(matchingJsonPath("$.attributes[0].content[0].data", equalTo("agent-42"))));
 
-        // The submitted values surface on the certificate detail, keyed to the new authority's connector.
         CertificateDetail detail = certificateExternalService
                 .getCertificate(SecuredUUID.fromUUID(certificate.getUuid()));
-        Assertions
-                .assertEquals(1, detail.getIdentifyAttributes().size(),
-                        "identify attributes must surface on the certificate detail");
-        Assertions.assertEquals("agentReference", detail.getIdentifyAttributes().getFirst().getName());
+        assertThat(detail.getIdentifyAttributes())
+                .as("identify attributes must surface on the certificate detail")
+                .singleElement()
+                .satisfies(attribute -> assertThat(attribute.getName()).isEqualTo("agentReference"));
     }
 
     @Test

@@ -188,41 +188,42 @@ public class AuthorityProviderV3Adapter extends AbstractAuthorityProviderAdapter
         AuthorityInstanceReference authority = raProfile.getAuthorityInstanceReference();
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
 
+        // The request and the secrets it carries are read from one snapshot, so an edit while the connector answers
+        // cannot drop a protection marker from what was sent.
+        List<ObjectAttributeContent> authorityRows = storedAttributeRows(Resource.AUTHORITY, authority.getUuid(),
+                authority);
+        List<ObjectAttributeContent> raProfileRows = storedAttributeRows(Resource.RA_PROFILE, raProfile.getUuid(),
+                authority);
+        List<DataAttribute> identifyDefinitions = identifyDefinitions(authority, attributes);
         CertificateIdentificationRequestDtoV3 wire = new CertificateIdentificationRequestDtoV3();
         wire.setCertificate(certificateContent);
         wire.setAttributes(attributes);
-        wire.setAuthorityAttributes(authorityAttributesFor(authority));
-        wire.setRaProfileAttributes(resolvedRaProfileAttributes(raProfile, authority));
+        wire.setAuthorityAttributes(resolvedForConnector(authority, authorityRows));
+        wire.setRaProfileAttributes(resolvedForConnector(authority, raProfileRows));
 
         CertificateIdentificationResponseDto response;
         try {
             response = connectorApiFactory.getCertificateApiClientV3(connectorDto).identify(connectorDto, wire);
         } catch (ConnectorProblemException e) {
-            throw withoutQuotedSecrets(e, () -> identifySecretsSent(raProfile, authority, wire), outboundContainment,
-                    IDENTIFICATION);
+            throw withoutQuotedSecrets(e,
+                    () -> identifySecretsSent(wire, authorityRows, raProfileRows, identifyDefinitions),
+                    outboundContainment, IDENTIFICATION);
         }
         return response.getMeta() != null ? response.getMeta() : List.of();
     }
 
-    private Set<String> identifySecretsSent(RaProfile raProfile, AuthorityInstanceReference authority,
-            CertificateIdentificationRequestDtoV3 wire) {
+    private Set<String> identifySecretsSent(CertificateIdentificationRequestDtoV3 wire,
+            List<ObjectAttributeContent> authorityRows, List<ObjectAttributeContent> raProfileRows,
+            List<DataAttribute> identifyDefinitions) {
         Set<String> sentSecrets = new HashSet<>();
-        sentSecrets
-                .addAll(secretsSent(outboundContainment,
-                        storedAttributeRows(Resource.AUTHORITY, authority.getUuid(), authority),
-                        wire.getAuthorityAttributes()));
-        sentSecrets
-                .addAll(secretsSent(outboundContainment,
-                        storedAttributeRows(Resource.RA_PROFILE, raProfile.getUuid(), authority),
-                        wire.getRaProfileAttributes()));
+        sentSecrets.addAll(secretsSent(outboundContainment, authorityRows, wire.getAuthorityAttributes()));
+        sentSecrets.addAll(secretsSent(outboundContainment, raProfileRows, wire.getRaProfileAttributes()));
         sentSecrets.addAll(secretsSent(outboundContainment, List.of(), wire.getAttributes()));
-        outboundContainment
-                .recordProtectedOperationValues(identifyDefinitions(authority, wire.getAttributes()),
-                        wire.getAttributes(), sentSecrets);
+        outboundContainment.recordProtectedOperationValues(identifyDefinitions, wire.getAttributes(), sentSecrets);
         return sentSecrets;
     }
 
-    /** The stored definitions of the identify attributes sent, which the schema check stored before the call. */
+    /** The stored definitions of the identify attributes to send, which the schema check stored before the call. */
     private List<DataAttribute> identifyDefinitions(AuthorityInstanceReference authority,
             List<RequestAttribute> identifyAttributes) {
         if (identifyAttributes == null) {

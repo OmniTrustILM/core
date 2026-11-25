@@ -23,6 +23,7 @@ import com.otilm.api.model.common.attribute.common.content.data.ProtectionLevel;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.IntegerAttributeContentV3;
+import com.otilm.api.model.common.attribute.v3.content.ObjectAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.ResourceObjectContent;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceSecretContentData;
@@ -90,6 +91,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.asn1.x500.X500Name;
@@ -138,6 +140,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
@@ -550,25 +553,22 @@ class AuthorityProviderV3AdapterTest {
         });
     }
 
-    @Test
-    void replacesConnectorWords_whenIdentifyRefusalQuotesAnEncryptedIdentifyValue() throws Exception {
+    @ParameterizedTest
+    @MethodSource("encryptedIdentifyValues")
+    void replacesConnectorWords_whenIdentifyRefusalQuotesAnEncryptedIdentifyValue(AttributeContentType contentType,
+            BaseAttributeContentV3<?> encryptedContent, String quotedValue) throws Exception {
         // given
-        var encryptedIdentifyValue = "agent-passphrase-42";
         var identifyDefinitionUuid = UUID.randomUUID();
-        var identifyDefinition = aDataAttribute().withUuid(identifyDefinitionUuid).withName("agentPassphrase").build();
+        var identifyDefinition = aDataAttribute().withUuid(identifyDefinitionUuid).withName("agentSecret").build();
         identifyDefinition.getProperties().setProtectionLevel(ProtectionLevel.ENCRYPTED);
         when(attributeEngine
-                .getDataAttributeDefinitionStrict(authority.getConnectorUuid(), identifyDefinitionUuid,
-                        "agentPassphrase"))
+                .getDataAttributeDefinitionStrict(authority.getConnectorUuid(), identifyDefinitionUuid, "agentSecret"))
                 .thenReturn(identifyDefinition);
         List<RequestAttribute> identifyValues = List
-                .of(aCustomAttribute()
-                        .withUuid(identifyDefinitionUuid)
-                        .withName("agentPassphrase")
-                        .withStringContent(encryptedIdentifyValue)
-                        .build());
+                .of(new RequestAttributeV3(identifyDefinitionUuid, "agentSecret", contentType,
+                        List.<BaseAttributeContentV3<?>>of(encryptedContent)));
         when(certClientV3.identify(eq(connectorInfo), any(CertificateIdentificationRequestDtoV3.class)))
-                .thenThrow(identifyRefusal("agent " + encryptedIdentifyValue + " is unknown"));
+                .thenThrow(identifyRefusal("agent secret " + quotedValue + " is unknown"));
 
         // when
         ThrowingCallable identify = () -> adapter.identify(raProfile, "dGVzdGNlcnQ=", identifyValues);
@@ -576,7 +576,38 @@ class AuthorityProviderV3AdapterTest {
         // then
         assertThatThrownBy(identify)
                 .isInstanceOfSatisfying(ConnectorProblemException.class,
-                        e -> assertThat(e.getProblemDetail().getDetail()).doesNotContain(encryptedIdentifyValue));
+                        e -> assertThat(e.getProblemDetail().getDetail()).doesNotContain(quotedValue));
+    }
+
+    @Test
+    void replacesConnectorWords_whenAnEncryptedValueSentForIdentifyIsRemovedBeforeTheAnswer() throws Exception {
+        // given
+        var encryptedValue = "upstream-api-password";
+        ObjectAttributeContent encryptedRow = sealedRow("apiPassword", encryptedValue);
+        var raProfileEdited = new AtomicBoolean();
+        lenient().when(attributeEngine.getStoredObjectDataAttributesContent(any())).thenReturn(List.of());
+        doAnswer(invocation -> raProfileEdited.get() ? List.of() : List.of(encryptedRow))
+                .when(attributeEngine)
+                .getStoredObjectDataAttributesContent(
+                        argThat(info -> info != null && info.objectType() == Resource.RA_PROFILE));
+        RequestAttribute resolvedPlain = new RequestAttributeV3(encryptedRow.uuid(), encryptedRow.name(),
+                AttributeContentType.STRING,
+                List.<BaseAttributeContentV3<?>>of(new StringAttributeContentV3(encryptedValue)));
+        when(operationAttributeResolver.resolveForConnectorRequestAsSystem(eq(authority.getConnectorUuid()), any()))
+                .thenReturn(List.of(resolvedPlain));
+        when(certClientV3.identify(eq(connectorInfo), any(CertificateIdentificationRequestDtoV3.class)))
+                .thenAnswer(invocation -> {
+                    raProfileEdited.set(true);
+                    throw identifyRefusal("login with " + encryptedValue + " refused");
+                });
+
+        // when
+        ThrowingCallable identify = () -> adapter.identify(raProfile, "dGVzdGNlcnQ=", List.of());
+
+        // then
+        assertThatThrownBy(identify)
+                .isInstanceOfSatisfying(ConnectorProblemException.class,
+                        e -> assertThat(e.getProblemDetail().getDetail()).doesNotContain(encryptedValue));
     }
 
     @Test
@@ -598,8 +629,9 @@ class AuthorityProviderV3AdapterTest {
     void replacesConnectorWords_whenSecretsSentForIdentifyCannotBeRead() throws Exception {
         // given
         var connectorReason = "its issuing CA certificate could not be obtained; add it to the authority";
-        when(attributeEngine.getStoredObjectDataAttributesContent(any()))
-                .thenThrow(new IllegalStateException("stored attributes unreadable"));
+        doThrow(new IllegalStateException("sent attributes unreadable"))
+                .when(outboundContainment)
+                .recordExpandedSecretsFromRequest(any(), any());
         when(certClientV3.identify(eq(connectorInfo), any(CertificateIdentificationRequestDtoV3.class)))
                 .thenThrow(identifyRefusal(connectorReason));
 
@@ -1718,6 +1750,21 @@ class AuthorityProviderV3AdapterTest {
         String sealed = SecretsUtil.encryptAndEncodeSecretString(value, SecretEncodingVersion.V1);
         return new ObjectAttributeContent(UUID.randomUUID(), name, name, AttributeType.DATA,
                 AttributeContentType.STRING, new StringAttributeContentV3(), 3, sealed);
+    }
+
+    private static Stream<Arguments> encryptedIdentifyValues() {
+        return Stream
+                .of(Arguments
+                        .of(named("text", AttributeContentType.STRING),
+                                new StringAttributeContentV3("agent-passphrase-42"), "agent-passphrase-42"),
+                        Arguments
+                                .of(named("number", AttributeContentType.INTEGER), new IntegerAttributeContentV3(4242),
+                                        "4242"),
+                        Arguments
+                                .of(named("text nested in an object", AttributeContentType.OBJECT),
+                                        new ObjectAttributeContentV3(
+                                                new HashMap<>(Map.of("passphrase", "nested-passphrase-7"))),
+                                        "nested-passphrase-7"));
     }
 
     private static ConnectorProblemException identifyRefusal(String detail) {
