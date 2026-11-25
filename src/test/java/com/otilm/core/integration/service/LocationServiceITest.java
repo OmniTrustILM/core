@@ -32,6 +32,7 @@ import com.otilm.api.model.connector.entity.GenerateCsrResponseDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
+import com.otilm.api.model.core.certificate.CertificateOperation;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
@@ -40,7 +41,9 @@ import com.otilm.api.model.core.location.LocationDto;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
+import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
 import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
+import com.otilm.core.certificate.type.X509CertificateTypeHandler;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
@@ -71,6 +74,7 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.LocationExternalService;
 import com.otilm.core.service.LocationInternalService;
+import com.otilm.core.service.impl.LocationServiceImpl;
 import com.otilm.core.service.registration.RegistrationChallengeStore;
 import com.otilm.core.service.v2.impl.ClientOperationServiceImpl;
 import com.otilm.core.util.BaseSpringBootTest;
@@ -97,6 +101,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.stubbing.Answer;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -105,6 +110,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import static com.otilm.core.util.RestrictedTypeHandlerFixtures.registryWithX509Lacking;
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static com.otilm.core.util.builders.CertificateContentBuilder.aCertificateContent;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -137,6 +143,12 @@ class LocationServiceITest extends BaseSpringBootTest {
     private LocationExternalService locationService;
     @Autowired
     private LocationInternalService locationInternalService;
+    @Autowired
+    private LocationServiceImpl locationServiceImpl;
+    @Autowired
+    private X509CertificateTypeHandler x509Handler;
+    @Autowired
+    private CertificateTypeHandlerRegistry typeHandlerRegistry;
     @Autowired
     private LocationRepository locationRepository;
     @Autowired
@@ -791,6 +803,54 @@ class LocationServiceITest extends BaseSpringBootTest {
         assertThat(certificateRepository.findByFingerprint(CertificateUtil.getThumbprint(storedBeforeTheRefusal)))
                 .as("certificate the sync stored before the refusal")
                 .isEmpty();
+    }
+
+    @Test
+    void refusesToPush_whenTheTypeOfTheCertificateDoesNotSupportLocations() {
+        // given
+        var unsupported = CertificateOperation.PUSH_TO_LOCATION;
+        locationServiceImpl.setTypeHandlerRegistry(registryWithX509Lacking(x509Handler, unsupported));
+        PushToLocationRequestDto pushRequest = new PushToLocationRequestDto();
+        pushRequest.setAttributes(new ArrayList<>());
+
+        // when
+        ThrowingCallable push = () -> locationService
+                .pushCertificateToLocation(getEntityUuid(), location.getSecuredUuid(),
+                        certificateWithoutLocation.getUuid().toString(), pushRequest);
+
+        // then
+        try {
+            assertThatThrownBy(push)
+                    .isInstanceOf(UnsupportedCertificateTypeException.class)
+                    .hasMessageContaining(unsupported.getLabel());
+        } finally {
+            locationServiceImpl.setTypeHandlerRegistry(typeHandlerRegistry);
+        }
+        mockServer.verify(0, WireMock.anyRequestedFor(WireMock.anyUrl()));
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = CertificateOperation.class, names = {"RENEW", "PUSH_TO_LOCATION"})
+    void refusesToRenewInTheLocationBeforeAskingForACsr_whenTheTypeOfTheCertificateDoesNotSupportIt(
+            CertificateOperation unsupported) {
+        // given
+        prepareCertificateForRenewalInLocation();
+        locationServiceImpl.setTypeHandlerRegistry(registryWithX509Lacking(x509Handler, unsupported));
+
+        // when
+        ThrowingCallable renew = () -> locationService
+                .renewCertificateInLocation(getEntityUuid(), location.getSecuredUuid(),
+                        certificate.getUuid().toString());
+
+        // then
+        try {
+            assertThatThrownBy(renew)
+                    .isInstanceOf(UnsupportedCertificateTypeException.class)
+                    .hasMessageContaining(unsupported.getLabel());
+        } finally {
+            locationServiceImpl.setTypeHandlerRegistry(typeHandlerRegistry);
+        }
+        mockServer.verify(0, WireMock.anyRequestedFor(WireMock.anyUrl()));
     }
 
     @Test

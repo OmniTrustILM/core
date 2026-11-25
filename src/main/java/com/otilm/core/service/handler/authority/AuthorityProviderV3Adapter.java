@@ -12,6 +12,7 @@ import com.otilm.api.interfaces.client.v3.CertificateSyncApiClient;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.attribute.common.DataAttribute;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.connector.v3.authority.CaCertificatesRequestDtoV3;
@@ -60,8 +61,8 @@ import com.otilm.core.service.v2.ConnectorInternalService;
 import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
-import java.util.UUID;
 import java.util.function.Function;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.Logger;
@@ -187,16 +188,54 @@ public class AuthorityProviderV3Adapter extends AbstractAuthorityProviderAdapter
         AuthorityInstanceReference authority = raProfile.getAuthorityInstanceReference();
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
 
+        // The request and the secrets it carries are read from one snapshot, so an edit while the connector answers
+        // cannot drop a protection marker from what was sent.
+        List<ObjectAttributeContent> authorityRows = storedAttributeRows(Resource.AUTHORITY, authority.getUuid(),
+                authority);
+        List<ObjectAttributeContent> raProfileRows = storedAttributeRows(Resource.RA_PROFILE, raProfile.getUuid(),
+                authority);
+        List<DataAttribute> identifyDefinitions = identifyDefinitions(authority, attributes);
         CertificateIdentificationRequestDtoV3 wire = new CertificateIdentificationRequestDtoV3();
         wire.setCertificate(certificateContent);
         wire.setAttributes(attributes);
-        wire.setAuthorityAttributes(authorityAttributesFor(authority));
-        wire.setRaProfileAttributes(resolvedRaProfileAttributes(raProfile, authority));
+        wire.setAuthorityAttributes(resolvedForConnector(authority, authorityRows));
+        wire.setRaProfileAttributes(resolvedForConnector(authority, raProfileRows));
 
-        CertificateIdentificationResponseDto response = connectorApiFactory
-                .getCertificateApiClientV3(connectorDto)
-                .identify(connectorDto, wire);
+        CertificateIdentificationResponseDto response;
+        try {
+            response = connectorApiFactory.getCertificateApiClientV3(connectorDto).identify(connectorDto, wire);
+        } catch (ConnectorProblemException e) {
+            throw withoutQuotedSecrets(e,
+                    () -> identifySecretsSent(wire, authorityRows, raProfileRows, identifyDefinitions),
+                    outboundContainment, IDENTIFICATION);
+        }
         return response.getMeta() != null ? response.getMeta() : List.of();
+    }
+
+    private Set<String> identifySecretsSent(CertificateIdentificationRequestDtoV3 wire,
+            List<ObjectAttributeContent> authorityRows, List<ObjectAttributeContent> raProfileRows,
+            List<DataAttribute> identifyDefinitions) {
+        Set<String> sentSecrets = new HashSet<>();
+        sentSecrets.addAll(secretsSent(outboundContainment, authorityRows, wire.getAuthorityAttributes()));
+        sentSecrets.addAll(secretsSent(outboundContainment, raProfileRows, wire.getRaProfileAttributes()));
+        sentSecrets.addAll(secretsSent(outboundContainment, List.of(), wire.getAttributes()));
+        outboundContainment.recordProtectedOperationValues(identifyDefinitions, wire.getAttributes(), sentSecrets);
+        return sentSecrets;
+    }
+
+    /** The stored definitions of the identify attributes to send, which the schema check stored before the call. */
+    private List<DataAttribute> identifyDefinitions(AuthorityInstanceReference authority,
+            List<RequestAttribute> identifyAttributes) {
+        if (identifyAttributes == null) {
+            return List.of();
+        }
+        return identifyAttributes
+                .stream()
+                .map(attribute -> attributeEngine
+                        .getDataAttributeDefinitionStrict(authority.getConnectorUuid(), attribute.getUuid(),
+                                attribute.getName()))
+                .filter(Objects::nonNull)
+                .toList();
     }
 
     @Override
@@ -582,18 +621,7 @@ public class AuthorityProviderV3Adapter extends AbstractAuthorityProviderAdapter
 
     private void recordSentSecrets(List<ObjectAttributeContent> storedRows, List<RequestAttribute> sent,
             Set<String> sentSecrets) {
-        outboundContainment.recordExpandedSecretsFromRequest(sent, sentSecrets);
-        outboundContainment.recordProtectedValuesFromRequest(storedRows, sent, sentSecrets);
-        outboundContainment.recordProtectedNumbersFromRequest(storedRows, sent, sentSecrets);
-    }
-
-    private List<ObjectAttributeContent> storedAttributeRows(Resource objectType, UUID objectUuid,
-            AuthorityInstanceReference authority) {
-        return attributeEngine
-                .getStoredObjectDataAttributesContent(ObjectAttributeContentInfo
-                        .builder(objectType, objectUuid)
-                        .connector(authority.getConnectorUuid())
-                        .build());
+        sentSecrets.addAll(secretsSent(outboundContainment, storedRows, sent));
     }
 
     private List<RequestAttribute> resolvedForConnector(AuthorityInstanceReference authority,

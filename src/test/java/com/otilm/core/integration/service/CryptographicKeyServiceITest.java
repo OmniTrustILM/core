@@ -142,6 +142,7 @@ import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -426,15 +427,15 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
-    void getKey_reportsWhetherTheKeyCanBeRemovedFromTheInventory(boolean tokenListsKeys) throws NotFoundException {
+    void reportsWhetherTheFetchedKeyCanBeRemovedFromTheInventory(boolean unlistableToken) throws Exception {
         // given
-        configureV2Token(tokenListsKeys);
+        configureV2Token(unlistableToken);
 
         // when
         KeyDetailDto dto = cryptographicKeyService.getKey(SecuredUUID.fromUUID(key.getUuid()));
 
         // then
-        Assertions.assertEquals(tokenListsKeys, dto.isRemovableFromInventory());
+        assertThat(dto.isRemovableFromInventory()).isEqualTo(!unlistableToken);
     }
 
     @Test
@@ -776,9 +777,9 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
-    void createKey_reportsWhetherTheCreatedKeyCanBeRemovedFromTheInventory(boolean tokenListsKeys) throws Exception {
+    void reportsWhetherTheCreatedKeyCanBeRemovedFromTheInventory(boolean unlistableToken) throws Exception {
         // given
-        configureV2Token(tokenListsKeys);
+        configureV2Token(unlistableToken);
         stubV2KeyPairCreation(List.of());
 
         // when
@@ -787,7 +788,141 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
                         KeyRequestType.KEY_PAIR, keyCreationRequest("v2-removable"));
 
         // then
-        Assertions.assertEquals(tokenListsKeys, created.isRemovableFromInventory());
+        assertThat(created.isRemovableFromInventory()).isEqualTo(!unlistableToken);
+    }
+
+    // ── PrivateKeyHandle ──────────────────────────────────────────────────────
+
+    @Nested
+    class PrivateKeyHandle {
+
+        @Test
+        void storesTheDigestOfThePrivateKeysHandle_whenAV2TokenCreatesAKeyPair() throws Exception {
+            // given
+            configureV2Token();
+            stubV2KeyPairCreation(List.of());
+            var privateKeyHandle = new RemoteKeyReference.MetadataReference(List.of(providerHandle("private-handle")));
+
+            // when
+            KeyDetailDto created = cryptographicKeyService
+                    .createKey(tokenInstanceReference.getUuid(), tokenProfile.getSecuredParentUuid(),
+                            KeyRequestType.KEY_PAIR, keyCreationRequest("v2-handle-digest"));
+
+            // then
+            assertThat(readHandleDigest(UUID.fromString(created.getUuid())))
+                    .isNotNull()
+                    .isEqualTo(privateKeyHandle.digest());
+        }
+
+        @Test
+        void releasesTheHandle_whenDestroyingThePrivateKey() throws Exception {
+            // given
+            KeyDetailDto created = createV2KeyPair("v2-destroyed-handle");
+            UUID keyUuid = UUID.fromString(created.getUuid());
+            String privateKeyUuid = compromise(findItemOfType(created, KeyType.PRIVATE_KEY));
+
+            // when
+            cryptographicKeyService.destroyKey(keyUuid, List.of(privateKeyUuid));
+
+            // then
+            assertThat(readHandleDigest(keyUuid)).isNull();
+        }
+
+        @Test
+        void keepsTheHandle_whenDestroyingThePublicKeyAlone() throws Exception {
+            // given
+            KeyDetailDto created = createV2KeyPair("v2-kept-handle");
+            UUID keyUuid = UUID.fromString(created.getUuid());
+            String handleDigest = readHandleDigest(keyUuid);
+            String publicKeyUuid = compromise(findItemOfType(created, KeyType.PUBLIC_KEY));
+
+            // when
+            cryptographicKeyService.destroyKey(keyUuid, List.of(publicKeyUuid));
+
+            // then
+            assertThat(readHandleDigest(keyUuid)).isEqualTo(handleDigest);
+        }
+
+        @Test
+        void releasesTheHandle_whenDeletingThePrivateKey() throws Exception {
+            // given
+            KeyDetailDto created = createV2KeyPair("v2-deleted-handle");
+            UUID keyUuid = UUID.fromString(created.getUuid());
+
+            // when
+            cryptographicKeyService.deleteKey(keyUuid, List.of(findItemOfType(created, KeyType.PRIVATE_KEY).getUuid()));
+
+            // then
+            assertThat(readHandleDigest(keyUuid)).isNull();
+        }
+
+        @Test
+        void releasesTheHandle_whenDeletingThePrivateKeyInBulk() throws Exception {
+            // given
+            KeyDetailDto created = createV2KeyPair("v2-bulk-deleted-handle");
+            UUID keyUuid = UUID.fromString(created.getUuid());
+
+            // when
+            cryptographicKeyService
+                    .deleteKeyItems(SecurityFilter.create(),
+                            List.of(findItemOfType(created, KeyType.PRIVATE_KEY).getUuid()));
+
+            // then
+            assertThat(readHandleDigest(keyUuid)).isNull();
+        }
+
+        @Test
+        void keepsTheHandle_whenDeletingThePublicKeyAloneInBulk() throws Exception {
+            // given
+            KeyDetailDto created = createV2KeyPair("v2-bulk-kept-handle");
+            UUID keyUuid = UUID.fromString(created.getUuid());
+            String handleDigest = readHandleDigest(keyUuid);
+
+            // when
+            cryptographicKeyService
+                    .deleteKeyItems(SecurityFilter.create(),
+                            List.of(findItemOfType(created, KeyType.PUBLIC_KEY).getUuid()));
+
+            // then
+            assertThat(readHandleDigest(keyUuid)).isEqualTo(handleDigest);
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        /** A key pair a v2 token created. The token destroys it on request. */
+        private KeyDetailDto createV2KeyPair(String name) throws Exception {
+            configureV2Token();
+            stubV2KeyPairCreation(List.of());
+            mockServer
+                    .stubFor(WireMock
+                            .post(WireMock.urlPathEqualTo("/v2/cryptographyProvider/keys/destroy"))
+                            .willReturn(WireMock.okJson("{}")));
+            KeyDetailDto created = cryptographicKeyService
+                    .createKey(tokenInstanceReference.getUuid(), tokenProfile.getSecuredParentUuid(),
+                            KeyRequestType.KEY_PAIR, keyCreationRequest(name));
+            assertThat(readHandleDigest(UUID.fromString(created.getUuid())))
+                    .as("handle digest of the created key")
+                    .isNotNull();
+            return created;
+        }
+
+        private String readHandleDigest(UUID keyUuid) {
+            return jdbcTemplate
+                    .queryForObject("SELECT handle_digest FROM " + dbSchema + ".cryptographic_key WHERE uuid = ?",
+                            String.class, keyUuid);
+        }
+
+        /** Makes the item eligible for destruction. */
+        private String compromise(KeyItemDetailDto item) throws NotFoundException {
+            cryptographicKeyWriter
+                    .setKeyItemCompromised(UUID.fromString(item.getUuid()),
+                            KeyCompromiseReason.UNAUTHORIZED_DISCLOSURE);
+            return item.getUuid();
+        }
+
+        private static KeyItemDetailDto findItemOfType(KeyDetailDto key, KeyType type) {
+            return key.getItems().stream().filter(item -> item.getType() == type).findFirst().orElseThrow();
+        }
     }
 
     @Test
@@ -849,9 +984,10 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
         configureV2Token(List.of(FeatureFlag.STATELESS));
     }
 
-    private void configureV2Token(boolean listsKeys) {
-        configureV2Token(
-                listsKeys ? List.of(FeatureFlag.STATELESS, FeatureFlag.KEY_LIST) : List.of(FeatureFlag.STATELESS));
+    private void configureV2Token(boolean unlistableToken) {
+        configureV2Token(unlistableToken
+                ? List.of(FeatureFlag.STATELESS, FeatureFlag.UNLISTABLE_TOKEN)
+                : List.of(FeatureFlag.STATELESS));
     }
 
     private void configureV2Token(List<FeatureFlag> features) {
@@ -1945,9 +2081,9 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
     }
 
     @Test
-    void listCryptographicKeys_marksEachRowWithWhetherItsKeyCanBeRemoved() {
+    void marksEachListedRowWithWhetherItsKeyCanBeRemoved() {
         // given
-        configureV2Token(true);
+        configureV2Token();
         SearchRequestDto searchRequestDto = new SearchRequestDto();
         searchRequestDto.setItemsPerPage(10);
         searchRequestDto.setPageNumber(1);
@@ -1963,17 +2099,16 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
                 .collect(Collectors
                         .groupingBy(KeyItemListDto::getKeyWrapperUuid,
                                 Collectors.mapping(KeyItemListDto::isRemovableFromInventory, Collectors.toList())));
-        Assertions
-                .assertEquals(Map
+        assertThat(removableByKey)
+                .isEqualTo(Map
                         .of(key.getUuid().toString(), List.of(true, true), keyWithoutToken.getUuid().toString(),
-                                List.of(false)),
-                        removableByKey);
+                                List.of(false)));
     }
 
     @Test
-    void listCryptographicKeys_marksARowNotRemovable_whenAFilteredOutSiblingIsCompromised() {
+    void marksAListedRowNotRemovable_whenAFilteredOutSiblingIsCompromised() {
         // given
-        configureV2Token(true);
+        configureV2Token();
         publicKeyItem.setState(KeyState.COMPROMISED);
         cryptographicKeyItemRepository.saveAndFlush(publicKeyItem);
         SearchRequestDto searchRequestDto = new SearchRequestDto();
@@ -1990,16 +2125,14 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
 
         // then
         List<KeyItemListDto> rows = response.getCryptographicKeys();
-        Assertions
-                .assertEquals(List.of(privateKeyItem.getUuid().toString()),
-                        rows.stream().map(KeyItemListDto::getUuid).toList());
-        Assertions.assertFalse(rows.getFirst().isRemovableFromInventory());
+        assertThat(rows).extracting(KeyItemListDto::getUuid).containsExactly(privateKeyItem.getUuid().toString());
+        assertThat(rows.getFirst().isRemovableFromInventory()).isFalse();
     }
 
     @Test
-    void listCryptographicKeys_marksNoRowRemovable_whenTheTokenCannotListKeys() {
+    void marksNoListedRowRemovable_whenTheTokenCannotListKeys() {
         // given
-        configureV2Token(false);
+        configureV2Token(List.of(FeatureFlag.STATELESS, FeatureFlag.UNLISTABLE_TOKEN));
         SearchRequestDto searchRequestDto = new SearchRequestDto();
         searchRequestDto.setItemsPerPage(10);
         searchRequestDto.setPageNumber(1);
@@ -2010,8 +2143,7 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
 
         // then
         List<KeyItemListDto> rows = response.getCryptographicKeys();
-        Assertions.assertEquals(3, rows.size());
-        Assertions.assertTrue(rows.stream().noneMatch(KeyItemListDto::isRemovableFromInventory));
+        assertThat(rows).hasSize(3).noneMatch(KeyItemListDto::isRemovableFromInventory);
     }
 
     @Test

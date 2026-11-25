@@ -35,6 +35,7 @@ import com.otilm.core.service.TriggerInternalService;
 import com.otilm.core.service.handler.authority.CertificateOperation;
 import com.otilm.core.service.renewal.auto.AsyncRenewalLocationReplacer;
 import com.otilm.core.service.renewal.auto.AutoRenewalAction;
+import com.otilm.core.service.renewal.auto.AutoRenewalAfterCommit;
 import com.otilm.core.service.renewal.auto.IlmKeyRenewalHandler;
 import com.otilm.core.service.renewal.auto.TriggerContext;
 import com.otilm.core.service.v2.ClientOperationInternalService;
@@ -44,22 +45,28 @@ import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.QueuedMessageDelivery;
 import com.otilm.core.util.builders.V3ConnectorStubs;
 import com.otilm.core.util.seeders.AutoRenewalSeeder;
+import com.zaxxer.hikari.HikariDataSource;
+import com.zaxxer.hikari.HikariPoolMXBean;
 import jakarta.persistence.EntityManager;
 import java.io.InputStream;
 import java.security.KeyStore;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -68,6 +75,7 @@ import org.mockito.stubbing.OngoingStubbing;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -118,6 +126,8 @@ class IlmKeyRenewalITest extends BaseSpringBootTest {
     private PlatformTransactionManager transactionManager;
     @Autowired
     private EntityManager entityManager;
+    @Autowired
+    private DataSource dataSource;
     @Autowired
     private QueuedMessageDelivery delivery;
     @Autowired
@@ -182,11 +192,16 @@ class IlmKeyRenewalITest extends BaseSpringBootTest {
     }
 
     @Test
-    void callsTheRenewalOutsideAnyTransaction_whenTheTriggerEvaluationRunsInOne() throws Exception {
+    void callsTheRenewalWithoutATransactionOnceTheEventCommitted_whenTheEventRunsInATransaction() throws Exception {
         // given
-        AtomicBoolean transactionActiveDuringRenewal = new AtomicBoolean(true);
+        Map<String, Boolean> duringRenewal = new LinkedHashMap<>();
+        HikariPoolMXBean pool = dataSource.unwrap(HikariDataSource.class).getHikariPoolMXBean();
+        int activeBefore = pool.getActiveConnections();
+        AtomicInteger activeDuringRenewal = new AtomicInteger(-1);
         whenRenewed().thenAnswer(invocation -> {
-            transactionActiveDuringRenewal.set(TransactionSynchronizationManager.isActualTransactionActive());
+            duringRenewal.put("transactionActive", TransactionSynchronizationManager.isActualTransactionActive());
+            duringRenewal.put("eventCommitted", isCommitted(trigger.triggerHistoryUuid()));
+            activeDuringRenewal.set(pool.getActiveConnections());
             Certificate successor = requestRenewal(invocation.getArgument(5));
             ClientCertificateDataResponseDto response = new ClientCertificateDataResponseDto();
             response.setUuid(successor.getUuid().toString());
@@ -194,12 +209,49 @@ class IlmKeyRenewalITest extends BaseSpringBootTest {
         });
 
         // when
-        Throwable failed = fireInsideTransaction();
+        fireInEvent(status -> {
+        });
 
         // then
-        assertThat(failed).isNull();
-        assertThat(transactionActiveDuringRenewal).isFalse();
+        assertThat(duringRenewal)
+                .containsExactly(Map.entry("transactionActive", false), Map.entry("eventCommitted", true));
+        assertThat(activeDuringRenewal).hasValue(activeBefore);
         verifyRenewals(1);
+    }
+
+    @Test
+    void startsNoRenewal_whenTheEventTransactionRollsBack() throws Exception {
+        // given
+        stubRenewal();
+
+        // when
+        fireInEvent(TransactionStatus::setRollbackOnly);
+
+        // then
+        verifyRenewals(0);
+        assertThat(seeder.renewalRow(certificate.getUuid()).getRenewStartedAt()).isNull();
+    }
+
+    @Test
+    void recordsTheFailureOnTheFiring_whenTheRenewalStartedByTheEventFails() throws Exception {
+        // given
+        var authorityRefusal = "the authority refused the request";
+        whenRenewed().thenThrow(new CertificateOperationException(authorityRefusal));
+
+        // when
+        fireInEvent(status -> {
+        });
+
+        // then
+        assertThat(triggerHistoryRecordRepository.findAll())
+                .filteredOn(entry -> trigger.triggerHistoryUuid().equals(entry.getTriggerHistoryUuid()))
+                .singleElement()
+                .extracting(TriggerHistoryRecord::getMessage)
+                .asString()
+                .contains(authorityRefusal);
+        assertThat(triggerHistoryRepository.findById(trigger.triggerHistoryUuid()).orElseThrow().isActionsPerformed())
+                .isFalse();
+        assertThat(seeder.renewalRow(certificate.getUuid()).getRenewAttempt()).isEqualTo(1);
     }
 
     @Test
@@ -299,6 +351,90 @@ class IlmKeyRenewalITest extends BaseSpringBootTest {
     }
 
     @Test
+    void reopensTheRenewal_whenTheIssuedSuccessorIsRevoked() throws Exception {
+        // given
+        Certificate revoked = seedRevokedSuccessor();
+
+        // when
+        Throwable firing = fire();
+
+        // then
+        assertThat(firing).isNull();
+        verifyRenewals(0);
+        CertificateRenewalInfo row = seeder.renewalRow(certificate.getUuid());
+        assertThat(row.getRenewSuccessorUuid()).isNull();
+        assertThat(row.getRenewAt()).isNull();
+        assertThat(row.getRenewAttempt()).isEqualTo(1);
+        assertThat(row.getRenewNotBefore()).isNull();
+        assertThat(renewHistory())
+                .extracting(CertificateEventHistory::getMessage)
+                .anyMatch(message -> message.contains("%s was revoked".formatted(revoked.getUuid())));
+    }
+
+    @Test
+    void recordsThatRenewalStops_whenTheRevokedSuccessorReachesTheAttemptLimit() throws Exception {
+        // given
+        Certificate revoked = seedRevokedSuccessor();
+        int maxAttempts = raProfile.getAutoRenewalMaxAttempts();
+        CertificateRenewalInfo atLastAttempt = seeder.renewalRow(certificate.getUuid());
+        atLastAttempt.setRenewAttempt(maxAttempts - 1);
+        renewalInfoRepository.save(atLastAttempt);
+
+        // when
+        fire();
+
+        // then
+        assertThat(seeder.renewalRow(certificate.getUuid()).getRenewAttempt()).isEqualTo(maxAttempts);
+        assertThat(renewHistory())
+                .extracting(CertificateEventHistory::getMessage)
+                .contains(
+                        "The renewed certificate %s was revoked; the attempt limit is reached, so it is not renewed again (attempt %d of %d)"
+                                .formatted(revoked.getUuid(), maxAttempts, maxAttempts))
+                .noneMatch(message -> message.contains("is renewed again"));
+    }
+
+    @Test
+    void recordsThatRenewalStops_whenTheAttemptLimitWasLoweredBelowTheStoredCount() throws Exception {
+        // given
+        Certificate revoked = seedRevokedSuccessor();
+        int maxAttempts = raProfile.getAutoRenewalMaxAttempts();
+        CertificateRenewalInfo pastTheLimit = seeder.renewalRow(certificate.getUuid());
+        pastTheLimit.setRenewAttempt(maxAttempts + 2);
+        renewalInfoRepository.save(pastTheLimit);
+
+        // when
+        fire();
+
+        // then
+        assertThat(renewHistory())
+                .extracting(CertificateEventHistory::getMessage)
+                .anyMatch(message -> message
+                        .startsWith("The renewed certificate %s was revoked; the attempt limit is reached"
+                                .formatted(revoked.getUuid())))
+                .noneMatch(message -> message.contains("is renewed again"));
+    }
+
+    @Test
+    void renewsAgain_whenTheReopenedRenewalIsDueDespiteTheRevokedSuccessorsRelation() throws Exception {
+        // given
+        seedRevokedSuccessor();
+        fire();
+        CertificateRenewalInfo reopened = seeder.renewalRow(certificate.getUuid());
+        reopened.setRenewAt(Instant.now().minus(Duration.ofMinutes(1)));
+        renewalInfoRepository.save(reopened);
+        AtomicReference<Certificate> successor = stubRenewal();
+
+        // when
+        Throwable firing = fire();
+
+        // then
+        assertThat(firing).isNull();
+        verifyRenewals(1);
+        assertThat(seeder.renewalRow(certificate.getUuid()).getRenewSuccessorUuid())
+                .isEqualTo(successor.get().getUuid());
+    }
+
+    @Test
     void replacesNothingAgain_whenTheRenewalIssuedAtOnceHasReplacedTheOldCertificate() throws Exception {
         // given
         seeder.seedPushOnlyLocations(mockServer, certificate, "web", "mail");
@@ -316,6 +452,34 @@ class IlmKeyRenewalITest extends BaseSpringBootTest {
         mockServer.verify(2, WireMock.postRequestedFor(WireMock.urlPathMatching(LOCATION_PATH + "/remove")));
         mockServer.verify(2, WireMock.postRequestedFor(WireMock.urlPathMatching(LOCATION_PATH + "/push")));
         assertThat(locationNames(successor.get())).containsExactlyInAnyOrder("web", "mail");
+    }
+
+    @Test
+    void recordsEachRemovalOnce_whenTheRenewalReplacesTheOldCertificateInItsLocations() throws Exception {
+        // given
+        Certificate successor = requestRenewalReplacingInWebAndMail();
+
+        // when
+        clientOperationService.renewCertificateAction(successor.getUuid(), renewRequest(), true);
+
+        // then
+        assertThat(findLocationHistory(certificate))
+                .extracting(CertificateEventHistory::getMessage)
+                .containsExactlyInAnyOrder("Removed from Location web", "Removed from Location mail");
+    }
+
+    @Test
+    void recordsEachPushOnce_whenTheRenewalReplacesTheOldCertificateInItsLocations() throws Exception {
+        // given
+        Certificate successor = requestRenewalReplacingInWebAndMail();
+
+        // when
+        clientOperationService.renewCertificateAction(successor.getUuid(), renewRequest(), true);
+
+        // then
+        assertThat(findLocationHistory(successor))
+                .extracting(CertificateEventHistory::getMessage)
+                .containsExactlyInAnyOrder("Pushed to Location web", "Pushed to Location mail");
     }
 
     @Test
@@ -489,16 +653,29 @@ class IlmKeyRenewalITest extends BaseSpringBootTest {
         }
     }
 
-    /** Fires the action inside a transaction of the caller, as the trigger evaluation does. */
-    private Throwable fireInsideTransaction() throws Exception {
-        return executor.submit(() -> new TransactionTemplate(transactionManager).execute(status -> {
+    /**
+     * Fires the action as the event handling does: inside a transaction that has written the firing's history, which
+     * {@code beforeCommit} may then mark for rollback.
+     */
+    private void fireInEvent(Consumer<TransactionStatus> beforeCommit) throws Exception {
+        AutoRenewalAfterCommit afterCommit = new AutoRenewalAfterCommit(action, triggerService, transactionManager);
+        executor.submit(() -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            seedFiring();
+            entityManager.flush();
             try {
-                action.perform(certificate, trigger);
-                return null;
+                afterCommit.perform(certificate, trigger);
             } catch (RuleException e) {
-                return e;
+                throw new IllegalStateException(e);
             }
+            beforeCommit.accept(status);
         })).get(WAIT_SECONDS, TimeUnit.SECONDS);
+    }
+
+    /** Whether another connection sees the firing's history, which only a committed event transaction makes visible. */
+    private boolean isCommitted(UUID firingUuid) throws Exception {
+        return CompletableFuture
+                .supplyAsync(() -> triggerHistoryRepository.existsById(firingUuid))
+                .get(WAIT_SECONDS, TimeUnit.SECONDS);
     }
 
     private TriggerHistory seedFiring() {
@@ -611,6 +788,34 @@ class IlmKeyRenewalITest extends BaseSpringBootTest {
                 .renewCertificate(any(SecuredParentUUID.class), any(SecuredUUID.class),
                         eq(certificate.getUuid().toString()), any(ClientCertificateRenewRequestDto.class), isNull(),
                         any());
+    }
+
+    private Certificate requestRenewalReplacingInWebAndMail() throws Exception {
+        seeder.seedPushOnlyLocations(mockServer, certificate, "web", "mail");
+        AtomicReference<Certificate> successor = stubRenewal();
+        stubAuthorityRenewing();
+        stubLocationAnswering("remove", WireMock.okJson("{}"));
+        stubLocationAnswering("push", WireMock.okJson("{\"withKey\": false}"));
+        fire();
+        return successor.get();
+    }
+
+    private List<CertificateEventHistory> findLocationHistory(Certificate owner) {
+        return eventHistoryRepository
+                .findByCertificateOrderByCreatedDesc(owner)
+                .stream()
+                .filter(entry -> entry.getEvent() == CertificateEvent.UPDATE_LOCATION)
+                .toList();
+    }
+
+    /** A successor this certificate's automatic renewal started, issued and then revoked. */
+    private Certificate seedRevokedSuccessor() {
+        Certificate revoked = seeder.seedSuccessor(raProfile, CertificateState.REVOKED);
+        seeder.seedRenewalRelation(certificate, revoked);
+        CertificateRenewalInfo row = seeder.renewalRow(certificate.getUuid());
+        row.setRenewSuccessorUuid(revoked.getUuid());
+        renewalInfoRepository.save(row);
+        return revoked;
     }
 
     private List<CertificateEventHistory> renewHistory() {

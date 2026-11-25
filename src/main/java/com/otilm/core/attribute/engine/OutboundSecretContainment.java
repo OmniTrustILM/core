@@ -1,5 +1,6 @@
 package com.otilm.core.attribute.engine;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -39,10 +40,12 @@ import java.util.Collection;
 import java.util.HexFormat;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -76,6 +79,8 @@ public class OutboundSecretContainment {
 
     private static final int MAX_WALK_DEPTH = 12;
 
+    /** The characters that delimit the values of a map or a list in its {@code toString()} form. */
+    private static final Pattern TO_STRING_STRUCTURE = Pattern.compile("[,{}\\[\\]]");
     /**
      * How deep the recording walk follows a resolved request. Each nesting level adds five wrappers (attribute list,
      * attribute, content list, reference, data), so a secret at {@link ReferenceTraversal#MAX_DEPTH} sits deeper than a
@@ -155,6 +160,91 @@ public class OutboundSecretContainment {
         });
     }
 
+    /**
+     * Record every text and number a resolved attribute whose stored row is encrypted holds, nested ones included, for
+     * a check where a match only withholds a connector's words. Rows and attributes are matched by definition UUID.
+     */
+    public void recordProtectedValuesForRefusal(List<ObjectAttributeContent> storedRows,
+            List<RequestAttribute> resolved, Set<String> sentSecrets) {
+        forEachProtectedData(storedRows, resolved, data -> recordProtectedValue(data, sentSecrets));
+    }
+
+    /**
+     * As {@link #recordProtectedValuesForRefusal}, for operation attributes, which are sent before any row stores them:
+     * an attribute counts as protected when its definition keeps it encrypted. Definitions and attributes are matched
+     * by definition UUID.
+     */
+    public void recordProtectedOperationValues(List<DataAttribute> definitions, List<RequestAttribute> sent,
+            Set<String> sentSecrets) {
+        Set<UUID> protectedDefinitions = definitions
+                .stream()
+                .filter(OutboundSecretContainment::isStoredEncrypted)
+                .map(definition -> UUID.fromString(definition.getUuid()))
+                .collect(Collectors.toSet());
+        forEachProtectedData(protectedDefinitions, sent, data -> recordProtectedValue(data, sentSecrets));
+    }
+
+    /**
+     * The text of a protected value, its decimal form for a number, and every text or number nested in an object or a
+     * list, such as a passphrase inside an object attribute. A stored object decrypts to its JSON text, whose values
+     * count too. Flags and dates are left out, as they match benign answers.
+     */
+    private void recordProtectedValue(Object data, Set<String> sentSecrets) {
+        String text = protectedText(data);
+        if (text != null) {
+            addIfPresent(text, sentSecrets);
+            collectJsonValues(text, sentSecrets);
+        } else if (data instanceof Number number) {
+            sentSecrets.add(number.toString());
+        } else if (data instanceof Map<?, ?> || data instanceof Collection<?>) {
+            collectTextAndNumbers(objectMapper.valueToTree(data), sentSecrets);
+        }
+    }
+
+    private void collectJsonValues(String text, Set<String> sentSecrets) {
+        String candidate = text.strip();
+        if (!candidate.startsWith("{") && !candidate.startsWith("[")) {
+            return;
+        }
+        try {
+            collectTextAndNumbers(objectMapper.readTree(candidate), sentSecrets);
+        } catch (JsonProcessingException e) {
+            collectToStringValues(candidate, sentSecrets);
+        }
+    }
+
+    /**
+     * The values of an object sealed in its {@code toString()} form, as an OBJECT attribute holding a map or a list is
+     * encrypted: {@code {profile=EMPTY, passphrases=[x, y]}}, nested to any depth. Each piece counts whole, padding
+     * included, and a piece holding {@code =} also counts from its first {@code =} on, which is a map entry's value.
+     */
+    private static void collectToStringValues(String text, Set<String> sentSecrets) {
+        for (String piece : TO_STRING_STRUCTURE.split(text)) {
+            String entry = piece.strip();
+            addUnlessPadding(entry, sentSecrets);
+            int keyEnd = entry.indexOf('=');
+            if (keyEnd >= 0) {
+                addUnlessPadding(entry.substring(keyEnd + 1).strip(), sentSecrets);
+            }
+        }
+    }
+
+    /** Adds a value unless it is blank or only {@code =} padding, which would match benign text. */
+    private static void addUnlessPadding(String value, Set<String> sentSecrets) {
+        boolean isOnlyPadding = value.chars().allMatch(c -> c == '=');
+        if (!isOnlyPadding) {
+            addIfPresent(value, sentSecrets);
+        }
+    }
+
+    private static void collectTextAndNumbers(JsonNode node, Set<String> sink) {
+        if (node.isTextual() || node.isNumber()) {
+            addIfPresent(node.asText(), sink);
+        } else if (node.isContainerNode()) {
+            node.elements().forEachRemaining(child -> collectTextAndNumbers(child, sink));
+        }
+    }
+
     private static void forEachProtectedData(List<ObjectAttributeContent> storedRows, List<RequestAttribute> resolved,
             Consumer<Object> dataVisitor) {
         Set<UUID> protectedDefinitions = storedRows
@@ -162,6 +252,14 @@ public class OutboundSecretContainment {
                 .filter(row -> row.encryptedContent() != null)
                 .map(ObjectAttributeContent::uuid)
                 .collect(Collectors.toSet());
+        forEachProtectedData(protectedDefinitions, resolved, dataVisitor);
+    }
+
+    private static void forEachProtectedData(Set<UUID> protectedDefinitions, List<RequestAttribute> resolved,
+            Consumer<Object> dataVisitor) {
+        if (resolved == null) {
+            return;
+        }
         for (RequestAttribute attribute : resolved) {
             List<? extends AttributeContent> content = attribute.getContent();
             if (protectedDefinitions.contains(attribute.getUuid()) && content != null) {

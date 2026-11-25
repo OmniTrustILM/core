@@ -8,6 +8,8 @@ import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.OutboundSecretContainment;
+import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
+import com.otilm.core.certificate.type.X509CertificateTypeHandler;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
@@ -25,6 +27,7 @@ import com.otilm.core.service.handler.authority.AuthorityProviderV3Adapter;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine;
 import com.otilm.core.service.v2.CancelConfirmation;
 import com.otilm.core.service.v2.ConnectorInternalService;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
@@ -99,6 +102,7 @@ class ClientOperationServiceImplCancelTest {
         service.setStateMachine(stateMachine);
         service.setCertificateEventHistoryService(certificateEventHistoryService);
         service.setEventProducer(eventProducer);
+        service.setTypeHandlerRegistry(new CertificateTypeHandlerRegistry(List.of(new X509CertificateTypeHandler())));
 
         AuthorityInstanceReference authority = new AuthorityInstanceReference();
         authority.setUuid(UUID.randomUUID());

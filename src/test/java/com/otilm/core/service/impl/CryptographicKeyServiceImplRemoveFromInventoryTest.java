@@ -94,7 +94,7 @@ class CryptographicKeyServiceImplRemoveFromInventoryTest {
     private static CryptographicKeyFullModelBuilder aKeyPair(String name) {
         return aKeySnapshot()
                 .withName(name)
-                .withTokenInstance(aTokenSnapshot().withConnectorFeatures(FeatureFlag.KEY_LIST).build())
+                .withTokenInstance(aTokenSnapshot().build())
                 .withItems(pairItems(KeyState.ACTIVE, KeyState.ACTIVE));
     }
 
@@ -193,11 +193,11 @@ class CryptographicKeyServiceImplRemoveFromInventoryTest {
         }
 
         @Test
-        void reportsAndKeepsTheKey_whenItsConnectorListsNoKeys() {
+        void reportsAndKeepsTheKey_whenItsConnectorDeclaresAnUnlistableToken() {
             // given
             var removable = aKeyPair("removable-pair").build();
-            var tokenListingNoKeys = aTokenSnapshot().build();
-            var unlistable = aKeyPair("unlistable-pair").withTokenInstance(tokenListingNoKeys).build();
+            var unlistableToken = aTokenSnapshot().withConnectorFeatures(FeatureFlag.UNLISTABLE_TOKEN).build();
+            var unlistable = aKeyPair("unlistable-pair").withTokenInstance(unlistableToken).build();
             inventoryHolds(removable, unlistable);
 
             // when
