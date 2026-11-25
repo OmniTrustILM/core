@@ -512,7 +512,26 @@ class RawSigningEngineITest extends BaseSpringBootTest {
         }
 
         @Test
-        void answers422NamingTheField_whenTwoItemsShareAnIdentifier() throws Exception {
+        void answers422NamingTheItem_whenADigestHasTheWrongLength() throws Exception {
+            // given
+            SigningProfileDto profile = createIlmNativeRawProfile("native-raw-short-digest", RSA_PKCS1_SHA256);
+            SignRawRequestDto request = buildSignRawRequest(DigestAlgorithm.SHA_256);
+            var tooShortForSha256 = new byte[31];
+            request.getItems().get(1).setData(tooShortForSha256);
+
+            // when
+            MockHttpServletResponse response = signRaw(profile.getUuid(), request);
+
+            // then
+            assertThat(response.getStatus()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT.value());
+            List<String> messages = read(response, "$");
+            assertThat(messages)
+                    .containsExactly("items[1].data data length must match the digest size of digestAlgorithm");
+            v2Token.connectorMock().verifyNoOperationRequest("sign");
+        }
+
+        @Test
+        void answers422NamingTheItem_whenTwoItemsShareAnIdentifier() throws Exception {
             // given
             SigningProfileDto profile = createIlmNativeRawProfile("native-raw-duplicate", RSA_PKCS1_SHA256);
             SignRawRequestDto request = buildSignRawRequest(DigestAlgorithm.SHA_256);
@@ -579,6 +598,23 @@ class RawSigningEngineITest extends BaseSpringBootTest {
 
             // then
             assertThat(response.getStatus()).isEqualTo(HttpStatus.NOT_FOUND.value());
+        }
+
+        @Test
+        void answers502WithoutResults_whenTheProviderFailsTheSigning() throws Exception {
+            // given
+            SigningProfileDto profile = createIlmNativeRawProfile("native-raw-provider-fails", RSA_PKCS1_SHA256);
+            v2Token.connectorMock().stubOperationError("sign");
+
+            // when
+            MockHttpServletResponse response = signRaw(profile.getUuid(), buildSignRawRequest(DigestAlgorithm.SHA_256));
+
+            // then
+            assertThat(response.getStatus()).isEqualTo(HttpStatus.BAD_GATEWAY.value());
+            Map<String, Object> body = read(response, "$");
+            assertThat(body).containsOnlyKeys("message");
+            v2Token.connectorMock().verifyOperationRequests("sign", 1);
+            assertThat(loadRecords(profile)).isEmpty();
         }
 
         @Test
