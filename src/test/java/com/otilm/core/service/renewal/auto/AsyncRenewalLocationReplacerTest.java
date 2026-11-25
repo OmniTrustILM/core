@@ -11,6 +11,7 @@ import com.otilm.core.dao.entity.CertificateRenewalLocation;
 import com.otilm.core.dao.repository.CertificateLocationRepository;
 import com.otilm.core.dao.repository.CertificateRenewalInfoRepository;
 import com.otilm.core.dao.repository.CertificateRenewalLocationRepository;
+import com.otilm.core.security.authn.PlatformAuthenticationException;
 import com.otilm.core.service.LocationInternalService;
 import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.util.AuthHelper;
@@ -169,6 +170,24 @@ class AsyncRenewalLocationReplacerTest {
         // then
         verify(failureRecorder)
                 .recordLocationFailure(RENEWED_UUID, SUCCESSOR_UUID, LOCATION_UUID, pushRefused.getMessage());
+        verify(renewalLocationRepository, never()).findAndLock(any(), any());
+    }
+
+    @Test
+    void recordsTheLocationFailureWithoutPushing_whenTheOwnerCannotBeAuthenticated() throws Exception {
+        // given
+        var ownerUuid = UUID.randomUUID();
+        stubTrackedLocationRenewal(ownerUuid);
+        var refused = new PlatformAuthenticationException("User %s could not be authenticated".formatted(ownerUuid));
+        when(authHelper.runAsUser(eq(ownerUuid), any())).thenThrow(refused);
+
+        // when
+        replacer.replaceInLocations(SUCCESSOR_UUID);
+
+        // then
+        verify(failureRecorder)
+                .recordLocationFailure(RENEWED_UUID, SUCCESSOR_UUID, LOCATION_UUID, refused.getMessage());
+        verifyNoInteractions(locationService);
         verify(renewalLocationRepository, never()).findAndLock(any(), any());
     }
 

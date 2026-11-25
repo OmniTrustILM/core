@@ -188,8 +188,8 @@ public interface LocationExternalService {
     /**
      * Renews the certificate in the location as {@link #renewCertificateInLocation} does, for a caller that tracks the
      * new certificate. It holds no transaction while the location and the authority are called: it reads in a short
-     * transaction of its own and commits the new certificate's link to the location in another, once the renewal is
-     * requested, so a later failure does not undo the link.
+     * transaction of its own and commits the new certificate's link to the location in another, after
+     * {@code beforeDispatch} and before the renewal is queued, so the renewal cannot complete ahead of the link.
      *
      * @param beforeDispatch receives the new certificate's UUID once it is stored and before its renewal is queued; if
      * it throws, the new certificate is marked failed and nothing is queued.

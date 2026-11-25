@@ -11,6 +11,7 @@ import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.logging.enums.OperationResult;
 import com.otilm.core.logging.LoggingHelper;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.security.authn.PlatformAuthenticationException;
 import com.otilm.core.security.authn.PlatformAuthenticationToken;
 import com.otilm.core.security.authn.PlatformUserDetails;
 import com.otilm.core.security.authn.ProtectedResourceChallenge;
@@ -158,10 +159,19 @@ public class AuthHelper {
 
     /**
      * Runs {@code action} as the given user, then restores the caller's context and actor, as {@link #runAsSystem}
-     * does. Used where the platform completes later, on a thread without a principal, what a user started.
+     * does. Used where the platform completes later, on a thread without a principal, what a user started. The auth
+     * service answers a deleted or disabled user with an anonymous principal instead of an error, so the action does
+     * not run unless the user itself was installed.
+     *
+     * @throws PlatformAuthenticationException when the user could not be authenticated
      */
     public <T, E extends Exception> T runAsUser(UUID userUuid, ThrowingSupplier<T, E> action) throws E {
-        return runAs(() -> authenticateAsUser(userUuid), action);
+        return runAs(() -> {
+            authenticateAsUser(userUuid);
+            if (!userUuid.equals(getActingUserUuidOrNull())) {
+                throw new PlatformAuthenticationException("User %s could not be authenticated".formatted(userUuid));
+            }
+        }, action);
     }
 
     private <T, E extends Exception> T runAs(Runnable authenticate, ThrowingSupplier<T, E> action) throws E {

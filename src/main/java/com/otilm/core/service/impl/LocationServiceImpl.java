@@ -1014,25 +1014,23 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
         GenerateCsrResponseDto generateCsrResponseDto = generateCsrLocation(location, renewal.csrAttributes(), true);
         logger.info("Received certificate signing request from Location {}", location.getName());
 
+        // The link commits before the renewal is queued, after the caller's own step, so a renewal the authority
+        // completes at once or a status poll completes early always finds the renewed certificate in the location.
+        Consumer<UUID> trackAndLink = renewedUuid -> {
+            if (beforeDispatch != null) {
+                beforeDispatch.accept(renewedUuid);
+            }
+            linkIssuedCertificateInNewTransaction(location, renewedUuid, generateCsrResponseDto,
+                    renewal.csrAttributes());
+        };
         UUID renewedUuid;
         try {
-            renewedUuid = renewCertificate(renewal, generateCsrResponseDto.getCsr(), beforeDispatch);
+            renewedUuid = renewCertificate(renewal, generateCsrResponseDto.getCsr(), trackAndLink);
         } catch (Exception e) {
             logger.error("Failed to renew Certificate", RedactedFailure.forLog(e));
             throw new LocationException(
                     "Failed to renew certificate to the location. Error Issuing certificate from Authority. "
                             + e.getMessage());
-        }
-
-        // The renewal is requested from here on; the link commits on its own, so no later failure undoes it.
-        try {
-            LocationAttributeDefinitions definitions = fetchAttributeDefinitions(location);
-            transactionHandler
-                    .runInNewTransaction(() -> linkCertificate(location.getUuid(), renewedUuid, definitions,
-                            generateCsrResponseDto, renewal.csrAttributes()));
-        } catch (Exception e) {
-            logger.error("Failed to add new Certificate", RedactedFailure.forLog(e));
-            throw new LocationException("Failed to add the new certificate to the location. Reason: " + e.getMessage());
         }
 
         logger
@@ -1430,7 +1428,8 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
     }
 
     /**
-     * Commits the link before the issue action is queued, so the action cannot finish ahead of it and miss the push.
+     * Commits the link before the issue or renewal action is queued, so the action cannot finish ahead of it and miss
+     * the push.
      */
     private void linkIssuedCertificateInNewTransaction(Location location, UUID certificateUuid,
             GenerateCsrResponseDto generateCsrResponseDto, List<RequestAttribute> csrAttributes) {

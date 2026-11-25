@@ -114,7 +114,6 @@ import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
-import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -1288,7 +1287,8 @@ class LocationServiceITest extends BaseSpringBootTest {
         certificateRepository.save(renewedCertificate);
         ClientCertificateDataResponseDto responseDto = new ClientCertificateDataResponseDto();
         responseDto.setUuid(renewedCertificate.getUuid().toString());
-        when(clientOperationService.renewCertificate(any(), any(), any(), any(), any(), any())).thenReturn(responseDto);
+        when(clientOperationService.renewCertificate(any(), any(), any(), any(), any(), any()))
+                .thenAnswer(runStepBeforeDispatchAndReturn(renewedCertificate.getUuid(), responseDto));
         mockServer.stubFor(WireMock.post(WireMock.urlPathMatching(CSR_PATH)).willReturn(WireMock.okJson("{}")));
         mockServer
                 .stubFor(
@@ -1318,21 +1318,51 @@ class LocationServiceITest extends BaseSpringBootTest {
         responseDto.setUuid(rekeyedCertificate.getUuid().toString());
         when(clientOperationService.renewalFor(any(), any(), eq(certificate.getUuid()), any(), any()))
                 .thenReturn(Optional.of(ResourceAction.REKEY));
-        when(clientOperationService.rekeyCertificate(any(), any(), any(), any(), any(), any())).thenReturn(responseDto);
-        Consumer<UUID> beforeDispatch = successorUuid -> {
-        };
+        when(clientOperationService.rekeyCertificate(any(), any(), any(), any(), any(), any()))
+                .thenAnswer(runStepBeforeDispatchAndReturn(rekeyedCertificate.getUuid(), responseDto));
+        List<UUID> trackedBeforeDispatch = new ArrayList<>();
 
         // when
         UUID successorUuid = locationService
                 .renewCertificateInLocationForSuccessor(entityInstanceReference.getSecuredParentUuid(),
-                        location.getSecuredUuid(), certificate.getUuid(), beforeDispatch);
+                        location.getSecuredUuid(), certificate.getUuid(), trackedBeforeDispatch::add);
 
         // then
         assertThat(successorUuid).isEqualTo(rekeyedCertificate.getUuid());
+        assertThat(trackedBeforeDispatch).containsExactly(rekeyedCertificate.getUuid());
         verify(clientOperationService)
-                .rekeyCertificate(any(), any(), eq(certificate.getUuid().toString()), any(), isNull(),
-                        same(beforeDispatch));
+                .rekeyCertificate(any(), any(), eq(certificate.getUuid().toString()), any(), isNull(), any());
         verify(clientOperationService, never()).renewCertificate(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void commitsTheLinkAfterTheCallersStepBeforeTheRenewalIsQueued_whenRenewingForASuccessor() throws Exception {
+        // given
+        stubConnectorAccepting();
+        prepareCertificateForRenewalInLocation();
+        X509CertificateEntity renewedCertificate = aCertificate().build();
+        certificateRepository.save(renewedCertificate);
+        ClientCertificateDataResponseDto responseDto = new ClientCertificateDataResponseDto();
+        responseDto.setUuid(renewedCertificate.getUuid().toString());
+        CertificateLocationId renewedEntry = new CertificateLocationId(location.getUuid(),
+                renewedCertificate.getUuid());
+        Map<String, Boolean> linkedAt = new LinkedHashMap<>();
+        when(clientOperationService.renewCertificate(any(), any(), any(), any(), any(), any()))
+                .thenAnswer(invocation -> {
+                    invocation.<Consumer<UUID>>getArgument(5).accept(renewedCertificate.getUuid());
+                    linkedAt.put("dispatch", certificateLocationRepository.existsById(renewedEntry));
+                    return responseDto;
+                });
+        Consumer<UUID> callersStep = successorUuid -> linkedAt
+                .put("callersStep", certificateLocationRepository.existsById(renewedEntry));
+
+        // when
+        locationService
+                .renewCertificateInLocationForSuccessor(entityInstanceReference.getSecuredParentUuid(),
+                        location.getSecuredUuid(), certificate.getUuid(), callersStep);
+
+        // then
+        assertThat(linkedAt).containsExactly(Map.entry("callersStep", false), Map.entry("dispatch", true));
     }
 
     @Test
@@ -1354,8 +1384,14 @@ class LocationServiceITest extends BaseSpringBootTest {
                 .thenAnswer(recordingTransaction(transactionActiveInCall, "listCsrAttributes", List.of()));
         when(clientOperationService.renewalFor(any(), any(), any(), any(), any()))
                 .thenAnswer(recordingTransaction(transactionActiveInCall, "renewalFor", Optional.empty()));
+        Answer<Object> recordingRenewal = recordingTransaction(transactionActiveInCall, "renewCertificate",
+                responseDto);
         when(clientOperationService.renewCertificate(any(), any(), any(), any(), any(), any()))
-                .thenAnswer(recordingTransaction(transactionActiveInCall, "renewCertificate", responseDto));
+                .thenAnswer(invocation -> {
+                    Object answer = recordingRenewal.answer(invocation);
+                    invocation.<Consumer<UUID>>getArgument(5).accept(renewedCertificate.getUuid());
+                    return answer;
+                });
 
         // when
         UUID successorUuid = locationService
@@ -1808,6 +1844,15 @@ class LocationServiceITest extends BaseSpringBootTest {
         locationService
                 .pushCertificateToLocation(getEntityUuid(), location.getSecuredUuid(), certificate.getUuid().toString(),
                         pushRequest);
+    }
+
+    /** Answers as Core does: runs the caller's step before dispatch with the new certificate, then returns. */
+    private static Answer<Object> runStepBeforeDispatchAndReturn(UUID successorUuid,
+            ClientCertificateDataResponseDto response) {
+        return invocation -> {
+            invocation.<Consumer<UUID>>getArgument(5).accept(successorUuid);
+            return response;
+        };
     }
 
     private static Answer<Object> recordingTransaction(Map<String, Boolean> transactionActiveInCall, String call,
