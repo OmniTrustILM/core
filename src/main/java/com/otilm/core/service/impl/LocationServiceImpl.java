@@ -38,8 +38,8 @@ import com.otilm.api.model.core.auth.AttributeResource;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
+import com.otilm.api.model.core.certificate.CertificateOperation;
 import com.otilm.api.model.core.certificate.CertificateState;
-import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.location.CertificateInLocationDto;
@@ -56,6 +56,7 @@ import com.otilm.core.aop.OutsideTransaction;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
+import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.comparator.SearchFieldDataComparator;
 import com.otilm.core.dao.entity.Certificate;
@@ -149,6 +150,13 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
     private ApplicationEventPublisher applicationEventPublisher;
 
     private CommentInternalService commentService;
+
+    private CertificateTypeHandlerRegistry typeHandlerRegistry;
+
+    @Autowired
+    public void setTypeHandlerRegistry(CertificateTypeHandlerRegistry typeHandlerRegistry) {
+        this.typeHandlerRegistry = typeHandlerRegistry;
+    }
 
     @Autowired
     public void setCommentService(CommentInternalService commentService) {
@@ -646,6 +654,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
         requireUnderEntity(location, entityUuid, locationUuid);
 
         Certificate certificate = certificateService.getCertificateEntity(SecuredUUID.fromString(certificateUuid));
+        typeHandlerRegistry.requireSupport(certificate, CertificateOperation.PUSH_TO_LOCATION);
 
         if (certificate.isArchived()) {
             throw new ValidationException(ValidationError
@@ -716,8 +725,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
 
         PushCertificateRequestDto pushCertificateRequestDto = new PushCertificateRequestDto();
         pushCertificateRequestDto.setCertificate(certificate.getCertificateContent().getContent());
-        // TODO: support for different types of certificate
-        pushCertificateRequestDto.setCertificateType(CertificateType.X509);
+        pushCertificateRequestDto.setCertificateType(certificate.getCertificateType());
         pushCertificateRequestDto
                 .setLocationAttributes(attributeEngine
                         .getRequestObjectDataAttributesContent(ObjectAttributeContentInfo
@@ -1145,6 +1153,9 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
 
         Certificate certificateInScope = certificateService
                 .getCertificateEntity(SecuredUUID.fromString(certificateUuid));
+        typeHandlerRegistry.requireSupport(certificateInScope, CertificateOperation.RENEW);
+        // the renewed certificate is pushed to this location, so a type that cannot be pushed is refused here
+        typeHandlerRegistry.requireSupport(certificateInScope, CertificateOperation.PUSH_TO_LOCATION);
         if (certificateInScope.isArchived()) {
             throw new LocationException(
                     "Certificate with UUID %s is archived. Cannot renew the certificate in the location with UUID %s."
@@ -1557,8 +1568,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
             throws LocationException, AttributeException, NotFoundException {
         PushCertificateRequestDto pushCertificateRequestDto = new PushCertificateRequestDto();
         pushCertificateRequestDto.setCertificate(certificate.getCertificateContent().getContent());
-        // TODO: support for different types of certificate
-        pushCertificateRequestDto.setCertificateType(CertificateType.X509);
+        pushCertificateRequestDto.setCertificateType(certificate.getCertificateType());
         pushCertificateRequestDto
                 .setLocationAttributes(attributeEngine
                         .getRequestObjectDataAttributesContent(ObjectAttributeContentInfo

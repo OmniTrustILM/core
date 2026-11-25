@@ -43,7 +43,7 @@ import com.otilm.core.enums.ResourceToClass;
 import com.otilm.core.messaging.model.NotificationMessage;
 import com.otilm.core.security.authz.SecurityResourceFilter;
 import com.otilm.core.service.TriggerInternalService;
-import com.otilm.core.service.renewal.auto.AutoRenewalAction;
+import com.otilm.core.service.renewal.auto.AutoRenewalAfterCommit;
 import com.otilm.core.service.renewal.auto.TriggerContext;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.FilterPredicatesBuilder;
@@ -90,7 +90,7 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
     protected AttributeEngine attributeEngine;
     private TriggerInternalService triggerService;
     private ApplicationEventPublisher applicationEventPublisher;
-    private AutoRenewalAction autoRenewalAction;
+    private AutoRenewalAfterCommit autoRenewal;
 
     @Autowired
     public void setApplicationEventPublisher(ApplicationEventPublisher applicationEventPublisher) {
@@ -98,8 +98,8 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
     }
 
     @Autowired
-    public void setAutoRenewalAction(AutoRenewalAction autoRenewalAction) {
-        this.autoRenewalAction = autoRenewalAction;
+    public void setAutoRenewal(AutoRenewalAfterCommit autoRenewal) {
+        this.autoRenewal = autoRenewal;
     }
 
     @Autowired
@@ -536,7 +536,7 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
         UUID ownerUuid = triggerHistory.getTriggerAssociationUuid() == null
                 ? null
                 : triggerHistory.getTriggerAssociation().getTriggeredBy();
-        autoRenewalAction
+        autoRenewal
                 .perform(certificate, new TriggerContext(trigger.getUuid(), ownerUuid, triggerHistory.getUuid(),
                         execution.getUuid()));
     }

@@ -127,7 +127,7 @@ class StubCertificateTypeHandlerTest {
         assertThatThrownBy(requireRevoke)
                 .isInstanceOf(UnsupportedCertificateTypeException.class)
                 .hasMessageContaining(StubCertificateTypeHandler.TYPE_CODE)
-                .hasMessageContaining(unsupported.name());
+                .hasMessageContaining(unsupported.getLabel());
     }
 
     @Test
