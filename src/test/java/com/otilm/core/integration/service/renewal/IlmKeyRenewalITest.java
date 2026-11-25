@@ -327,7 +327,7 @@ class IlmKeyRenewalITest extends BaseSpringBootTest {
         clientOperationService.renewCertificateAction(successor.getUuid(), renewRequest(), true);
 
         // then
-        assertThat(locationHistory(certificate))
+        assertThat(findLocationHistory(certificate))
                 .extracting(CertificateEventHistory::getMessage)
                 .containsExactlyInAnyOrder("Removed from Location web", "Removed from Location mail");
     }
@@ -341,7 +341,7 @@ class IlmKeyRenewalITest extends BaseSpringBootTest {
         clientOperationService.renewCertificateAction(successor.getUuid(), renewRequest(), true);
 
         // then
-        assertThat(locationHistory(successor))
+        assertThat(findLocationHistory(successor))
                 .extracting(CertificateEventHistory::getMessage)
                 .containsExactlyInAnyOrder("Pushed to Location web", "Pushed to Location mail");
     }
@@ -651,7 +651,7 @@ class IlmKeyRenewalITest extends BaseSpringBootTest {
         return successor.get();
     }
 
-    private List<CertificateEventHistory> locationHistory(Certificate owner) {
+    private List<CertificateEventHistory> findLocationHistory(Certificate owner) {
         return eventHistoryRepository
                 .findByCertificateOrderByCreatedDesc(owner)
                 .stream()
