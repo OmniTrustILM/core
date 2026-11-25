@@ -657,7 +657,10 @@ class AuthorityProviderV2AdapterTest {
         return Stream
                 .of(Arguments.of(named("JSON text", "{\"profile\": \"EMPTY\", \"passphrase\": \"%s\"}")),
                         Arguments.of(named("map in its toString form", "{profile=EMPTY, passphrase=%s}")),
-                        Arguments.of(named("list in its toString form", "[EMPTY, %s]")));
+                        Arguments.of(named("list in its toString form", "[EMPTY, %s]")),
+                        Arguments
+                                .of(named("map holding a list in its toString form",
+                                        "{profile=EMPTY, passphrases=[%s]}")));
     }
 
     private static ObjectAttributeContent createPlainRow(String name, String value) {

@@ -80,8 +80,8 @@ public class OutboundSecretContainment {
 
     private static final int MAX_WALK_DEPTH = 12;
 
-    /** The value of one entry of a map in its {@code toString()} form. */
-    private static final Pattern TO_STRING_MAP_ENTRY = Pattern.compile("=([^,{}\\[\\]=]+)");
+    /** One value or map key of an object in its {@code toString()} form, with the {@code =} that marks a key. */
+    private static final Pattern TO_STRING_TOKEN = Pattern.compile("([^,{}\\[\\]=]+)(=?)");
 
     /**
      * How deep the recording walk follows a resolved request. Each nesting level adds five wrappers (attribute list,
@@ -217,19 +217,15 @@ public class OutboundSecretContainment {
 
     /**
      * The values of an object sealed in its {@code toString()} form, as an OBJECT attribute holding a map or a list is
-     * encrypted: {@code {profile=EMPTY, passphrase=x}} or {@code [a, b]}. Map keys are left out, as they name fields
-     * rather than hold secrets.
+     * encrypted: {@code {profile=EMPTY, passphrases=[x, y]}}, nested to any depth. Map keys are left out, as they name
+     * fields rather than hold secrets.
      */
     private static void collectToStringValues(String text, Set<String> sentSecrets) {
-        Matcher pairs = TO_STRING_MAP_ENTRY.matcher(text);
-        boolean isMap = false;
-        while (pairs.find()) {
-            isMap = true;
-            addIfPresent(pairs.group(1).strip(), sentSecrets);
-        }
-        if (!isMap) {
-            for (String item : text.split("[\\[\\]{},]")) {
-                addIfPresent(item.strip(), sentSecrets);
+        Matcher tokens = TO_STRING_TOKEN.matcher(text);
+        while (tokens.find()) {
+            boolean isMapKey = !tokens.group(2).isEmpty();
+            if (!isMapKey) {
+                addIfPresent(tokens.group(1).strip(), sentSecrets);
             }
         }
     }
