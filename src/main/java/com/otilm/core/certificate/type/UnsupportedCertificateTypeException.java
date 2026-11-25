@@ -17,7 +17,7 @@ public class UnsupportedCertificateTypeException extends ValidationException {
     public static UnsupportedCertificateTypeException unsupportedOperation(String typeCode,
             CertificateOperation operation) {
         return new UnsupportedCertificateTypeException(
-                "The operation " + operation + " is not supported for certificates of type " + typeCode);
+                "The operation " + operation.getLabel() + " is not supported for certificates of type " + typeCode);
     }
 
     public static UnsupportedCertificateTypeException notStored(String typeCode) {

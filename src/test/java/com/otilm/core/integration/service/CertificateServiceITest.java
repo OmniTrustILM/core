@@ -32,6 +32,7 @@ import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateChainResponseDto;
 import com.otilm.api.model.core.certificate.CertificateContentDto;
 import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateDownloadResponseDto;
@@ -42,6 +43,7 @@ import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.otilm.api.model.core.certificate.CertificateFormat;
 import com.otilm.api.model.core.certificate.CertificateFormatEncoding;
 import com.otilm.api.model.core.certificate.CertificateKeyUsage;
+import com.otilm.api.model.core.certificate.CertificateOperation;
 import com.otilm.api.model.core.certificate.CertificateQcStatementsDto;
 import com.otilm.api.model.core.certificate.CertificateRegistrationState;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
@@ -154,6 +156,7 @@ import com.otilm.core.util.WireMockPorts;
 import com.otilm.core.util.X509ObjectToString;
 import com.otilm.core.util.builders.ComplianceProfileFixtures;
 import com.otilm.core.util.seeders.CertificateUploadTriggerSeeder;
+import com.otilm.core.validation.certificate.ICertificateValidator;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -176,11 +179,13 @@ import java.util.Base64;
 import java.util.Date;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.operator.OperatorCreationException;
 import org.jetbrains.annotations.NotNull;
@@ -190,6 +195,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
@@ -198,9 +204,11 @@ import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
+import static com.otilm.core.util.RestrictedTypeHandlerFixtures.registryWithX509Lacking;
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static com.otilm.core.util.builders.CertificateContentBuilder.aCertificateContent;
 import static com.otilm.core.util.builders.CertificateRequestEntityBuilder.aCertificateRequest;
@@ -214,7 +222,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
+import static org.junit.jupiter.api.Named.named;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -244,6 +254,9 @@ class CertificateServiceITest extends BaseSpringBootTest {
 
     @Autowired
     private CertificateTypeHandlerRegistry typeHandlerRegistry;
+
+    @Autowired
+    private Map<String, ICertificateValidator> certificateValidators;
 
     @Autowired
     private CertificateRepository certificateRepository;
@@ -1501,6 +1514,159 @@ class CertificateServiceITest extends BaseSpringBootTest {
         }
 
         @Test
+        void leavesTheValidationStatusAsItIs_whenTheTypeOfTheCertificateDoesNotSupportValidation() throws Exception {
+            // given
+            Certificate stored = certificateService
+                    .createCertificate(Base64.getEncoder().encodeToString(x509Cert.getEncoded()), CertificateType.X509);
+            CertificateValidationStatus statusBefore = stored.getValidationStatus();
+            certificateService
+                    .setTypeHandlerRegistry(registryWithX509Lacking(x509Handler, CertificateOperation.VALIDATE));
+
+            // when
+            try {
+                certificateService.validate(stored);
+            } finally {
+                certificateService.setTypeHandlerRegistry(typeHandlerRegistry);
+            }
+
+            // then
+            assertThat(certificateRepository.findByUuid(stored.getUuid()).orElseThrow().getValidationStatus())
+                    .isEqualTo(statusBefore);
+        }
+
+        @Test
+        void validatesTheCertificateWithoutItsChain_whenItsTypeDoesNotSupportChainValidation() throws Exception {
+            // given — the issuer is in the inventory, so the chain of the certificate has two certificates
+            certificateService
+                    .createCertificate(Base64.getEncoder().encodeToString(loadIssuerOfX509Cert().getEncoded()),
+                            CertificateType.X509);
+            Certificate stored = certificateService
+                    .createCertificate(Base64.getEncoder().encodeToString(x509Cert.getEncoded()), CertificateType.X509);
+            ICertificateValidator validator = mock(ICertificateValidator.class);
+            when(validator.validateCertificate(any(), anyBoolean())).thenReturn(CertificateValidationStatus.VALID);
+            certificateService.setCertificateValidatorMap(Map.of(CertificateType.X509.getCode(), validator));
+            certificateService
+                    .setTypeHandlerRegistry(registryWithX509Lacking(x509Handler, CertificateOperation.VALIDATE_CHAIN));
+
+            // when
+            try {
+                certificateService.validate(stored);
+            } finally {
+                certificateService.setTypeHandlerRegistry(typeHandlerRegistry);
+                certificateService.setCertificateValidatorMap(certificateValidators);
+            }
+
+            // then
+            var incompleteChain = false;
+            verify(validator).validateCertificate(List.of(stored), incompleteChain);
+        }
+
+        @ParameterizedTest(name = "{0}")
+        @MethodSource("validatedTypeSelections")
+        void selectsOnlyCertificatesOfValidatedTypes_whenSelectingForTheScheduledValidation(
+                List<CertificateType> validatedTypes, boolean selected) throws Exception {
+            // given
+            Certificate stored = certificateService
+                    .createCertificate(Base64.getEncoder().encodeToString(x509Cert.getEncoded()), CertificateType.X509);
+            var platformValidationEnabled = true;
+
+            // when
+            List<UUID> toCheck = certificateRepository
+                    .findCertificatesToCheckStatus(OffsetDateTime.now(), List.of(), validatedTypes,
+                            platformValidationEnabled, PageRequest.of(0, 1000));
+
+            Long counted = certificateRepository
+                    .countCertificatesToCheckStatus(List.of(), validatedTypes, platformValidationEnabled);
+
+            // then
+            assertThat(toCheck.contains(stored.getUuid())).isEqualTo(selected);
+            assertThat(counted > 0).as("certificates counted for the selection").isEqualTo(selected);
+        }
+
+        @Test
+        void selectsNoCertificateForTheScheduledValidation_whenItsTypeDoesNotSupportValidation() throws Exception {
+            // given
+            certificateService
+                    .createCertificate(Base64.getEncoder().encodeToString(x509Cert.getEncoded()), CertificateType.X509);
+            certificateService
+                    .setTypeHandlerRegistry(registryWithX509Lacking(x509Handler, CertificateOperation.VALIDATE));
+
+            // when
+            int selected;
+            try {
+                selected = certificateService.updateCertificatesStatusScheduled();
+            } finally {
+                certificateService.setTypeHandlerRegistry(typeHandlerRegistry);
+            }
+
+            // then
+            assertThat(selected).isZero();
+        }
+
+        @ParameterizedTest(name = "{0}")
+        @MethodSource("refusedReads")
+        void refusesNamingTheOperation_whenTheTypeOfTheCertificateDoesNotSupportIt(CertificateOperation unsupported,
+                CertificateRead read) throws Exception {
+            // given
+            Certificate stored = certificateService
+                    .createCertificate(Base64.getEncoder().encodeToString(x509Cert.getEncoded()), CertificateType.X509);
+            certificateService.setTypeHandlerRegistry(registryWithX509Lacking(x509Handler, unsupported));
+
+            // when
+            ThrowingCallable readTheCertificate = () -> read.read(certificateService, stored.getSecuredUuid());
+
+            // then
+            try {
+                assertThatThrownBy(readTheCertificate)
+                        .isInstanceOf(UnsupportedCertificateTypeException.class)
+                        .hasMessageContaining(unsupported.getLabel());
+            } finally {
+                certificateService.setTypeHandlerRegistry(typeHandlerRegistry);
+            }
+        }
+
+        @Test
+        void listsTheOperationsOfItsTypeOnEveryCertificate_whenReadingTheChain() throws Exception {
+            // given — the issuer is in the inventory, so the chain has two certificates
+            certificateService
+                    .createCertificate(Base64.getEncoder().encodeToString(loadIssuerOfX509Cert().getEncoded()),
+                            CertificateType.X509);
+            Certificate stored = certificateService
+                    .createCertificate(Base64.getEncoder().encodeToString(x509Cert.getEncoded()), CertificateType.X509);
+
+            // when
+            CertificateChainResponseDto chain = certificateService.getCertificateChain(stored.getSecuredUuid(), true);
+
+            // then
+            assertThat(chain.getCertificates())
+                    .hasSize(2)
+                    .allSatisfy(detail -> assertThat(detail.getSupportedOperations())
+                            .contains(CertificateOperation.VALIDATE_CHAIN));
+        }
+
+        @Test
+        void listsTheOperationsOfItsType_whenReadingTheDetailOfACertificate() throws Exception {
+            // given
+            var unsupported = CertificateOperation.REVOKE;
+            Certificate stored = certificateService
+                    .createCertificate(Base64.getEncoder().encodeToString(x509Cert.getEncoded()), CertificateType.X509);
+            certificateService.setTypeHandlerRegistry(registryWithX509Lacking(x509Handler, unsupported));
+
+            // when
+            CertificateDetail detail;
+            try {
+                detail = certificateService.getCertificate(stored.getSecuredUuid());
+            } finally {
+                certificateService.setTypeHandlerRegistry(typeHandlerRegistry);
+            }
+
+            // then
+            assertThat(detail.getSupportedOperations())
+                    .contains(CertificateOperation.RENEW, CertificateOperation.VALIDATE)
+                    .doesNotContain(unsupported);
+        }
+
+        @Test
         void readsAndStoresTheCertificateThroughItsHandler_whenTheConnectorNamesItsType() throws Exception {
             // given
             var content = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
@@ -1817,6 +1983,43 @@ class CertificateServiceITest extends BaseSpringBootTest {
         }
 
         // ── Helpers ───────────────────────────────────────────────────────────
+
+        private static Stream<Arguments> validatedTypeSelections() {
+            return Stream
+                    .of(Arguments.of(named("its type is validated", List.of(CertificateType.X509)), true),
+                            Arguments.of(named("only another type is validated", List.of(CertificateType.SSH)), false));
+        }
+
+        private static X509Certificate loadIssuerOfX509Cert() throws Exception {
+            KeyStore keyStore = KeyStore.getInstance("PKCS12");
+            try (InputStream keyStoreStream = CertificateServiceITest.class
+                    .getClassLoader()
+                    .getResourceAsStream("client1.p12")) {
+                keyStore.load(keyStoreStream, "123456".toCharArray());
+            }
+            return (X509Certificate) keyStore.getCertificateChain("1")[1];
+        }
+
+        private static Stream<Arguments> refusedReads() {
+            return Stream
+                    .of(Arguments
+                            .of(named("validation result", CertificateOperation.VALIDATE),
+                                    (CertificateRead) CertificateServiceImpl::getCertificateValidationResult),
+                            Arguments
+                                    .of(named("chain read", CertificateOperation.VALIDATE_CHAIN),
+                                            (CertificateRead) (service, uuid) -> service
+                                                    .getCertificateChain(uuid, true)),
+                            Arguments
+                                    .of(named("chain download", CertificateOperation.VALIDATE_CHAIN),
+                                            (CertificateRead) (service, uuid) -> service
+                                                    .downloadCertificateChain(uuid, CertificateFormat.RAW, true,
+                                                            CertificateFormatEncoding.PEM)));
+        }
+
+        @FunctionalInterface
+        private interface CertificateRead {
+            void read(CertificateServiceImpl service, SecuredUUID uuid) throws Exception;
+        }
 
         private X509CertificateTypeHandler createRawOnlyX509Handler() {
             X509CertificateTypeHandler handler = spy(x509Handler);
