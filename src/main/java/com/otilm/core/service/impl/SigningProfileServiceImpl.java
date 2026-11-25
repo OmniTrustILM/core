@@ -39,6 +39,7 @@ import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
+import com.otilm.api.model.common.signature.DocumentTransferMode;
 import com.otilm.api.model.common.signature.SignatureLevel;
 import com.otilm.api.model.connector.signatures.contentsigning.common.ContentSigningFormattingAttributesDto;
 import com.otilm.api.model.connector.signatures.contentsigning.declaration.SignatureFamilyDeclarationDto;
@@ -50,6 +51,7 @@ import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.api.model.core.search.SearchFieldDataDto;
 import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.api.model.core.signing.signingrecord.SigningRecordListDto;
+import com.otilm.core.aop.OutsideTransaction;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
 import com.otilm.core.attribute.engine.AttributeOperation;
@@ -103,6 +105,7 @@ import com.otilm.core.signing.contentsigning.declaration.ContentSigningDeclarati
 import com.otilm.core.signing.contentsigning.formatting.ContentSigningFormattingAttributes;
 import com.otilm.core.signing.contentsigning.formatting.ContentSigningFormattingDefinitions;
 import com.otilm.core.signing.contentsigning.formatting.RequestAttributesCheck;
+import com.otilm.core.signing.contentsigning.profile.ConnectorProfileValidation;
 import com.otilm.core.signing.contentsigning.profile.ContentSigningWorkflowValidator;
 import com.otilm.core.signing.contentsigning.profile.TimestampSourceRequests;
 import com.otilm.core.signing.engine.error.SigningEngineException;
@@ -140,6 +143,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.interceptor.TransactionAspectSupport;
 
 @Service(Resource.Codes.SIGNING_PROFILE)
 @Slf4j
@@ -178,6 +182,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     private ContentSigningWorkflowValidator contentSigningWorkflowValidator;
     private ContentSigningFormattingAttributes contentSigningFormattingAttributes;
     private ContentSigningDeclarations contentSigningDeclarations;
+    private ConnectorProfileValidation connectorProfileValidation;
 
     // ──────────────────────────────────────────────────────────────────────────
     // List / search
@@ -449,7 +454,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
 
     @Override
     @ExternalAuthorization(resource = Resource.SIGNING_PROFILE, action = ResourceAction.CREATE)
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @OutsideTransaction
     public SigningProfileDto createSigningProfile(SigningProfileRequestDto request)
             throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
         if (signingProfileRepository.findByName(request.getName()).isPresent()) {
@@ -463,14 +468,16 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         List<BaseAttribute> formattingDefinitions = fetchFormattingAttributeDefinitions(request.getWorkflow(),
                 request.getSigningScheme().getSigningScheme());
         AttributesWithOwner signingSchema = fetchValidatedSigningOperationSchema(request.getSigningScheme());
-        SigningProfileDto created = self.persistCreate(request, formattingDefinitions, signingSchema);
+        Set<DocumentTransferMode> transferModes = validateWithFormattingConnector(request, formattingDefinitions);
+        SigningProfileDto created = self.persistCreate(request, formattingDefinitions, signingSchema, transferModes);
         evictSigningProfileCache(created.getName());
         return created;
     }
 
     @Transactional(rollbackFor = Exception.class)
     SigningProfileDto persistCreate(SigningProfileRequestDto request, List<BaseAttribute> formattingDefinitions,
-            AttributesWithOwner signingSchema) throws AttributeException, NotFoundException {
+            AttributesWithOwner signingSchema, Set<DocumentTransferMode> transferModes)
+            throws AttributeException, NotFoundException {
         Objects.requireNonNull(request, "request must not be null");
         Objects.requireNonNull(formattingDefinitions, "formattingDefinitions must not be null");
         Objects.requireNonNull(signingSchema, "signingSchema must not be null");
@@ -481,7 +488,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
 
         SigningProfileVersion v1 = new SigningProfileVersion();
         v1.setVersion(1);
-        applyWorkflow(profile, v1, request.getWorkflow(), request.getSigningScheme().getSigningScheme());
+        applyWorkflow(profile, v1, request.getWorkflow(), request.getSigningScheme().getSigningScheme(), transferModes);
         applyScheme(profile, v1, request.getSigningScheme());
         applyRecordPolicyToVersion(v1, request.getRecordPolicy());
         profile = signingProfileRepository.save(profile);
@@ -506,7 +513,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
 
     @Override
     @ExternalAuthorization(resource = Resource.SIGNING_PROFILE, action = ResourceAction.UPDATE)
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @OutsideTransaction
     public SigningProfileDto updateSigningProfile(SecuredUUID uuid, SigningProfileRequestDto request)
             throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
         validateSigningSchemeCoherence(request.getSigningScheme());
@@ -517,12 +524,14 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         List<BaseAttribute> formattingDefinitions = fetchFormattingAttributeDefinitions(request.getWorkflow(),
                 request.getSigningScheme().getSigningScheme());
         AttributesWithOwner signingSchema = fetchValidatedSigningOperationSchema(request.getSigningScheme());
-        return self.persistUpdate(uuid, request, formattingDefinitions, signingSchema);
+        Set<DocumentTransferMode> transferModes = validateWithFormattingConnector(request, formattingDefinitions);
+        return self.persistUpdate(uuid, request, formattingDefinitions, signingSchema, transferModes);
     }
 
     @Transactional(rollbackFor = Exception.class)
     SigningProfileDto persistUpdate(SecuredUUID uuid, SigningProfileRequestDto request,
-            List<BaseAttribute> formattingDefinitions, AttributesWithOwner signingSchema)
+            List<BaseAttribute> formattingDefinitions, AttributesWithOwner signingSchema,
+            Set<DocumentTransferMode> transferModes)
             throws AlreadyExistException, AttributeException, NotFoundException {
         Objects.requireNonNull(uuid, "uuid must not be null");
         Objects.requireNonNull(request, "request must not be null");
@@ -560,7 +569,8 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         version.setSigningProfile(profile);
         version.setVersion(profile.getLatestVersion());
 
-        applyWorkflow(profile, version, request.getWorkflow(), request.getSigningScheme().getSigningScheme());
+        applyWorkflow(profile, version, request.getWorkflow(), request.getSigningScheme().getSigningScheme(),
+                transferModes);
         applyScheme(profile, version, request.getSigningScheme());
         dropProtocolsTheConfigurationCannotCarry(profile);
         applyRecordPolicyToVersion(version, request.getRecordPolicy());
@@ -990,7 +1000,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
      * entity (authoritative versioned fields). The signing scheme decides which of the workflow's fields apply at all.
      */
     private void applyWorkflow(SigningProfile p, SigningProfileVersion version, WorkflowRequestDto workflow,
-            SigningScheme signingScheme) throws NotFoundException {
+            SigningScheme signingScheme, Set<DocumentTransferMode> transferModes) throws NotFoundException {
         p.setTimeQualityConfiguration(null);
         p.setWorkflowType(workflow.getType()); // cache column
         version.setWorkflowType(workflow.getType());
@@ -1001,6 +1011,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         version.setRequireNonRepudiation(false);
         version.setRequiredExtendedKeyUsageOids(new ArrayList<>());
         version.setAllowedRequestAttributes(new ArrayList<>());
+        version.setTransferModes(new ArrayList<>());
         version.setQualifiedTimestamp(null);
         version.setDefaultPolicyId(null);
         version.setAllowedPolicyIds(new ArrayList<>());
@@ -1009,7 +1020,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
 
         switch (workflow) {
             case ContentSigningWorkflowRequestDto w when signingScheme == SigningScheme.MANAGED ->
-                applyManagedContentSigning(version, w);
+                applyManagedContentSigning(version, w, transferModes);
             case ContentSigningWorkflowRequestDto ignored -> {
                 // Delegated signing keeps the content-signing fields at the values reset above.
             }
@@ -1192,11 +1203,11 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     }
 
     /**
-     * Resolves and stores a workflow that {@code validateContentSigningWorkflow} validated before the transaction
-     * opened.
+     * Resolves and stores a workflow that {@code validateContentSigningWorkflow} validated, and its formatting
+     * connector judged, before the transaction opened.
      */
-    private void applyManagedContentSigning(SigningProfileVersion version, ContentSigningWorkflowRequestDto w)
-            throws NotFoundException {
+    private void applyManagedContentSigning(SigningProfileVersion version, ContentSigningWorkflowRequestDto w,
+            Set<DocumentTransferMode> transferModes) throws NotFoundException {
         Connector contentConnector = connectorService
                 .getConnectorEntity(SecuredUUID.fromUUID(w.getSignatureFormattingConnectorUuid()));
         version.setSignatureFormattingConnector(contentConnector);
@@ -1210,6 +1221,11 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         version
                 .setAllowedRequestAttributes(
                         new ArrayList<>(Objects.requireNonNullElse(w.getAllowedRequestAttributes(), Set.of())));
+        List<DocumentTransferMode> modesInDeclarationOrder = transferModes
+                .stream()
+                .sorted()
+                .collect(Collectors.toCollection(ArrayList::new));
+        version.setTransferModes(modesInDeclarationOrder);
     }
 
     /**
@@ -1443,12 +1459,8 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
             throws AttributeException, NotFoundException {
         return switch (workflow) {
             case ContentSigningWorkflowRequestDto w -> {
-                requireDefinedFormattingAttributes(formattingDefinitions,
+                storeDefinitionsAndValidateValues(w.getSignatureFormattingConnectorUuid(), formattingDefinitions,
                         w.getSignatureFormattingConnectorAttributes());
-                attributeEngine
-                        .validateUpdateDataAttributes(w.getSignatureFormattingConnectorUuid(),
-                                AttributeOperation.WORKFLOW_FORMATTING, formattingDefinitions,
-                                w.getSignatureFormattingConnectorAttributes());
                 yield attributeEngine
                         .replaceObjectDataAttributesContent(ObjectAttributeContentInfo
                                 .builder(Resource.SIGNING_PROFILE, p.getUuid())
@@ -1469,12 +1481,8 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
                 yield null;
             }
             case TimestampingWorkflowRequestDto w -> {
-                requireDefinedFormattingAttributes(formattingDefinitions,
+                storeDefinitionsAndValidateValues(w.getSignatureFormattingConnectorUuid(), formattingDefinitions,
                         w.getSignatureFormattingConnectorAttributes());
-                attributeEngine
-                        .validateUpdateDataAttributes(w.getSignatureFormattingConnectorUuid(),
-                                AttributeOperation.WORKFLOW_FORMATTING, formattingDefinitions,
-                                w.getSignatureFormattingConnectorAttributes());
                 yield attributeEngine
                         .replaceObjectDataAttributesContent(ObjectAttributeContentInfo
                                 .builder(Resource.SIGNING_PROFILE, p.getUuid())
@@ -1543,6 +1551,50 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
                     .create("Allowed request attributes name neither a declared group nor an ungrouped request attribute: {}",
                             undeclared));
         }
+    }
+
+    /**
+     * Returns the transfer modes a managed content-signing profile's formatting connector allows, and none for any
+     * other profile. Core checks each value against its definition first, because the connector contract sends the
+     * connector only values Core has checked.
+     */
+    private Set<DocumentTransferMode> validateWithFormattingConnector(SigningProfileRequestDto request,
+            List<BaseAttribute> formattingDefinitions)
+            throws AttributeException, ConnectorException, NotFoundException {
+        if (!(request.getWorkflow() instanceof ContentSigningWorkflowRequestDto w)
+                || request.getSigningScheme().getSigningScheme() != SigningScheme.MANAGED) {
+            return Set.of();
+        }
+        self.validateContentSigningFormattingValues(w, formattingDefinitions);
+        return connectorProfileValidation
+                .validate(connectorService.getConnectorForApiClient(w.getSignatureFormattingConnectorUuid()), w);
+    }
+
+    /**
+     * Checks the formatting attribute values in a transaction of its own, because the connector call that follows must
+     * run outside any transaction.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW, rollbackFor = Exception.class)
+    void validateContentSigningFormattingValues(ContentSigningWorkflowRequestDto w,
+            List<BaseAttribute> formattingDefinitions) throws AttributeException {
+        storeDefinitionsAndValidateValues(w.getSignatureFormattingConnectorUuid(),
+                FormattingAttributeDefinitions.storableCopies(formattingDefinitions),
+                w.getSignatureFormattingConnectorAttributes());
+        discardDefinitionUpserts();
+    }
+
+    /** Checks formatting attribute values against the definitions, which the check stores as it reads them. */
+    private void storeDefinitionsAndValidateValues(UUID connectorUuid, List<BaseAttribute> formattingDefinitions,
+            List<RequestAttribute> values) throws AttributeException {
+        requireDefinedFormattingAttributes(formattingDefinitions, values);
+        attributeEngine
+                .validateUpdateDataAttributes(connectorUuid, AttributeOperation.WORKFLOW_FORMATTING,
+                        formattingDefinitions, values);
+    }
+
+    /** Rolls back the definitions a check stored, so a save the connector refuses leaves them as they were. */
+    private static void discardDefinitionUpserts() {
+        TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
     }
 
     private List<BaseAttribute> fetchTimestampingFormattingDefinitions(UUID connectorUuid)
@@ -1711,5 +1763,10 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     @Autowired
     public void setContentSigningDeclarations(ContentSigningDeclarations contentSigningDeclarations) {
         this.contentSigningDeclarations = contentSigningDeclarations;
+    }
+
+    @Autowired
+    public void setConnectorProfileValidation(ConnectorProfileValidation connectorProfileValidation) {
+        this.connectorProfileValidation = connectorProfileValidation;
     }
 }
