@@ -562,6 +562,28 @@ class LocationRenewalITest extends BaseSpringBootTest {
     }
 
     @Test
+    void raisesTheRenewalDueEvent_whenOneLocationsSuccessorIsRevokedAndAnotherIsIssued() throws Exception {
+        // given
+        Location web = seeder.seedKeyGeneratingLocation(certificate, "web");
+        Location mail = seeder.seedKeyGeneratingLocation(certificate, "mail");
+        Certificate issued = seeder.seedSuccessor(certificate.getRaProfile(), CertificateState.ISSUED);
+        seeder.seedRenewalRelation(certificate, issued);
+        Certificate revoked = seeder.seedSuccessor(certificate.getRaProfile(), CertificateState.REVOKED);
+        seeder.seedRenewalRelation(certificate, revoked);
+        CertificateRenewalLocation webRow = seeder.seedLocationRenewal(certificate, web, issued);
+        webRow.setCompletedAt(Instant.now().minus(Duration.ofDays(1)));
+        CertificateRenewalLocation mailRow = seeder.seedLocationRenewal(certificate, mail, revoked);
+        mailRow.setCompletedAt(Instant.now().minus(Duration.ofDays(1)));
+        renewalLocationRepository.saveAll(List.of(webRow, mailRow));
+
+        // when
+        List<UUID> due = dueForRenewalEvent();
+
+        // then
+        assertThat(due).containsExactly(certificate.getUuid());
+    }
+
+    @Test
     void dropsTheCompletedRow_whenItsSuccessorIsRevokedAndTheLocationNoLongerHoldsTheCertificate() throws Exception {
         // given
         Location web = seeder.seedKeyGeneratingLocation(certificate, "web");
