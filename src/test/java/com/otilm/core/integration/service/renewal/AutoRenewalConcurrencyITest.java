@@ -3,6 +3,7 @@ package com.otilm.core.integration.service.renewal;
 import com.otilm.api.exception.RuleException;
 import com.otilm.api.model.core.certificate.AutoRenewalMode;
 import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateRenewalInfo;
 import com.otilm.core.dao.repository.CertificateRenewalInfoRepository;
@@ -48,6 +49,8 @@ class AutoRenewalConcurrencyITest extends BaseSpringBootTest {
 
     @Autowired
     private AutoRenewalSeeder seeder;
+    @Autowired
+    private CertificateTypeHandlerRegistry typeHandlerRegistry;
     @Autowired
     private CertificateRenewalInfoRepository renewalInfoRepository;
     @Autowired
@@ -244,7 +247,7 @@ class AutoRenewalConcurrencyITest extends BaseSpringBootTest {
 
     private AutoRenewalAction actionWith(AutoRenewalHandler handler) {
         return new AutoRenewalAction(renewalInfoRepository, certificateRepository, eventHistoryService, entityManager,
-                transactionManager, List.of(handler));
+                transactionManager, typeHandlerRegistry, List.of(handler));
     }
 
     private Void fireAfter(CyclicBarrier barrier, AutoRenewalAction action) throws Exception {

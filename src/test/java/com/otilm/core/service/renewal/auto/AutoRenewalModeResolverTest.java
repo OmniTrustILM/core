@@ -2,12 +2,14 @@ package com.otilm.core.service.renewal.auto;
 
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.core.certificate.AutoRenewalMode;
+import com.otilm.api.model.core.certificate.CertificateOperation;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateLocation;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.Location;
 import com.otilm.core.service.renewal.auto.AutoRenewalModeResolver.ModeDecision;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -47,6 +49,20 @@ class AutoRenewalModeResolverTest {
         // then
         assertThat(decision.mode()).isEqualTo(AutoRenewalMode.LOCATION);
         assertThat(decision.blockedReason()).isNull();
+    }
+
+    @Test
+    void resolvesNoneWithReason_whenTheCertificateTypeDoesNotSupportRenewal() {
+        // given
+        Certificate certificate = heldKeyCertificate(KeyState.ACTIVE, true);
+        var withoutRenew = EnumSet.complementOf(EnumSet.of(CertificateOperation.RENEW));
+
+        // when
+        ModeDecision decision = AutoRenewalModeResolver.resolve(certificate, false, withoutRenew);
+
+        // then
+        assertThat(decision.mode()).isEqualTo(AutoRenewalMode.NONE);
+        assertThat(decision.blockedReason()).isEqualTo(AutoRenewalModeResolver.RENEWAL_NOT_SUPPORTED);
     }
 
     @Test

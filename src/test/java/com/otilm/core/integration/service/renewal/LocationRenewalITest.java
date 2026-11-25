@@ -9,6 +9,7 @@ import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.v2.ClientCertificateRekeyRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
+import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateEventHistory;
 import com.otilm.core.dao.entity.CertificateLocationId;
@@ -82,6 +83,8 @@ class LocationRenewalITest extends BaseSpringBootTest {
     @Autowired
     private AutoRenewalSeeder seeder;
     @Autowired
+    private CertificateTypeHandlerRegistry typeHandlerRegistry;
+    @Autowired
     private CertificateRenewalInfoRepository renewalInfoRepository;
     @Autowired
     private CertificateRenewalLocationRepository renewalLocationRepository;
@@ -122,7 +125,7 @@ class LocationRenewalITest extends BaseSpringBootTest {
                 certificateRepository, certificateLocationRepository, eventHistoryService, entityManager,
                 transactionManager);
         action = new AutoRenewalAction(renewalInfoRepository, certificateRepository, eventHistoryService, entityManager,
-                transactionManager, List.of(handler));
+                transactionManager, typeHandlerRegistry, List.of(handler));
     }
 
     @AfterEach

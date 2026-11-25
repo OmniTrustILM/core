@@ -5,6 +5,9 @@ import com.otilm.api.exception.RuleException;
 import com.otilm.api.model.core.certificate.AutoRenewalMode;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
+import com.otilm.api.model.core.certificate.CertificateOperation;
+import com.otilm.core.certificate.type.CertificateTypeHandler;
+import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateRelation;
 import com.otilm.core.dao.entity.CertificateRenewalInfo;
@@ -24,10 +27,12 @@ import jakarta.persistence.EntityManager;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.EnumMap;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.DoubleSupplier;
 import org.slf4j.Logger;
@@ -56,22 +61,25 @@ public class AutoRenewalAction {
     private final TransactionTemplate outsideTransaction;
     private final TransactionTemplate readOnlyTransaction;
     private final Map<AutoRenewalMode, AutoRenewalHandler> handlers = new EnumMap<>(AutoRenewalMode.class);
+    private final CertificateTypeHandlerRegistry typeHandlerRegistry;
     private final DoubleSupplier random;
 
     @Autowired
     public AutoRenewalAction(CertificateRenewalInfoRepository renewalInfoRepository,
             CertificateRepository certificateRepository, CertificateEventHistoryInternalService eventHistoryService,
             EntityManager entityManager, PlatformTransactionManager transactionManager,
-            List<AutoRenewalHandler> handlers) {
+            CertificateTypeHandlerRegistry typeHandlerRegistry, List<AutoRenewalHandler> handlers) {
         this(renewalInfoRepository, certificateRepository, eventHistoryService, entityManager, transactionManager,
-                handlers, new SecureRandom()::nextDouble);
+                typeHandlerRegistry, handlers, new SecureRandom()::nextDouble);
     }
 
     AutoRenewalAction(CertificateRenewalInfoRepository renewalInfoRepository,
             CertificateRepository certificateRepository, CertificateEventHistoryInternalService eventHistoryService,
             EntityManager entityManager, PlatformTransactionManager transactionManager,
-            List<AutoRenewalHandler> handlers, DoubleSupplier random) {
+            CertificateTypeHandlerRegistry typeHandlerRegistry, List<AutoRenewalHandler> handlers,
+            DoubleSupplier random) {
         this.random = random;
+        this.typeHandlerRegistry = typeHandlerRegistry;
         this.renewalInfoRepository = renewalInfoRepository;
         this.certificateRepository = certificateRepository;
         this.eventHistoryService = eventHistoryService;
@@ -103,6 +111,13 @@ public class AutoRenewalAction {
         }
     }
 
+    private Set<CertificateOperation> typeOperations(Certificate certificate) {
+        return typeHandlerRegistry
+                .find(certificate.getCertificateType().getCode())
+                .map(CertificateTypeHandler::supportedOperations)
+                .orElseGet(() -> EnumSet.noneOf(CertificateOperation.class));
+    }
+
     private Claim claim(UUID certificateUuid, TriggerContext context, Instant now) {
         // Never waits: the holder may be another firing, or a transaction this thread suspended to claim, such as the
         // trigger evaluation after a set-field action switched the RA profile. The next firing tries again.
@@ -119,7 +134,8 @@ public class AutoRenewalAction {
         AutoRenewalMode mode = null;
         if (enabled) {
             ModeDecision decision = AutoRenewalModeResolver
-                    .resolve(certificate, certificateRepository.hasLocationRenewals(certificateUuid));
+                    .resolve(certificate, certificateRepository.hasLocationRenewals(certificateUuid),
+                            typeOperations(certificate));
             storeBlockedReason(row, decision);
             mode = decision.mode();
         }

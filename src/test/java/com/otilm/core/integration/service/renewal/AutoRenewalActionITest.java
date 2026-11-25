@@ -3,6 +3,7 @@ package com.otilm.core.integration.service.renewal;
 import com.otilm.api.exception.RuleException;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateEvent;
+import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateEventHistory;
 import com.otilm.core.dao.entity.CertificateRenewalInfo;
@@ -51,6 +52,8 @@ class AutoRenewalActionITest extends BaseSpringBootTest {
 
     @Autowired
     private AutoRenewalSeeder seeder;
+    @Autowired
+    private CertificateTypeHandlerRegistry typeHandlerRegistry;
     @Autowired
     private CertificateTriggerEvaluator certificateTriggerEvaluator;
     @Autowired
@@ -130,6 +133,25 @@ class AutoRenewalActionITest extends BaseSpringBootTest {
     }
 
     @Test
+    void recordsTheBlockedReasonWithoutCountingAnAttempt_whenTheCertificateTypeDoesNotSupportRenewal()
+            throws Exception {
+        // given
+        Certificate certificate = seeder.seedDueHeldKeyCertificate(seeder.seedRaProfile(true));
+        var typeWithoutHandler = new CertificateTypeHandlerRegistry(List.of());
+        AutoRenewalAction action = new AutoRenewalAction(renewalInfoRepository, certificateRepository,
+                eventHistoryService, entityManager, transactionManager, typeWithoutHandler, List.of());
+        TriggerContext trigger = new TriggerContext(UUID.randomUUID(), UUID.randomUUID(), null, null);
+
+        // when
+        action.perform(certificate, trigger);
+
+        // then
+        CertificateRenewalInfo stored = seeder.renewalRow(certificate.getUuid());
+        assertThat(stored.getRenewBlockedReason()).isEqualTo(AutoRenewalModeResolver.RENEWAL_NOT_SUPPORTED);
+        assertThat(stored.getRenewStartedAt()).isNull();
+    }
+
+    @Test
     void recordsAFailure_whenTheTriggerHasNoOwner() throws Exception {
         // given
         Certificate certificate = seeder.seedDueHeldKeyCertificate(seeder.seedRaProfile(true));
@@ -152,7 +174,7 @@ class AutoRenewalActionITest extends BaseSpringBootTest {
         // given
         Certificate certificate = seeder.seedDueHeldKeyCertificate(seeder.seedRaProfile(true));
         AutoRenewalAction withoutHandlers = new AutoRenewalAction(renewalInfoRepository, certificateRepository,
-                eventHistoryService, entityManager, transactionManager, List.of());
+                eventHistoryService, entityManager, transactionManager, typeHandlerRegistry, List.of());
         TriggerContext trigger = new TriggerContext(UUID.randomUUID(), UUID.randomUUID(), null, null);
 
         // when

@@ -11,6 +11,7 @@ import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.otilm.api.model.core.workflows.ExecutionType;
+import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateEventHistory;
 import com.otilm.core.dao.entity.CertificateRenewalInfo;
@@ -90,6 +91,8 @@ class IlmKeyRenewalITest extends BaseSpringBootTest {
     @Autowired
     private AutoRenewalSeeder seeder;
     @Autowired
+    private CertificateTypeHandlerRegistry typeHandlerRegistry;
+    @Autowired
     private CertificateRenewalInfoRepository renewalInfoRepository;
     @Autowired
     private CertificateRepository certificateRepository;
@@ -138,7 +141,7 @@ class IlmKeyRenewalITest extends BaseSpringBootTest {
         IlmKeyRenewalHandler handler = new IlmKeyRenewalHandler(renewalStub, renewalInfoRepository, entityManager,
                 transactionManager);
         action = new AutoRenewalAction(renewalInfoRepository, certificateRepository, eventHistoryService, entityManager,
-                transactionManager, List.of(handler));
+                transactionManager, typeHandlerRegistry, List.of(handler));
         trigger = new TriggerContext(UUID.randomUUID(), UUID.randomUUID(), null, null);
     }
 
