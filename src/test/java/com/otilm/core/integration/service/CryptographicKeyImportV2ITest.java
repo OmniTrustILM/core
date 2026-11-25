@@ -1347,7 +1347,7 @@ class CryptographicKeyImportV2ITest extends BaseSpringBootTest {
         privateData.setMetadata(List.of());
         PrivateKeyDataResponseV2Dto privateKeyData = new PrivateKeyDataResponseV2Dto();
         privateKeyData.setKeyData(privateData);
-        privateKeyData.setKeyMeta(List.of(KeyImportWriterITest.handle("private-handle", "q")));
+        privateKeyData.setKeyMeta(List.of(KeyImportWriterITest.privateKeyHandleOf(publicKey)));
         KeyPairDataResponseV2Dto answer = new KeyPairDataResponseV2Dto();
         answer.setPublicKeyData(publicKeyData);
         answer.setPrivateKeyData(privateKeyData);

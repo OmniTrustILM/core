@@ -319,6 +319,34 @@ class IlmKeyRenewalITest extends BaseSpringBootTest {
     }
 
     @Test
+    void recordsEachRemovalOnce_whenTheRenewalReplacesTheOldCertificateInItsLocations() throws Exception {
+        // given
+        Certificate successor = requestRenewalReplacingInWebAndMail();
+
+        // when
+        clientOperationService.renewCertificateAction(successor.getUuid(), renewRequest(), true);
+
+        // then
+        assertThat(findLocationHistory(certificate))
+                .extracting(CertificateEventHistory::getMessage)
+                .containsExactlyInAnyOrder("Removed from Location web", "Removed from Location mail");
+    }
+
+    @Test
+    void recordsEachPushOnce_whenTheRenewalReplacesTheOldCertificateInItsLocations() throws Exception {
+        // given
+        Certificate successor = requestRenewalReplacingInWebAndMail();
+
+        // when
+        clientOperationService.renewCertificateAction(successor.getUuid(), renewRequest(), true);
+
+        // then
+        assertThat(findLocationHistory(successor))
+                .extracting(CertificateEventHistory::getMessage)
+                .containsExactlyInAnyOrder("Pushed to Location web", "Pushed to Location mail");
+    }
+
+    @Test
     void startsNoSecondRenewal_whileTheSuccessorIsPending() throws Exception {
         // given
         AtomicReference<Certificate> successor = stubRenewal();
@@ -611,6 +639,24 @@ class IlmKeyRenewalITest extends BaseSpringBootTest {
                 .renewCertificate(any(SecuredParentUUID.class), any(SecuredUUID.class),
                         eq(certificate.getUuid().toString()), any(ClientCertificateRenewRequestDto.class), isNull(),
                         any());
+    }
+
+    private Certificate requestRenewalReplacingInWebAndMail() throws Exception {
+        seeder.seedPushOnlyLocations(mockServer, certificate, "web", "mail");
+        AtomicReference<Certificate> successor = stubRenewal();
+        stubAuthorityRenewing();
+        stubLocationAnswering("remove", WireMock.okJson("{}"));
+        stubLocationAnswering("push", WireMock.okJson("{\"withKey\": false}"));
+        fire();
+        return successor.get();
+    }
+
+    private List<CertificateEventHistory> findLocationHistory(Certificate owner) {
+        return eventHistoryRepository
+                .findByCertificateOrderByCreatedDesc(owner)
+                .stream()
+                .filter(entry -> entry.getEvent() == CertificateEvent.UPDATE_LOCATION)
+                .toList();
     }
 
     private List<CertificateEventHistory> renewHistory() {

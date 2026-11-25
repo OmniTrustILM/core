@@ -26,6 +26,7 @@ public final class ListedKeyEntryV2DtoBuilder {
     private String diagnostic;
     private String storageName = "signer";
     private String keyId = UUID.randomUUID().toString();
+    private String privateKeyId;
     private KeyAlgorithm algorithm = KeyAlgorithm.RSA;
     private Integer length = 2048;
     private byte[] algorithmIdentifier;
@@ -67,6 +68,12 @@ public final class ListedKeyEntryV2DtoBuilder {
 
     public ListedKeyEntryV2DtoBuilder withKeyId(String keyId) {
         this.keyId = keyId;
+        return this;
+    }
+
+    /** A private key the token addresses by a handle of its own, apart from the pair's. */
+    public ListedKeyEntryV2DtoBuilder withPrivateKeyId(String privateKeyId) {
+        this.privateKeyId = privateKeyId;
         return this;
     }
 
@@ -125,7 +132,7 @@ public final class ListedKeyEntryV2DtoBuilder {
         ListedKeyPairV2Dto listed = new ListedKeyPairV2Dto();
         listed.setKeyPairMeta(keyIdMeta(keyId));
         PrivateKeyDataResponseV2Dto privateKey = new PrivateKeyDataResponseV2Dto();
-        privateKey.setKeyMeta(keyIdMeta(keyId));
+        privateKey.setKeyMeta(keyIdMeta(privateKeyId == null ? keyId : privateKeyId));
         privateKey.setKeyData(descriptor());
         listed.setPrivateKeyData(privateKey);
         if (publicKeyOnToken) {
