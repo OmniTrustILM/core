@@ -356,11 +356,6 @@ public class EstEnrollment {
                 .orElseThrow(() -> new IllegalStateException("A registration client presented no Basic password"));
     }
 
-    /**
-     * Completes the registration through the platform, which verifies the password and counts a wrong one against it. A
-     * refusal is answered as a request that matches no registration; a {@link CertificateException} as the service
-     * being unavailable. Both are logged by class only.
-     */
     /** Refuses when the X.509 certificates EST requests cannot be enrolled through EST. */
     private void requireEnrollable(EstRoute route) {
         try {
@@ -370,6 +365,11 @@ public class EstEnrollment {
         }
     }
 
+    /**
+     * Completes the registration through the platform, which verifies the password and counts a wrong one against it. A
+     * refusal is answered as a request that matches no registration; a {@link CertificateException} as the service
+     * being unavailable. Both are logged by class only.
+     */
     private void complete(EstRoute route, UUID registrationUuid, Pkcs10CertificateRequest csr,
             @Sensitive String password) {
         RaProfile raProfile = route.raProfile();

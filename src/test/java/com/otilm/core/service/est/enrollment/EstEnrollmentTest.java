@@ -294,7 +294,7 @@ class EstEnrollmentTest {
     }
 
     @Test
-    void rejectsTheRequestWithoutCompletingTheRegistration_whenTheTypeCannotBeEnrolledThroughEst() throws Exception {
+    void rejectsTheRequestWithoutCompletingTheRegistration_whenTheTypeCannotBeEnrolledThroughEst() {
         // given
         var refusal = UnsupportedCertificateTypeException
                 .unsupportedOperation(CertificateType.X509.getCode(), CertificateOperation.ENROLL_EST);

@@ -1078,7 +1078,7 @@ class AcmeServiceITest extends BaseSpringBootTest {
     }
 
     @Test
-    void refusesAsBadCsrNamingTheOperation_whenTheTypeCannotBeEnrolledThroughAcme() throws Exception {
+    void refusesAsBadCsrNamingTheOperation_whenTheTypeCannotBeEnrolledThroughAcme() {
         // given
         var unsupported = CertificateOperation.ENROLL_ACME;
         detachCertificateAndMakeReady(order1);
@@ -1089,10 +1089,10 @@ class AcmeServiceITest extends BaseSpringBootTest {
 
         // then
         try {
-            assertThatThrownBy(finalizeOrder).isInstanceOfSatisfying(AcmeProblemDocumentException.class, e -> {
-                assertThat(e.getProblemDocument().getType()).isEqualTo(Problem.BAD_CSR.getType());
-                assertThat(e.getMessage()).contains(unsupported.getLabel());
-            });
+            assertThatThrownBy(finalizeOrder)
+                    .isInstanceOfSatisfying(AcmeProblemDocumentException.class,
+                            e -> assertThat(e.getProblemDocument().getType()).isEqualTo(Problem.BAD_CSR.getType()))
+                    .hasMessageContaining(unsupported.getLabel());
         } finally {
             clientOperationServiceImpl.setTypeHandlerRegistry(typeHandlerRegistry);
         }
@@ -1281,10 +1281,10 @@ class AcmeServiceITest extends BaseSpringBootTest {
 
         // then
         try {
-            assertThatThrownBy(revoke).isInstanceOfSatisfying(AcmeProblemDocumentException.class, e -> {
-                assertThat(e.getProblemDocument().getType()).isEqualTo(Problem.MALFORMED.getType());
-                assertThat(e.getMessage()).contains(unsupported.getLabel());
-            });
+            assertThatThrownBy(revoke)
+                    .isInstanceOfSatisfying(AcmeProblemDocumentException.class,
+                            e -> assertThat(e.getProblemDocument().getType()).isEqualTo(Problem.MALFORMED.getType()))
+                    .hasMessageContaining(unsupported.getLabel());
         } finally {
             acmeServiceImpl.setTypeHandlerRegistry(typeHandlerRegistry);
         }

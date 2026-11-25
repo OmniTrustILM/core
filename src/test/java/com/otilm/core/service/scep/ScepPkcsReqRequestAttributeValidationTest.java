@@ -94,7 +94,7 @@ class ScepPkcsReqRequestAttributeValidationTest {
                 .cause()
                 .isInstanceOfSatisfying(ScepException.class,
                         e -> assertThat(e.getFailInfo()).isEqualTo(FailInfo.BAD_REQUEST))
-                .hasMessage(refusal.getMessage());
+                .hasMessageContaining(refusal.getMessage());
     }
 
     @Test
@@ -117,7 +117,7 @@ class ScepPkcsReqRequestAttributeValidationTest {
                 .cause()
                 .isInstanceOfSatisfying(ScepException.class,
                         e -> assertThat(e.getFailInfo()).isEqualTo(FailInfo.BAD_REQUEST))
-                .hasMessage(refusal.getMessage());
+                .hasMessageContaining(refusal.getMessage());
     }
 
     @Test

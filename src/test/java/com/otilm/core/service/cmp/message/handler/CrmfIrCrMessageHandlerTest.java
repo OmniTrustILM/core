@@ -111,7 +111,7 @@ class CrmfIrCrMessageHandlerTest {
     }
 
     @Test
-    void rejectsTheCompletionWithBadRequest_whenTheTypeOfTheRegistrationCannotBeEnrolledThroughCmp() throws Exception {
+    void rejectsTheCompletionWithBadRequest_whenTheTypeOfTheRegistrationCannotBeEnrolledThroughCmp() {
         // given
         var refusal = UnsupportedCertificateTypeException
                 .unsupportedOperation(CertificateType.X509.getCode(), CertificateOperation.ENROLL_CMP);

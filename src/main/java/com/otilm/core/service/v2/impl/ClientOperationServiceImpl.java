@@ -3720,7 +3720,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
     private void requireEnrollmentSupport(CertificateType certificateType, CertificateProtocolInfo protocolInfo) {
         if (protocolInfo != null) {
-            requireEnrollmentSupport(certificateType, protocolInfo.getProtocol());
+            requireEnrollmentSupportOf(certificateType, protocolInfo.getProtocol());
         }
     }
 
@@ -3728,6 +3728,10 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     @Override
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void requireEnrollmentSupport(CertificateType certificateType, CertificateProtocol protocol) {
+        requireEnrollmentSupportOf(certificateType, protocol);
+    }
+
+    private void requireEnrollmentSupportOf(CertificateType certificateType, CertificateProtocol protocol) {
         handlerOf(certificateType).requireSupport(switch (protocol) {
             case ACME -> ENROLL_ACME;
             case SCEP -> ENROLL_SCEP;
