@@ -317,9 +317,9 @@ class EarlyRenewalITest extends BaseSpringBootTest {
         postRaProfileEarlyRenewal(raProfile, body(SPREAD_SECONDS, EXPLANATION_URL));
 
         // then
-        LogRecord record = earlyRenewalAuditRecord();
-        assertThat(record.affiliatedResource().type()).isEqualTo(Resource.AUTHORITY);
-        assertThat(record.affiliatedResource().objects())
+        LogRecord auditRecord = earlyRenewalAuditRecord();
+        assertThat(auditRecord.affiliatedResource().type()).isEqualTo(Resource.AUTHORITY);
+        assertThat(auditRecord.affiliatedResource().objects())
                 .extracting(ResourceObjectIdentity::uuid)
                 .containsExactly(raProfile.getAuthorityInstanceReferenceUuid());
     }

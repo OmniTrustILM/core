@@ -115,7 +115,7 @@ class RaProfileRenewalSettingsITest extends BaseSpringBootTest {
         // then
         ArgumentCaptor<AuditLogMessage> captor = ArgumentCaptor.forClass(AuditLogMessage.class);
         Mockito.verify(auditLogsProducer, Mockito.atLeastOnce()).produceMessage(captor.capture());
-        LogRecord record = captor
+        LogRecord auditRecord = captor
                 .getAllValues()
                 .stream()
                 .map(AuditLogMessage::getLogRecord)
@@ -123,8 +123,8 @@ class RaProfileRenewalSettingsITest extends BaseSpringBootTest {
                         && logRecord.operation() == Operation.UPDATE)
                 .reduce((first, second) -> second)
                 .orElseThrow(() -> new AssertionError("No RA profile update audit record"));
-        assertThat(record.affiliatedResource().type()).isEqualTo(Resource.AUTHORITY);
-        assertThat(record.affiliatedResource().objects())
+        assertThat(auditRecord.affiliatedResource().type()).isEqualTo(Resource.AUTHORITY);
+        assertThat(auditRecord.affiliatedResource().objects())
                 .extracting(ResourceObjectIdentity::uuid)
                 .containsExactly(raProfile.getAuthorityInstanceReferenceUuid());
     }
