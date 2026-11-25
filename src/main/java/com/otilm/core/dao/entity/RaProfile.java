@@ -10,6 +10,7 @@ import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.core.connector.FunctionGroupCode;
 import com.otilm.api.model.core.raprofile.RaProfileCertificateValidationSettingsDto;
 import com.otilm.api.model.core.raprofile.RaProfileDto;
+import com.otilm.api.model.core.raprofile.RaProfileRenewalSettingsDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.dao.entity.acme.AcmeProfile;
 import com.otilm.core.dao.entity.cmp.CmpProfile;
@@ -144,6 +145,24 @@ public class RaProfile extends UniquelyIdentifiedAndAudited
 
     @Column(name = "expiring_threshold")
     private Integer expiringThreshold;
+
+    @Column(name = "renewal_window_enabled", nullable = false)
+    private boolean renewalWindowEnabled = false;
+
+    @Column(name = "renewal_window_start_percent", nullable = false)
+    private int renewalWindowStartPercent = 67;
+
+    @Column(name = "renewal_window_end_percent", nullable = false)
+    private int renewalWindowEndPercent = 80;
+
+    @Column(name = "renewal_use_authority_info", nullable = false)
+    private boolean renewalUseAuthorityInfo = false;
+
+    @Column(name = "auto_renewal_enabled", nullable = false)
+    private boolean autoRenewalEnabled = false;
+
+    @Column(name = "auto_renewal_max_attempts", nullable = false)
+    private int autoRenewalMaxAttempts = 5;
 
     public RaProfileAcmeDetailResponseDto mapToAcmeDto() {
         RaProfileAcmeDetailResponseDto dto = new RaProfileAcmeDetailResponseDto();
@@ -288,6 +307,15 @@ public class RaProfile extends UniquelyIdentifiedAndAudited
         validationSettingsDto.setFrequency(validationFrequency);
         validationSettingsDto.setExpiringThreshold(expiringThreshold);
         dto.setCertificateValidationSettings(validationSettingsDto);
+
+        RaProfileRenewalSettingsDto renewalSettingsDto = new RaProfileRenewalSettingsDto();
+        renewalSettingsDto.setWindowEnabled(renewalWindowEnabled);
+        renewalSettingsDto.setWindowStartPercent(renewalWindowStartPercent);
+        renewalSettingsDto.setWindowEndPercent(renewalWindowEndPercent);
+        renewalSettingsDto.setUseAuthorityRenewalInfo(renewalUseAuthorityInfo);
+        renewalSettingsDto.setAutoRenewalEnabled(autoRenewalEnabled);
+        renewalSettingsDto.setAutoRenewalMaxAttempts(autoRenewalMaxAttempts);
+        dto.setRenewalSettings(renewalSettingsDto);
 
         return dto;
     }

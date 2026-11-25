@@ -12,6 +12,7 @@ import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.ResponseAttribute;
 import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
 import com.otilm.api.model.client.compliance.SimplifiedComplianceProfileDto;
+import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.client.raprofile.ActivateAcmeForRaProfileRequestDto;
 import com.otilm.api.model.client.raprofile.ActivateCmpForRaProfileRequestDto;
 import com.otilm.api.model.client.raprofile.ActivateEstForRaProfileRequestDto;
@@ -30,6 +31,7 @@ import com.otilm.api.model.core.certificate.SupportedCertificateTypeDto;
 import com.otilm.api.model.core.raprofile.RaProfileCertificateRequestAttributesUpdateDto;
 import com.otilm.api.model.core.raprofile.RaProfileCertificateValidationSettingsUpdateDto;
 import com.otilm.api.model.core.raprofile.RaProfileDto;
+import com.otilm.api.model.core.raprofile.RaProfileRenewalSettingsUpdateDto;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.otilm.core.aop.OutsideTransaction;
 import com.otilm.core.attribute.engine.AttributeEngine;
@@ -71,10 +73,13 @@ import com.otilm.core.service.RaProfileCertificateRequestAttributeService;
 import com.otilm.core.service.RaProfileExternalService;
 import com.otilm.core.service.RaProfileInternalService;
 import com.otilm.core.service.est.EstLabels;
+import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.handler.authority.AdapterOperationResult;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
 import com.otilm.core.service.model.SecuredList;
+import com.otilm.core.service.renewal.RenewalWindowWriter;
+import com.otilm.core.service.renewal.refresh.RenewalInfoEnrolment;
 import com.otilm.core.service.v2.ComplianceProfileExternalService;
 import com.otilm.core.service.v2.ExtendedAttributeService;
 import com.otilm.core.service.writer.ComplianceProfileAssociationWriter;
@@ -182,7 +187,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
 
         setAuthorityCertificates(authorityInstanceRef, raProfile);
 
-        RaProfileDto raProfileDto = raProfile.mapToDto();
+        RaProfileDto raProfileDto = toDto(raProfile);
         raProfileDto
                 .setCustomAttributes(attributeEngine
                         .updateObjectCustomAttributesContent(Resource.RA_PROFILE, raProfile.getUuid(),
@@ -203,7 +208,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
         RaProfile raProfile = raProfileRepository
                 .findByUuid(uuid)
                 .orElseThrow(() -> new NotFoundException(RaProfile.class, uuid));
-        RaProfileDto dto = raProfile.mapToDto();
+        RaProfileDto dto = toDto(raProfile);
         if (raProfile.getAuthorityInstanceReference() != null
                 && raProfile.getAuthorityInstanceReference().getConnectorUuid() != null) {
             dto
@@ -229,7 +234,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
                 .orElseThrow(() -> new NotFoundException(RaProfile.class, uuid));
         requireUnderAuthority(raProfile, authorityUuid, uuid);
 
-        RaProfileDto dto = raProfile.mapToDto();
+        RaProfileDto dto = toDto(raProfile);
         if (raProfile.getAuthorityInstanceReference() != null
                 && raProfile.getAuthorityInstanceReference().getConnectorUuid() != null) {
             dto
@@ -268,7 +273,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
         raProfileRepository.save(raProfile);
         requireAuthorityLeftUnchanged(raProfile.getUuid(), authorityLeftUuid);
 
-        RaProfileDto raProfileDto = raProfile.mapToDto();
+        RaProfileDto raProfileDto = toDto(raProfile);
         raProfileDto
                 .setCustomAttributes(attributeEngine
                         .updateObjectCustomAttributesContent(Resource.RA_PROFILE, raProfile.getUuid(),
@@ -300,7 +305,38 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
             raProfile.setExpiringThreshold(null);
         }
         raProfileRepository.save(raProfile);
-        return raProfile.mapToDto();
+        return toDto(raProfile);
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.UPDATE,
+            parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
+    public RaProfileDto updateRaProfileRenewalSettings(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid,
+            RaProfileRenewalSettingsUpdateDto request) throws NotFoundException {
+        RaProfile raProfile = getRaProfileEntity(raProfileUuid);
+        requireUnderAuthority(raProfile, authorityUuid, raProfileUuid);
+        boolean policyWindowChanged = raProfile.isRenewalWindowEnabled() != request.isWindowEnabled()
+                || request.isWindowEnabled()
+                        && (raProfile.getRenewalWindowStartPercent() != request.getWindowStartPercent()
+                                || raProfile.getRenewalWindowEndPercent() != request.getWindowEndPercent());
+        raProfile.setRenewalWindowEnabled(request.isWindowEnabled());
+        raProfile.setRenewalWindowStartPercent(request.getWindowStartPercent());
+        raProfile.setRenewalWindowEndPercent(request.getWindowEndPercent());
+        boolean authorityInfoChanged = raProfile.isRenewalUseAuthorityInfo() != request.isUseAuthorityRenewalInfo();
+        raProfile.setRenewalUseAuthorityInfo(request.isUseAuthorityRenewalInfo());
+        raProfile.setAutoRenewalEnabled(request.isAutoRenewalEnabled());
+        raProfile.setAutoRenewalMaxAttempts(request.getAutoRenewalMaxAttempts());
+        raProfileRepository.save(raProfile);
+        if (policyWindowChanged) {
+            renewalWindowWriter.recomputePolicy(raProfile);
+        }
+        if (authorityInfoChanged && raProfile.isRenewalUseAuthorityInfo()) {
+            renewalInfoEnrolment.start(raProfile);
+        } else if (authorityInfoChanged) {
+            renewalInfoEnrolment.stop(raProfile);
+            renewalWindowWriter.dropAuthorityWindows(raProfile);
+        }
+        return toDto(raProfile);
     }
 
     @Override
@@ -312,7 +348,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
         RaProfile raProfile = getRaProfileEntity(raProfileUuid);
         requireUnderAuthority(raProfile, authorityUuid, raProfileUuid);
         requestAttributeService.updateConfiguration(raProfile, request);
-        RaProfileDto dto = raProfile.mapToDto();
+        RaProfileDto dto = toDto(raProfile);
         dto.setCertificateRequestAttributes(requestAttributeService.getConfiguration(raProfile));
         return dto;
     }
@@ -1055,6 +1091,15 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
         setAuthorityCertificates(authorityInstanceRef, entity);
     }
 
+    private RaProfileDto toDto(RaProfile raProfile) {
+        RaProfileDto dto = raProfile.mapToDto();
+        dto
+                .getRenewalSettings()
+                .setAuthorityRenewalInfoSupported(connectorCapabilityService
+                        .supports(raProfile.getAuthorityInstanceReference(), FeatureFlag.CERTIFICATE_RENEWAL_INFO));
+        return dto;
+    }
+
     private void deleteRaProfileInt(SecuredUUID uuid) throws NotFoundException {
         RaProfile raProfile = raProfileRepository
                 .findByUuid(uuid)
@@ -1070,6 +1115,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
             certificate.setRaProfile(null);
             certificate.setRaProfileUuid(null);
             certificateRepository.save(certificate);
+            renewalWindowWriter.onRaProfileChanged(certificate, raProfile);
         }
 
         attributeEngine.deleteObjectAttributeContent(Resource.RA_PROFILE, raProfile.getUuid());
@@ -1206,6 +1252,24 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
     private CommentInternalService commentService;
     private AuthorityCertificateTypes authorityCertificateTypes;
     private ComplianceProfileAssociationWriter complianceProfileAssociationWriter;
+    private ConnectorCapabilityService connectorCapabilityService;
+    private RenewalWindowWriter renewalWindowWriter;
+    private RenewalInfoEnrolment renewalInfoEnrolment;
+
+    @Autowired
+    public void setRenewalInfoEnrolment(RenewalInfoEnrolment renewalInfoEnrolment) {
+        this.renewalInfoEnrolment = renewalInfoEnrolment;
+    }
+
+    @Autowired
+    public void setConnectorCapabilityService(ConnectorCapabilityService connectorCapabilityService) {
+        this.connectorCapabilityService = connectorCapabilityService;
+    }
+
+    @Autowired
+    public void setRenewalWindowWriter(RenewalWindowWriter renewalWindowWriter) {
+        this.renewalWindowWriter = renewalWindowWriter;
+    }
 
     @Autowired
     public void setAuthorityCertificateTypes(AuthorityCertificateTypes authorityCertificateTypes) {

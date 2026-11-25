@@ -32,6 +32,7 @@ import com.otilm.core.service.handler.authority.ConnectorOperationErrorCodes;
 import com.otilm.core.service.handler.authority.StatusPollResult;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateRevocationFinalizer;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine;
+import com.otilm.core.service.renewal.auto.AsyncRenewalLocationReplacer;
 import com.otilm.core.service.writer.AcmeOrderWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationAuthorizationWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationWriter;
@@ -91,6 +92,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     private CertificateLocationRepository certificateLocationRepository;
     private LocationInternalService locationInternalService;
     private AcmeOrderWriter acmeOrderWriter;
+    private AsyncRenewalLocationReplacer asyncRenewalLocationReplacer;
 
     @Override
     public void processMessage(CertificateStatusPollMessage msg) throws MessageHandlingException {
@@ -198,6 +200,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
             revocationFinalizer.destroyKeyIfRequested(resolution.keyCleanup(), cert.getUuid());
             updateMetaAfterCommit(cert, op, status);
             pushIssuedCertificateToLocations(cert.getUuid(), op, status);
+            replaceRenewedCertificateInLocations(cert.getUuid(), op, status);
             fireRegistrationEventIfCompleted(cert.getUuid(), op, status.status());
         }
         // Stop polling — safe even when a racing actor resolved it: the unique constraint means one poll row per cert.
@@ -548,8 +551,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
      */
     private void pushIssuedCertificateToLocations(UUID certificateUuid, CertificateOperation op,
             StatusPollResult status) {
-        if (op != CertificateOperation.ISSUE || status.status() != CertificateOperationStatus.COMPLETED
-                || status.certificateData() == null || status.certificateData().isEmpty()) {
+        if (op != CertificateOperation.ISSUE || !issuedCertificate(status)) {
             return;
         }
         List<CertificateLocation> certificateLocations;
@@ -572,6 +574,23 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
         }
     }
 
+    /**
+     * Post-commit replacement of the certificate a renewal renewed by the one the authority issued later, in its
+     * locations or in the key-generating location that renewed it, when an automatic renewal asked for it. Never
+     * throws.
+     */
+    private void replaceRenewedCertificateInLocations(UUID certificateUuid, CertificateOperation op,
+            StatusPollResult status) {
+        if (op == CertificateOperation.RENEW && issuedCertificate(status)) {
+            asyncRenewalLocationReplacer.replaceInLocations(certificateUuid);
+        }
+    }
+
+    private static boolean issuedCertificate(StatusPollResult status) {
+        return status.status() == CertificateOperationStatus.COMPLETED && status.certificateData() != null
+                && !status.certificateData().isEmpty();
+    }
+
     private void fireRegistrationEventIfCompleted(UUID certificateUuid, CertificateOperation op,
             CertificateOperationStatus status) {
         if (op == CertificateOperation.REGISTER && status == CertificateOperationStatus.COMPLETED) {
@@ -591,6 +610,11 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     @Autowired
     public void setCertificateLocationRepository(CertificateLocationRepository certificateLocationRepository) {
         this.certificateLocationRepository = certificateLocationRepository;
+    }
+
+    @Autowired
+    public void setAsyncRenewalLocationReplacer(AsyncRenewalLocationReplacer asyncRenewalLocationReplacer) {
+        this.asyncRenewalLocationReplacer = asyncRenewalLocationReplacer;
     }
 
     @Autowired

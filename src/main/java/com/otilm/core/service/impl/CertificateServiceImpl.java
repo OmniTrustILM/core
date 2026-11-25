@@ -44,6 +44,7 @@ import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.otilm.api.model.core.certificate.CertificateFormat;
 import com.otilm.api.model.core.certificate.CertificateFormatEncoding;
 import com.otilm.api.model.core.certificate.CertificateKeyUsage;
+import com.otilm.api.model.core.certificate.CertificateOperation;
 import com.otilm.api.model.core.certificate.CertificateRegistrationDetailDto;
 import com.otilm.api.model.core.certificate.CertificateRegistrationState;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
@@ -92,6 +93,7 @@ import com.otilm.core.dao.entity.CertificateLocation;
 import com.otilm.core.dao.entity.CertificateProtocolAssociation;
 import com.otilm.core.dao.entity.CertificateRelation;
 import com.otilm.core.dao.entity.CertificateRelationId;
+import com.otilm.core.dao.entity.CertificateRenewalInfo_;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.Certificate_;
 import com.otilm.core.dao.entity.Group;
@@ -114,6 +116,7 @@ import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateProtocolAssociationRepository;
 import com.otilm.core.dao.repository.CertificateRegistrationAuthorizationRepository;
 import com.otilm.core.dao.repository.CertificateRelationRepository;
+import com.otilm.core.dao.repository.CertificateRenewalInfoRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CertificateRequestRepository;
 import com.otilm.core.dao.repository.DiscoveryCertificateRepository;
@@ -130,6 +133,7 @@ import com.otilm.core.dao.repository.scep.ScepProfileRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.events.handlers.CertificateExpiringEventHandler;
 import com.otilm.core.events.handlers.CertificateNotCompliantEventHandler;
+import com.otilm.core.events.handlers.CertificateRenewalDueEventHandler;
 import com.otilm.core.events.handlers.CertificateStatusChangedEventHandler;
 import com.otilm.core.events.handlers.discovery.DiscoveredCertificateImport;
 import com.otilm.core.events.transaction.CertificateValidationEvent;
@@ -173,6 +177,8 @@ import com.otilm.core.service.handler.KeystoreAvailability;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine;
+import com.otilm.core.service.renewal.RenewalEligibility;
+import com.otilm.core.service.renewal.RenewalWindowWriter;
 import com.otilm.core.service.v2.ExtendedAttributeService;
 import com.otilm.core.service.writer.CertificateRequestWriter;
 import com.otilm.core.service.writer.CertificateValidationWriter;
@@ -216,6 +222,7 @@ import java.util.Base64;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
+import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -298,6 +305,8 @@ public class CertificateServiceImpl
     private RaProfileInternalService raProfileService;
     private GroupRepository groupRepository;
     private GroupAssociationRepository groupAssociationRepository;
+    private CertificateRenewalInfoRepository renewalInfoRepository;
+    private RenewalWindowWriter renewalWindowWriter;
     private LocationRepository locationRepository;
     private CertificateContentRepository certificateContentRepository;
     private DiscoveryCertificateContentWriter discoveryCertificateContentWriter;
@@ -392,6 +401,16 @@ public class CertificateServiceImpl
     @Autowired
     public void setGroupAssociationRepository(GroupAssociationRepository groupAssociationRepository) {
         this.groupAssociationRepository = groupAssociationRepository;
+    }
+
+    @Autowired
+    public void setRenewalInfoRepository(CertificateRenewalInfoRepository renewalInfoRepository) {
+        this.renewalInfoRepository = renewalInfoRepository;
+    }
+
+    @Autowired
+    public void setRenewalWindowWriter(RenewalWindowWriter renewalWindowWriter) {
+        this.renewalWindowWriter = renewalWindowWriter;
     }
 
     @Autowired
@@ -677,10 +696,12 @@ public class CertificateServiceImpl
                     .collect(Collectors
                             .groupingBy(ga -> ga.getObjectUuid().toString(),
                                     Collectors.mapping(ga -> ga.getGroup().mapToDto(), Collectors.toList())));
+            Map<String, Date> renewalWindowStartByCert = renewalWindowStarts(certificateUuids);
             certificates.forEach(c -> {
                 c.setCommonName(CertificateUtil.formatCommonName(c.getCommonName()));
                 c.setDisplayName(c.getCommonName());
                 c.setGroups(groupsByCert.getOrDefault(c.getUuid(), List.of()));
+                c.setRenewalWindowStart(renewalWindowStartByCert.get(c.getUuid()));
             });
         }
 
@@ -717,9 +738,14 @@ public class CertificateServiceImpl
     public CertificateDetail getCertificate(SecuredUUID uuid)
             throws NotFoundException, CertificateException, IOException {
         Certificate certificate = getCertificateEntityWithAssociations(uuid);
-        CertificateDetail dto = certificate.mapToDto();
+        Optional<CertificateTypeHandler> typeHandler = typeHandlerRegistry
+                .find(certificate.getCertificateType().getCode());
+        CertificateDetail dto = certificate
+                .mapToDto(typeHandler
+                        .map(CertificateTypeHandler::supportedOperations)
+                        .orElseGet(() -> EnumSet.noneOf(CertificateOperation.class)));
         dto.setKeystoreAvailable(keystoreAvailability.of(certificate));
-        typeHandlerRegistry.find(dto.getCertificateType().getCode()).ifPresent(handler -> handler.presentDetail(dto));
+        typeHandler.ifPresent(handler -> handler.presentDetail(dto));
 
         if (certificate.getComplianceResult() != null) {
             ComplianceCheckResultDto complianceCheckResult = complianceService
@@ -1290,6 +1316,9 @@ public class CertificateServiceImpl
                                         new ArrayList<>(x509CertificateRepository.findDistinctAltSignatureAlgorithm())),
                         SearchHelper.prepareSearch(FilterField.NOT_AFTER),
                         SearchHelper.prepareSearch(FilterField.NOT_BEFORE),
+                        SearchHelper.prepareSearch(FilterField.RENEWAL_WINDOW_START),
+                        SearchHelper.prepareSearch(FilterField.RENEWAL_WINDOW_END),
+                        SearchHelper.prepareSearch(FilterField.RENEWAL_WINDOW_SOURCE),
                         SearchHelper.prepareSearch(FilterField.SUBJECTDN),
                         SearchHelper.prepareSearch(FilterField.ISSUERDN),
                         SearchHelper.prepareSearch(FilterField.SUBJECT_ALTERNATIVE_NAMES),
@@ -2871,6 +2900,15 @@ public class CertificateServiceImpl
         return dto;
     }
 
+    private Map<String, Date> renewalWindowStarts(List<UUID> certificateUuids) {
+        return renewalInfoRepository
+                .findByCertificateUuidIn(certificateUuids)
+                .stream()
+                .filter(info -> info.getWindowStart() != null)
+                .collect(Collectors
+                        .toMap(info -> info.getCertificateUuid().toString(), info -> Date.from(info.getWindowStart())));
+    }
+
     @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.LIST,
             parentResource = Resource.RA_PROFILE, parentAction = ResourceAction.LIST)
@@ -2918,6 +2956,23 @@ public class CertificateServiceImpl
             eventProducer.produceMessage(CertificateExpiringEventHandler.constructEventMessages(uuid));
         }
         return expiringCertificates.size();
+    }
+
+    @Override
+    public int handleRenewalDueCertificates() {
+        Instant now = Instant.now();
+        List<UUID> renewalDueCertificates = certificateRepository
+                .findUuidsUsingSecurityFilter(SecurityFilter.create(), (root, cb, cr) -> cb
+                        .and(cb
+                                .lessThanOrEqualTo(
+                                        root.join(Certificate_.renewalInfo).get(CertificateRenewalInfo_.windowStart),
+                                        now),
+                                RenewalEligibility.awaitingRenewalOrLocationRenewal(root, cb, cr)),
+                        null, null);
+        for (UUID uuid : renewalDueCertificates) {
+            eventProducer.produceMessage(CertificateRenewalDueEventHandler.constructEventMessages(uuid));
+        }
+        return renewalDueCertificates.size();
     }
 
     @Override
@@ -3245,6 +3300,7 @@ public class CertificateServiceImpl
 
         certificate.setRaProfile(newRaProfile);
         certificateRepository.save(certificate);
+        renewalWindowWriter.onRaProfileChanged(certificate, currentRaProfile);
 
         // delete old metadata
         // An RA profile without an authority has no connector whose metadata could exist.
