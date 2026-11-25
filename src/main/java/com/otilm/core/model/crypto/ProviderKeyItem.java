@@ -43,4 +43,9 @@ public record ProviderKeyItem(String name, KeyType type, KeyAlgorithm algorithm,
         return new ProviderKeyItem(name, type, algorithm, parameterSet, length, reference, material, metadata,
                 association);
     }
+
+    /** The digest of the item's handle, or null for an empty handle or a provider UUID. */
+    public String handleDigest() {
+        return reference instanceof RemoteKeyReference.MetadataReference handle ? handle.digest() : null;
+    }
 }
