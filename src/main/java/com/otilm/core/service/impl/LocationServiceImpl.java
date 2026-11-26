@@ -1025,7 +1025,8 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
     private LocationDto renewedLocationDto(UUID locationUuid) {
         Location location = locationRepository
                 .findByUuid(locationUuid)
-                .orElseThrow(() -> new IllegalStateException("Location " + locationUuid + " no longer exists"));
+                .orElseThrow(
+                        () -> new IllegalStateException("The location %s no longer exists".formatted(locationUuid)));
         LocationDto locationDto = mapLocationToDto(location);
         locationDto
                 .setCustomAttributes(
