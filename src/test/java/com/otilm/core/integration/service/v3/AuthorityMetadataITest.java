@@ -201,6 +201,33 @@ class AuthorityMetadataITest extends BaseSpringBootTest {
     }
 
     @Test
+    void leavesNoAuthorityBehind_whenTheMetadataOfANewAuthorityCannotBeStored() throws Exception {
+        // given
+        var metadataWithoutData = """
+                {"version": 3, "uuid": "%s", "name": "%s", "type": "meta", "contentType": "string",
+                 "content": [{"contentType": "string"}], "properties": {"label": "%s", "visible": true, "overwrite": true}}
+                """
+                .formatted(UUID.nameUUIDFromBytes(ACCOUNT_URL.getBytes()), ACCOUNT_URL, ACCOUNT_URL);
+        stubConnectionCheck(metadataAnswer(metadataWithoutData));
+        var request = new AuthorityInstanceRequestDto();
+        request.setName("rolled-back-v3-authority");
+        request.setConnectorUuid(authority.getConnectorUuid().toString());
+        request.setInterfaceUuid(authority.getConnectorInterfaceUuid());
+        request.setAttributes(directoryUrlAttribute("https://acme.example/directory"));
+        long authoritiesBefore = authorityInstanceReferenceRepository.count();
+        long attributeMappingsBefore = attributeContent2ObjectRepository.count();
+
+        // when
+        ThrowingCallable createStoringMalformedMetadata = () -> authorityInstanceService
+                .createAuthorityInstance(request);
+
+        // then
+        assertThatThrownBy(createStoringMalformedMetadata).isInstanceOf(AttributeException.class);
+        assertThat(authorityInstanceReferenceRepository.count()).isEqualTo(authoritiesBefore);
+        assertThat(attributeContent2ObjectRepository.count()).isEqualTo(attributeMappingsBefore);
+    }
+
+    @Test
     void showsTheMetadata_whenTheConnectorWasDeleted() throws Exception {
         // given
         var accountUrl = "https://acme.example/acct/1";
