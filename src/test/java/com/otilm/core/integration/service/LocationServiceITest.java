@@ -22,6 +22,7 @@ import com.otilm.api.model.client.location.IssueToLocationRequestDto;
 import com.otilm.api.model.client.location.PushToLocationRequestDto;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
@@ -81,6 +82,8 @@ import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.SecretLeakProbe;
+import com.zaxxer.hikari.HikariDataSource;
+import com.zaxxer.hikari.HikariPoolMXBean;
 import java.io.IOException;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
@@ -94,6 +97,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
+import javax.sql.DataSource;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -151,6 +155,8 @@ class LocationServiceITest extends BaseSpringBootTest {
     private CertificateTypeHandlerRegistry typeHandlerRegistry;
     @Autowired
     private LocationRepository locationRepository;
+    @Autowired
+    private DataSource dataSource;
     @Autowired
     private CertificateRepository certificateRepository;
     @Autowired
@@ -1473,22 +1479,72 @@ class LocationServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void holdsNoPooledConnection_whenListingTheLocationsAttributesToLinkTheRenewedCertificate() throws Exception {
+        // given
+        prepareCertificateForRenewalInLocation();
+        X509CertificateEntity renewedCertificate = certificateRepository.save(aCertificate().build());
+        LocationSyncApiClient locationClient = recordTransactionInLocationAndAuthorityCalls(new LinkedHashMap<>(),
+                renewedCertificate.getUuid());
+        HikariPoolMXBean pool = dataSource.unwrap(HikariDataSource.class).getHikariPoolMXBean();
+        List<Integer> activeInAttributeCalls = new ArrayList<>();
+        Answer<List<BaseAttribute>> recordingActiveConnections = invocation -> {
+            activeInAttributeCalls.add(pool.getActiveConnections());
+            return List.of();
+        };
+        when(locationClient.listPushCertificateAttributes(any(), any())).thenAnswer(recordingActiveConnections);
+        when(locationClient.listGenerateCsrAttributes(any(), any())).thenAnswer(recordingActiveConnections);
+        int activeBefore = pool.getActiveConnections();
+
+        // when
+        locationService
+                .renewCertificateInLocation(entityInstanceReference.getSecuredParentUuid(), location.getSecuredUuid(),
+                        certificate.getUuid().toString());
+
+        // then
+        assertThat(activeInAttributeCalls).isNotEmpty().containsOnly(activeBefore);
+    }
+
+    @Test
     void refusesTheRenewal_whenTheRenewedCertificateCannotBeAddedToTheLocation() throws Exception {
         // given
         prepareCertificateForRenewalInLocation();
-        recordTransactionInLocationAndAuthorityCalls(new LinkedHashMap<>(), UUID.randomUUID());
+        UUID missingRenewedCertificateUuid = UUID.randomUUID();
+        recordTransactionInLocationAndAuthorityCalls(new LinkedHashMap<>(), missingRenewedCertificateUuid);
 
         // when
-        LocationException exception = Assertions
-                .assertThrows(LocationException.class,
-                        () -> locationService
-                                .renewCertificateInLocation(entityInstanceReference.getSecuredParentUuid(),
-                                        location.getSecuredUuid(), certificate.getUuid().toString()));
+        ThrowingCallable renewInTheLocation = () -> locationService
+                .renewCertificateInLocation(entityInstanceReference.getSecuredParentUuid(), location.getSecuredUuid(),
+                        certificate.getUuid().toString());
 
         // then
-        assertThat(exception.getMessage())
-                .startsWith("Failed to add the new certificate to the location.")
-                .doesNotContain("Exception");
+        assertThatThrownBy(renewInTheLocation)
+                .isInstanceOf(LocationException.class)
+                .hasMessageContaining("Failed to add the new certificate to the location.")
+                .hasMessageContaining(missingRenewedCertificateUuid.toString())
+                .hasMessageNotContaining("Exception");
+    }
+
+    @Test
+    void givesNoInternalDetail_whenAddingTheRenewedCertificateToTheLocationFailsUnexpectedly() throws Exception {
+        // given
+        prepareCertificateForRenewalInLocation();
+        X509CertificateEntity renewedCertificate = certificateRepository.save(aCertificate().build());
+        LocationSyncApiClient locationClient = recordTransactionInLocationAndAuthorityCalls(new LinkedHashMap<>(),
+                renewedCertificate.getUuid());
+        String databaseDetail = "duplicate key value violates unique constraint \"certificate_location_pkey\"";
+        when(locationClient.listPushCertificateAttributes(any(), any()))
+                .thenThrow(new IllegalStateException(databaseDetail));
+
+        // when
+        ThrowingCallable renewInTheLocation = () -> locationService
+                .renewCertificateInLocation(entityInstanceReference.getSecuredParentUuid(), location.getSecuredUuid(),
+                        certificate.getUuid().toString());
+
+        // then
+        assertThatThrownBy(renewInTheLocation)
+                .isInstanceOf(LocationException.class)
+                .hasMessageContaining("Failed to add the new certificate to the location.")
+                .hasMessageNotContaining(databaseDetail);
     }
 
     @Test
@@ -1950,8 +2006,8 @@ class LocationServiceITest extends BaseSpringBootTest {
      * Stubs the location and the authority to record whether a transaction is active in each call, and to renew the
      * certificate into the given one.
      */
-    private void recordTransactionInLocationAndAuthorityCalls(Map<String, Boolean> transactionActiveInCall,
-            UUID renewedUuid) throws Exception {
+    private LocationSyncApiClient recordTransactionInLocationAndAuthorityCalls(
+            Map<String, Boolean> transactionActiveInCall, UUID renewedUuid) throws Exception {
         ClientCertificateDataResponseDto responseDto = new ClientCertificateDataResponseDto();
         responseDto.setUuid(renewedUuid.toString());
         LocationSyncApiClient locationClient = mock(LocationSyncApiClient.class);
@@ -1975,6 +2031,7 @@ class LocationServiceITest extends BaseSpringBootTest {
                     }
                     return answer;
                 });
+        return locationClient;
     }
 
     private void prepareCertificateForRenewalInLocation() {

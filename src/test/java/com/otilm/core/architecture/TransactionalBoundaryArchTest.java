@@ -183,10 +183,15 @@ public class TransactionalBoundaryArchTest {
 
     @ParameterizedTest
     @ValueSource(classes = {SpringTransactionalService.class, JakartaTransactionalService.class})
-    void treatsAnOutsideTransactionMethodAsNotSupported(Class<?> service) {
+    void treatsAnOutsideTransactionMethodAsNotSupported_whenItsClassIsTransactional(Class<?> service) {
+        // given
         JavaMethod method = new ClassFileImporter().importClass(service).getMethod("call");
 
-        assertThat(EFFECTIVELY_NOT_SUPPORTED.test(method)).isTrue();
+        // when
+        boolean notSupported = EFFECTIVELY_NOT_SUPPORTED.test(method);
+
+        // then
+        assertThat(notSupported).isTrue();
     }
 
     @Transactional

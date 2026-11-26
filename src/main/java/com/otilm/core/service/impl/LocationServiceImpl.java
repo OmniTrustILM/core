@@ -483,7 +483,11 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
                 .findByUuidAndEnabledIsTrue(locationUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(Location.class, locationUuid));
         requireUnderEntity(location, entityUuid, locationUuid);
+        return pushAttributesOf(location);
+    }
 
+    /** Lists the location's push Attributes from a location whose entity reference is loaded. */
+    private List<BaseAttribute> pushAttributesOf(Location location) throws NotFoundException, LocationException {
         try {
             ApiClientConnectorInfo connectorDto = connectorService
                     .getConnectorForApiClient(location.getEntityInstanceReference().getConnectorUuid());
@@ -509,7 +513,11 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
                 .findByUuidAndEnabledIsTrue(locationUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(Location.class, locationUuid));
         requireUnderEntity(location, entityUuid, locationUuid);
+        return csrAttributesOf(location);
+    }
 
+    /** Lists the location's CSR Attributes from a location whose entity reference is loaded. */
+    private List<BaseAttribute> csrAttributesOf(Location location) throws NotFoundException, LocationException {
         try {
             ApiClientConnectorInfo connectorDto = connectorService
                     .getConnectorForApiClient(location.getEntityInstanceReference().getConnectorUuid());
@@ -1003,8 +1011,8 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
                     renewal.csrAttributes());
         } catch (Exception e) {
             logger.error("Failed to add new Certificate", RedactedFailure.forLog(e));
-            throw new LocationException("Failed to add the new certificate to the location. Reason: "
-                    + NestedExceptionUtils.getMostSpecificCause(e).getMessage());
+            throw new LocationException(
+                    "Failed to add the new certificate to the location. Reason: " + linkFailureReason(e));
         }
 
         logger
@@ -1088,6 +1096,16 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
         }
         transactionManager.commit(tx);
         return renewal;
+    }
+
+    /**
+     * The reason a failed link gives the caller: the message of a failure Core raised itself, never a database's, which
+     * can carry statements, constraint names and row values.
+     */
+    private static String linkFailureReason(Exception e) {
+        Throwable cause = NestedExceptionUtils.getMostSpecificCause(e);
+        return cause instanceof LocationException || cause instanceof NotFoundException
+                || cause instanceof AttributeException ? cause.getMessage() : "the location could not be updated";
     }
 
     /** Renews the certificate with the request the location generated, reporting any failure as the location's. */
@@ -1509,11 +1527,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
 
     private LocationAttributeDefinitions fetchAttributeDefinitions(Location location) throws LocationException {
         try {
-            return new LocationAttributeDefinitions(
-                    listPushAttributes(SecuredParentUUID.fromUUID(location.getEntityInstanceReferenceUuid()),
-                            SecuredUUID.fromString(location.getUuid().toString())),
-                    listCsrAttributes(SecuredParentUUID.fromUUID(location.getEntityInstanceReferenceUuid()),
-                            SecuredUUID.fromString(location.getUuid().toString())));
+            return new LocationAttributeDefinitions(pushAttributesOf(location), csrAttributesOf(location));
         } catch (NotFoundException e) {
             logger.error("Unable to find the location with uuid: {}", location.getUuid());
             throw new LocationException(

@@ -14,7 +14,9 @@ class OutsideTransactionTest {
 
     @ParameterizedTest
     @ValueSource(classes = {SpringTransactionalService.class, JakartaTransactionalService.class})
-    void runsTheMethodWithNoTransaction_whenItsClassIsTransactional(Class<?> service) throws NoSuchMethodException {
+    void runsTheMethodWithNoTransaction_whenItsClassIsTransactional(Class<?> service) throws Exception {
+        // given — the service's class is transactional and its call() is @OutsideTransaction
+
         // when
         TransactionAttribute attribute = new AnnotationTransactionAttributeSource()
                 .getTransactionAttribute(service.getMethod("call"), service);
