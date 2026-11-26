@@ -72,6 +72,7 @@ import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.core.attribute.engine.AttributeContentPurpose;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
+import com.otilm.core.attribute.engine.AttributeVersionHelper;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.AttributeContentItem;
 import com.otilm.core.dao.entity.AttributeDefinition;
@@ -105,6 +106,7 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.PersistenceContext;
 import java.io.IOException;
+import java.io.Serializable;
 import java.security.cert.CertificateException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -3202,10 +3204,10 @@ class AttributeEngineITest extends BaseSpringBootTest {
         void skipsUpdate_whenConnectorResubmitsAnUnchangedDataAttribute() {
             // given
             UUID attributeUuid = UUID.randomUUID();
-            inNewTransaction(() -> register(anIssueAttribute(attributeUuid)));
+            inNewTransaction(() -> register(createIssueAttribute(attributeUuid)));
 
             // when
-            long updates = countDefinitionUpdates(() -> register(anIssueAttribute(attributeUuid)));
+            long updates = countDefinitionUpdates(() -> register(createIssueAttribute(attributeUuid)));
 
             // then
             assertThat(updates).isZero();
@@ -3216,11 +3218,11 @@ class AttributeEngineITest extends BaseSpringBootTest {
             // given
             UUID attributeUuid = UUID.randomUUID();
             var defaultValue = "default value";
-            inNewTransaction(() -> register(withDefaultValue(anIssueAttribute(attributeUuid), defaultValue)));
+            inNewTransaction(() -> register(setDefaultValue(createIssueAttribute(attributeUuid), defaultValue)));
 
             // when
             long updates = countDefinitionUpdates(
-                    () -> register(withDefaultValue(anIssueAttribute(attributeUuid), defaultValue)));
+                    () -> register(setDefaultValue(createIssueAttribute(attributeUuid), defaultValue)));
 
             // then
             assertThat(updates).isZero();
@@ -3232,11 +3234,11 @@ class AttributeEngineITest extends BaseSpringBootTest {
             UUID attributeUuid = UUID.randomUUID();
             var secretDefault = "secret default";
             inNewTransaction(() -> register(
-                    withEncryptedProtection(withDefaultValue(anIssueAttribute(attributeUuid), secretDefault))));
+                    setEncryptedProtection(setDefaultValue(createIssueAttribute(attributeUuid), secretDefault))));
 
             // when
             long updates = countDefinitionUpdates(() -> register(
-                    withEncryptedProtection(withDefaultValue(anIssueAttribute(attributeUuid), secretDefault))));
+                    setEncryptedProtection(setDefaultValue(createIssueAttribute(attributeUuid), secretDefault))));
 
             // then
             assertThat(updates).isZero();
@@ -3248,9 +3250,9 @@ class AttributeEngineITest extends BaseSpringBootTest {
             UUID attributeUuid = UUID.randomUUID();
             var secretDefault = "secret default";
             inNewTransaction(() -> register(
-                    withEncryptedProtection(withDefaultValue(anIssueAttribute(attributeUuid), secretDefault))));
-            DataAttributeV2 resubmitted = withEncryptedProtection(
-                    withDefaultValue(anIssueAttribute(attributeUuid), secretDefault));
+                    setEncryptedProtection(setDefaultValue(createIssueAttribute(attributeUuid), secretDefault))));
+            DataAttributeV2 resubmitted = setEncryptedProtection(
+                    setDefaultValue(createIssueAttribute(attributeUuid), secretDefault));
 
             // when
             inNewTransaction(() -> register(resubmitted));
@@ -3266,9 +3268,9 @@ class AttributeEngineITest extends BaseSpringBootTest {
         void storesNewDescription_whenConnectorChangesIt() {
             // given
             UUID attributeUuid = UUID.randomUUID();
-            inNewTransaction(() -> register(anIssueAttribute(attributeUuid)));
+            inNewTransaction(() -> register(createIssueAttribute(attributeUuid)));
             var changedDescription = "Changed description";
-            DataAttributeV2 changed = anIssueAttribute(attributeUuid);
+            DataAttributeV2 changed = createIssueAttribute(attributeUuid);
             changed.setDescription(changedDescription);
 
             // when
@@ -3284,9 +3286,9 @@ class AttributeEngineITest extends BaseSpringBootTest {
         void storesNewDescriptionWithoutOptions_whenConnectorChangesAnExtensibleListAttribute() {
             // given
             UUID attributeUuid = UUID.randomUUID();
-            inNewTransaction(() -> register(asExtensibleListWithOption(anIssueAttribute(attributeUuid))));
+            inNewTransaction(() -> register(makeExtensibleListWithOption(createIssueAttribute(attributeUuid))));
             var changedDescription = "Changed description";
-            DataAttributeV2 changed = asExtensibleListWithOption(anIssueAttribute(attributeUuid));
+            DataAttributeV2 changed = makeExtensibleListWithOption(createIssueAttribute(attributeUuid));
             changed.setDescription(changedDescription);
 
             // when
@@ -3306,11 +3308,11 @@ class AttributeEngineITest extends BaseSpringBootTest {
                 UnaryOperator<DataAttributeV2> change) {
             // given
             UUID attributeUuid = UUID.randomUUID();
-            inNewTransaction(() -> register(original.apply(anIssueAttribute(attributeUuid))));
+            inNewTransaction(() -> register(original.apply(createIssueAttribute(attributeUuid))));
 
             // when
             long updates = countDefinitionUpdates(
-                    () -> register(change.apply(original.apply(anIssueAttribute(attributeUuid)))));
+                    () -> register(change.apply(original.apply(createIssueAttribute(attributeUuid)))));
 
             // then
             assertThat(updates).isEqualTo(1);
@@ -3320,10 +3322,48 @@ class AttributeEngineITest extends BaseSpringBootTest {
         void skipsUpdate_whenConnectorResubmitsAnUnchangedGroupAttribute() {
             // given
             UUID attributeUuid = UUID.randomUUID();
-            inNewTransaction(() -> register(aGroupAttribute(attributeUuid)));
+            inNewTransaction(() -> register(createGroupAttribute(attributeUuid)));
 
             // when
-            long updates = countDefinitionUpdates(() -> register(aGroupAttribute(attributeUuid)));
+            long updates = countDefinitionUpdates(() -> register(createGroupAttribute(attributeUuid)));
+
+            // then
+            assertThat(updates).isZero();
+        }
+
+        @Test
+        void storesNewCallback_whenConnectorChangesAGroupAttribute() {
+            // given
+            UUID attributeUuid = UUID.randomUUID();
+            inNewTransaction(() -> register(createGroupAttribute(attributeUuid)));
+            var changedCallbackContext = "/changed-callback";
+            GroupAttributeV3 changed = createGroupAttribute(attributeUuid);
+            changed.getAttributeCallback().setCallbackContext(changedCallbackContext);
+
+            // when
+            long updates = countDefinitionUpdates(() -> register(changed));
+
+            // then
+            AttributeDefinition reloaded = inNewTransaction(
+                    () -> attributeDefinitionRepository.findByAttributeUuid(attributeUuid).orElseThrow());
+            AttributeCallback storedCallback = AttributeVersionHelper
+                    .getGroupAttributeCallback(reloaded.getDefinition());
+            assertThat(updates).isEqualTo(1);
+            assertThat(storedCallback.getCallbackContext()).isEqualTo(changedCallbackContext);
+        }
+
+        @ParameterizedTest(name = "{0}")
+        @MethodSource("encryptedDefaultsAsConnectorsSendThem")
+        void skipsUpdate_whenConnectorResubmitsAnUnchangedEncryptedDefaultOfThatType(AttributeContentType contentType,
+                Serializable sentValue) {
+            // given
+            UUID attributeUuid = UUID.randomUUID();
+            inNewTransaction(
+                    () -> register(createAttributeWithEncryptedDefault(attributeUuid, contentType, sentValue)));
+
+            // when
+            long updates = countDefinitionUpdates(
+                    () -> register(createAttributeWithEncryptedDefault(attributeUuid, contentType, sentValue)));
 
             // then
             assertThat(updates).isZero();
@@ -3333,11 +3373,20 @@ class AttributeEngineITest extends BaseSpringBootTest {
 
         private static final String DEFAULT_CONTENT_REFERENCE = "default";
 
-        static Stream<Arguments> changedIssueAttributes() {
+        /** Values as connector JSON deserializes them: dates and times as text, decimals as {@code Double}. */
+        private static Stream<Arguments> encryptedDefaultsAsConnectorsSendThem() {
+            return Stream
+                    .of(Arguments.of(AttributeContentType.DATE, "2026-11-26"),
+                            Arguments.of(AttributeContentType.TIME, "10:15:30"),
+                            Arguments.of(AttributeContentType.DATETIME, "2026-11-26T10:15:30Z"),
+                            Arguments.of(AttributeContentType.FLOAT, 1.5d));
+        }
+
+        private static Stream<Arguments> changedIssueAttributes() {
             UnaryOperator<DataAttributeV2> plain = UnaryOperator.identity();
-            UnaryOperator<DataAttributeV2> withDefault = attribute -> withDefaultValue(attribute, "first");
-            UnaryOperator<DataAttributeV2> encryptedWithDefault = attribute -> withEncryptedProtection(
-                    withDefaultValue(attribute, "first secret"));
+            UnaryOperator<DataAttributeV2> withDefault = attribute -> setDefaultValue(attribute, "first");
+            UnaryOperator<DataAttributeV2> encryptedWithDefault = attribute -> setEncryptedProtection(
+                    setDefaultValue(attribute, "first secret"));
             UnaryOperator<DataAttributeV2> changeDescription = attribute -> {
                 attribute.setDescription("Changed description");
                 return attribute;
@@ -3360,8 +3409,8 @@ class AttributeEngineITest extends BaseSpringBootTest {
                 attribute.setAttributeCallback(callback);
                 return attribute;
             };
-            UnaryOperator<DataAttributeV2> changeDefault = attribute -> withDefaultValue(attribute, "second");
-            UnaryOperator<DataAttributeV2> changeEncryptedDefault = attribute -> withDefaultValue(attribute,
+            UnaryOperator<DataAttributeV2> changeDefault = attribute -> setDefaultValue(attribute, "second");
+            UnaryOperator<DataAttributeV2> changeEncryptedDefault = attribute -> setDefaultValue(attribute,
                     "second secret");
             return Stream
                     .of(Arguments.of(plain, named("description", changeDescription)),
@@ -3380,7 +3429,7 @@ class AttributeEngineITest extends BaseSpringBootTest {
         }
 
         /** An issue attribute as an authority connector declares it on every issuance: a fresh instance each time. */
-        private static DataAttributeV2 anIssueAttribute(UUID attributeUuid) {
+        private static DataAttributeV2 createIssueAttribute(UUID attributeUuid) {
             DataAttributeV2 issueAttribute = new DataAttributeV2();
             issueAttribute.setUuid(attributeUuid.toString());
             issueAttribute.setName("perIssuance");
@@ -3393,8 +3442,8 @@ class AttributeEngineITest extends BaseSpringBootTest {
         }
 
         /** Sets default content typed as a connector response deserializes it. */
-        private static DataAttributeV2 withDefaultValue(DataAttributeV2 attribute, String value) {
-            BaseAttributeContentV2<String> content = new BaseAttributeContentV2<>();
+        private static DataAttributeV2 setDefaultValue(DataAttributeV2 attribute, Serializable value) {
+            BaseAttributeContentV2<Serializable> content = new BaseAttributeContentV2<>();
             content.setReference(DEFAULT_CONTENT_REFERENCE);
             content.setData(value);
             attribute.setContent(List.of(content));
@@ -3402,19 +3451,27 @@ class AttributeEngineITest extends BaseSpringBootTest {
         }
 
         /** Declares the protection level a connector sets for content the platform must encrypt at rest. */
-        private static DataAttributeV2 withEncryptedProtection(DataAttributeV2 attribute) {
+        private static DataAttributeV2 setEncryptedProtection(DataAttributeV2 attribute) {
             attribute.getProperties().setProtectionLevel(ProtectionLevel.ENCRYPTED);
             return attribute;
         }
 
-        private static DataAttributeV2 asExtensibleListWithOption(DataAttributeV2 attribute) {
-            withDefaultValue(attribute, "option");
+        private static DataAttributeV2 createAttributeWithEncryptedDefault(UUID attributeUuid,
+                AttributeContentType contentType, Serializable defaultValue) {
+            DataAttributeV2 attribute = setEncryptedProtection(
+                    setDefaultValue(createIssueAttribute(attributeUuid), defaultValue));
+            attribute.setContentType(contentType);
+            return attribute;
+        }
+
+        private static DataAttributeV2 makeExtensibleListWithOption(DataAttributeV2 attribute) {
+            setDefaultValue(attribute, "option");
             attribute.getProperties().setList(true);
             attribute.getProperties().setExtensibleList(true);
             return attribute;
         }
 
-        private static GroupAttributeV3 aGroupAttribute(UUID attributeUuid) {
+        private static GroupAttributeV3 createGroupAttribute(UUID attributeUuid) {
             GroupAttributeV3 groupAttribute = new GroupAttributeV3();
             groupAttribute.setUuid(attributeUuid.toString());
             groupAttribute.setName("perIssuanceGroup");

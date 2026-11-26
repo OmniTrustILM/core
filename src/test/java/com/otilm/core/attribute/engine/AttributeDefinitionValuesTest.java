@@ -7,6 +7,8 @@ import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.content.BaseAttributeContentV2;
+import java.io.Serializable;
+import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -28,7 +30,7 @@ class AttributeDefinitionValuesTest {
 
         // when
         boolean same = AttributeDefinitionValues
-                .sameValue(anAttributeWithObjectContent(storedOrder), anAttributeWithObjectContent(sentOrder));
+                .sameValue(createAttributeWithContent(storedOrder), createAttributeWithContent(sentOrder));
 
         // then
         assertThat(same).isTrue();
@@ -37,11 +39,11 @@ class AttributeDefinitionValuesTest {
     @Test
     void reportsSameValue_whenCallbackMappingsAndTheirTargetsComeInAnotherOrder() {
         // given
-        var storedOrder = anAttributeWithCallback(
-                aMapping("algorithm", AttributeValueTarget.PATH_VARIABLE, AttributeValueTarget.REQUEST_PARAMETER),
-                aMapping("curve", AttributeValueTarget.BODY));
-        var sentOrder = anAttributeWithCallback(aMapping("curve", AttributeValueTarget.BODY),
-                aMapping("algorithm", AttributeValueTarget.REQUEST_PARAMETER, AttributeValueTarget.PATH_VARIABLE));
+        var storedOrder = createAttributeWithCallback(
+                createMapping("algorithm", AttributeValueTarget.PATH_VARIABLE, AttributeValueTarget.REQUEST_PARAMETER),
+                createMapping("curve", AttributeValueTarget.BODY));
+        var sentOrder = createAttributeWithCallback(createMapping("curve", AttributeValueTarget.BODY),
+                createMapping("algorithm", AttributeValueTarget.REQUEST_PARAMETER, AttributeValueTarget.PATH_VARIABLE));
 
         // when
         boolean same = AttributeDefinitionValues.sameValue(storedOrder, sentOrder);
@@ -53,8 +55,9 @@ class AttributeDefinitionValuesTest {
     @Test
     void reportsDifferentValue_whenACallbackMappingDiffers() {
         // given
-        var stored = anAttributeWithCallback(aMapping("algorithm", AttributeValueTarget.PATH_VARIABLE));
-        var changedTarget = anAttributeWithCallback(aMapping("algorithm", AttributeValueTarget.REQUEST_PARAMETER));
+        var stored = createAttributeWithCallback(createMapping("algorithm", AttributeValueTarget.PATH_VARIABLE));
+        var changedTarget = createAttributeWithCallback(
+                createMapping("algorithm", AttributeValueTarget.REQUEST_PARAMETER));
 
         // when
         boolean same = AttributeDefinitionValues.sameValue(stored, changedTarget);
@@ -66,8 +69,8 @@ class AttributeDefinitionValuesTest {
     @Test
     void reportsDifferentValue_whenADescriptionDiffers() {
         // given
-        var stored = anAttribute();
-        var changed = anAttribute();
+        var stored = createAttribute();
+        var changed = createAttribute();
         changed.setDescription("changed");
 
         // when
@@ -80,8 +83,8 @@ class AttributeDefinitionValuesTest {
     @Test
     void reportsDifferentValue_whenContentIsMissingOnOneSideAndEmptyOnTheOther() {
         // given
-        var withoutContent = anAttribute();
-        var withEmptyContent = anAttribute();
+        var withoutContent = createAttribute();
+        var withEmptyContent = createAttribute();
         withEmptyContent.setContent(List.of());
 
         // when
@@ -91,9 +94,51 @@ class AttributeDefinitionValuesTest {
         assertThat(same).isFalse();
     }
 
+    @Test
+    void reportsSameValue_whenADateIsTypedOnOneSideAndTextOnTheOther() {
+        // given
+        var decryptedDate = LocalDate.of(2026, 11, 26);
+        var sentDate = "2026-11-26";
+
+        // when
+        boolean same = AttributeDefinitionValues
+                .sameValue(createAttributeWithContent(decryptedDate), createAttributeWithContent(sentDate));
+
+        // then
+        assertThat(same).isTrue();
+    }
+
+    @Test
+    void reportsSameValue_whenANumberIsAFloatOnOneSideAndADoubleOnTheOther() {
+        // given
+        var decryptedFloat = 1.5f;
+        var sentDouble = 1.5d;
+
+        // when
+        boolean same = AttributeDefinitionValues
+                .sameValue(createAttributeWithContent(decryptedFloat), createAttributeWithContent(sentDouble));
+
+        // then
+        assertThat(same).isTrue();
+    }
+
+    @Test
+    void reportsDifferentValue_whenANumberDiffers() {
+        // given
+        var storedFloat = 1.5f;
+        var changedDouble = 2.5d;
+
+        // when
+        boolean same = AttributeDefinitionValues
+                .sameValue(createAttributeWithContent(storedFloat), createAttributeWithContent(changedDouble));
+
+        // then
+        assertThat(same).isFalse();
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static DataAttributeV2 anAttribute() {
+    private static DataAttributeV2 createAttribute() {
         DataAttributeV2 attribute = new DataAttributeV2();
         attribute.setUuid("7e7a3b8c-1d2e-4f50-8a9b-0c1d2e3f4a5b");
         attribute.setName("extension");
@@ -105,9 +150,9 @@ class AttributeDefinitionValuesTest {
         return attribute;
     }
 
-    private static DataAttributeV2 anAttributeWithObjectContent(LinkedHashMap<String, Object> data) {
-        DataAttributeV2 attribute = anAttribute();
-        BaseAttributeContentV2<LinkedHashMap<String, Object>> content = new BaseAttributeContentV2<>();
+    private static DataAttributeV2 createAttributeWithContent(Serializable data) {
+        DataAttributeV2 attribute = createAttribute();
+        BaseAttributeContentV2<Serializable> content = new BaseAttributeContentV2<>();
         content.setReference("subjectAltName");
         content.setData(data);
         attribute.setContent(List.of(content));
@@ -115,8 +160,8 @@ class AttributeDefinitionValuesTest {
     }
 
     /** Builds the callback's sets in the given order, as a deserialized copy may iterate them. */
-    private static DataAttributeV2 anAttributeWithCallback(AttributeCallbackMapping... mappings) {
-        DataAttributeV2 attribute = anAttribute();
+    private static DataAttributeV2 createAttributeWithCallback(AttributeCallbackMapping... mappings) {
+        DataAttributeV2 attribute = createAttribute();
         AttributeCallback callback = new AttributeCallback();
         callback.setCallbackContext("/v1/keyspec/{algorithm}");
         callback.setCallbackMethod("GET");
@@ -125,7 +170,7 @@ class AttributeDefinitionValuesTest {
         return attribute;
     }
 
-    private static AttributeCallbackMapping aMapping(String to, AttributeValueTarget... targets) {
+    private static AttributeCallbackMapping createMapping(String to, AttributeValueTarget... targets) {
         return new AttributeCallbackMapping("data_" + to, to, new LinkedHashSet<>(List.of(targets)));
     }
 }
