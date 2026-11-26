@@ -385,7 +385,9 @@ public record AssetNormalizer(IdentityTables tables) {
      * {@code nistp256@1.2.840.10045.3.1.7}, which comes from assigning the OID from a parameter-set identifier.
      */
     public String normalizeOid(String raw) {
-        if (raw == null || tables.isSentinel(raw)) {
+        // Bounded here as well as at ingest: a stored payload is read back verbatim, and the arc walk below is
+        // quadratic in the arc's length.
+        if (raw == null || exceedsNormalizableLength(raw) || tables.isSentinel(raw)) {
             return null;
         }
         String text = AsciiText.strip(raw);
@@ -815,8 +817,7 @@ public record AssetNormalizer(IdentityTables tables) {
      */
     private IdentityTables.OidEntry settle(NormalizedAsset norm, String winner, String source, String fromOid,
             IdentityTables.OidEntry entry) {
-        boolean contradicts = fromOid != null && !fromOid.equals(winner) && !tables.subsumes(fromOid, winner)
-                && !tables.subsumes(winner, fromOid);
+        boolean contradicts = oidContradicts(fromOid, winner);
         norm.setFamily(winner);
         norm.setFamilySource(source);
         norm.setOidConflict(contradicts);
@@ -829,6 +830,16 @@ public record AssetNormalizer(IdentityTables tables) {
         // A refuted OID forfeits every further contribution: if it is wrong about the family there is no reason to
         // trust its size, mode or curve.
         return contradicts ? null : entry;
+    }
+
+    /**
+     * Whether an arc's registry family contradicts the family that won: both known, unequal, and neither a
+     * pseudo-family the other belongs to. The one definition of a refuted OID, so a reader deciding after the fact
+     * which of a merged row's arcs was refuted applies exactly the test ingest applied.
+     */
+    public boolean oidContradicts(String fromOid, String winner) {
+        return fromOid != null && winner != null && !fromOid.equals(winner) && !tables.subsumes(fromOid, winner)
+                && !tables.subsumes(winner, fromOid);
     }
 
     private IdentityTables.OidEntry settleAgreed(NormalizedAsset norm, String winner, String source,
