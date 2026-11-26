@@ -150,8 +150,13 @@ public interface AuthorityProviderAdapter {
     void validateRevokeAttributes(AuthorityInstanceReference authority, List<RequestAttribute> attributes)
             throws ValidationException, ConnectorException;
 
-    void checkAuthorityConnection(AuthorityInstanceReference authority, List<RequestAttribute> attributes)
-            throws ValidationException, ConnectorException;
+    /**
+     * Asks the connector to validate the authority attributes and prepare the authority. Returns the metadata the
+     * connector reports for the authority, never {@code null}: v3 returns the metadata of a 200 answer and an empty
+     * list for a 204 or a body without metadata; v2 always returns an empty list.
+     */
+    List<MetadataAttribute> checkAuthorityConnection(AuthorityInstanceReference authority,
+            List<RequestAttribute> attributes) throws ValidationException, ConnectorException;
 
     List<AdapterOperationResult> getCaCertificates(AuthorityInstanceReference authority, RaProfile raProfile)
             throws ConnectorException;

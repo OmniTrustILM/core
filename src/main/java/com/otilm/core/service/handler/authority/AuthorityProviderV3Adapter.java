@@ -15,6 +15,7 @@ import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.DataAttribute;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.common.error.ErrorCode;
+import com.otilm.api.model.connector.v3.authority.AuthorityConnectionResponseDto;
 import com.otilm.api.model.connector.v3.authority.CaCertificatesRequestDtoV3;
 import com.otilm.api.model.connector.v3.authority.CertificateTypesRequestDtoV3;
 import com.otilm.api.model.connector.v3.authority.SupportedCertificateTypeDtoV3;
@@ -361,12 +362,14 @@ public class AuthorityProviderV3Adapter extends AbstractAuthorityProviderAdapter
     }
 
     @Override
-    public void checkAuthorityConnection(AuthorityInstanceReference authority, List<RequestAttribute> attributes)
-            throws ValidationException, ConnectorException {
+    public List<MetadataAttribute> checkAuthorityConnection(AuthorityInstanceReference authority,
+            List<RequestAttribute> attributes) throws ValidationException, ConnectorException {
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
-        connectorApiFactory
+        AuthorityConnectionResponseDto response = connectorApiFactory
                 .getAuthorityInstanceApiClientV3(connectorDto)
-                .checkAuthorityConnection(connectorDto, attributes);
+                .checkAuthorityConnection(connectorDto, attributes)
+                .getBody();
+        return response == null || response.getMetadata() == null ? List.of() : response.getMetadata();
     }
 
     @Override

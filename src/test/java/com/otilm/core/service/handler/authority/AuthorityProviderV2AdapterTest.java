@@ -610,9 +610,10 @@ class AuthorityProviderV2AdapterTest {
         List<RequestAttribute> attrs = List.of(mock(RequestAttribute.class));
         when(authorityClient.validateRAProfileAttributes(connectorInfo, "auth-instance-uuid", attrs)).thenReturn(true);
 
-        adapter.checkAuthorityConnection(authority, attrs);
+        List<MetadataAttribute> metadata = adapter.checkAuthorityConnection(authority, attrs);
 
         verify(authorityClient).validateRAProfileAttributes(connectorInfo, "auth-instance-uuid", attrs);
+        assertThat(metadata).isEmpty();
     }
 
     // --- validate attributes (v2 delegates to the connector /validate endpoints) ---
