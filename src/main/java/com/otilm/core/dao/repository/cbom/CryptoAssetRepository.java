@@ -333,7 +333,7 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
                    xmin::text::bigint AS row_version
             FROM {h-schema}crypto_asset
             WHERE (pqc_evaluated_revision IS DISTINCT FROM input_revision
-                    OR (crypto_asset.asset_type IN ('CERTIFICATE', 'PROTOCOL')
+                    OR (crypto_asset.asset_type IN ('CERTIFICATE', 'PROTOCOL', 'RELATED_CRYPTO_MATERIAL')
                     AND crypto_asset.pqc_reference_basis IS DISTINCT FROM (
                         SELECT string_agg(COALESCE(CAST(r.target_asset_uuid AS TEXT), '') || ':'
                                 || COALESCE(t.pqc_verdict, '') || ':' || COALESCE(t.pqc_rule_id, '') || ':'
@@ -442,7 +442,7 @@ public interface CryptoAssetRepository extends SecurityFilterRepository<CryptoAs
                 i_upd = CURRENT_TIMESTAMP
             WHERE uuid = :uuid
               AND (pqc_evaluated_revision IS DISTINCT FROM input_revision
-                    OR (crypto_asset.asset_type IN ('CERTIFICATE', 'PROTOCOL')
+                    OR (crypto_asset.asset_type IN ('CERTIFICATE', 'PROTOCOL', 'RELATED_CRYPTO_MATERIAL')
                     AND crypto_asset.pqc_reference_basis IS DISTINCT FROM (
                         SELECT string_agg(COALESCE(CAST(r.target_asset_uuid AS TEXT), '') || ':'
                                 || COALESCE(t.pqc_verdict, '') || ':' || COALESCE(t.pqc_rule_id, '') || ':'

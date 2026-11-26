@@ -287,8 +287,9 @@ class ReferencedSlotProjectionTest {
         assertThat(keyed.variant()).isNull();
     }
 
+    /** The slot is written for the filter; the rules read the recorded reference, not the column. */
     @Test
-    void theProjectedFamilyIsAFilterSlotAndMovesNoVerdict() throws Exception {
+    void theProjectedFamilyIsAFilterSlotTheRulesDoNotRead() throws Exception {
         PqcEvaluator evaluator = new PqcEvaluator(normalizer);
         NormalizedAsset key = keyed("crypto/key/api", PUBLIC_KEY, ALGORITHM);
 
@@ -296,24 +297,25 @@ class ReferencedSlotProjectionTest {
 
         assertThat(key.family()).isEqualTo("ECDSA");
         assertThat(decision.verdict()).isEqualTo(PqcVerdict.UNKNOWN);
-        assertThat(decision.ruleId()).isEqualTo("FAMILY-UNRESOLVED");
+        assertThat(decision.ruleId()).isEqualTo("MATERIAL-NO-ALGORITHM-RECORDED");
         assertThat(decision.evaluatedFields()).doesNotContainKey("algorithmFamily");
     }
 
     /**
-     * Half an algorithm's identity must not decide a key: a hybrid's elected family, a construction without its hash.
+     * Half an algorithm's identity must not decide a key -- a hybrid's elected family, a construction without its hash
+     * -- and neither does the key's name: with no reference read, its declared size alone does.
      */
     @ParameterizedTest(name = "{0} {1} under {3}")
     @CsvSource({
             "session,     shared-secret, 256, X25519-Kyber768,   READY,     MATERIAL-SYMMETRIC-READY",
             "session,     shared-secret, 256, X25519-ML-KEM-768, READY,     MATERIAL-SYMMETRIC-READY",
             "k,           secret-key,    256, HMAC-SHA256,       READY,     MATERIAL-SYMMETRIC-READY",
-            "AES-128,     secret-key,    256, AES-256-GCM,       NOT_READY, SYMMETRIC-UNDERSIZED",
-            "AES-64,      secret-key,    256, AES-256-GCM,       UNKNOWN,   PARAMETER-SET-UNREGISTERED",
-            "HMAC-RIPEMD, secret-key,    256, AES-256-GCM,       UNKNOWN,   FAMILY-AMBIGUOUS-COMPONENT",
-            "HMAC-RIPEMD, secret-key,    256, HMAC-SHA256,       UNKNOWN,   FAMILY-AMBIGUOUS-COMPONENT",
+            "AES-128,     secret-key,    256, AES-256-GCM,       READY,     MATERIAL-SYMMETRIC-READY",
+            "AES-64,      secret-key,    256, AES-256-GCM,       READY,     MATERIAL-SYMMETRIC-READY",
+            "HMAC-RIPEMD, secret-key,    256, AES-256-GCM,       READY,     MATERIAL-SYMMETRIC-READY",
+            "HMAC-RIPEMD, secret-key,    256, HMAC-SHA256,       READY,     MATERIAL-SYMMETRIC-READY",
             "session,     secret-key,     64, AES-256-GCM,       NOT_READY, MATERIAL-SYMMETRIC-WEAK"})
-    void aKeyIsJudgedByItsOwnNameAndSizeWhateverAlgorithmItReferences(String keyName, String type, int size,
+    void aKeyIsJudgedByItsSizeWhateverSlotsItsReferenceProjects(String keyName, String type, int size,
             String algorithmName, PqcVerdict verdict, String ruleId) throws Exception {
         String key = """
                 {
