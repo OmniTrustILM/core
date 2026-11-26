@@ -498,7 +498,7 @@ class RawSigningEngineITest extends BaseSpringBootTest {
             // given
             SigningProfileDto profile = createIlmNativeRawProfile("native-raw-capped", RSA_PKCS1_SHA256);
             var cap = IDENTIFIERS.size() - 1;
-            settingService.updatePlatformSettings(signingCapUpdate(cap));
+            settingService.updatePlatformSettings(buildSigningCapUpdate(cap));
 
             // when
             MockHttpServletResponse response = signRaw(profile.getUuid(), buildSignRawRequest(DigestAlgorithm.SHA_256));
@@ -788,7 +788,7 @@ class RawSigningEngineITest extends BaseSpringBootTest {
                     .generateCertificate(new ByteArrayInputStream(der));
         }
 
-        private static PlatformSettingsUpdateDto signingCapUpdate(int maxItemsPerRequest) {
+        private static PlatformSettingsUpdateDto buildSigningCapUpdate(int maxItemsPerRequest) {
             SigningSettingsDto signing = new SigningSettingsDto();
             signing.setMaxItemsPerRequest(maxItemsPerRequest);
             PlatformSettingsUpdateDto update = new PlatformSettingsUpdateDto();

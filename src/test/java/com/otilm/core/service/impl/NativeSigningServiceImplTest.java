@@ -126,14 +126,14 @@ class NativeSigningServiceImplTest {
         RawSigningRequest runRequest = handedOver.getValue();
         assertThat(runRequest.inputMode()).isEqualTo(statedMode);
         assertThat(runRequest.digestAlgorithm()).isEqualTo(DigestAlgorithm.SHA_256);
-        assertThat(runRequest.items()).containsExactly(new RawSigningItem("first", digestOf("first")));
+        assertThat(runRequest.items()).containsExactly(new RawSigningItem("first", buildDigest("first")));
     }
 
     @Test
     void signs_whenTheFingerprintDiffersFromTheSigningCertificatesOnlyInCase() throws Exception {
         // given
         when(signingProfileResolverFactory.resolve(model)).thenReturn(profile);
-        String upperCaseFingerprint = signingCertificateFingerprint().toUpperCase(Locale.ROOT);
+        String upperCaseFingerprint = getSigningCertificateFingerprint().toUpperCase(Locale.ROOT);
         stubTheRunSigning("first");
 
         // when
@@ -184,7 +184,7 @@ class NativeSigningServiceImplTest {
                         profile.resolvedScheme().chain().chain(), List.of(signed)));
     }
 
-    private String signingCertificateFingerprint() throws Exception {
+    private String getSigningCertificateFingerprint() throws Exception {
         return CertificateUtil.getThumbprint(profile.resolvedScheme().chain().signingCertificate());
     }
 
@@ -193,11 +193,11 @@ class NativeSigningServiceImplTest {
         request.setSignatureInputMode(SignatureInputMode.DATA_DIGEST);
         request.setDigestAlgorithm(DigestAlgorithm.SHA_256);
         request.setCertificateFingerprint(certificateFingerprint);
-        request.setItems(Arrays.stream(identifiers).map(id -> new SignRawItemDto(id, digestOf(id))).toList());
+        request.setItems(Arrays.stream(identifiers).map(id -> new SignRawItemDto(id, buildDigest(id))).toList());
         return request;
     }
 
-    private static byte[] digestOf(String identifier) {
+    private static byte[] buildDigest(String identifier) {
         byte[] digest = new byte[32];
         digest[0] = (byte) identifier.length();
         return digest;
