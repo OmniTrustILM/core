@@ -174,8 +174,9 @@ public class ManagedRawSigningEngine {
 
     /**
      * Profile save refuses such a key, but a provider can lose the capability after the save. The request is refused
-     * rather than reported as a fault of Core's: no retry succeeds until an operator registers the provider anew, and
-     * the caller has to learn that from the answer, since the log is not theirs to read.
+     * rather than reported as a fault of Core's: no retry succeeds until an operator changes the setup, by restoring
+     * the capability on the provider's registration or giving the profile a key on a provider that has it, and the
+     * caller has to learn that from the answer, since the log is not theirs to read.
      */
     private void requireDataDigestSigningProvider(ResolvedManagedRawSigningProfile profile)
             throws SigningEngineException {
