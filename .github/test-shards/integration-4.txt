@@ -6,6 +6,7 @@ com/otilm/core/integration/dao/repository/signing/SigningRecordOutboxRepositoryI
 com/otilm/core/integration/dao/repository/signing/SigningRecordRepositoryITest.java
 com/otilm/core/integration/messaging/jms/configuration/JmsMessageConverterITest.java
 com/otilm/core/integration/messaging/jms/configuration/JmsWireGoldenITest.java
+com/otilm/core/integration/migration/CvcCertificateColumnsMigrationITest.java
 com/otilm/core/integration/migration/DescribeKeyItemsMigrationITest.java
 com/otilm/core/integration/migration/DiscoveryResourcesRequiredMigrationITest.java
 com/otilm/core/integration/migration/EstProfileMigrationITest.java

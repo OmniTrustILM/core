@@ -14,6 +14,8 @@ import com.otilm.api.model.core.certificate.CertificateRenewalInfoDto;
 import com.otilm.api.model.core.certificate.CertificateRequestDetail;
 import com.otilm.api.model.core.certificate.CertificateSimpleDto;
 import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CvcCertificateDetail;
+import com.otilm.api.model.core.certificate.CvcCertificateRequestDetail;
 import com.otilm.api.model.core.certificate.QcType;
 import com.otilm.api.model.core.certificate.X509CertificateDetail;
 import com.otilm.api.model.core.certificate.X509CertificateRequestDetail;
@@ -24,6 +26,8 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateRenewalInfo;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.CryptographicKey;
+import com.otilm.core.dao.entity.CvcCertificateEntity;
+import com.otilm.core.dao.entity.CvcCertificateRequestEntity;
 import com.otilm.core.dao.entity.Group;
 import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.X509CertificateRequestEntity;
@@ -97,6 +101,9 @@ public class CertificateDetailDtoMapper {
         dto.setArchived(certificate.isArchived());
         if (dto instanceof X509CertificateDetail x509Dto) {
             applyX509Details(x509Dto, X509CertificateEntity.from(certificate));
+        }
+        if (dto instanceof CvcCertificateDetail cvcDto) {
+            applyCvcDetails(cvcDto, CvcCertificateEntity.fromOrNull(certificate));
         }
         if (!certificate.getPredecessorRelations().isEmpty()) {
             dto
@@ -237,6 +244,9 @@ public class CertificateDetailDtoMapper {
         if (dto instanceof X509CertificateRequestDetail x509Dto) {
             applyX509RequestDetails(x509Dto, X509CertificateRequestEntity.fromOrNull(request));
         }
+        if (dto instanceof CvcCertificateRequestDetail cvcDto) {
+            applyCvcRequestDetails(cvcDto, CvcCertificateRequestEntity.fromOrNull(request));
+        }
         return dto;
     }
 
@@ -253,6 +263,9 @@ public class CertificateDetailDtoMapper {
         if (X509CertificateEntity.fromOrNull(certificate) != null) {
             return new X509CertificateDetail();
         }
+        if (CvcCertificateEntity.fromOrNull(certificate) != null) {
+            return new CvcCertificateDetail();
+        }
         throw UnsupportedCertificateTypeException.unknownType(certificate.getCertificateType().getCode());
     }
 
@@ -260,7 +273,24 @@ public class CertificateDetailDtoMapper {
         if (X509CertificateRequestEntity.fromOrNull(request) != null) {
             return new X509CertificateRequestDetail();
         }
+        if (CvcCertificateRequestEntity.fromOrNull(request) != null) {
+            return new CvcCertificateRequestDetail();
+        }
         throw UnsupportedCertificateTypeException.unknownType(request.getCertificateType().getCode());
+    }
+
+    private static void applyCvcDetails(CvcCertificateDetail dto, CvcCertificateEntity certificate) {
+        dto.setHolderReference(certificate.getHolderReference());
+        dto.setAuthorityReference(certificate.getAuthorityReference());
+        dto.setRole(certificate.getRole());
+        dto.setAccessRights(certificate.getAccessRights());
+        dto.setEffectiveDate(certificate.getEffectiveDate());
+        dto.setExpirationDate(certificate.getExpirationDate());
+    }
+
+    private static void applyCvcRequestDetails(CvcCertificateRequestDetail dto, CvcCertificateRequestEntity request) {
+        dto.setHolderReference(request.getHolderReference());
+        dto.setAuthorityReference(request.getAuthorityReference());
     }
 
     private static void applyX509Details(X509CertificateDetail dto, X509CertificateEntity certificate) {

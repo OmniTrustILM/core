@@ -8,6 +8,7 @@ import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
 import org.hibernate.Hibernate;
+import org.hibernate.annotations.ColumnDefault;
 
 @Getter
 @Setter
@@ -39,6 +40,8 @@ public class X509CertificateRequestEntity extends CertificateRequestEntity {
     @Column(name = "subject_alternative_names")
     private String subjectAlternativeNames;
 
+    // The default lets a request of another certificate type, which has no key usage, be stored.
+    @ColumnDefault("0")
     @Column(name = "key_usage", nullable = false)
     private int keyUsage;
 }

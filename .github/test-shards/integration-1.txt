@@ -31,6 +31,7 @@ com/otilm/core/integration/dao/DatabaseConnectionHandlingITest.java
 com/otilm/core/integration/dao/entity/CertificatePendingRevokeFieldsITest.java
 com/otilm/core/integration/dao/entity/CertificateTypeViewITest.java
 com/otilm/core/integration/dao/entity/CryptographicKeyItemKeyMetaITest.java
+com/otilm/core/integration/dao/entity/CvcCertificateEntityITest.java
 com/otilm/core/integration/dao/entity/ProtocolCertificateAssociationsCustomAttributesITest.java
 com/otilm/core/integration/dao/entity/RaProfileProtocolAttributeUpdateITest.java
 com/otilm/core/integration/dao/entity/TokenInstanceReferenceConnectorInterfaceITest.java

@@ -1,0 +1,75 @@
+package com.otilm.core.mapper.certificate;
+
+import com.otilm.api.model.core.certificate.CertificateDetail;
+import com.otilm.api.model.core.certificate.CertificateType;
+import com.otilm.api.model.core.certificate.CvcCertificateDetail;
+import com.otilm.api.model.core.certificate.CvcCertificateRequestDetail;
+import com.otilm.api.model.core.enums.CertificateRequestFormat;
+import com.otilm.core.certificate.type.Validity;
+import com.otilm.core.certificate.type.ValidityPrecision;
+import com.otilm.core.dao.entity.CvcCertificateEntity;
+import com.otilm.core.dao.entity.CvcCertificateRequestEntity;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.util.UUID;
+import org.junit.jupiter.api.Test;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+class CertificateDetailDtoMapperCvcTest {
+
+    @Test
+    void mapsTheCvcFieldsAndDates_whenTheCertificateIsCvc() {
+        // given
+        CvcCertificateEntity certificate = aCvcCertificate();
+
+        // when
+        CertificateDetail dto = CertificateDetailDtoMapper.toDetailDto(certificate);
+
+        // then
+        assertThat(dto).isInstanceOf(CvcCertificateDetail.class);
+        CvcCertificateDetail cvc = (CvcCertificateDetail) dto;
+        assertThat(cvc.getCertificateType()).isEqualTo(CertificateType.CVC);
+        assertThat(cvc.getHolderReference()).isEqualTo("SEILMTERM00001");
+        assertThat(cvc.getAuthorityReference()).isEqualTo("SEILMDV00001");
+        assertThat(cvc.getRole()).isEqualTo("terminal");
+        assertThat(cvc.getAccessRights()).isEqualTo("03");
+        assertThat(cvc.getEffectiveDate()).isEqualTo(LocalDate.of(2026, 1, 15));
+        assertThat(cvc.getExpirationDate()).isEqualTo(LocalDate.of(2026, 4, 14));
+    }
+
+    @Test
+    void mapsTheCvcRequestFields_whenTheCertificateWasIssuedFromACvcRequest() throws Exception {
+        // given
+        CvcCertificateEntity certificate = aCvcCertificate();
+        CvcCertificateRequestEntity request = new CvcCertificateRequestEntity();
+        request.setUuid(UUID.randomUUID());
+        request.setCertificateRequestFormat(CertificateRequestFormat.CVC);
+        request.setContent("AAAA");
+        request.setHolderReference("SEILMTERM00001");
+        request.setAuthorityReference("SEILMTERM00000");
+        certificate.setCertificateRequest(request);
+
+        // when
+        CertificateDetail dto = CertificateDetailDtoMapper.toDetailDto(certificate);
+
+        // then
+        assertThat(dto.getCertificateRequest()).isInstanceOf(CvcCertificateRequestDetail.class);
+        CvcCertificateRequestDetail cvc = (CvcCertificateRequestDetail) dto.getCertificateRequest();
+        assertThat(cvc.getHolderReference()).isEqualTo("SEILMTERM00001");
+        assertThat(cvc.getAuthorityReference()).isEqualTo("SEILMTERM00000");
+    }
+
+    private static CvcCertificateEntity aCvcCertificate() {
+        CvcCertificateEntity certificate = new CvcCertificateEntity();
+        certificate.setUuid(UUID.randomUUID());
+        certificate.setHolderReference("SEILMTERM00001");
+        certificate.setAuthorityReference("SEILMDV00001");
+        certificate.setRole("terminal");
+        certificate.setAccessRights("03");
+        certificate
+                .applyValidity(new Validity(Instant.parse("2026-01-15T00:00:00Z"),
+                        Instant.parse("2026-04-14T00:00:00Z"), ValidityPrecision.DATE));
+        return certificate;
+    }
+}

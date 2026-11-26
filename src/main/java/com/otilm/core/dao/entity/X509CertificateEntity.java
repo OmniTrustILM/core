@@ -16,6 +16,7 @@ import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
 import org.hibernate.Hibernate;
+import org.hibernate.annotations.ColumnDefault;
 import org.hibernate.annotations.DynamicUpdate;
 
 @Getter
@@ -92,6 +93,8 @@ public class X509CertificateEntity extends Certificate {
     @Column(name = "qc_cc_legislation")
     private String qcCcLegislation;
 
+    // The default lets a row of another certificate type, which sets neither this nor hybridCertificate, be stored.
+    @ColumnDefault("0")
     @Column(name = "key_usage", nullable = false)
     private int keyUsage;
 
@@ -116,6 +119,7 @@ public class X509CertificateEntity extends Certificate {
     @Column(name = "alt_signature_algorithm")
     private String altSignatureAlgorithm;
 
+    @ColumnDefault("false")
     @Column(name = "hybrid_certificate", nullable = false)
     private boolean hybridCertificate = false;
 
