@@ -11,8 +11,10 @@ import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.logging.enums.OperationResult;
 import com.otilm.core.logging.LoggingHelper;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.security.authn.PlatformAuthenticationException;
 import com.otilm.core.security.authn.PlatformAuthenticationToken;
 import com.otilm.core.security.authn.PlatformUserDetails;
+import com.otilm.core.security.authn.ProtectedResourceChallenge;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
 import com.otilm.core.security.authn.client.PlatformAuthenticationClient;
 import com.otilm.core.security.authn.client.UserManagementApiClient;
@@ -91,10 +93,12 @@ public class AuthHelper {
     /**
      * Served without authentication for {@code GET} alone. {@code /v?/branding} is here because the login page needs
      * the customer's identity before anyone signs in; it returns a purpose-built DTO carrying branding fields and
-     * nothing else. Opening only {@code GET} keeps a write against the path refused by the security chain rather than
-     * by the handler mapping happening to register no other method.
+     * nothing else. The protected resource metadata is here because a client reads it to find where to sign in. Opening
+     * only {@code GET} keeps a write against the path refused by the security chain rather than by the handler mapping
+     * happening to register no other method.
      */
-    public static final List<String> GET_PERMITTED_ENDPOINTS = List.of(BRANDING_ENDPOINT);
+    public static final List<String> GET_PERMITTED_ENDPOINTS = List
+            .of(BRANDING_ENDPOINT, ProtectedResourceChallenge.METADATA_PATH);
     public static final List<String> OAUTH2_ENDPOINTS = List
             .of("/login", "/oauth2/**", "/v?/oauth2/**", "/v?/health/**", "/v?/connector/register");
 
@@ -150,16 +154,37 @@ public class AuthHelper {
      * audit attribution and an actor-less caller stays actor-less.
      */
     public <T, E extends Exception> T runAsSystem(String systemUsername, ThrowingSupplier<T, E> action) throws E {
+        return runAs(() -> authenticateAsSystemUser(systemUsername), action);
+    }
+
+    /**
+     * Runs {@code action} as the given user, then restores the caller's context and actor, as {@link #runAsSystem}
+     * does. Used where the platform completes later, on a thread without a principal, what a user started. The auth
+     * service answers a deleted or disabled user with an anonymous principal instead of an error, so the action does
+     * not run unless the user itself was installed.
+     *
+     * @throws PlatformAuthenticationException when the user could not be authenticated
+     */
+    public <T, E extends Exception> T runAsUser(UUID userUuid, ThrowingSupplier<T, E> action) throws E {
+        return runAs(() -> {
+            authenticateAsUser(userUuid);
+            if (!userUuid.equals(getActingUserUuidOrNull())) {
+                throw new PlatformAuthenticationException("User %s could not be authenticated".formatted(userUuid));
+            }
+        }, action);
+    }
+
+    private <T, E extends Exception> T runAs(Runnable authenticate, ThrowingSupplier<T, E> action) throws E {
         SecurityContext previous = SecurityContextHolder.getContext();
         boolean callerHadAuthentication = previous.getAuthentication() != null;
         Map<String, String> previousActor = LoggingHelper.snapshotActorInfo();
         try {
             SecurityContextHolder.setContext(SecurityContextHolder.createEmptyContext());
-            // Clear before elevating: authenticateAsSystemUser overwrites only the actor type + name, so without this
-            // the caller's uuid/authMethod would linger and audit records from the elevated read would show a mixed
-            // actor (system type/name, caller uuid). The snapshot above restores the caller's actor in finally.
+            // Clear before elevating: authentication overwrites only some actor fields, so without this the caller's
+            // uuid/authMethod would linger and audit records from the scoped step would show a mixed actor. The
+            // snapshot above restores the caller's actor in finally.
             LoggingHelper.clearActorInfo();
-            authenticateAsSystemUser(systemUsername);
+            authenticate.run();
             return action.get();
         } finally {
             if (callerHadAuthentication) {

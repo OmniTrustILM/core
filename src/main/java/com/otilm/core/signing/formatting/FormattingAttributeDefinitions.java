@@ -81,13 +81,13 @@ public class FormattingAttributeDefinitions {
         return published.getDefinitions();
     }
 
-    /** A content-signing formatter's definitions for the operations reached by the workflow's maximum level. */
+    /** A content-signing formatter's definitions for the operations the workflow's level reaches. */
     public ContentSigningFormattingDefinitions forContentSigning(ApiClientConnectorInfo formatter,
             ManagedContentSigningWorkflow workflow) throws SigningEngineException {
         DefinitionsKey key = DefinitionsKey.of(formatter, workflow);
         return definitionsCache.getOrLoad(key, () -> {
             ContentSigningFormattingDefinitions published = fetched(key.connectorUuid(),
-                    () -> contentSigningFormattingAttributes.aggregate(formatter, workflow.maxLevel()));
+                    () -> contentSigningFormattingAttributes.aggregate(formatter, workflow.level()));
             store(key.connectorUuid(), published.all());
             return published;
         });
@@ -134,8 +134,11 @@ public class FormattingAttributeDefinitions {
         }
     }
 
-    /** The store replaces an encrypted attribute's content with a placeholder, which the cached original must keep. */
-    private static List<BaseAttribute> storableCopies(List<BaseAttribute> published) throws AttributeException {
+    /**
+     * Copies the data attributes for the attribute store. The store overwrites an encrypted attribute's content with a
+     * placeholder, and the cached definitions must keep the real content.
+     */
+    public static List<BaseAttribute> storableCopies(List<BaseAttribute> published) throws AttributeException {
         List<BaseAttribute> copies = new ArrayList<>(published.size());
         for (BaseAttribute attribute : published) {
             copies.add(attribute instanceof DataAttribute data ? storableCopy(data) : attribute);

@@ -11,22 +11,18 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.yaml.snakeyaml.Yaml;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Pins what stops an unmerged {@code interfaces} override from reaching {@code main}.
- * <p>
- * Three lines carry the merge block, each removable as a tidy-up: {@code pin-gate} in the aggregate job's
- * {@code needs}; the aggregate's {@code !cancelled()}, without which it is skipped when the gate fails and a skipped
- * required check counts as passing; and its scan failing on a non-successful upstream. A fourth, {@code $MVNARG} on
- * every job that compiles the tree, keeps a coupled pull request from reddening for the wrong reason.
- * <p>
- * All four are silent when they drift, and none surfaces near the edit that caused it. Loads no Spring context, so it
- * does not affect {@link ContextSignatureGuardTest#BASELINE}.
+ * Checks that an active Interfaces override blocks merging and reaches every Interfaces consumer. Build must surface a
+ * failed pin gate because GitHub treats skipped required checks as passing.
  */
 class InterfacesPinGuardTest {
 
@@ -35,21 +31,25 @@ class InterfacesPinGuardTest {
     private static final String GATE_JOB = "pin-gate";
     private static final String AGGREGATE_JOB = "build";
     private static final String OVERRIDE = "$MVNARG";
+    private static final String COMPILED_PIN = "${{ needs.compile.outputs.pinned_interfaces_mvnarg }}";
 
     /** A Maven call anywhere in the line, so that {@code cd x && mvn ...} and the wrapper are seen too. */
     private static final Pattern MAVEN_INVOCATION = Pattern
             .compile("(^|&&\\s*|\\|\\|\\s*|;\\s*|\\|\\s*|\\(\\s*)\\.?/?mvnw?\\s");
 
-    /** Maven lifecycle phases that compile the tree, and so resolve {@code com.otilm:interfaces}. */
+    /** Every default-lifecycle phase from {@code compile} onward compiles the tree, so resolves Interfaces. */
     private static final Set<String> BUILDING_PHASES = Set
-            .of("compile", "test-compile", "test", "package", "verify", "install", "deploy", "process-classes",
-                    "process-test-classes", "integration-test", "prepare-package");
+            .of("compile", "process-classes", "generate-test-sources", "process-test-sources",
+                    "generate-test-resources", "process-test-resources", "test-compile", "process-test-classes", "test",
+                    "prepare-package", "package", "pre-integration-test", "integration-test", "post-integration-test",
+                    "verify", "install", "deploy");
 
-    /**
-     * The jobs that compile the tree today. Asserted explicitly so that a detection which silently stops matching
-     * cannot make {@link #everyTreeBuildingJobPassesTheResolvedOverride()} pass over an empty set.
-     */
-    private static final Set<String> EXPECTED_BUILDING_JOBS = Set.of("compile", "test", "package", "generated");
+    /** Direct Maven goals that consume the Interfaces dependency without compiling. */
+    private static final Set<String> DIRECT_GOALS = Set
+            .of("jacoco:prepare-agent", "surefire:test", "jar:jar", "spring-boot:repackage");
+
+    /** Prevents the override check from passing if detection finds no jobs. */
+    private static final Set<String> EXPECTED_INTERFACES_JOBS = Set.of("compile", "test", "package", "generated");
 
     @Test
     void aggregateJobDependsOnThePinGate() throws IOException {
@@ -80,36 +80,87 @@ class InterfacesPinGuardTest {
     }
 
     @Test
-    void everyTreeBuildingJobPassesTheResolvedOverride() throws IOException {
+    void passesTheResolvedOverride_whenAJobUsesInterfaces() throws Exception {
+        // given
+        Map<String, Object> workflowJobs = jobs();
+
+        // when
         Set<String> missing = new TreeSet<>();
-        jobs()
+        workflowJobs
                 .forEach((name, job) -> mavenInvocations(job)
                         .stream()
-                        .filter(InterfacesPinGuardTest::compilesTheTree)
+                        .filter(InterfacesPinGuardTest::usesInterfaces)
                         .filter(command -> !command.contains(OVERRIDE))
                         .forEach(command -> missing.add(name)));
 
-        assertThat(missing)
-                .describedAs(
-                        "every job running a Maven phase that compiles the tree must pass %s, or a pull request "
-                                + "holding an override builds against the mainline interfaces snapshot instead",
-                        OVERRIDE)
-                .isEmpty();
+        // then
+        assertThat(missing).describedAs("Interfaces consumers must pass %s to honor the PR pin", OVERRIDE).isEmpty();
+        for (String downstream : List.of("test", "package")) {
+            Object downstreamJob = workflowJobs.get(downstream);
+            assertThat(needsOf(downstreamJob)).contains("compile");
+            assertThat(readInterfacesStepPins(downstreamJob))
+                    .describedAs("%s must resolve Interfaces at the version recorded by Compile", downstream)
+                    .isNotEmpty()
+                    .containsOnly(COMPILED_PIN);
+        }
     }
 
     @Test
-    void theDetectionStillRecognisesTheBuildingJobs() throws IOException {
-        Set<String> detected = new TreeSet<>();
-        jobs()
-                .forEach((name, job) -> mavenInvocations(job)
-                        .stream()
-                        .filter(InterfacesPinGuardTest::compilesTheTree)
-                        .forEach(command -> detected.add(name)));
+    void distinguishesCompilingJobs_whenDetectingInterfacesConsumers() throws Exception {
+        // given
+        Map<String, Object> workflowJobs = jobs();
 
-        assertThat(detected)
-                .describedAs("the phase detection must keep matching the jobs that build the tree; a set that shrinks "
-                        + "to nothing would make the override check above pass vacuously")
-                .containsExactlyInAnyOrderElementsOf(EXPECTED_BUILDING_JOBS);
+        // when
+        Set<String> interfacesJobs = jobsRunning(workflowJobs, InterfacesPinGuardTest::usesInterfaces);
+        Set<String> compilingJobs = jobsRunning(workflowJobs, InterfacesPinGuardTest::compilesTheTree);
+
+        // then
+        assertThat(interfacesJobs)
+                .describedAs("Jobs detected as Interfaces consumers")
+                .containsExactlyInAnyOrderElementsOf(EXPECTED_INTERFACES_JOBS);
+        assertThat(compilingJobs)
+                .describedAs("Only Compile and Generated may compile sources")
+                .containsExactlyInAnyOrder("compile", "generated");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "compile",
+            "process-classes",
+            "generate-test-sources",
+            "process-test-sources",
+            "generate-test-resources",
+            "process-test-resources",
+            "test-compile",
+            "process-test-classes",
+            "test",
+            "prepare-package",
+            "package",
+            "pre-integration-test",
+            "integration-test",
+            "post-integration-test",
+            "verify",
+            "install",
+            "deploy"})
+    void treatsAsInterfacesConsumer_whenAStepRunsACompilingPhase(String phase) {
+        // given
+        var phaseInvocation = "./mvnw -B " + phase;
+
+        // when
+        boolean consumer = usesInterfaces(phaseInvocation);
+
+        // then
+        assertThat(consumer).describedAs(phaseInvocation).isTrue();
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static Set<String> jobsRunning(Map<String, Object> workflowJobs, Predicate<String> matches) {
+        Set<String> detected = new TreeSet<>();
+        workflowJobs
+                .forEach((name,
+                        job) -> mavenInvocations(job).stream().filter(matches).forEach(command -> detected.add(name)));
+        return detected;
     }
 
     @SuppressWarnings("unchecked")
@@ -137,9 +188,13 @@ class InterfacesPinGuardTest {
         return source.toString();
     }
 
-    @SuppressWarnings("unchecked")
     private static List<String> needsOf(String jobName) throws IOException {
-        Object needs = ((Map<String, Object>) jobs().get(jobName)).get("needs");
+        return needsOf(job(jobName));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<String> needsOf(Object job) {
+        Object needs = ((Map<String, Object>) job).get("needs");
         return needs instanceof String single ? List.of(single) : (List<String>) needs;
     }
 
@@ -149,23 +204,42 @@ class InterfacesPinGuardTest {
      */
     @SuppressWarnings("unchecked")
     private static List<String> mavenInvocations(Object job) {
-        List<String> invocations = new ArrayList<>();
         Object steps = ((Map<String, Object>) job).get("steps");
         if (steps == null) {
-            return invocations;
+            return List.of();
         }
-        for (Object step : (List<Object>) steps) {
-            Object run = ((Map<String, Object>) step).get("run");
-            if (!(run instanceof String script)) {
-                continue;
+        return ((List<Object>) steps).stream().flatMap(step -> stepMavenInvocations(step).stream()).toList();
+    }
+
+    private static List<String> stepMavenInvocations(Object step) {
+        if (!(((Map<?, ?>) step).get("run") instanceof String script)) {
+            return List.of();
+        }
+        return Arrays
+                .stream(script.replace("\\\n", " ").split("\n"))
+                .map(String::strip)
+                .filter(line -> MAVEN_INVOCATION.matcher(line).find())
+                .toList();
+    }
+
+    /** The {@code env.MVNARG} of each step that runs Maven on Interfaces, null where a step binds none. */
+    @SuppressWarnings("unchecked")
+    private static List<Object> readInterfacesStepPins(Object job) {
+        List<Object> pins = new ArrayList<>();
+        for (Object step : (List<Object>) ((Map<String, Object>) job).getOrDefault("steps", List.of())) {
+            if (stepMavenInvocations(step).stream().anyMatch(InterfacesPinGuardTest::usesInterfaces)) {
+                Map<?, ?> env = (Map<?, ?>) ((Map<?, ?>) step).get("env");
+                pins.add(env == null ? null : env.get("MVNARG"));
             }
-            Arrays
-                    .stream(script.replace("\\\n", " ").split("\n"))
-                    .map(String::strip)
-                    .filter(line -> MAVEN_INVOCATION.matcher(line).find())
-                    .forEach(invocations::add);
         }
-        return invocations;
+        return pins;
+    }
+
+    private static boolean usesInterfaces(String invocation) {
+        return compilesTheTree(invocation) || Arrays
+                .stream(invocation.split("\\s+"))
+                .map(token -> token.split("@", 2)[0])
+                .anyMatch(DIRECT_GOALS::contains);
     }
 
     /**

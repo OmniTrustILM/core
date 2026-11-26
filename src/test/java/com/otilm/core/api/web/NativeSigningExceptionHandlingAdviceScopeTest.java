@@ -113,11 +113,17 @@ class NativeSigningExceptionHandlingAdviceScopeTest {
         return JsonPath.read(response.getContentAsString(), "$.message");
     }
 
-    /** A native endpoint, which the native advice covers because it is assignable to the native controller. */
-    @RestController
+    /**
+     * A native endpoint, covered by the native advice as a subclass of the native controller. Only this test's
+     * standalone MockMvc serves it: component scanning ignores the controller stereotype it inherits.
+     */
     static class FailingNativeSigningController extends NativeSigningControllerImpl {
 
         private Exception failure;
+
+        FailingNativeSigningController() {
+            super(null);
+        }
 
         void failWith(Exception failure) {
             this.failure = failure;

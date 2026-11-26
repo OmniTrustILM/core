@@ -21,4 +21,19 @@ class ProviderKeyPairTest {
         assertThat(items).extracting(ProviderKeyItem::name).containsExactly("signer public key", "signer private key");
         assertThat(items).extracting(ProviderKeyItem::type).containsExactly(KeyType.PUBLIC_KEY, KeyType.PRIVATE_KEY);
     }
+
+    @Test
+    void onboardsThePrivateKeyAlone_whenTheTokenHoldsNoPublicKey() {
+        // given
+        ProviderKeyPair privateKeyAlone = aProviderKeyPair().withoutPublicKey().build();
+
+        // when
+        List<ProviderKeyItem> items = privateKeyAlone.toOnboardedItems("signer");
+
+        // then
+        assertThat(items).singleElement().satisfies(item -> {
+            assertThat(item.name()).isEqualTo("signer private key");
+            assertThat(item.type()).isEqualTo(KeyType.PRIVATE_KEY);
+        });
+    }
 }

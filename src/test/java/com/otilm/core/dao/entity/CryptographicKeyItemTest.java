@@ -34,6 +34,56 @@ class CryptographicKeyItemTest {
         assertThat(CryptographicKeyDtoMapper.getKeyItemsSummary(model).getFirst().getLength()).isNull();
     }
 
+    @Test
+    void carriesTheParameterSet_whenMappedToAnyResponse() {
+        // given
+        CryptographicKeyItem item = keyItem(KeyAlgorithm.MLDSA, KeyType.PRIVATE_KEY, null);
+        item.setParameterSet("ML-DSA-65");
+
+        // when
+        CryptographicKeyItemBasicModel snapshot = CryptographicKeyItemBasicModel.from(item);
+        CryptographicKeyFullModel model = aKeySnapshot().withItems(List.of(snapshot)).build();
+
+        // then
+        assertThat(item.mapToDto().getParameterSet()).isEqualTo("ML-DSA-65");
+        assertThat(item.mapToListDto().getParameterSet()).isEqualTo("ML-DSA-65");
+        assertThat(CryptographicKeyDtoMapper.mapItemToDetailDto(snapshot).getParameterSet()).isEqualTo("ML-DSA-65");
+        assertThat(CryptographicKeyDtoMapper.getKeyItemsSummary(model).getFirst().getParameterSet())
+                .isEqualTo("ML-DSA-65");
+    }
+
+    @Test
+    void reportsTheCustomFormat_whenTheConnectorReportedNone() {
+        // given
+        CryptographicKeyItem item = keyItem(KeyAlgorithm.RSA, KeyType.PRIVATE_KEY, 2048);
+
+        // when
+        CryptographicKeyItemBasicModel snapshot = CryptographicKeyItemBasicModel.from(item);
+        CryptographicKeyFullModel model = aKeySnapshot().withItems(List.of(snapshot)).build();
+
+        // then
+        assertThat(item.mapToDto().getFormat()).isEqualTo(KeyFormat.CUSTOM);
+        assertThat(item.mapToListDto().getFormat()).isEqualTo(KeyFormat.CUSTOM);
+        assertThat(CryptographicKeyDtoMapper.mapItemToDetailDto(snapshot).getFormat()).isEqualTo(KeyFormat.CUSTOM);
+        assertThat(CryptographicKeyDtoMapper.getKeyItemsSummary(model).getFirst().getFormat())
+                .isEqualTo(KeyFormat.CUSTOM);
+    }
+
+    @Test
+    void keepsTheReportedFormat_whenTheConnectorReportedOne() {
+        // given
+        CryptographicKeyItem item = keyItem(KeyAlgorithm.RSA, KeyType.PUBLIC_KEY, 2048);
+        item.setFormat(KeyFormat.SPKI);
+
+        // when
+        KeyFormat detailFormat = item.mapToDto().getFormat();
+        KeyFormat listFormat = item.mapToListDto().getFormat();
+
+        // then
+        assertThat(detailFormat).isEqualTo(KeyFormat.SPKI);
+        assertThat(listFormat).isEqualTo(KeyFormat.SPKI);
+    }
+
     @ParameterizedTest
     @ValueSource(ints = {-1, 0})
     void setLength_storesNull_forLengthBelowOne(int lengthBelowOne) {

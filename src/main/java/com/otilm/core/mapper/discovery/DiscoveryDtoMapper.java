@@ -4,18 +4,22 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.api.model.client.discovery.DiscoveryDetailDto;
 import com.otilm.api.model.client.discovery.DiscoveryListDto;
+import com.otilm.api.model.client.discovery.DiscoveryWindowDto;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredItemPayloadDto;
+import com.otilm.api.model.connector.discovery.v2.DiscoveredKeyDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryDeliveryMode;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.connector.v2.ConnectorInterfaceDto;
 import com.otilm.api.model.core.discovery.DiscoveryItemDto;
 import com.otilm.api.model.core.discovery.DiscoveryMessageDto;
+import com.otilm.api.model.core.discovery.KeyDescriptionDto;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.DiscoveryMessage;
 import com.otilm.core.dao.entity.workflows.Trigger;
 import com.otilm.core.dao.repository.DiscoveryItemRow;
+import com.otilm.core.key.description.DiscoveredKeyDescriber;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.service.handler.discovery.StagedMetadata;
 import com.otilm.core.util.AttributeDefinitionUtils;
@@ -73,6 +77,8 @@ public class DiscoveryDtoMapper {
         dto.setProgress(discovery.getProgress());
         dto.setConnectorInterface(connectorInterfaceOf(discovery));
         dto.setDeliveryMode(deliveryModeOf(discovery));
+        dto.setWindow(windowOf(discovery));
+        dto.setDiscoverSince(discovery.getDiscoverSince());
         // Drain cursor: sequences are dense per run, so the highest received is how many items the connector sent.
         // An unstageable, malformed or repeated item advances it without adding a row. Null for a v1 run, which never
         // moves it, and for a run its connector's delete released before any item arrived.
@@ -115,6 +121,17 @@ public class DiscoveryDtoMapper {
         return isV2Run ? DiscoveryDeliveryMode.BUFFERED : null;
     }
 
+    /** The window the run was asked to cover; null when the run was created without one. */
+    private static DiscoveryWindowDto windowOf(Discovery discovery) {
+        if (discovery.getWindowMode() == null) {
+            return null;
+        }
+        DiscoveryWindowDto window = new DiscoveryWindowDto();
+        window.setMode(discovery.getWindowMode());
+        window.setLookback(discovery.getWindowLookback());
+        return window;
+    }
+
     /** The interface driving the run; null for a v1 run, and for an ended v2 run whose connector was deleted. */
     private static ConnectorInterfaceDto connectorInterfaceOf(Discovery discovery) {
         return discovery.getConnectorInterface() == null ? null : discovery.getConnectorInterface().mapToDto();
@@ -140,7 +157,9 @@ public class DiscoveryDtoMapper {
         dto.setSequence(row.getSequence());
         dto.setUniqueRef(row.getUniqueRef());
         dto.setDiscoveredAt(row.getDiscoveredAt() == null ? null : row.getDiscoveredAt().atOffset(ZoneOffset.UTC));
-        dto.setPayload(read(row.getUuid(), row.getPayload(), DiscoveredItemPayloadDto.class));
+        DiscoveredItemPayloadDto payload = read(row.getUuid(), row.getPayload(), DiscoveredItemPayloadDto.class);
+        dto.setPayload(payload);
+        dto.setKeyDescription(keyDescriptionOf(payload));
         dto.setNewlyDiscovered(row.isNewlyDiscovered());
         dto.setProcessed(row.isProcessed());
         dto.setProcessedError(row.getProcessedError());
@@ -149,6 +168,17 @@ public class DiscoveryDtoMapper {
                 : AttributeDefinitionUtils.deserialize(row.getMeta(), MetadataAttribute.class);
         dto.setMeta(StagedMetadata.unseal(stagedMeta, row.getProtectedMeta()));
         return dto;
+    }
+
+    private static KeyDescriptionDto keyDescriptionOf(DiscoveredItemPayloadDto payload) {
+        if (!(payload instanceof DiscoveredKeyDto key)) {
+            return null;
+        }
+        return DiscoveredKeyDescriber
+                .describe(key)
+                .map(described -> new KeyDescriptionDto(described.algorithm(), described.parameterSet(),
+                        described.length()))
+                .orElse(null);
     }
 
     /**

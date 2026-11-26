@@ -15,11 +15,11 @@ class CryptographicKeyItemBasicModelTest {
     private static final String KEY_DATA = "MIIEvQIBADANBgkqhkiG9w0BAQEFAASC";
 
     @Test
-    void toString_leavesTheKeyDataOut() {
+    void omitsKeyData_whenPrinted() {
         // given
         UUID uuid = UUID.randomUUID();
         CryptographicKeyItemBasicModel model = new CryptographicKeyItemBasicModel(uuid, UUID.randomUUID(), "test-key",
-                new RemoteKeyReference.UuidReference(UUID.randomUUID()), KeyType.PRIVATE_KEY, KeyAlgorithm.RSA,
+                new RemoteKeyReference.UuidReference(UUID.randomUUID()), KeyType.PRIVATE_KEY, KeyAlgorithm.RSA, null,
                 KeyFormat.PRKI, KEY_DATA, 2048, KeyState.ACTIVE, true, List.of(), null, null, false);
 
         // when

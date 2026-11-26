@@ -7,13 +7,16 @@ import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.core.authority.CertificateRevocationReason;
+import com.otilm.api.model.core.certificate.CertificateOperation;
 import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.cmp.CmpTransactionState;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.connector.FunctionGroupCode;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
+import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
@@ -89,6 +92,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -378,6 +382,34 @@ class RevocationMessageHandlerITest extends BaseSpringBootTest {
         // pkiStatus=2 is "rejection" per RFC 4210 §3.2.3.
         assertEquals(2, body.getStatus()[0].getStatus().intValueExact(),
                 "expected pkiStatus=rejection when authority accepts revocation asynchronously");
+    }
+
+    @Test
+    @Transactional
+    void rejectsTheRevocationWithBadRequest_whenTheTypeOfTheCertificateCannotBeRevoked() throws Exception {
+        // given
+        revokedCertificate.setState(CertificateState.ISSUED);
+        revokedCertificate.setRaProfile(raProfile);
+        revokedCertificate.setRaProfileUuid(raProfile.getUuid());
+        certificateRepository.save(revokedCertificate);
+        doThrow(UnsupportedCertificateTypeException
+                .unsupportedOperation(CertificateType.X509.getCode(), CertificateOperation.REVOKE))
+                .when(clientOperationService)
+                .revokeCertificate(any(), any(), any(), any());
+        PKIMessage request = CmpTestUtil
+                .createSignatureBasedMessage("781", CmpTestUtil.generateKeyPairEC().getPrivate(),
+                        CmpTestUtil.createRevocationBody(x509Certificate.getSerialNumber()))
+                .toASN1Structure();
+
+        // when
+        PKIMessage response = testedHandler
+                .handle(request, new Mobile3gppProfileContext(cmpProfileSigPrt, raProfile, request,
+                        certificateKeyService, null, null));
+
+        // then
+        PKIStatusInfo status = ((RevRepContent) response.getBody().getContent()).getStatus()[0];
+        assertThat(status.getStatus().intValueExact()).isEqualTo(PKIStatus.REJECTION);
+        assertThat(status.getFailInfo().intValue() & PKIFailureInfo.badRequest).isEqualTo(PKIFailureInfo.badRequest);
     }
 
     @Test

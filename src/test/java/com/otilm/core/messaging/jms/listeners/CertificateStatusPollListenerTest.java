@@ -33,6 +33,8 @@ import com.otilm.core.service.handler.authority.CertificateOperation;
 import com.otilm.core.service.handler.authority.StatusPollResult;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateRevocationFinalizer;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine;
+import com.otilm.core.service.renewal.auto.AsyncRenewalLocationReplacer;
+import com.otilm.core.service.writer.AcmeOrderWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationAuthorizationWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationWriter;
 import com.otilm.core.service.writer.statuspoll.CertificateStatusPollWriter;
@@ -98,6 +100,10 @@ class CertificateStatusPollListenerTest {
     private CertificateLocationRepository certificateLocationRepository;
     @Mock
     private LocationInternalService locationInternalService;
+    @Mock
+    private AcmeOrderWriter acmeOrderWriter;
+    @Mock
+    private AsyncRenewalLocationReplacer asyncRenewalLocationReplacer;
 
     /**
      * Combined mock implementing both AuthorityProviderAdapter and AsyncOperationCapability. The listener casts the
@@ -112,7 +118,7 @@ class CertificateStatusPollListenerTest {
     private static final UUID CONNECTOR_UUID = UUID.randomUUID();
 
     @BeforeEach
-    void setUp() {
+    void wireListenerAndStubPollSchedule() {
         adapter = mock(AuthorityProviderAdapter.class,
                 Mockito.withSettings().extraInterfaces(AsyncOperationCapability.class));
         asyncAdapter = (AsyncOperationCapability) adapter;
@@ -134,6 +140,8 @@ class CertificateStatusPollListenerTest {
         listener.setCertificateRelationRepository(certificateRelationRepository);
         listener.setCertificateLocationRepository(certificateLocationRepository);
         listener.setLocationInternalService(locationInternalService);
+        listener.setAcmeOrderWriter(acmeOrderWriter);
+        listener.setAsyncRenewalLocationReplacer(asyncRenewalLocationReplacer);
 
         StatusPollProperties.PollSchedule schedule = mock(StatusPollProperties.PollSchedule.class);
         lenient().when(schedule.maxAttempts()).thenReturn(3);
@@ -260,6 +268,39 @@ class CertificateStatusPollListenerTest {
         listener.processMessage(pollMsg(CertificateOperation.ISSUE, 0));
 
         verify(locationInternalService).pushRequestedCertificateToLocationAction(locationId, false);
+    }
+
+    @Test
+    void replacesTheRenewedCertificateInItsLocations_whenARenewalCompletes() throws Exception {
+        // given
+        Certificate cert = certInState(CertificateState.PENDING_ISSUE);
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(asyncAdapter.pollStatus(cert, CertificateOperation.RENEW))
+                .thenReturn(new StatusPollResult(CertificateOperationStatus.COMPLETED, "PEMDATA", null, "OK"));
+        when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+
+        // when
+        listener.processMessage(pollMsg(CertificateOperation.RENEW, 0));
+
+        // then
+        verify(asyncRenewalLocationReplacer).replaceInLocations(CERT_UUID);
+        verify(locationInternalService, never()).pushRequestedCertificateToLocationAction(any(), anyBoolean());
+    }
+
+    @Test
+    void replacesNothing_whenAnIssueCompletes() throws Exception {
+        // given
+        Certificate cert = certInState(CertificateState.PENDING_ISSUE);
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(asyncAdapter.pollStatus(cert, CertificateOperation.ISSUE))
+                .thenReturn(new StatusPollResult(CertificateOperationStatus.COMPLETED, "PEMDATA", null, "OK"));
+        when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+
+        // when
+        listener.processMessage(pollMsg(CertificateOperation.ISSUE, 0));
+
+        // then
+        verifyNoInteractions(asyncRenewalLocationReplacer);
     }
 
     @Test
@@ -577,6 +618,75 @@ class CertificateStatusPollListenerTest {
 
         verify(stateMachine).transition(eq(cert), eq(CertificateState.FAILED), isNull(), anyString());
         verify(pollWriter).delete(CERT_UUID);
+    }
+
+    @Test
+    void recordsTheAuthorityReasonOnTheAcmeOrder_whenTheIssueFails() throws Exception {
+        // given
+        var authorityReason = "CA refused the request: domain is on the deny list";
+        Certificate cert = certInState(CertificateState.PENDING_ISSUE);
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(asyncAdapter.pollStatus(cert, CertificateOperation.ISSUE))
+                .thenReturn(new StatusPollResult(CertificateOperationStatus.FAILED, null, null, authorityReason));
+        when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+
+        // when
+        listener.processMessage(pollMsg(CertificateOperation.ISSUE, 0));
+
+        // then
+        verify(acmeOrderWriter).recordIssuanceFailure(CERT_UUID, authorityReason);
+    }
+
+    @Test
+    void recordsTheTimeoutOnTheAcmeOrder_whenTheLastPollFails() throws Exception {
+        // given
+        var timeoutReason = "Operation ISSUE timed out after the maximum poll attempts";
+        Certificate cert = certInState(CertificateState.PENDING_ISSUE);
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(asyncAdapter.pollStatus(cert, CertificateOperation.ISSUE))
+                .thenThrow(new ConnectorException("network error"));
+        when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+
+        // when
+        listener.processMessage(pollMsg(CertificateOperation.ISSUE, 2));
+
+        // then
+        verify(acmeOrderWriter).recordIssuanceFailure(CERT_UUID, timeoutReason);
+    }
+
+    @Test
+    void recordsNothingOnTheAcmeOrder_whenTheAuthorityReasonQuotesASentSecret() throws Exception {
+        // given
+        var reasonQuotingSecret = "login with s3cr3t-token refused";
+        Certificate cert = certInState(CertificateState.PENDING_ISSUE);
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(asyncAdapter.pollStatus(cert, CertificateOperation.ISSUE))
+                .thenReturn(
+                        new StatusPollResult(CertificateOperationStatus.FAILED, null, null, reasonQuotingSecret, true));
+        when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+
+        // when
+        listener.processMessage(pollMsg(CertificateOperation.ISSUE, 0));
+
+        // then
+        verify(stateMachine).transition(cert, CertificateState.FAILED, null, reasonQuotingSecret);
+        verifyNoInteractions(acmeOrderWriter);
+    }
+
+    @Test
+    void recordsNothingOnAnAcmeOrder_whenARevokeFails() throws Exception {
+        // given
+        Certificate cert = certInState(CertificateState.PENDING_REVOKE);
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(asyncAdapter.pollStatus(cert, CertificateOperation.REVOKE))
+                .thenReturn(new StatusPollResult(CertificateOperationStatus.FAILED, null, null, "CA error"));
+        when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+
+        // when
+        listener.processMessage(pollMsg(CertificateOperation.REVOKE, 0));
+
+        // then
+        verifyNoInteractions(acmeOrderWriter);
     }
 
     @Test

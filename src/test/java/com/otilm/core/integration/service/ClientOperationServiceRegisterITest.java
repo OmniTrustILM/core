@@ -53,6 +53,7 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.certificate.request.IssuanceDefinitionResolver;
+import com.otilm.core.certificate.type.AuthorityCertificateTypes;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
@@ -221,6 +222,9 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     private CertificateRegistrationWriter registrationWriter;
     @MockitoBean
     private AuthorityProviderAdapterFactory adapterFactory;
+    // the adapters here are mocks that report no certificate types, so the type check is taken out
+    @MockitoBean
+    private AuthorityCertificateTypes authorityCertificateTypes;
 
     // Mocked so the test verifies that an async registration schedules a REGISTER poll, without
     // depending on the poll row surviving the background sweep/listener (covered by the v3 integration suite).

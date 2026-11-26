@@ -3,8 +3,12 @@ package com.otilm.core.service.cmp.message.handler;
 import com.otilm.api.interfaces.core.cmp.error.CmpProcessingException;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.core.certificate.CertificateOperation;
 import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CertificateType;
+import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
+import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
@@ -43,12 +47,13 @@ import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -110,23 +115,22 @@ public class KurMessageHandlerTest {
     }
 
     @Test
-    public void test_handleOk() throws Exception {
-        // -- WHEN --
-        String trxId = "779";
+    void answersWithTheRekeyedCertificate_whenTheKeyUpdateNamesAnIssuedCertificate() throws Exception {
+        // given
         PKIMessage request = CmpTestUtil
-                .createKur(trxId, x509Certificate.getSerialNumber(), CmpTestUtil.generateKeyPairEC())
+                .createKur("779", x509Certificate.getSerialNumber(), CmpTestUtil.generateKeyPairEC())
                 .toASN1Structure();
         ConfigurationContext configuration = new Mobile3gppProfileContext(cmpProfile, raProfile, request,
                 certificateKeyService, null, null);
-
-        // -- GIVEN
+        var rekeyed = new ClientCertificateDataResponseDto();
         given(certificateRepository.findBySerialNumberIgnoreCase(any())).willReturn(Optional.of(issuedCertificated));
-        given(clientOperationService.rekeyCertificate(any(), any(), any(), any()))
-                .willReturn(new ClientCertificateDataResponseDto());
+        given(clientOperationService.rekeyCertificateThroughProtocol(any(), any(), any(), any())).willReturn(rekeyed);
 
-        // -- THEN
+        // when
         ClientCertificateDataResponseDto response = tested.handle(request, configuration);
-        assertNotNull(response);
+
+        // then
+        assertThat(response).isSameAs(rekeyed);
     }
 
     @Test
@@ -207,7 +211,7 @@ public class KurMessageHandlerTest {
                 certificateKeyService, null, null);
         configuration.setProtectionCertificate(issuedCertificated);
         given(certificateRepository.findBySerialNumberIgnoreCase(any())).willReturn(Optional.of(issuedCertificated));
-        given(clientOperationService.rekeyCertificate(any(), any(), any(), any()))
+        given(clientOperationService.rekeyCertificateThroughProtocol(any(), any(), any(), any()))
                 .willReturn(new ClientCertificateDataResponseDto());
 
         // when
@@ -216,7 +220,55 @@ public class KurMessageHandlerTest {
         // then
         assertThat(response).isNotNull();
         verify(clientOperationService)
-                .rekeyCertificate(any(), any(), eq(issuedCertificated.getUuid().toString()), any());
+                .rekeyCertificateThroughProtocol(any(), any(), eq(issuedCertificated.getUuid().toString()), any());
     }
 
+    @Test
+    void rejectsWithBadRequestNamingTheOperation_whenTheTypeOfTheCertificateCannotBeRekeyed() throws Exception {
+        // given
+        var refusal = UnsupportedCertificateTypeException
+                .unsupportedOperation(CertificateType.X509.getCode(), CertificateOperation.REKEY);
+        PKIMessage request = CmpTestUtil
+                .createKur("780", x509Certificate.getSerialNumber(), CmpTestUtil.generateKeyPairEC())
+                .toASN1Structure();
+        ConfigurationContext configuration = new Mobile3gppProfileContext(cmpProfile, raProfile, request,
+                certificateKeyService, null, null);
+        configuration.setProtectionCertificate(issuedCertificated);
+        given(certificateRepository.findBySerialNumberIgnoreCase(any())).willReturn(Optional.of(issuedCertificated));
+        given(clientOperationService.rekeyCertificateThroughProtocol(any(), any(), any(), any())).willThrow(refusal);
+
+        // when
+        ThrowingCallable handle = () -> tested.handle(request, configuration);
+
+        // then
+        assertThatThrownBy(handle)
+                .isInstanceOfSatisfying(CmpProcessingException.class,
+                        e -> assertThat(e.getFailureInfo()).isEqualTo(PKIFailureInfo.badRequest))
+                .hasMessageContaining(refusal.getMessage());
+    }
+
+    @Test
+    void rejectsWithBadRequestWithoutRekeying_whenTheTypeOfTheCertificateCannotBeEnrolledThroughCmp() throws Exception {
+        // given
+        var refusal = UnsupportedCertificateTypeException
+                .unsupportedOperation(CertificateType.X509.getCode(), CertificateOperation.ENROLL_CMP);
+        PKIMessage request = CmpTestUtil
+                .createKur("781", x509Certificate.getSerialNumber(), CmpTestUtil.generateKeyPairEC())
+                .toASN1Structure();
+        ConfigurationContext configuration = new Mobile3gppProfileContext(cmpProfile, raProfile, request,
+                certificateKeyService, null, null);
+        configuration.setProtectionCertificate(issuedCertificated);
+        given(certificateRepository.findBySerialNumberIgnoreCase(any())).willReturn(Optional.of(issuedCertificated));
+        willThrow(refusal).given(clientOperationService).requireEnrollmentSupport(any(), eq(CertificateProtocol.CMP));
+
+        // when
+        ThrowingCallable handle = () -> tested.handle(request, configuration);
+
+        // then
+        assertThatThrownBy(handle)
+                .isInstanceOfSatisfying(CmpProcessingException.class,
+                        e -> assertThat(e.getFailureInfo()).isEqualTo(PKIFailureInfo.badRequest))
+                .hasMessageContaining(refusal.getMessage());
+        verify(clientOperationService, never()).rekeyCertificateThroughProtocol(any(), any(), any(), any());
+    }
 }

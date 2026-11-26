@@ -4,6 +4,7 @@ import com.otilm.api.model.client.signing.profile.record.SigningRecordPersistenc
 import com.otilm.api.model.client.signing.profile.scheme.ManagedSigningType;
 import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
+import com.otilm.api.model.common.signature.DocumentTransferMode;
 import com.otilm.api.model.common.signature.SignatureLevel;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.Connector;
@@ -108,9 +109,9 @@ public class SigningProfileVersion extends UniquelyIdentifiedAndAudited {
     @Column(name = "signature_family")
     private String signatureFamily;
 
-    @Column(name = "max_signature_level")
+    @Column(name = "signature_level")
     @Enumerated(EnumType.STRING)
-    private SignatureLevel maxSignatureLevel;
+    private SignatureLevel signatureLevel;
 
     @Column(name = "timestamp_source_profile_uuid")
     private UUID timestampSourceProfileUuid;
@@ -125,6 +126,15 @@ public class SigningProfileVersion extends UniquelyIdentifiedAndAudited {
     @Column(name = "allowed_request_attributes", nullable = false)
     @JdbcTypeCode(SqlTypes.ARRAY)
     private List<String> allowedRequestAttributes = new ArrayList<>();
+
+    /**
+     * Transfer modes the formatting connector's profile validation allowed when this version was saved; empty for a
+     * version it never judged.
+     */
+    @Column(name = "transfer_modes", nullable = false)
+    @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.ARRAY)
+    private List<DocumentTransferMode> transferModes = new ArrayList<>();
 
     @Column(name = "qualified_timestamp")
     private Boolean qualifiedTimestamp;

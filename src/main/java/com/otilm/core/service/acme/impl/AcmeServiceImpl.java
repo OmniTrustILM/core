@@ -7,6 +7,7 @@ import com.nimbusds.jose.jwk.JWK;
 import com.nimbusds.jose.util.Base64URL;
 import com.otilm.api.exception.AcmeProblemDocumentException;
 import com.otilm.api.exception.AttributeException;
+import com.otilm.api.exception.CertificateOperationException;
 import com.otilm.api.exception.CertificateRequestException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
@@ -33,17 +34,22 @@ import com.otilm.api.model.core.acme.ProblemDocument;
 import com.otilm.api.model.core.authority.CertificateRevocationReason;
 import com.otilm.api.model.core.certificate.CertificateChainResponseDto;
 import com.otilm.api.model.core.certificate.CertificateDetail;
+import com.otilm.api.model.core.certificate.CertificateOperation;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
+import com.otilm.api.model.core.v2.ClientCertificateRekeyRequestDto;
+import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.certificate.request.ProtocolRequestAttributeValidator;
 import com.otilm.core.certificate.request.RequestAttributePolicyViolationException;
+import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
+import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.X509CertificateEntity;
@@ -62,6 +68,7 @@ import com.otilm.core.dao.repository.acme.AcmeNonceRepository;
 import com.otilm.core.dao.repository.acme.AcmeOrderRepository;
 import com.otilm.core.logging.LoggingHelper;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
+import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.request.CertificateRequest;
 import com.otilm.core.model.request.Pkcs10CertificateRequest;
 import com.otilm.core.security.authz.ProtocolEndpoint;
@@ -72,7 +79,9 @@ import com.otilm.core.service.acme.AcmeChallengeStateMachine;
 import com.otilm.core.service.acme.AcmeConstants;
 import com.otilm.core.service.acme.AcmeDnsChallengeValidator;
 import com.otilm.core.service.acme.AcmeExternalService;
+import com.otilm.core.service.acme.AcmeHttpChallengeValidator;
 import com.otilm.core.service.acme.ChallengeValidationResult;
+import com.otilm.core.service.acme.ReplacesValidator;
 import com.otilm.core.service.acme.eab.AcmeEabVerifier;
 import com.otilm.core.service.acme.identifier.AcmeCsrIdentifiers;
 import com.otilm.core.service.acme.identifier.AcmeIdentifierPolicy;
@@ -91,14 +100,11 @@ import com.otilm.core.util.X509ObjectToString;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import jakarta.transaction.Transactional;
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.io.StringWriter;
-import java.net.HttpURLConnection;
 import java.net.URI;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.security.InvalidKeyException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.PublicKey;
@@ -119,8 +125,11 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import org.bouncycastle.openssl.jcajce.JcaPEMWriter;
 import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequest;
@@ -151,6 +160,8 @@ public class AcmeServiceImpl implements AcmeExternalService {
     /** Longer than any DNS name or address literal, so a well-formed identifier is never the one that gets cut. */
     private static final int MAX_LISTED_IDENTIFIER_LENGTH = 255;
 
+    private static final AcmeHttpChallengeValidator HTTP_CHALLENGE_VALIDATOR = new AcmeHttpChallengeValidator();
+
     private AcmeNonceRepository acmeNonceRepository;
     private RaProfileRepository raProfileRepository;
     private AcmeProfileRepository acmeProfileRepository;
@@ -163,12 +174,20 @@ public class AcmeServiceImpl implements AcmeExternalService {
     private AcmeChallengeWriter acmeChallengeWriter;
     private AcmeEabVerifier acmeEabVerifier;
     private PlatformTransactionManager transactionManager;
+    private ReplacesValidator replacesValidator;
 
     @PersistenceContext
     private EntityManager entityManager;
 
     private AttributeEngine attributeEngine;
     private ProtocolRequestAttributeValidator protocolRequestAttributeValidator;
+
+    private CertificateTypeHandlerRegistry typeHandlerRegistry;
+
+    @Autowired
+    public void setTypeHandlerRegistry(CertificateTypeHandlerRegistry typeHandlerRegistry) {
+        this.typeHandlerRegistry = typeHandlerRegistry;
+    }
 
     @Autowired
     public void setAcmeChallengeWriter(AcmeChallengeWriter acmeChallengeWriter) {
@@ -241,6 +260,11 @@ public class AcmeServiceImpl implements AcmeExternalService {
         this.certificateService = certificateService;
     }
 
+    @Autowired
+    public void setReplacesValidator(ReplacesValidator replacesValidator) {
+        this.replacesValidator = replacesValidator;
+    }
+
     @Override
     @ProtocolEndpoint
     @Transactional
@@ -263,7 +287,11 @@ public class AcmeServiceImpl implements AcmeExternalService {
         directory.setRevokeCert((replaceUrl + "revoke-cert").formatted(baseUri, acmeProfileName));
         directory.setKeyChange((replaceUrl + "key-change").formatted(baseUri, acmeProfileName));
         try {
-            directory.setMeta(frameDirectoryMeta(acmeProfileName, isRaProfileBased));
+            AcmeProfile acmeProfile = getDirectoryProfile(acmeProfileName, isRaProfileBased);
+            directory.setMeta(frameDirectoryMeta(acmeProfile));
+            if (acmeProfile.isRenewalInfoEnabled()) {
+                directory.setRenewalInfo((replaceUrl + "renewal-info").formatted(baseUri, acmeProfileName));
+            }
         } catch (NotFoundException e) {
             throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.SERVER_INTERNAL,
                     "Given profile name is not found");
@@ -926,6 +954,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
 
         revokeRequest.setReason(reason);
         revokeRequest.setAttributes(getClientOperationAttributes(true, acmeAccount, isRaProfileBased));
+        requireRevocable(cert);
 
         try {
             clientOperationService
@@ -955,7 +984,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
                 + AcmeConstants.ACME_URI_HEADER;
     }
 
-    private DirectoryMeta frameDirectoryMeta(String profileName, boolean isRaProfileBased) throws NotFoundException {
+    private AcmeProfile getDirectoryProfile(String profileName, boolean isRaProfileBased) throws NotFoundException {
         AcmeProfile acmeProfile;
         if (isRaProfileBased) {
             acmeProfile = getRaProfileEntity(profileName).getAcmeProfile();
@@ -965,6 +994,10 @@ public class AcmeServiceImpl implements AcmeExternalService {
         if (acmeProfile == null) {
             throw new NotFoundException(AcmeProfile.class, profileName);
         }
+        return acmeProfile;
+    }
+
+    private DirectoryMeta frameDirectoryMeta(AcmeProfile acmeProfile) {
         DirectoryMeta meta = new DirectoryMeta();
         meta.setCaaIdentities(new String[0]);
         meta.setTermsOfService(acmeProfile.getTermsOfServiceUrl());
@@ -1206,6 +1239,11 @@ public class AcmeServiceImpl implements AcmeExternalService {
         List<Identifier> identifiers = requireIdentifiers(orderRequest);
         // Decided before the first row is written, so an order the profile refuses leaves nothing behind.
         Set<Identifier> preauthorized = resolvePreauthorized(acmeProfile, identifiers);
+        // A profile that does not serve renewal information ignores replaces, as it did before it knew the member.
+        Certificate predecessor = orderRequest.getReplaces() != null && acmeProfile.isRenewalInfoEnabled()
+                ? replacesValidator
+                        .validate(orderRequest.getReplaces(), acmeAccount, identifiers, acmeAccount.getRaProfile())
+                : null;
         AcmeOrder order = new AcmeOrder();
         order.setAcmeAccount(acmeAccount);
         order.setOrderId(AcmeRandomGeneratorAndValidator.generateRandomId());
@@ -1214,6 +1252,10 @@ public class AcmeServiceImpl implements AcmeExternalService {
         order.setNotBefore(readOrderTimestamp(orderRequest.getNotBefore(), "notBefore"));
         order.setIdentifiers(SerializationUtil.serializeIdentifiers(identifiers));
         order.setExpires(AcmeCommonHelper.addSeconds(new Date(), orderValidity(acmeAccount.getAcmeProfile())));
+        if (predecessor != null) {
+            order.setReplacesCertId(orderRequest.getReplaces());
+            order.setReplacesCertificateUuid(predecessor.getUuid());
+        }
         acmeOrderRepository.save(order);
         logger.debug("Order created: {}", order);
 
@@ -1368,8 +1410,6 @@ public class AcmeServiceImpl implements AcmeExternalService {
     private ChallengeValidationResult validateHttpChallenge(AcmeChallenge challenge)
             throws AcmeProblemDocumentException {
         logger.debug("Initiating HTTP-01 Challenge validation: {}", challenge.toString());
-        String identifierValue = identifierValue(challenge);
-        String response = getHttpChallengeResponse(identifierValue.replace("*.", ""), challenge.getToken());
         PublicKey pubKey;
         try {
             pubKey = AcmePublicKeyProcessor
@@ -1377,16 +1417,9 @@ public class AcmeServiceImpl implements AcmeExternalService {
         } catch (Exception e) {
             throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.SERVER_INTERNAL);
         }
-        String expectedResponse = AcmeCommonHelper.createKeyAuthorization(challenge.getToken(), pubKey);
-        logger
-                .debug("HTTP01 validation response from the server: {}, expected response: {}", response,
-                        expectedResponse);
-        if (!response.equals(expectedResponse)) {
-            return ChallengeValidationResult
-                    .failure(Problem.INCORRECT_RESPONSE, "The response served for the HTTP-01 challenge of "
-                            + identifierValue + " does not match the expected key authorization");
-        }
-        return ChallengeValidationResult.success();
+        String expectedKeyAuthorization = AcmeCommonHelper.createKeyAuthorization(challenge.getToken(), pubKey);
+        return HTTP_CHALLENGE_VALIDATOR
+                .validate(identifierValue(challenge), challenge.getToken(), expectedKeyAuthorization);
     }
 
     private ChallengeValidationResult validateDnsChallenge(AcmeChallenge challenge)
@@ -1408,54 +1441,6 @@ public class AcmeServiceImpl implements AcmeExternalService {
                     "Authorization has no identifier");
         }
         return identifier.getValue();
-    }
-
-    private String getHttpChallengeResponse(String domain, String token) throws AcmeProblemDocumentException {
-        return getResponseFollowRedirects(AcmeConstants.HTTP_CHALLENGE_BASE_URL.formatted(domain, token));
-    }
-
-    private String getResponseFollowRedirects(String url) throws AcmeProblemDocumentException {
-        String finalUrl = url;
-        String acmeChallengeOutput = "";
-        int redirectFollowCount = 0;
-        try {
-            HttpURLConnection connection;
-            do {
-                redirectFollowCount += 1;
-                URL urlObject = new URL(finalUrl);
-                if (!(urlObject.getPort() == 80 || urlObject.getPort() == 443 || urlObject.getPort() == -1)) {
-                    throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.TLS,
-                            "Only 80 and 443 ports can be followed");
-                }
-                connection = (HttpURLConnection) new URL(finalUrl).openConnection();
-                connection.setInstanceFollowRedirects(false);
-                connection.setUseCaches(false);
-                connection.setRequestMethod(AcmeConstants.HTTP_CHALLENGE_REQUEST_METHOD);
-                connection.connect();
-                int responseCode = connection.getResponseCode();
-                if (100 <= connection.getResponseCode() && connection.getResponseCode() <= 399) {
-                    BufferedReader bufferedReader = new BufferedReader(
-                            new InputStreamReader(connection.getInputStream()));
-                    acmeChallengeOutput = bufferedReader.lines().collect(Collectors.joining());
-                }
-                if (responseCode >= 300 && responseCode < 400) {
-                    String redirectedUrl = connection.getHeaderField(AcmeConstants.LOCATION_HEADER_NAME);
-                    if (null == redirectedUrl) {
-                        break;
-                    }
-                    finalUrl = redirectedUrl;
-                } else {
-                    break;
-                }
-            } while (connection.getResponseCode() != HttpURLConnection.HTTP_OK
-                    && redirectFollowCount < AcmeConstants.MAX_REDIRECT_COUNT);
-            connection.disconnect();
-        } catch (AcmeProblemDocumentException e) {
-            throw e;
-        } catch (Exception e) {
-            logger.error(e.getMessage());
-        }
-        return acmeChallengeOutput;
     }
 
     private String generateDnsValidationToken(String publicKey, String token) throws AcmeProblemDocumentException {
@@ -1553,29 +1538,120 @@ public class AcmeServiceImpl implements AcmeExternalService {
      * Submits the certificate request of a claimed order and returns the order as it stands afterwards. The submission
      * may have cleared the request's EntityManager and an account deactivation may have changed the order, so the order
      * is read under its lock rather than reused.
+     *
+     * <p>
+     * The certificate is linked to the order before its issue is queued, so that a failure the issue reports at once
+     * finds the order to record its reason on, and only once the requester may read it, so that a refusal fails it
+     * before anything is queued. A request that is not queued, such as one that is not compliant, is checked and linked
+     * once the submission returns. A queued one is not checked again: a failure then would fail the order of a
+     * certificate still being issued.
      */
-    private AcmeOrder createCert(AcmeOrder order, ClientCertificateIssueRequestDto certificateIssueRequestDto) {
-        Certificate certificate;
+    private AcmeOrder createCert(AcmeOrder order, ClientCertificateIssueRequestDto certificateIssueRequestDto)
+            throws AcmeProblemDocumentException {
+        String certificateId = AcmeRandomGeneratorAndValidator.generateRandomId();
+        AtomicReference<UUID> linkedBeforeDispatch = new AtomicReference<>();
+        Consumer<UUID> linkToOrder = submittedUuid -> {
+            UUID readableUuid = readableCertificateUuid(submittedUuid);
+            acmeChallengeWriter.recordFinalizeSubmission(order.getUuid(), certificateId, readableUuid);
+            linkedBeforeDispatch.set(readableUuid);
+        };
+        UUID certificateUuid;
         try {
             if (logger.isDebugEnabled()) {
                 logger
                         .debug("Requesting Certificate for the Order: {} and issue request: {}", order,
                                 certificateIssueRequestDto);
             }
-            ClientCertificateDataResponseDto certificateOutput = clientOperationService
-                    .issueCertificate(SecuredParentUUID
-                            .fromUUID(order.getAcmeAccount().getRaProfile().getAuthorityInstanceReferenceUuid()),
-                            order.getAcmeAccount().getRaProfile().getSecuredUuid(), certificateIssueRequestDto,
-                            CertificateProtocolInfo
-                                    .Acme(order.getAcmeAccount().getAcmeProfileUuid(), order.getAcmeAccountUuid()));
-            certificate = certificateService.getCertificateEntity(SecuredUUID.fromString(certificateOutput.getUuid()));
+            ClientCertificateDataResponseDto certificateOutput = submitCertificateRequest(order,
+                    certificateIssueRequestDto, linkToOrder);
+            certificateUuid = linkedBeforeDispatch.get() != null
+                    ? linkedBeforeDispatch.get()
+                    : readableCertificateUuid(UUID.fromString(certificateOutput.getUuid()));
+        } catch (UnsupportedCertificateTypeException e) {
+            acmeChallengeWriter.failFinalizeSubmission(order.getUuid(), e.getMessage());
+            throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.BAD_CSR, e.getMessage());
         } catch (Exception e) {
             logger.error("Issue Certificate failed. Exception: {}", e.getMessage());
             return acmeChallengeWriter.failFinalizeSubmission(order.getUuid());
         }
-        return acmeChallengeWriter
-                .recordFinalizeSubmission(order.getUuid(), AcmeRandomGeneratorAndValidator.generateRandomId(),
-                        certificate);
+        return acmeChallengeWriter.recordFinalizeSubmission(order.getUuid(), certificateId, certificateUuid);
+    }
+
+    /**
+     * Requests the certificate of an order. The certificate an order replaces is renewed when the CSR keeps its key and
+     * rekeyed when it brings a new one, so that the authority learns what is replaced. When neither would accept the
+     * CSR, the new certificate is issued and related to the replaced one, if that one can still be a predecessor.
+     */
+    private ClientCertificateDataResponseDto submitCertificateRequest(AcmeOrder order,
+            ClientCertificateIssueRequestDto issueRequest, Consumer<UUID> linkToOrder)
+            throws NotFoundException, CertificateException, IOException, NoSuchAlgorithmException, InvalidKeyException,
+            CertificateOperationException, CertificateRequestException, ConnectorException, AttributeException {
+        RaProfile raProfile = order.getAcmeAccount().getRaProfile();
+        SecuredParentUUID authorityUuid = SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid());
+        SecuredUUID raProfileUuid = raProfile.getSecuredUuid();
+        CertificateProtocolInfo protocolInfo = CertificateProtocolInfo
+                .Acme(order.getAcmeAccount().getAcmeProfileUuid(), order.getAcmeAccountUuid());
+        UUID predecessorUuid = order.getReplacesCertificateUuid();
+        if (predecessorUuid == null) {
+            return clientOperationService
+                    .issueCertificate(authorityUuid, raProfileUuid, issueRequest, protocolInfo, linkToOrder);
+        }
+        Optional<ResourceAction> renewal = clientOperationService
+                .renewalFor(authorityUuid, raProfileUuid, predecessorUuid, issueRequest.getRequest(),
+                        issueRequest.getFormat());
+        if (renewal.isEmpty()) {
+            logger.debug("Order {} replaces a certificate that cannot be renewed, issuing anew", order.getOrderId());
+            return clientOperationService
+                    .issueCertificate(authorityUuid, raProfileUuid, issueRequest, protocolInfo, linkToOrder,
+                            relatablePredecessor(predecessorUuid));
+        }
+        String predecessor = predecessorUuid.toString();
+        if (renewal.get() == ResourceAction.RENEW) {
+            ClientCertificateRenewRequestDto renewRequest = new ClientCertificateRenewRequestDto();
+            renewRequest.setRequest(issueRequest.getRequest());
+            renewRequest.setFormat(issueRequest.getFormat());
+            renewRequest.setAttributes(List.of());
+            return clientOperationService
+                    .renewCertificate(authorityUuid, raProfileUuid, predecessor, renewRequest, protocolInfo,
+                            linkToOrder);
+        }
+        ClientCertificateRekeyRequestDto rekeyRequest = new ClientCertificateRekeyRequestDto();
+        rekeyRequest.setRequest(issueRequest.getRequest());
+        rekeyRequest.setFormat(issueRequest.getFormat());
+        rekeyRequest.setAttributes(List.of());
+        return clientOperationService
+                .rekeyCertificate(authorityUuid, raProfileUuid, predecessor, rekeyRequest, protocolInfo, linkToOrder);
+    }
+
+    /**
+     * The certificate an order replaces when it can be the predecessor of a new certificate, which only an issued or
+     * revoked one that still exists can, or null.
+     */
+    UUID relatablePredecessor(UUID predecessorUuid) {
+        CertificateState state;
+        try {
+            state = certificateService.getCertificateEntity(SecuredUUID.fromUUID(predecessorUuid)).getState();
+        } catch (NotFoundException e) {
+            logger.debug("Certificate {} no longer exists, issuing without relating to it", predecessorUuid);
+            return null;
+        }
+        if (state == CertificateState.ISSUED || state == CertificateState.REVOKED) {
+            return predecessorUuid;
+        }
+        logger.debug("Certificate {} cannot be a predecessor, issuing without relating to it", predecessorUuid);
+        return null;
+    }
+
+    /**
+     * The certificate as the requester may read it, which every certificate requested for an order must be.
+     */
+    private UUID readableCertificateUuid(UUID certificateUuid) {
+        try {
+            return certificateService.getCertificateEntity(SecuredUUID.fromUUID(certificateUuid)).getUuid();
+        } catch (NotFoundException e) {
+            throw new IllegalStateException("Certificate " + certificateUuid + " requested for an order was not found",
+                    e);
+        }
     }
 
     protected ByteArrayResource getCertificateResource(String certificateId)
@@ -1829,6 +1905,15 @@ public class AcmeServiceImpl implements AcmeExternalService {
                 .findWithContextByChallengeId(challengeId)
                 .orElseThrow(() -> new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.SERVER_INTERNAL,
                         "Requested challenge is not found"));
+    }
+
+    // checked here and not left to the revocation itself, whose refusal would roll back the answer to the client
+    private void requireRevocable(Certificate certificate) throws AcmeProblemDocumentException {
+        try {
+            typeHandlerRegistry.requireSupport(certificate, CertificateOperation.REVOKE);
+        } catch (UnsupportedCertificateTypeException e) {
+            throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.MALFORMED, e.getMessage());
+        }
     }
 
     /**

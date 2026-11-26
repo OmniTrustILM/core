@@ -15,7 +15,9 @@ import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.protocol.ProtocolChallengeSource;
@@ -30,6 +32,7 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.certificate.request.RequestAttributePolicyViolationException;
+import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
@@ -628,6 +631,12 @@ public class ScepServiceImpl implements ScepExternalService {
             // Reject before issuing when the response could never be delivered, so the platform
             // does not commit a certificate the client can never retrieve (RFC 8894 §3.2.2).
             verifyResponseEnvelopable(scepRequest);
+            try {
+                requireEnrollable(matchedRegistration);
+            } catch (ScepException e) {
+                // answered here, as the refusal concerns no request that Intune would have validated
+                return buildFailedResponse(e, scepRequest.getTransactionId());
+            }
             if (matchedRegistration != null) {
                 return completeRegistration(scepRequest, matchedRegistration);
             }
@@ -709,6 +718,17 @@ public class ScepServiceImpl implements ScepExternalService {
         return getResponseEntity(responseBody, "application/x-pki-message", responseBody.length);
     }
 
+    // Checked before any submission: a refusal raised inside one that joins this transaction would roll it back, and
+    // the client would get no SCEP answer.
+    private void requireEnrollable(Certificate matchedRegistration) throws ScepException {
+        CertificateType type = matchedRegistration != null ? matchedRegistration.getCertificateType() : null;
+        try {
+            clientOperationService.requireEnrollmentSupport(type, CertificateProtocol.SCEP);
+        } catch (UnsupportedCertificateTypeException e) {
+            throw new ScepException(e.getMessage(), e, FailInfo.BAD_REQUEST); // platform-authored, safe
+        }
+    }
+
     private ScepResponse issueCertificate(ScepRequest scepRequest, IntuneScepServiceClient intuneClient)
             throws ScepException {
         if (scepProfile.isIntuneEnabled()) {
@@ -728,7 +748,7 @@ public class ScepServiceImpl implements ScepExternalService {
                     .issueCertificate(raProfile.getAuthorityInstanceReference().getSecuredParentUuid(),
                             raProfile.getSecuredUuid(), requestDto,
                             CertificateProtocolInfo.Scep(scepProfile.getUuid()));
-        } catch (RequestAttributePolicyViolationException e) {
+        } catch (RequestAttributePolicyViolationException | UnsupportedCertificateTypeException e) {
             throw new ScepException(e.getMessage(), e, FailInfo.BAD_REQUEST); // platform-authored, safe
         } catch (CertificateException | NotFoundException | CertificateOperationException e) {
             throw new ScepException("Unable to issue certificate", e, FailInfo.BAD_REQUEST);
@@ -794,7 +814,7 @@ public class ScepServiceImpl implements ScepExternalService {
         try {
             response = clientOperationService
                     .submitCertificateRequest(requestDto, CertificateProtocolInfo.Scep(scepProfile.getUuid()));
-        } catch (RequestAttributePolicyViolationException e) {
+        } catch (RequestAttributePolicyViolationException | UnsupportedCertificateTypeException e) {
             throw new ScepException(e.getMessage(), e, FailInfo.BAD_REQUEST); // platform-authored, safe
         } catch (CertificateException | NotFoundException | NoSuchAlgorithmException | AttributeException
                 | ConnectorException | CertificateRequestException e) {

@@ -55,17 +55,18 @@ import com.otilm.api.model.connector.cryptography.v2.key.ImportKeyResultRequestV
 import com.otilm.api.model.connector.cryptography.v2.key.KeyCreationResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyCreationStatusResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyDataV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.KeyEntryV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyExportableAttribute;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyHandleV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyOperationResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyPairDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyPairOperationStatusResponseV2Dto;
-import com.otilm.api.model.connector.cryptography.v2.key.KeyResolutionOutcome;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyResolutionV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.ListKeysRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.ListKeysResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.ListedKeyPairV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.PrivateKeyDataResponseV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.PrivateKeyDataV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.PublicKeyDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.PublicKeyDataV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.ResolveKeysRequestV2Dto;
@@ -74,7 +75,6 @@ import com.otilm.api.model.connector.cryptography.v2.key.SecretKeyDataResponseV2
 import com.otilm.api.model.connector.cryptography.v2.key.SecretKeyDataV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.SecretKeyOperationStatusResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.TransferableKeyTypeV2Dto;
-import com.otilm.api.model.connector.cryptography.v2.key.UnusableKeyV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.material.EncryptedKeyMaterialV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.CipherDataRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.SignDataRequestV2Dto;
@@ -97,6 +97,9 @@ import com.otilm.core.attribute.engine.AttributeVersionHelper;
 import com.otilm.core.attribute.engine.OutboundSecretContainment;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContent;
 import com.otilm.core.client.CryptographyV2ApiClients;
+import com.otilm.core.key.description.KeyParameters;
+import com.otilm.core.key.description.ProviderKeyItems;
+import com.otilm.core.key.description.ProviderKeyItems.DescribedPair;
 import com.otilm.core.key.normalization.NormalizedKey;
 import com.otilm.core.model.crypto.CryptographicKeyFullModel;
 import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
@@ -104,11 +107,10 @@ import com.otilm.core.model.crypto.KeyImportAttempt;
 import com.otilm.core.model.crypto.KeyImportTerms;
 import com.otilm.core.model.crypto.KeyMaterial;
 import com.otilm.core.model.crypto.KeyOperationScope;
+import com.otilm.core.model.crypto.ProviderKeyEntry;
+import com.otilm.core.model.crypto.ProviderKeyEntryPage;
 import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.ProviderKeyPair;
-import com.otilm.core.model.crypto.ProviderKeyPairPage;
-import com.otilm.core.model.crypto.ProviderKeyPairResolution;
-import com.otilm.core.model.crypto.ProviderUnusableKey;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
 import com.otilm.core.model.crypto.TokenProfileBasicModel;
@@ -130,6 +132,7 @@ import java.util.UUID;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import lombok.extern.slf4j.Slf4j;
+import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
@@ -242,8 +245,7 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
             return keyItems;
         }
         if (body instanceof SecretKeyDataResponseV2Dto secretKey) {
-            ProviderKeyItem secretKeyItem = toKeyItem(keyName, secretKey.getKeyData(), secretKey.getKeyMeta(),
-                    KEPT_ON_TOKEN);
+            ProviderKeyItem secretKeyItem = toSecretKeyItem(keyName, secretKey);
             log
                     .info("A secret key has been created for token profile {} through connector {}; Key reference: {}",
                             tokenProfile.toIdentifierString(), connectorInfo.getUuid(),
@@ -294,13 +296,29 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         PrivateKeyDataResponseV2Dto privateKey = response.getPrivateKeyData();
         String privateKeyName = ProviderKeyPair.privateKeyName(keyName);
         ProviderKeyItem privateKeyItem = toKeyItem(privateKeyName, privateKey.getKeyData(), privateKey.getKeyMeta(),
-                KEPT_ON_TOKEN);
-        return List.of(publicKeyItem, privateKeyItem);
+                storedIdentifier(privateKey, publicKey));
+        DescribedPair described = ProviderKeyItems.describedPair(publicKeyItem, privateKeyItem);
+        return List.of(described.publicKey(), described.privateKey());
     }
 
     private static KeyMaterial spkiMaterial(PublicKeyDataResponseV2Dto publicKey) {
         byte[] publicKeySpki = publicKey.getKeyData().getPublicKeySpki();
         return new KeyMaterial(KeyFormat.SPKI, Base64.getEncoder().encodeToString(publicKeySpki));
+    }
+
+    private static KeyMaterial storedIdentifier(PrivateKeyDataResponseV2Dto privateKey,
+            PublicKeyDataResponseV2Dto publicKey) {
+        byte[] ownIdentifier = privateKey.getKeyData().getAlgorithmIdentifier();
+        if (ownIdentifier != null) {
+            return new KeyMaterial(KeyFormat.ALGORITHM_IDENTIFIER, Base64.getEncoder().encodeToString(ownIdentifier));
+        }
+        if (publicKey == null) {
+            return KEPT_ON_TOKEN;
+        }
+        return KeyParameters
+                .ofSpki(publicKey.getKeyData().getPublicKeySpki())
+                .map(parameters -> new KeyMaterial(KeyFormat.ALGORITHM_IDENTIFIER, parameters.base64Identifier()))
+                .orElse(KEPT_ON_TOKEN);
     }
 
     private ProviderKeyItem toKeyItem(String name, KeyDataV2Dto data, List<MetadataAttribute> keyMeta,
@@ -311,8 +329,21 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
             case SECRET -> KeyType.SECRET_KEY;
         };
         RemoteKeyReference reference = new RemoteKeyReference.MetadataReference(keyMeta);
-        return new ProviderKeyItem(name, type, data.getAlgorithm(), data.getLength(), reference, material,
+        return new ProviderKeyItem(name, type, data.getAlgorithm(), statedLength(data), reference, material,
                 data.getMetadata());
+    }
+
+    private ProviderKeyItem toSecretKeyItem(String keyName, SecretKeyDataResponseV2Dto secretKey) {
+        ProviderKeyItem stated = toKeyItem(keyName, secretKey.getKeyData(), secretKey.getKeyMeta(), KEPT_ON_TOKEN);
+        return ProviderKeyItems.described(stated);
+    }
+
+    private static Integer statedLength(KeyDataV2Dto data) {
+        return switch (data) {
+            case SecretKeyDataV2Dto secretKey -> secretKey.getLength();
+            case PrivateKeyDataV2Dto privateKey -> privateKey.getLength();
+            case PublicKeyDataV2Dto sizedBySpki -> null;
+        };
     }
 
     @Override
@@ -323,9 +354,10 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
     }
 
     @Override
-    public ProviderKeyPairPage listKeyPairs(TokenProfileFullModel tokenProfile, int offset, int limit)
+    public ProviderKeyEntryPage listKeyPairs(TokenProfileFullModel tokenProfile, int offset, int limit)
             throws ConnectorException {
-        TokenProfileScopedRequestV2Dto scope = tokenProfileScopedRequest(tokenProfile);
+        ScopeRows scopeRows = scopeRowsOf(tokenProfile);
+        TokenProfileScopedRequestV2Dto scope = tokenProfileScopedRequest(scopeRows);
         ListKeysRequestV2Dto request = ListKeysRequestV2Dto
                 .builder()
                 .scope(scope)
@@ -337,28 +369,42 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
                 listing -> keyManagementSyncApiClient.listKeys(connectorInfo, listing), request, LIST_REFUSED,
                 LIST_FAILED);
         // The listed metadata reaches the caller and the inventory, so it gets the same containment as a schema.
-        assertNoExpandedSecretEchoed(scope, page);
-        // The client refuses a page holding a key of another type than the request lists.
-        List<ProviderKeyPair> keyPairs = page
-                .getItems()
-                .stream()
-                .map(ListedKeyPairV2Dto.class::cast)
-                .map(this::toListedKeyPair)
-                .toList();
-        List<ProviderUnusableKey> unusableKeys = orEmpty(page.getUnusableKeys())
-                .stream()
-                .map(KeyProviderV2Adapter::toUnusableKey)
-                .toList();
-        return new ProviderKeyPairPage(keyPairs, unusableKeys, page.getTotalItems());
+        Set<String> secrets = scopeSecrets(scopeRows, scope);
+        withholdDiagnosticsQuotingASecret(page.getItems(), secrets);
+        outboundSecretContainment.assertNoExpandedSecretOutbound(page, secrets);
+        List<ProviderKeyEntry> entries = page.getItems().stream().map(this::toKeyPairEntry).toList();
+        return new ProviderKeyEntryPage(entries, page.getTotalItems());
     }
 
-    private static ProviderUnusableKey toUnusableKey(UnusableKeyV2Dto listed) {
-        KeyDataV2Dto keyData = listed.getKeyData();
-        if (keyData == null) {
-            return new ProviderUnusableKey(listed.getStorageName(), listed.getReason(), null, null);
+    /** The client refuses an entry holding a key of another type than the request names. */
+    private ProviderKeyEntry toKeyPairEntry(KeyEntryV2Dto entry) {
+        ProviderKeyPair keyPair = entry.getKey() == null ? null : toListedKeyPair((ListedKeyPairV2Dto) entry.getKey());
+        KeyDataV2Dto keyData = entry.getKeyData();
+        KeyAlgorithm algorithm = keyData == null ? null : keyData.getAlgorithm();
+        Integer length = keyData == null ? null : statedLength(keyData);
+        return new ProviderKeyEntry(entry.getStatus(), entry.getDiagnostic(), entry.getStorageName(), keyPair,
+                algorithm, length, identifierOf(keyData));
+    }
+
+    private static AlgorithmIdentifier identifierOf(KeyDataV2Dto keyData) {
+        if (!(keyData instanceof PrivateKeyDataV2Dto privateKey) || privateKey.getAlgorithmIdentifier() == null) {
+            return null;
         }
-        return new ProviderUnusableKey(listed.getStorageName(), listed.getReason(), keyData.getAlgorithm(),
-                keyData.getLength());
+        return AlgorithmIdentifier.getInstance(privateKey.getAlgorithmIdentifier());
+    }
+
+    /**
+     * A diagnostic quoting a secret loses its text alone, before the echo check, so the rest of the answer still
+     * reaches the caller. A short secret may occur in a diagnostic by chance.
+     */
+    private static void withholdDiagnosticsQuotingASecret(List<? extends KeyEntryV2Dto> entries, Set<String> secrets) {
+        for (KeyEntryV2Dto entry : entries) {
+            String diagnostic = entry.getDiagnostic();
+            if (diagnostic != null
+                    && secrets.stream().anyMatch(secret -> !secret.isEmpty() && diagnostic.contains(secret))) {
+                entry.setDiagnostic(null);
+            }
+        }
     }
 
     /**
@@ -380,20 +426,23 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
 
     private ProviderKeyPair toListedKeyPair(ListedKeyPairV2Dto listed) {
         PrivateKeyDataResponseV2Dto privateKey = listed.getPrivateKeyData();
-        ProviderKeyItem privateKeyItem = toKeyItem(NAMED_ON_ONBOARDING, privateKey.getKeyData(),
-                privateKey.getKeyMeta(), KEPT_ON_TOKEN);
         PublicKeyDataResponseV2Dto publicKey = listed.getPublicKeyData();
-        ProviderKeyItem publicKeyItem = publicKey == null
-                ? null
-                : toKeyItem(NAMED_ON_ONBOARDING, publicKey.getKeyData(), publicKey.getKeyMeta(),
-                        spkiMaterial(publicKey));
-        return new ProviderKeyPair(listed.getKeyPairMeta(), listed.getStorageName(), privateKeyItem, publicKeyItem);
+        ProviderKeyItem privateKeyItem = toKeyItem(NAMED_ON_ONBOARDING, privateKey.getKeyData(),
+                privateKey.getKeyMeta(), storedIdentifier(privateKey, publicKey));
+        if (publicKey == null) {
+            return new ProviderKeyPair(listed.getKeyPairMeta(), ProviderKeyItems.described(privateKeyItem), null);
+        }
+        ProviderKeyItem publicKeyItem = toKeyItem(NAMED_ON_ONBOARDING, publicKey.getKeyData(), publicKey.getKeyMeta(),
+                spkiMaterial(publicKey));
+        DescribedPair described = ProviderKeyItems.describedPair(publicKeyItem, privateKeyItem);
+        return new ProviderKeyPair(listed.getKeyPairMeta(), described.privateKey(), described.publicKey());
     }
 
     @Override
-    public List<ProviderKeyPairResolution> resolveKeyPairs(TokenProfileFullModel tokenProfile,
+    public List<ProviderKeyEntry> resolveKeyPairs(TokenProfileFullModel tokenProfile,
             List<List<MetadataAttribute>> keyPairMetas) throws ConnectorException {
-        TokenProfileScopedRequestV2Dto scope = tokenProfileScopedRequest(tokenProfile);
+        ScopeRows scopeRows = scopeRowsOf(tokenProfile);
+        TokenProfileScopedRequestV2Dto scope = tokenProfileScopedRequest(scopeRows);
         IdentifiedBatch<KeyHandleV2Dto> batch = IdentifiedBatch
                 .of(keyPairMetas, handle -> IDENTIFIED_BY_POSITION,
                         (handle, identifier) -> new KeyHandleV2Dto(identifier, handle));
@@ -407,18 +456,11 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
                 resolution -> keyManagementSyncApiClient.resolveKeys(connectorInfo, resolution), request,
                 RESOLVE_REFUSED, RESOLVE_FAILED);
         // The found pairs reach the caller and the inventory, as a listed page does.
-        assertNoExpandedSecretEchoed(scope, response);
+        Set<String> secrets = scopeSecrets(scopeRows, scope);
+        withholdDiagnosticsQuotingASecret(response.getResults(), secrets);
+        outboundSecretContainment.assertNoExpandedSecretOutbound(response, secrets);
         return inRequestOrder(response.getResults(), batch, KeyResolutionV2Dto::getIdentifier,
-                (result, callerIdentifier) -> toResolution(result));
-    }
-
-    private ProviderKeyPairResolution toResolution(KeyResolutionV2Dto result) {
-        if (result.getOutcome() != KeyResolutionOutcome.FOUND) {
-            return new ProviderKeyPairResolution(result.getOutcome(), null);
-        }
-        // The client refuses an answer holding a key of another type than the request resolves.
-        ProviderKeyPair keyPair = toListedKeyPair((ListedKeyPairV2Dto) result.getKey());
-        return new ProviderKeyPairResolution(KeyResolutionOutcome.FOUND, keyPair);
+                (result, callerIdentifier) -> toKeyPairEntry(result));
     }
 
     @Override
@@ -476,8 +518,7 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
 
     private TokenProfileScopedRequestV2Dto tokenProfileScopedRequest(TokenProfileBasicModel tokenProfile)
             throws ConnectorException {
-        return tokenProfileScopedRequest(
-                new KeyOperationScope(tokenProfile.uuid(), tokenProfile.tokenInstanceReferenceUuid()));
+        return tokenProfileScopedRequest(scopeRowsOf(tokenProfile));
     }
 
     private TokenProfileScopedRequestV2Dto tokenProfileScopedRequest(KeyOperationScope scope)
@@ -493,6 +534,10 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         request.setTokenAttributes(resolvedTokenAttributes);
         request.setTokenProfileAttributes(resolvedTokenProfileAttributes);
         return request;
+    }
+
+    private ScopeRows scopeRowsOf(TokenProfileBasicModel tokenProfile) {
+        return scopeRowsOf(new KeyOperationScope(tokenProfile.uuid(), tokenProfile.tokenInstanceReferenceUuid()));
     }
 
     private ScopeRows scopeRowsOf(KeyOperationScope scope) {
@@ -932,6 +977,13 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         return secrets;
     }
 
+    /** Resolution sends a value the scope stores encrypted as plain content, so only its stored row marks it secret. */
+    private Set<String> scopeSecrets(ScopeRows scopeRows, TokenProfileScopedRequestV2Dto sentScope) {
+        Set<String> secrets = scopeSecrets(sentScope);
+        secrets.addAll(protectedValuesOf(scopeRows, sentScope));
+        return secrets;
+    }
+
     @Override
     public void destroyImportedKeyItem(TokenProfileFullModel tokenProfile, List<MetadataAttribute> keyMeta)
             throws ConnectorException {
@@ -1021,8 +1073,7 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
     private ImportAnswer imported(KeyCreationResponseV2Dto body, String keyName) {
         List<ProviderKeyItem> items = switch (body) {
             case KeyPairDataResponseV2Dto keyPair -> toCreatedKeyPair(keyPair, keyName);
-            case SecretKeyDataResponseV2Dto secretKey ->
-                List.of(toKeyItem(keyName, secretKey.getKeyData(), secretKey.getKeyMeta(), KEPT_ON_TOKEN));
+            case SecretKeyDataResponseV2Dto secretKey -> List.of(toSecretKeyItem(keyName, secretKey));
         };
         return new ImportAnswer.Imported(body.getKeyRequestType(), items);
     }
@@ -1046,12 +1097,11 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         if (heldKey.type() == KeyRequestType.SECRET) {
             SecretKeyDataV2Dto secretKey = new SecretKeyDataV2Dto();
             secretKey.setAlgorithm(heldKey.algorithm());
-            secretKey.setLength(heldKey.length());
+            secretKey.setLength(heldKey.secretKeyLength());
             return secretKey;
         }
         PublicKeyDataV2Dto publicKey = new PublicKeyDataV2Dto();
         publicKey.setAlgorithm(heldKey.algorithm());
-        publicKey.setLength(heldKey.length());
         publicKey.setPublicKeySpki(heldKey.publicKeySpki());
         return publicKey;
     }
@@ -1150,6 +1200,10 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
     /** The cache keeps the answer for its TTL, so it must not hold a value the scope stores encrypted either. */
     private void assertNoProtectedValueEchoed(ScopeRows scopeRows, TokenProfileScopedRequestV2Dto sentScope,
             List<BaseAttribute> definitions) {
+        outboundSecretContainment.assertNoExpandedSecretOutbound(definitions, protectedValuesOf(scopeRows, sentScope));
+    }
+
+    private Set<String> protectedValuesOf(ScopeRows scopeRows, TokenProfileScopedRequestV2Dto sentScope) {
         Set<String> protectedValues = new HashSet<>();
         outboundSecretContainment
                 .recordProtectedValuesFromRequest(scopeRows.tokenRows(), sentScope.getTokenAttributes(),
@@ -1157,15 +1211,11 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         outboundSecretContainment
                 .recordProtectedValuesFromRequest(scopeRows.tokenProfileRows(), sentScope.getTokenProfileAttributes(),
                         protectedValues);
-        outboundSecretContainment.assertNoExpandedSecretOutbound(definitions, protectedValues);
+        return protectedValues;
     }
 
     private void assertNoExpandedSecretEchoed(TokenProfileScopedRequestV2Dto sentScope, Object payload) {
-        Set<String> expandedSecrets = new HashSet<>();
-        outboundSecretContainment.recordExpandedSecretsFromRequest(sentScope.getTokenAttributes(), expandedSecrets);
-        outboundSecretContainment
-                .recordExpandedSecretsFromRequest(sentScope.getTokenProfileAttributes(), expandedSecrets);
-        outboundSecretContainment.assertNoExpandedSecretOutbound(payload, expandedSecrets);
+        outboundSecretContainment.assertNoExpandedSecretOutbound(payload, scopeSecrets(sentScope));
     }
 
     /** Guards expanded secrets and persists the schema so attribute callbacks can resolve against it. */

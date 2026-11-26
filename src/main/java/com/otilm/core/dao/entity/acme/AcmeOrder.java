@@ -3,6 +3,8 @@ package com.otilm.core.dao.entity.acme;
 import com.fasterxml.jackson.annotation.JsonBackReference;
 import com.otilm.api.model.core.acme.Order;
 import com.otilm.api.model.core.acme.OrderStatus;
+import com.otilm.api.model.core.acme.Problem;
+import com.otilm.api.model.core.acme.ProblemDocument;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.UniquelyIdentifiedAndAudited;
 import com.otilm.core.service.acme.AcmeConstants;
@@ -14,6 +16,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
@@ -38,7 +41,10 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 @ToString
 @RequiredArgsConstructor
 @Entity
-@Table(name = "acme_order")
+@Table(name = "acme_order",
+        indexes = {
+                @Index(name = "idx_acme_order_certificate_ref", columnList = "certificate_ref"),
+                @Index(name = "idx_acme_order_replaces_certificate", columnList = "replaces_certificate_uuid")})
 public class AcmeOrder extends UniquelyIdentifiedAndAudited implements Serializable, DtoMapper<Order> {
 
     @Column(name = "order_id")
@@ -79,6 +85,17 @@ public class AcmeOrder extends UniquelyIdentifiedAndAudited implements Serializa
     @Enumerated(EnumType.STRING)
     private OrderStatus status;
 
+    @Column(name = "error_detail", length = Integer.MAX_VALUE)
+    private String errorDetail;
+
+    /** The certificate identifier of RFC 9773 the client named in {@code replaces}, as it sent it. */
+    @Column(name = "replaces_cert_id", length = Integer.MAX_VALUE)
+    private String replacesCertId;
+
+    /** The certificate the order replaces. */
+    @Column(name = "replaces_certificate_uuid")
+    private UUID replacesCertificateUuid;
+
     @JsonBackReference
     @OneToMany(mappedBy = "order", fetch = FetchType.LAZY)
     @ToString.Exclude
@@ -97,7 +114,22 @@ public class AcmeOrder extends UniquelyIdentifiedAndAudited implements Serializa
         order.setNotAfter(AcmeCommonHelper.getStringFromDate(notAfter));
         order.setNotBefore(AcmeCommonHelper.getStringFromDate(notBefore));
         order.setIdentifiers(SerializationUtil.deserializeIdentifiers(identifiers));
+        order.setError(mapErrorToDto());
+        order.setReplaces(replacesCertId);
         return order;
+    }
+
+    /**
+     * Why an invalid order's certificate was not issued, as the problem document the client reads back. An order that
+     * failed for any other reason, such as a failed challenge, reports it elsewhere and carries no error of its own.
+     */
+    private ProblemDocument mapErrorToDto() {
+        if (status != OrderStatus.INVALID || errorDetail == null) {
+            return null;
+        }
+        ProblemDocument error = new ProblemDocument(Problem.SERVER_INTERNAL);
+        error.setDetail(errorDetail);
+        return error;
     }
 
     public void setAcmeAccount(AcmeAccount acmeAccount) {

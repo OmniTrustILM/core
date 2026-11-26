@@ -5,6 +5,7 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
+import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
@@ -12,6 +13,7 @@ import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Common authority-provider operations supported by every interface version (v1 not implemented). Methods take Core's
@@ -127,6 +129,14 @@ public interface AuthorityProviderAdapter {
             throws ConnectorException;
 
     /**
+     * The certificate types the authority issues through the RA profile, never empty. v3 asks the connector and
+     * resolves a connector that does not offer the operation, or lists nothing, to X.509 only; v2 has no such operation
+     * and always answers X.509 only.
+     */
+    Set<CertificateType> listCertificateTypes(AuthorityInstanceReference authority, RaProfile raProfile)
+            throws ConnectorException;
+
+    /**
      * Connector-side validation of operator-supplied issue attributes. v2 calls the connector's {@code /validate}
      * endpoint; v3 is a no-op (the v3 contract dropped {@code /validate} — Core validates structurally against the
      * listed definitions instead).
@@ -140,8 +150,13 @@ public interface AuthorityProviderAdapter {
     void validateRevokeAttributes(AuthorityInstanceReference authority, List<RequestAttribute> attributes)
             throws ValidationException, ConnectorException;
 
-    void checkAuthorityConnection(AuthorityInstanceReference authority, List<RequestAttribute> attributes)
-            throws ValidationException, ConnectorException;
+    /**
+     * Asks the connector to validate the authority attributes and prepare the authority. Returns the metadata the
+     * connector reports for the authority, never {@code null}: v3 returns the metadata of a 200 answer and an empty
+     * list for a 204 or a body without metadata; v2 always returns an empty list.
+     */
+    List<MetadataAttribute> checkAuthorityConnection(AuthorityInstanceReference authority,
+            List<RequestAttribute> attributes) throws ValidationException, ConnectorException;
 
     List<AdapterOperationResult> getCaCertificates(AuthorityInstanceReference authority, RaProfile raProfile)
             throws ConnectorException;

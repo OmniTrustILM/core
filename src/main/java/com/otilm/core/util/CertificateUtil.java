@@ -346,13 +346,18 @@ public class CertificateUtil {
     }
 
     public static X509Certificate parseCertificate(String cert) throws CertificateException {
-        cert = cert
-                .replace("-----BEGIN CERTIFICATE-----", "")
-                .replace("-----END CERTIFICATE-----", "")
-                .replace("\r", "")
-                .replace("\n", "");
-        byte[] decoded = Base64.getDecoder().decode(cert);
-        return getX509Certificate(decoded);
+        return getX509Certificate(decodeCertificateContent(cert));
+    }
+
+    /** The binary content of a certificate given in Base64, with or without the PEM lines of a certificate. */
+    public static byte[] decodeCertificateContent(String cert) {
+        return Base64
+                .getDecoder()
+                .decode(cert
+                        .replace("-----BEGIN CERTIFICATE-----", "")
+                        .replace("-----END CERTIFICATE-----", "")
+                        .replace("\r", "")
+                        .replace("\n", ""));
     }
 
     public static String getThumbprint(byte[] encodedContent) throws NoSuchAlgorithmException {
@@ -413,10 +418,8 @@ public class CertificateUtil {
     }
 
     /**
-     * Sets certificate data fields only; does NOT advance state. Callers routing PENDING_ISSUE-&gt;ISSUED through
-     * {@link com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine} call this before the SM
-     * transition; callers creating new certificate rows that bypass the SM use {@link #prepareIssuedCertificate}
-     * instead.
+     * Sets certificate data fields only and leaves the state as it is: the caller sets it on a new certificate or moves
+     * it through {@link com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine}.
      */
     public static void stampIssuedFields(X509CertificateEntity modal, X509Certificate certificate) {
         modal.setComplianceStatus(ComplianceStatus.NOT_CHECKED);

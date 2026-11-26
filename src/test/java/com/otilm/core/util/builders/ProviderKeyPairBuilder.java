@@ -14,14 +14,14 @@ import static com.otilm.core.util.KeyMetaFixtures.keyIdMeta;
 import static com.otilm.core.util.builders.ProviderKeyItemBuilder.aProviderKeyItem;
 
 /**
- * Builds a key pair as the key provider adapter reads it from a listing: a 2048-bit RSA pair stored as "signer", with a
- * key ID of its own and a freshly generated public key. Tests override only what their scenario turns on.
+ * Builds a key pair as the key provider adapter reads it from a listing: a 2048-bit RSA pair with a key ID of its own
+ * and a freshly generated public key. Tests override only what their scenario turns on.
  */
 public final class ProviderKeyPairBuilder {
 
     private String keyId = UUID.randomUUID().toString();
-    private String storageName = "signer";
     private PublicKey publicKey = TestPublicKeys.rsaPublicKey();
+    private boolean publicKeyOnToken = true;
 
     public static ProviderKeyPairBuilder aProviderKeyPair() {
         return new ProviderKeyPairBuilder();
@@ -32,24 +32,27 @@ public final class ProviderKeyPairBuilder {
         return this;
     }
 
-    public ProviderKeyPairBuilder withStorageName(String storageName) {
-        this.storageName = storageName;
+    public ProviderKeyPairBuilder withPublicKey(PublicKey publicKey) {
+        this.publicKey = publicKey;
         return this;
     }
 
-    public ProviderKeyPairBuilder withPublicKey(PublicKey publicKey) {
-        this.publicKey = publicKey;
+    public ProviderKeyPairBuilder withoutPublicKey() {
+        this.publicKeyOnToken = false;
         return this;
     }
 
     public ProviderKeyPair build() {
         RemoteKeyReference reference = new RemoteKeyReference.MetadataReference(keyIdMeta(keyId));
         ProviderKeyItem privateKeyItem = aProviderKeyItem().withReference(reference).build();
+        if (!publicKeyOnToken) {
+            return new ProviderKeyPair(keyIdMeta(keyId), privateKeyItem, null);
+        }
         ProviderKeyItem publicKeyItem = aProviderKeyItem()
                 .withType(KeyType.PUBLIC_KEY)
                 .withReference(reference)
                 .withMaterial(new KeyMaterial(KeyFormat.SPKI, TestPublicKeys.spkiBase64(publicKey)))
                 .build();
-        return new ProviderKeyPair(keyIdMeta(keyId), storageName, privateKeyItem, publicKeyItem);
+        return new ProviderKeyPair(keyIdMeta(keyId), privateKeyItem, publicKeyItem);
     }
 }

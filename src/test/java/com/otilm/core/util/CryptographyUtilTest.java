@@ -137,7 +137,9 @@ class CryptographyUtilTest {
                 .of(arguments(named("absent material", (KeyMaterial) null)),
                         arguments(named("absent format", new KeyMaterial(null, serializedValue))),
                         arguments(named("absent serialized value", new KeyMaterial(KeyFormat.SPKI, null))),
-                        arguments(named("custom material", new KeyMaterial(KeyFormat.CUSTOM, serializedValue))));
+                        arguments(named("custom material", new KeyMaterial(KeyFormat.CUSTOM, serializedValue))),
+                        arguments(named("AlgorithmIdentifier material",
+                                new KeyMaterial(KeyFormat.ALGORITHM_IDENTIFIER, serializedValue))));
     }
 
     @BeforeAll

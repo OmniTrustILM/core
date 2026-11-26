@@ -2,8 +2,10 @@ package com.otilm.core.security.authz;
 
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.model.auth.ResourceAction;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.Supplier;
 import org.springframework.security.access.AccessDeniedException;
 
 /**
@@ -60,4 +62,14 @@ public interface AuthorizationEnforcer {
      * service (cached).
      */
     boolean isAuthorizedAs(UUID userUuid, Resource resource, ResourceAction action, SecuredUUID objectUuid);
+
+    /**
+     * Runs {@code body} as one batch of decisions for the current principal: the owner and group associations of
+     * {@code objectUuids} are read together in the first query of each kind, and, while the authorization cache is
+     * enabled, a principal allowed all resources is answered without OPA except on resources where it denies an object
+     * (see {@link AllResourcesGrant}). Batches do not nest.
+     *
+     * @throws IllegalStateException when a batch is already running on this thread
+     */
+    <T> T batched(Resource resource, Collection<UUID> objectUuids, Supplier<T> body);
 }

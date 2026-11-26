@@ -38,8 +38,6 @@ import jakarta.persistence.EntityManagerFactory;
 import java.net.URI;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
-import java.sql.ResultSet;
-import java.sql.Statement;
 import java.util.Base64;
 import java.util.Map;
 import java.util.UUID;
@@ -54,7 +52,6 @@ import java.util.concurrent.atomic.AtomicReference;
 import javax.sql.DataSource;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
-import org.hibernate.Session;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -84,11 +81,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 /**
- * ACME finalize must hold no database transaction while it submits the certificate request, or the connection its reads
- * took sits {@code idle in transaction} for the whole submission, and must still write the order only under its lock,
- * so that a second finalize submits nothing and a concurrent account deactivation is not overwritten. Each finalize
- * runs with an EntityManager bound to the thread, as open-in-view binds one, and the action producer is a mock, so the
- * queued request stays queued.
+ * ACME finalize writes the order only under its lock, so that a second finalize submits nothing and a concurrent
+ * account deactivation is not overwritten. Each finalize runs with an EntityManager bound to the thread, as
+ * open-in-view binds one, and the action producer is a mock, so the queued request stays queued.
  */
 @Import(ProducerMocks.class)
 @TypeExcludeFilters(ProducerMocks.MockedProducersTypeExcludeFilter.class)
@@ -99,8 +94,6 @@ class AcmeFinalizeTransactionITest extends BaseSpringBootTest {
     private static final String ORDER_ID = "acmeFinalizeOrder";
     private static final String DOMAIN_NAME = "finalize.example.com";
     private static final String FINALIZE_PATH = "/acme/" + ACME_PROFILE_NAME + "/order/" + ORDER_ID + "/finalize";
-
-    private static final String CONNECTION_STATE = "select state from pg_stat_activity where pid = ?";
 
     private static final String ORDER_LOCK_WAITS = """
             select count(*) from pg_stat_activity
@@ -146,7 +139,6 @@ class AcmeFinalizeTransactionITest extends BaseSpringBootTest {
     private WireMockServer mockServer;
     private KeyPair accountKeys;
     private UUID orderUuid;
-    private EntityManager requestEntityManager;
 
     @BeforeEach
     void seedReadyOrder() throws Exception {
@@ -173,35 +165,9 @@ class AcmeFinalizeTransactionITest extends BaseSpringBootTest {
         mockServer.stop();
     }
 
-    /**
-     * Only the request's own connection is sampled: the test database is shared with every cached context, whose
-     * scheduled jobs may be between two statements of a transaction at any moment.
-     */
+    /** Only this context's pool is counted: the test database is shared with every cached context. */
     @Test
-    void keepsTheRequestsConnectionOutOfATransaction_whenQueuingTheCertificateRequest() throws Exception {
-        // given
-        JdbcTemplate monitor = new JdbcTemplate(dataSource);
-        AtomicReference<String> requestConnectionState = new AtomicReference<>();
-        doAnswer(invocation -> {
-            requestConnectionState
-                    .set(monitor.queryForObject(CONNECTION_STATE, String.class, requestEntityManagerBackend()));
-            return null;
-        }).when(actionProducer).produceMessage(any());
-
-        // when
-        finalizeOrder();
-
-        // then
-        assertThat(requestConnectionState.get()).isEqualTo("idle");
-    }
-
-    /**
-     * The request's EntityManager keeps the connection its first read takes, and nothing else may still hold one once
-     * the request is queued. The submission's own short transactions borrow a second connection while they run, which
-     * this does not see.
-     */
-    @Test
-    void holdsOnlyTheRequestsConnection_whenQueuingTheCertificateRequest() throws Exception {
+    void holdsNoConnection_whenQueuingTheCertificateRequest() throws Exception {
         // given
         HikariPoolMXBean pool = dataSource.unwrap(HikariDataSource.class).getHikariPoolMXBean();
         int activeBeforeTheRequest = pool.getActiveConnections();
@@ -215,7 +181,7 @@ class AcmeFinalizeTransactionITest extends BaseSpringBootTest {
         finalizeOrder();
 
         // then
-        assertThat(activeWhileQueuing.get()).isEqualTo(activeBeforeTheRequest + 1);
+        assertThat(activeWhileQueuing.get()).isEqualTo(activeBeforeTheRequest);
     }
 
     @Test
@@ -423,7 +389,7 @@ class AcmeFinalizeTransactionITest extends BaseSpringBootTest {
         RequestContextHolder
                 .setRequestAttributes(new ServletRequestAttributes(
                         new MockHttpServletRequest("POST", "/v1/protocols" + FINALIZE_PATH)));
-        requestEntityManager = entityManagerFactory.createEntityManager();
+        EntityManager requestEntityManager = entityManagerFactory.createEntityManager();
         TransactionSynchronizationManager
                 .bindResource(entityManagerFactory, new EntityManagerHolder(requestEntityManager));
         try {
@@ -433,16 +399,6 @@ class AcmeFinalizeTransactionITest extends BaseSpringBootTest {
             requestEntityManager.close();
             RequestContextHolder.resetRequestAttributes();
         }
-    }
-
-    private long requestEntityManagerBackend() {
-        return requestEntityManager.unwrap(Session.class).doReturningWork(connection -> {
-            try (Statement statement = connection.createStatement();
-                    ResultSet backend = statement.executeQuery("select pg_backend_pid()")) {
-                backend.next();
-                return backend.getLong(1);
-            }
-        });
     }
 
     /** Reads the order on an EntityManager of its own, so it sees only what has been committed. */

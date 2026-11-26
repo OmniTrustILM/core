@@ -11,9 +11,11 @@ import com.otilm.api.interfaces.core.cmp.error.CmpProcessingException;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.cmp.CmpTransactionState;
+import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.api.model.core.v2.ClientCertificateRekeyRequestDto;
+import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.X509CertificateEntity;
@@ -50,7 +52,6 @@ import org.bouncycastle.asn1.crmf.Controls;
 import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * <p>
@@ -67,8 +68,8 @@ import org.springframework.transaction.annotation.Transactional;
  * "https://doc.primekey.com/bouncycastle/how-to-guides-pki-at-the-edge/how-to-generate-key-pairs-and-certification-requests#HowtoGenerateKeyPairsandCertificationRequests-GenerateCRMFCertificationRequestusingCMP">How
  * to generate CRMF request</a>
  */
+// Not @Transactional: a transaction here would keep its connection while the submission takes another.
 @Component
-@Transactional
 public class CrmfKurMessageHandler implements MessageHandler<ClientCertificateDataResponseDto> {
 
     private CertificateRepository certificateRepository;
@@ -157,10 +158,17 @@ public class CrmfKurMessageHandler implements MessageHandler<ClientCertificateDa
                 dtoBuilder.authorizationSecret(configuration.getMatchedChallenge());
             }
             RaProfile raProfile = configuration.getRaProfile();
+            // the rekey below carries no protocol information, so that the new certificate inherits its attribution
+            clientOperationService
+                    .requireEnrollmentSupport(dbCertificate.getCertificateType(), CertificateProtocol.CMP);
             // -- (1)certification request (ask for issue)
             return clientOperationService
-                    .rekeyCertificate(SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
+                    .rekeyCertificateThroughProtocol(
+                            SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
                             raProfile.getSecuredUuid(), certificateUUID, dtoBuilder.build());
+        } catch (UnsupportedCertificateTypeException e) {
+            // before the catch below, which would report it as a registration rejection
+            throw new CmpProcessingException(tid, PKIFailureInfo.badRequest, e.getMessage());
         } catch (ValidationException e) {
             // Gate/completion denial (e.g. the authorization expired or locked between the protection-layer
             // MAC check and this re-gate) — surface the single generic rejection, as ir/cr does.

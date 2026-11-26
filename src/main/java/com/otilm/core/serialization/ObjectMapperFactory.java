@@ -214,6 +214,20 @@ public final class ObjectMapperFactory {
     }
 
     /**
+     * The key-handle digest recipe. Every setting is load-bearing: the serialized bytes are hashed and stored, so any
+     * change would rewrite every stored handle digest and let keys already in the inventory be onboarded again.
+     */
+    public static ObjectMapper keyHandleDigest() {
+        return JsonMapper
+                .builder()
+                .addModule(new JavaTimeModule())
+                .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+                .enable(MapperFeature.SORT_PROPERTIES_ALPHABETICALLY)
+                .enable(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS)
+                .build();
+    }
+
+    /**
      * The JMS-message recipe. It takes the container's builder as a parameter, which a static context cannot reach, so
      * that Spring Boot's Jackson autoconfiguration still applies.
      */

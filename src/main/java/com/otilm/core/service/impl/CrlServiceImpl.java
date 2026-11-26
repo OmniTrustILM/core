@@ -134,6 +134,7 @@ public class CrlServiceImpl implements CrlService {
                 if (crlStoredMeanwhile != null && !isDue(crlStoredMeanwhile, certificate)) {
                     return crlStoredMeanwhile.getUuid();
                 }
+                rethrowRecentFailureOfFirstDownload(certificate, crlStoredMeanwhile, issuerDn, issuerSerialNumber);
                 return crlDownloadGuard
                         .withDownloadPermit(
                                 () -> readCurrentCrl(certificate, issuerCertificate, issuerDn, issuerSerialNumber));
@@ -148,6 +149,23 @@ public class CrlServiceImpl implements CrlService {
             }
             return crlStoredNow.getUuid();
         }
+    }
+
+    /**
+     * A remembered failure needs no permit. Only the first required download matters here because a due base CRL must
+     * be refreshed even when the delta CRL has a remembered failure.
+     */
+    private void rethrowRecentFailureOfFirstDownload(X509Certificate certificate, Crl storedCrl, String issuerDn,
+            String issuerSerialNumber) throws IOException {
+        String downloadKey;
+        if (storedCrl == null || isBaseCrlDue(storedCrl)) {
+            byte[] crlDistributionPoints = certificate.getExtensionValue(Extension.cRLDistributionPoints.getId());
+            downloadKey = downloadKey("base", issuerDn, issuerSerialNumber, crlDistributionPoints);
+        } else {
+            byte[] freshestCrl = certificate.getExtensionValue(Extension.freshestCRL.getId());
+            downloadKey = downloadKey("delta", issuerDn, issuerSerialNumber, freshestCrl);
+        }
+        crlDownloadGuard.rethrowRecentFailure(downloadKey);
     }
 
     private static boolean isDue(Crl crl, X509Certificate certificate) {

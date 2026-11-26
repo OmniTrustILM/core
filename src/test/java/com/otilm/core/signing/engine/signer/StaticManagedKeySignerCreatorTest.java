@@ -255,13 +255,11 @@ class StaticManagedKeySignerCreatorTest {
             var message = new byte[]{1, 2, 3};
             var jdkSignature = signWithJdk(keyPair, message);
             given(cryptographicOperationService
-                    .signDataWithoutEventHistory(any(), any(), any(), any(), any(),
-                            eq(SignatureInputMode.PREHASHED_DIGEST)))
+                    .signDataWithoutEventHistory(any(), any(), any(), any(), any(), eq(SignatureInputMode.DATA_DIGEST)))
                     .willReturn(answerWithSignature(jdkSignature));
 
             // when
-            List<byte[]> signatures = signer
-                    .signAll(List.of(hashWithSha256(message)), SignatureInputMode.PREHASHED_DIGEST);
+            List<byte[]> signatures = signer.signAll(List.of(hashWithSha256(message)), SignatureInputMode.DATA_DIGEST);
 
             // then
             assertThat(signatures).containsExactly(jdkSignature);
@@ -274,13 +272,12 @@ class StaticManagedKeySignerCreatorTest {
             var message = new byte[]{1, 2, 3};
             var signatureByAnotherKey = signWithJdk(generateKeyPair(), message);
             given(cryptographicOperationService
-                    .signDataWithoutEventHistory(any(), any(), any(), any(), any(),
-                            eq(SignatureInputMode.PREHASHED_DIGEST)))
+                    .signDataWithoutEventHistory(any(), any(), any(), any(), any(), eq(SignatureInputMode.DATA_DIGEST)))
                     .willReturn(answerWithSignature(signatureByAnotherKey));
 
             // when
             ThrowingCallable signDigest = () -> signer
-                    .signAll(List.of(hashWithSha256(message)), SignatureInputMode.PREHASHED_DIGEST);
+                    .signAll(List.of(hashWithSha256(message)), SignatureInputMode.DATA_DIGEST);
 
             // then
             assertThatThrownBy(signDigest).isInstanceOfSatisfying(SigningEngineException.class, ex -> {

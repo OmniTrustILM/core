@@ -31,6 +31,7 @@ import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.RsaSignatureScheme;
 import com.otilm.api.model.common.signature.SignatureLevel;
 import com.otilm.core.util.SignatureFamilyFixtures;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.UUID;
 
@@ -127,6 +128,14 @@ public class SigningProfileRequestDtoBuilder {
         return withWorkflow(new RawSigningWorkflowRequestDto());
     }
 
+    public SigningProfileRequestDtoBuilder withRawSigning(boolean requireNonRepudiation,
+            String... requiredExtendedKeyUsageOids) {
+        RawSigningWorkflowRequestDto raw = new RawSigningWorkflowRequestDto();
+        raw.setRequireNonRepudiation(requireNonRepudiation);
+        raw.setRequiredExtendedKeyUsageOids(new LinkedHashSet<>(List.of(requiredExtendedKeyUsageOids)));
+        return withWorkflow(raw);
+    }
+
     public SigningProfileRequestDtoBuilder withDelegatedContentSigning() {
         return withWorkflow(new ContentSigningWorkflowRequestDto());
     }
@@ -135,7 +144,7 @@ public class SigningProfileRequestDtoBuilder {
         ContentSigningWorkflowRequestDto contentSigningWorkflow = new ContentSigningWorkflowRequestDto();
         contentSigningWorkflow.setSignatureFormattingConnectorUuid(signatureFormattingConnectorUuid);
         contentSigningWorkflow.setFamily(SignatureFamilyFixtures.PADES);
-        contentSigningWorkflow.setMaxLevel(SignatureLevel.SIGNED);
+        contentSigningWorkflow.setLevel(SignatureLevel.SIGNED);
         return withWorkflow(contentSigningWorkflow);
     }
 
@@ -192,7 +201,14 @@ public class SigningProfileRequestDtoBuilder {
 
     private static WorkflowRequestDto workflowRequestFromDto(WorkflowDto workflow) {
         return switch (workflow) {
-            case RawSigningWorkflowDto ignored -> new RawSigningWorkflowRequestDto();
+            case RawSigningWorkflowDto r -> {
+                RawSigningWorkflowRequestDto req = new RawSigningWorkflowRequestDto();
+                if (r.isRequireNonRepudiation()) {
+                    req.setRequireNonRepudiation(true);
+                }
+                req.setRequiredExtendedKeyUsageOids(r.getRequiredExtendedKeyUsageOids());
+                yield req;
+            }
             case ContentSigningWorkflowDto c -> {
                 ContentSigningWorkflowRequestDto req = new ContentSigningWorkflowRequestDto();
                 if (c.getSignatureFormattingConnector() != null) {
@@ -204,7 +220,7 @@ public class SigningProfileRequestDtoBuilder {
                         .setSignatureFormattingConnectorAttributes(
                                 requestAttributesFromResponse(c.getSignatureFormattingConnectorAttributes()));
                 req.setFamily(c.getFamily());
-                req.setMaxLevel(c.getMaxLevel());
+                req.setLevel(c.getLevel());
                 if (c.isRequireNonRepudiation()) {
                     req.setRequireNonRepudiation(true);
                 }
