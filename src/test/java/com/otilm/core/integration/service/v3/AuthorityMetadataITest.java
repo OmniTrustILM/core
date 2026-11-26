@@ -111,40 +111,41 @@ class AuthorityMetadataITest extends BaseSpringBootTest {
     void storesTheReportedMetadata_whenAnAuthorityIsCreated() throws Exception {
         // given
         var accountUrl = "https://acme.example/acct/1";
-        stubConnectionCheck(metadataAnswer(metadataJson(ACCOUNT_URL, accountUrl)));
+        stubConnectionCheck(buildMetadataAnswer(buildMetadataJson(ACCOUNT_URL, accountUrl)));
         var request = new AuthorityInstanceRequestDto();
         request.setName("created-v3-authority");
         request.setConnectorUuid(authority.getConnectorUuid().toString());
         request.setInterfaceUuid(authority.getConnectorInterfaceUuid());
-        request.setAttributes(directoryUrlAttribute("https://acme.example/directory"));
+        request.setAttributes(buildDirectoryUrlAttributes("https://acme.example/directory"));
 
         // when
         AuthorityInstanceDto created = authorityInstanceService.createAuthorityInstance(request);
 
         // then
-        assertThat(metadataOf(created.getUuid())).containsExactly(Map.entry(ACCOUNT_URL, accountUrl));
+        assertThat(loadMetadataValues(created.getUuid())).containsExactly(Map.entry(ACCOUNT_URL, accountUrl));
     }
 
     @Test
     void replacesTheWholeMetadataSet_whenAnAuthorityIsEdited() throws Exception {
         // given
-        stubConnectionCheck(metadataAnswer(metadataJson(ACCOUNT_URL, "https://acme.example/acct/1") + ","
-                + metadataJson(KEY_THUMBPRINT, "old-thumbprint")));
+        stubConnectionCheck(buildMetadataAnswer(buildMetadataJson(ACCOUNT_URL, "https://acme.example/acct/1") + ","
+                + buildMetadataJson(KEY_THUMBPRINT, "old-thumbprint")));
         edit("https://acme.example/directory");
         var newAccountUrl = "https://acme.example/acct/2";
-        stubConnectionCheck(metadataAnswer(metadataJson(ACCOUNT_URL, newAccountUrl)));
+        stubConnectionCheck(buildMetadataAnswer(buildMetadataJson(ACCOUNT_URL, newAccountUrl)));
 
         // when
         edit("https://acme.example/directory");
 
         // then
-        assertThat(metadataOf(authority.getUuid().toString())).containsExactly(Map.entry(ACCOUNT_URL, newAccountUrl));
+        assertThat(loadMetadataValues(authority.getUuid().toString()))
+                .containsExactly(Map.entry(ACCOUNT_URL, newAccountUrl));
     }
 
     @Test
     void clearsTheMetadata_whenTheConnectorReportsNone() throws Exception {
         // given
-        stubConnectionCheck(metadataAnswer(metadataJson(ACCOUNT_URL, "https://acme.example/acct/1")));
+        stubConnectionCheck(buildMetadataAnswer(buildMetadataJson(ACCOUNT_URL, "https://acme.example/acct/1")));
         edit("https://acme.example/directory");
         stubConnectionCheck(aResponse().withStatus(204));
 
@@ -152,7 +153,7 @@ class AuthorityMetadataITest extends BaseSpringBootTest {
         edit("https://acme.example/directory");
 
         // then
-        assertThat(metadataOf(authority.getUuid().toString())).isEmpty();
+        assertThat(loadMetadataValues(authority.getUuid().toString())).isEmpty();
     }
 
     @Test
@@ -160,7 +161,7 @@ class AuthorityMetadataITest extends BaseSpringBootTest {
         // given
         var accountUrl = "https://acme.example/acct/1";
         var directoryUrl = "https://acme.example/directory";
-        stubConnectionCheck(metadataAnswer(metadataJson(ACCOUNT_URL, accountUrl)));
+        stubConnectionCheck(buildMetadataAnswer(buildMetadataJson(ACCOUNT_URL, accountUrl)));
         edit(directoryUrl);
         stubConnectionCheck(aResponse().withStatus(500));
 
@@ -169,9 +170,10 @@ class AuthorityMetadataITest extends BaseSpringBootTest {
 
         // then
         assertThatThrownBy(editWithFailingCheck).isInstanceOf(ConnectorException.class);
-        assertThat(dataAttributesOf(authority.getUuid().toString()))
+        assertThat(loadDataAttributeValues(authority.getUuid().toString()))
                 .containsExactly(Map.entry(DIRECTORY_URL, directoryUrl));
-        assertThat(metadataOf(authority.getUuid().toString())).containsExactly(Map.entry(ACCOUNT_URL, accountUrl));
+        assertThat(loadMetadataValues(authority.getUuid().toString()))
+                .containsExactly(Map.entry(ACCOUNT_URL, accountUrl));
     }
 
     @Test
@@ -179,24 +181,24 @@ class AuthorityMetadataITest extends BaseSpringBootTest {
         // given
         var directoryUrl = "https://acme.example/directory";
         var accountUrl = "https://acme.example/acct/1";
-        stubConnectionCheck(metadataAnswer(
-                metadataJson(ACCOUNT_URL, accountUrl) + "," + metadataJson(KEY_THUMBPRINT, "old-thumbprint")));
+        stubConnectionCheck(buildMetadataAnswer(buildMetadataJson(ACCOUNT_URL, accountUrl) + ","
+                + buildMetadataJson(KEY_THUMBPRINT, "old-thumbprint")));
         edit(directoryUrl);
         var metadataWithoutData = """
                 {"version": 3, "uuid": "%s", "name": "%s", "type": "meta", "contentType": "string",
                  "content": [{"contentType": "string"}], "properties": {"label": "%s", "visible": true, "overwrite": true}}
                 """
                 .formatted(UUID.nameUUIDFromBytes(ACCOUNT_URL.getBytes()), ACCOUNT_URL, ACCOUNT_URL);
-        stubConnectionCheck(metadataAnswer(metadataWithoutData));
+        stubConnectionCheck(buildMetadataAnswer(metadataWithoutData));
 
         // when
         ThrowingCallable editStoringMalformedMetadata = () -> edit("https://other.example/directory");
 
         // then
         assertThatThrownBy(editStoringMalformedMetadata).isInstanceOf(AttributeException.class);
-        assertThat(dataAttributesOf(authority.getUuid().toString()))
+        assertThat(loadDataAttributeValues(authority.getUuid().toString()))
                 .containsExactly(Map.entry(DIRECTORY_URL, directoryUrl));
-        assertThat(metadataOf(authority.getUuid().toString()))
+        assertThat(loadMetadataValues(authority.getUuid().toString()))
                 .containsOnly(Map.entry(ACCOUNT_URL, accountUrl), Map.entry(KEY_THUMBPRINT, "old-thumbprint"));
     }
 
@@ -208,12 +210,12 @@ class AuthorityMetadataITest extends BaseSpringBootTest {
                  "content": [{"contentType": "string"}], "properties": {"label": "%s", "visible": true, "overwrite": true}}
                 """
                 .formatted(UUID.nameUUIDFromBytes(ACCOUNT_URL.getBytes()), ACCOUNT_URL, ACCOUNT_URL);
-        stubConnectionCheck(metadataAnswer(metadataWithoutData));
+        stubConnectionCheck(buildMetadataAnswer(metadataWithoutData));
         var request = new AuthorityInstanceRequestDto();
         request.setName("rolled-back-v3-authority");
         request.setConnectorUuid(authority.getConnectorUuid().toString());
         request.setInterfaceUuid(authority.getConnectorInterfaceUuid());
-        request.setAttributes(directoryUrlAttribute("https://acme.example/directory"));
+        request.setAttributes(buildDirectoryUrlAttributes("https://acme.example/directory"));
         long authoritiesBefore = authorityInstanceReferenceRepository.count();
         long attributeMappingsBefore = attributeContent2ObjectRepository.count();
 
@@ -231,7 +233,7 @@ class AuthorityMetadataITest extends BaseSpringBootTest {
     void showsTheMetadata_whenTheConnectorWasDeleted() throws Exception {
         // given
         var accountUrl = "https://acme.example/acct/1";
-        stubConnectionCheck(metadataAnswer(metadataJson(ACCOUNT_URL, accountUrl)));
+        stubConnectionCheck(buildMetadataAnswer(buildMetadataJson(ACCOUNT_URL, accountUrl)));
         edit("https://acme.example/directory");
         authority.setConnector(null);
         authority.setConnectorUuid(null);
@@ -242,13 +244,13 @@ class AuthorityMetadataITest extends BaseSpringBootTest {
 
         // then
         assertThat(detail.getConnectorName()).endsWith("(Deleted)");
-        assertThat(metadataValues(detail.getMetadata())).containsExactly(Map.entry(ACCOUNT_URL, accountUrl));
+        assertThat(extractMetadataValues(detail.getMetadata())).containsExactly(Map.entry(ACCOUNT_URL, accountUrl));
     }
 
     @Test
     void removesTheMetadata_whenTheAuthorityIsDeleted() throws Exception {
         // given
-        stubConnectionCheck(metadataAnswer(metadataJson(ACCOUNT_URL, "https://acme.example/acct/1")));
+        stubConnectionCheck(buildMetadataAnswer(buildMetadataJson(ACCOUNT_URL, "https://acme.example/acct/1")));
         edit("https://acme.example/directory");
 
         // when
@@ -267,16 +269,16 @@ class AuthorityMetadataITest extends BaseSpringBootTest {
 
     private void edit(String directoryUrl) throws Exception {
         var request = new AuthorityInstanceUpdateRequestDto();
-        request.setAttributes(directoryUrlAttribute(directoryUrl));
+        request.setAttributes(buildDirectoryUrlAttributes(directoryUrl));
         authorityInstanceService.editAuthorityInstance(authority.getSecuredUuid(), request);
     }
 
-    private Map<String, Object> metadataOf(String authorityUuid) throws Exception {
-        return metadataValues(
+    private Map<String, Object> loadMetadataValues(String authorityUuid) throws Exception {
+        return extractMetadataValues(
                 authorityInstanceService.getAuthorityInstance(SecuredUUID.fromString(authorityUuid)).getMetadata());
     }
 
-    private Map<String, Object> dataAttributesOf(String authorityUuid) throws Exception {
+    private Map<String, Object> loadDataAttributeValues(String authorityUuid) throws Exception {
         Map<String, Object> values = new LinkedHashMap<>();
         for (ResponseAttribute attribute : authorityInstanceService
                 .getAuthorityInstance(SecuredUUID.fromString(authorityUuid))
@@ -287,7 +289,7 @@ class AuthorityMetadataITest extends BaseSpringBootTest {
         return values;
     }
 
-    private static Map<String, Object> metadataValues(List<MetadataResponseDto> metadata) {
+    private static Map<String, Object> extractMetadataValues(List<MetadataResponseDto> metadata) {
         Map<String, Object> values = new LinkedHashMap<>();
         for (MetadataResponseDto group : metadata) {
             for (ResponseMetadata item : group.getItems()) {
@@ -297,7 +299,7 @@ class AuthorityMetadataITest extends BaseSpringBootTest {
         return values;
     }
 
-    private static List<RequestAttribute> directoryUrlAttribute(String directoryUrl) {
+    private static List<RequestAttribute> buildDirectoryUrlAttributes(String directoryUrl) {
         return List
                 .of(aCustomAttribute()
                         .withUuid(DIRECTORY_URL_UUID)
@@ -306,11 +308,11 @@ class AuthorityMetadataITest extends BaseSpringBootTest {
                         .build());
     }
 
-    private static ResponseDefinitionBuilder metadataAnswer(String metadataItems) {
+    private static ResponseDefinitionBuilder buildMetadataAnswer(String metadataItems) {
         return WireMock.okJson("{\"metadata\": [" + metadataItems + "]}");
     }
 
-    private static String metadataJson(String name, String value) {
+    private static String buildMetadataJson(String name, String value) {
         return """
                 {"version": 3, "uuid": "%s", "name": "%s", "type": "meta", "contentType": "string",
                  "content": [{"contentType": "string", "data": "%s"}], "properties": {"label": "%s", "visible": true, "overwrite": true}}
