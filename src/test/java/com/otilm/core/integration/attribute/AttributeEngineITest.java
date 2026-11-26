@@ -3352,7 +3352,7 @@ class AttributeEngineITest extends BaseSpringBootTest {
             assertThat(storedCallback.getCallbackContext()).isEqualTo(changedCallbackContext);
         }
 
-        @ParameterizedTest(name = "{0}")
+        @ParameterizedTest(name = "{0} {1}")
         @MethodSource("encryptedDefaultsAsConnectorsSendThem")
         void skipsUpdate_whenConnectorResubmitsAnUnchangedEncryptedDefaultOfThatType(AttributeContentType contentType,
                 Serializable sentValue) {
@@ -3373,13 +3373,18 @@ class AttributeEngineITest extends BaseSpringBootTest {
 
         private static final String DEFAULT_CONTENT_REFERENCE = "default";
 
-        /** Values as connector JSON deserializes them: dates and times as text, decimals as {@code Double}. */
+        /**
+         * Values as connector JSON deserializes them: dates and times as text, numbers as {@code Double} or
+         * {@code Integer}, including a decimal a float cannot hold exactly.
+         */
         private static Stream<Arguments> encryptedDefaultsAsConnectorsSendThem() {
             return Stream
                     .of(Arguments.of(AttributeContentType.DATE, "2026-11-26"),
                             Arguments.of(AttributeContentType.TIME, "10:15:30"),
                             Arguments.of(AttributeContentType.DATETIME, "2026-11-26T10:15:30Z"),
-                            Arguments.of(AttributeContentType.FLOAT, 1.5d));
+                            Arguments.of(AttributeContentType.FLOAT, 1.5d),
+                            Arguments.of(AttributeContentType.FLOAT, 3.14159265d),
+                            Arguments.of(AttributeContentType.FLOAT, 2));
         }
 
         private static Stream<Arguments> changedIssueAttributes() {

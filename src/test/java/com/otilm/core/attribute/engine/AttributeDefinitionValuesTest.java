@@ -123,6 +123,34 @@ class AttributeDefinitionValuesTest {
     }
 
     @Test
+    void reportsSameValue_whenTheSentDoubleRoundsToTheStoredFloat() {
+        // given
+        var decryptedFloat = Float.valueOf("3.14159265");
+        var sentDouble = 3.14159265d;
+
+        // when
+        boolean same = AttributeDefinitionValues
+                .sameValue(createAttributeWithContent(decryptedFloat), createAttributeWithContent(sentDouble));
+
+        // then
+        assertThat(same).isTrue();
+    }
+
+    @Test
+    void reportsSameValue_whenTheSentIntegerEqualsTheStoredFloat() {
+        // given
+        var decryptedFloat = Float.valueOf("2");
+        var sentInteger = 2;
+
+        // when
+        boolean same = AttributeDefinitionValues
+                .sameValue(createAttributeWithContent(decryptedFloat), createAttributeWithContent(sentInteger));
+
+        // then
+        assertThat(same).isTrue();
+    }
+
+    @Test
     void reportsDifferentValue_whenANumberDiffers() {
         // given
         var storedFloat = 1.5f;

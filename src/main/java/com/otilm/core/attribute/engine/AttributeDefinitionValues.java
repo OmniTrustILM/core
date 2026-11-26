@@ -28,13 +28,6 @@ final class AttributeDefinitionValues {
             .attributeContent()
             .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 
-    /**
-     * Compares numbers by the JSON text they write: decrypted content holds a {@code Float} where a connector's JSON
-     * gives a {@code Double}, and nodes of the two types are never equal.
-     */
-    private static final Comparator<JsonNode> NUMBERS_BY_TEXT = (left, right) -> (left.equals(right)
-            || (left.isNumber() && right.isNumber() && left.asText().equals(right.asText()))) ? 0 : 1;
-
     private AttributeDefinitionValues() {
     }
 
@@ -44,11 +37,30 @@ final class AttributeDefinitionValues {
      */
     static boolean sameValue(Object stored, Object candidate) {
         try {
-            return withSetsSorted(toTree(stored)).equals(NUMBERS_BY_TEXT, withSetsSorted(toTree(candidate)));
+            return withSetsSorted(toTree(stored))
+                    .equals(AttributeDefinitionValues::compareNumbersByValue, withSetsSorted(toTree(candidate)));
         } catch (IllegalArgumentException e) {
             logger.debug("Attribute definition comparison failed to serialize; persisting the definition", e);
             return false;
         }
+    }
+
+    /**
+     * Compares numbers by value rather than node type. Decrypted content holds a {@code Float} where a connector's JSON
+     * gives a {@code Double} or an {@code Integer}, and keeps only float precision, so a float on either side compares
+     * as a float. Other numbers compare by the JSON text they write.
+     */
+    private static int compareNumbersByValue(JsonNode left, JsonNode right) {
+        if (left.equals(right)) {
+            return 0;
+        }
+        if (!left.isNumber() || !right.isNumber()) {
+            return 1;
+        }
+        if (left.isFloat() || right.isFloat()) {
+            return Float.compare(left.floatValue(), right.floatValue()) == 0 ? 0 : 1;
+        }
+        return left.asText().equals(right.asText()) ? 0 : 1;
     }
 
     static JsonNode toTree(Object value) {
