@@ -1,18 +1,14 @@
 package com.otilm.core.service.impl;
 
 import com.otilm.api.exception.NotFoundException;
-import com.otilm.api.model.client.trustedcertificate.TrustedCertificateAddRequestDto;
-import com.otilm.api.model.client.trustedcertificate.TrustedCertificateApplyRequestDto;
-import com.otilm.api.model.client.trustedcertificate.TrustedCertificateBulkResultDto;
 import com.otilm.api.model.client.trustedcertificate.TrustedCertificateDto;
-import com.otilm.api.model.client.trustedcertificate.TrustedCertificatePlatformDto;
-import com.otilm.api.model.client.trustedcertificate.TrustedCertificateRemoveRequestDto;
-import com.otilm.api.model.client.trustedcertificate.TrustedCertificateUpdateRequestDto;
+import com.otilm.api.model.client.trustedcertificate.TrustedCertificateRequestDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.provisioning.ProvisioningException;
 import com.otilm.core.provisioning.TrustedCertificateProvisioningApiClient;
 import com.otilm.core.provisioning.TrustedCertificateProvisioningDTO;
+import com.otilm.core.provisioning.TrustedCertificateProvisioningRequestDTO;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.TrustedCertificateExternalService;
@@ -28,13 +24,12 @@ import org.springframework.web.client.HttpClientErrorException;
  * Implementation of {@link TrustedCertificateExternalService} for managing trusted certificates via the external
  * provisioning API.
  */
-@Service(Resource.Codes.TRUSTED_CERTIFICATE)
+@Service("trustedCertificateServiceV1")
 @Transactional
 @RequiredArgsConstructor
 public class TrustedCertificateServiceImpl implements TrustedCertificateExternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(TrustedCertificateServiceImpl.class);
-    private static final String NOT_IMPLEMENTED_YET = "Not implemented yet";
 
     private final TrustedCertificateProvisioningApiClient trustedCertificateProvisioningApiClient;
 
@@ -70,32 +65,18 @@ public class TrustedCertificateServiceImpl implements TrustedCertificateExternal
 
     @Override
     @ExternalAuthorization(resource = Resource.TRUSTED_CERTIFICATE, action = ResourceAction.CREATE)
-    public TrustedCertificateBulkResultDto addTrustedCertificates(TrustedCertificateAddRequestDto request) {
-        throw new UnsupportedOperationException(NOT_IMPLEMENTED_YET);
-    }
-
-    @Override
-    @ExternalAuthorization(resource = Resource.TRUSTED_CERTIFICATE, action = ResourceAction.UPDATE)
-    public TrustedCertificateBulkResultDto updateTrustedCertificates(TrustedCertificateUpdateRequestDto request) {
-        throw new UnsupportedOperationException(NOT_IMPLEMENTED_YET);
-    }
-
-    @Override
-    @ExternalAuthorization(resource = Resource.TRUSTED_CERTIFICATE, action = ResourceAction.DELETE)
-    public TrustedCertificateBulkResultDto removeTrustedCertificates(TrustedCertificateRemoveRequestDto request) {
-        throw new UnsupportedOperationException(NOT_IMPLEMENTED_YET);
-    }
-
-    @Override
-    @ExternalAuthorization(resource = Resource.TRUSTED_CERTIFICATE, action = ResourceAction.UPDATE)
-    public TrustedCertificateBulkResultDto applyTrustedCertificates(TrustedCertificateApplyRequestDto request) {
-        throw new UnsupportedOperationException(NOT_IMPLEMENTED_YET);
-    }
-
-    @Override
-    @ExternalAuthorization(resource = Resource.TRUSTED_CERTIFICATE, action = ResourceAction.LIST)
-    public TrustedCertificatePlatformDto getPlatformTrust() {
-        throw new UnsupportedOperationException(NOT_IMPLEMENTED_YET);
+    public TrustedCertificateDto createTrustedCertificate(TrustedCertificateRequestDto request) {
+        logger.info("Creating trusted certificate");
+        try {
+            TrustedCertificateProvisioningRequestDTO provisioningRequest = new TrustedCertificateProvisioningRequestDTO(
+                    request.getCertificateContent());
+            TrustedCertificateProvisioningDTO provisioningDto = trustedCertificateProvisioningApiClient
+                    .createTrustedCertificate(provisioningRequest, false);
+            logger.info("Trusted certificate created successfully: {}", provisioningDto.uuid());
+            return mapToDto(provisioningDto);
+        } catch (Exception e) {
+            throw new ProvisioningException("Failed to create trusted certificate", e);
+        }
     }
 
     @Override

@@ -1,9 +1,9 @@
 package com.otilm.core.integration.service;
 
 import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
-import com.otilm.api.model.client.trustedcertificate.PlatformBundleCertificateDto;
 import com.otilm.api.model.client.trustedcertificate.TrustedCertificatePlatformSource;
 import com.otilm.api.model.client.trustedcertificate.TrustedCertificatePlatformState;
+import com.otilm.api.model.client.trustedcertificate.v2.PlatformBundleCertificateDto;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.provisioning.ProvisioningApplyResponseDTO;
 import com.otilm.core.provisioning.ProvisioningApplyStatusDTO;

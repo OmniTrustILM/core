@@ -3,6 +3,7 @@ package com.otilm.core.integration.service;
 import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.client.trustedcertificate.TrustedCertificateDto;
+import com.otilm.api.model.client.trustedcertificate.TrustedCertificateRequestDto;
 import com.otilm.core.provisioning.ProvisioningException;
 import com.otilm.core.provisioning.TrustedCertificateProvisioningDTO;
 import com.otilm.core.provisioning.TrustedCertificateProvisioningRequestDTO;
@@ -19,12 +20,16 @@ import org.junit.jupiter.api.extension.RegisterExtension;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static com.github.tomakehurst.wiremock.client.WireMock.containing;
 import static com.github.tomakehurst.wiremock.client.WireMock.delete;
 import static com.github.tomakehurst.wiremock.client.WireMock.deleteRequestedFor;
+import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
+import static com.github.tomakehurst.wiremock.client.WireMock.post;
+import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -153,14 +158,59 @@ class TrustedCertificateServiceITest extends BaseSpringBootTest {
     }
 
     @Test
-    void testDeleteTrustedCertificate_success() {
+    void createsTheRecord_withoutDeferringTheDeployment() {
+        // given
+        wireMockServer
+                .stubFor(post(urlPathEqualTo("/api/v1/trusted-certificates"))
+                        .willReturn(aResponse()
+                                .withStatus(201)
+                                .withHeader("Content-Type", "application/json")
+                                .withBody(TRUSTED_CERTIFICATE_JSON)));
+        var request = new TrustedCertificateRequestDto();
+        request.setCertificateContent(Base64.getDecoder().decode(TEST_CERTIFICATE_CONTENT));
+
+        // when
+        TrustedCertificateDto created = trustedCertificateService.createTrustedCertificate(request);
+
+        // then
+        assertThat(created.getUuid()).isEqualTo(TEST_UUID);
+        assertThat(created.getIssuer()).isEqualTo("CN=Test CA");
+        assertThat(created.getSubject()).isEqualTo("CN=example.com");
+        wireMockServer
+                .verify(postRequestedFor(urlPathEqualTo("/api/v1/trusted-certificates"))
+                        .withHeader("Content-Type", containing("application/json"))
+                        .withQueryParam("deferApply", equalTo("false")));
+    }
+
+    @Test
+    void testCreateTrustedCertificate_apiFails() {
+        wireMockServer
+                .stubFor(post(urlPathEqualTo("/api/v1/trusted-certificates"))
+                        .willReturn(aResponse().withStatus(500).withBody("Internal Server Error")));
+
+        TrustedCertificateRequestDto request = new TrustedCertificateRequestDto();
+        request.setCertificateContent(Base64.getDecoder().decode(TEST_CERTIFICATE_CONTENT));
+
+        ProvisioningException exception = assertThrows(ProvisioningException.class,
+                () -> trustedCertificateService.createTrustedCertificate(request));
+
+        assertTrue(exception.getMessage().contains("Failed to create trusted certificate"));
+    }
+
+    @Test
+    void deletesTheRecord_withoutDeferringTheDeployment() throws Exception {
+        // given
         wireMockServer
                 .stubFor(delete(urlPathEqualTo("/api/v1/trusted-certificates/" + TEST_UUID))
                         .willReturn(aResponse().withStatus(204)));
 
-        assertDoesNotThrow(() -> trustedCertificateService.deleteTrustedCertificate(SecuredUUID.fromString(TEST_UUID)));
+        // when
+        trustedCertificateService.deleteTrustedCertificate(SecuredUUID.fromString(TEST_UUID));
 
-        wireMockServer.verify(deleteRequestedFor(urlPathEqualTo("/api/v1/trusted-certificates/" + TEST_UUID)));
+        // then
+        wireMockServer
+                .verify(deleteRequestedFor(urlPathEqualTo("/api/v1/trusted-certificates/" + TEST_UUID))
+                        .withQueryParam("deferApply", equalTo("false")));
     }
 
     @Test

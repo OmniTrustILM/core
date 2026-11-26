@@ -1,9 +1,9 @@
 package com.otilm.core.service.trust;
 
 import com.otilm.api.exception.ValidationException;
-import com.otilm.api.model.client.trustedcertificate.PlatformBundleCertificateDto;
 import com.otilm.api.model.client.trustedcertificate.TrustedCertificatePlatformSource;
 import com.otilm.api.model.client.trustedcertificate.TrustedCertificatePlatformState;
+import com.otilm.api.model.client.trustedcertificate.v2.PlatformBundleCertificateDto;
 import com.otilm.core.provisioning.ProvisioningApplyResponseDTO;
 import com.otilm.core.provisioning.ProvisioningApplyStatusDTO;
 import com.otilm.core.provisioning.ProvisioningException;

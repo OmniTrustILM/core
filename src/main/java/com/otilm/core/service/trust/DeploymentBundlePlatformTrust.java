@@ -1,7 +1,7 @@
 package com.otilm.core.service.trust;
 
-import com.otilm.api.model.client.trustedcertificate.PlatformBundleCertificateDto;
 import com.otilm.api.model.client.trustedcertificate.TrustedCertificatePlatformSource;
+import com.otilm.api.model.client.trustedcertificate.v2.PlatformBundleCertificateDto;
 import com.otilm.core.config.TrustedCertificatesConfig;
 import com.otilm.core.provisioning.ProvisioningApplyStatusDTO;
 import com.otilm.core.util.CertificateUtil;
