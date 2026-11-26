@@ -119,6 +119,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.core.NestedExceptionUtils;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -482,7 +483,11 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
                 .findByUuidAndEnabledIsTrue(locationUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(Location.class, locationUuid));
         requireUnderEntity(location, entityUuid, locationUuid);
+        return pushAttributesOf(location);
+    }
 
+    /** Lists the location's push Attributes from a location whose entity reference is loaded. */
+    private List<BaseAttribute> pushAttributesOf(Location location) throws NotFoundException, LocationException {
         try {
             ApiClientConnectorInfo connectorDto = connectorService
                     .getConnectorForApiClient(location.getEntityInstanceReference().getConnectorUuid());
@@ -508,7 +513,11 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
                 .findByUuidAndEnabledIsTrue(locationUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(Location.class, locationUuid));
         requireUnderEntity(location, entityUuid, locationUuid);
+        return csrAttributesOf(location);
+    }
 
+    /** Lists the location's CSR Attributes from a location whose entity reference is loaded. */
+    private List<BaseAttribute> csrAttributesOf(Location location) throws NotFoundException, LocationException {
         try {
             ApiClientConnectorInfo connectorDto = connectorService
                     .getConnectorForApiClient(location.getEntityInstanceReference().getConnectorUuid());
@@ -986,13 +995,48 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
     @Override
     @ExternalAuthorization(resource = Resource.LOCATION, action = ResourceAction.UPDATE,
             parentResource = Resource.ENTITY, parentAction = ResourceAction.DETAIL)
+    @OutsideTransaction
     public LocationDto renewCertificateInLocation(SecuredParentUUID entityUuid, SecuredUUID locationUuid,
             String certificateUuid) throws ConnectorException, LocationException, NotFoundException {
-        Location location = locationRepository
-                .findByUuidAndEnabledIsTrue(locationUuid.getValue())
-                .orElseThrow(() -> new NotFoundException(Location.class, locationUuid));
-        renewInLocation(location, entityUuid, locationUuid, certificateUuid);
+        LocationRenewal renewal = readRenewalInLocation(entityUuid, locationUuid, certificateUuid);
+        Location location = renewal.location();
 
+        GenerateCsrResponseDto generateCsrResponseDto = generateCsrLocation(location, renewal.csrAttributes(), true);
+        logger.info("Received certificate signing request from Location {}", location.getName());
+
+        UUID renewedUuid = renewCertificateForLocation(renewal, generateCsrResponseDto.getCsr(), null);
+
+        try {
+            linkIssuedCertificateInNewTransaction(location, renewedUuid, generateCsrResponseDto,
+                    renewal.csrAttributes());
+        } catch (Exception e) {
+            logger.error("Failed to add new Certificate", RedactedFailure.forLog(e));
+            throw new LocationException(
+                    "Failed to add the new certificate to the location. Reason: " + linkFailureReason(e));
+        }
+
+        logger
+                .info("Certificate {} successfully requested for renew and prepared to be pushed to Location {}",
+                        renewedUuid, location.getName());
+        return transactionHandler
+                .runInTransaction(() -> renewedLocationDto(location))
+                .orElseThrow(() -> new NotFoundException(Location.class, locationUuid));
+    }
+
+    /**
+     * Maps the location the certificate was renewed in, with its attributes, in the caller's transaction, while it is
+     * still under the entity the caller was authorized on.
+     */
+    private Optional<LocationDto> renewedLocationDto(Location renewedIn) {
+        return locationRepository
+                .findByUuid(renewedIn.getUuid())
+                .filter(location -> renewedIn
+                        .getEntityInstanceReferenceUuid()
+                        .equals(location.getEntityInstanceReferenceUuid()))
+                .map(this::locationDtoWithAttributes);
+    }
+
+    private LocationDto locationDtoWithAttributes(Location location) {
         LocationDto locationDto = mapLocationToDto(location);
         locationDto
                 .setCustomAttributes(
@@ -1031,15 +1075,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
             linkIssuedCertificateInNewTransaction(location, renewedUuid, generateCsrResponseDto,
                     renewal.csrAttributes());
         };
-        UUID renewedUuid;
-        try {
-            renewedUuid = renewCertificate(renewal, generateCsrResponseDto.getCsr(), trackAndLink);
-        } catch (Exception e) {
-            logger.error("Failed to renew Certificate", RedactedFailure.forLog(e));
-            throw new LocationException(
-                    "Failed to renew certificate to the location. Error Issuing certificate from Authority. "
-                            + e.getMessage());
-        }
+        UUID renewedUuid = renewCertificateForLocation(renewal, generateCsrResponseDto.getCsr(), trackAndLink);
 
         logger
                 .info("Certificate {} successfully requested for renew and prepared to be pushed to Location {}",
@@ -1073,48 +1109,27 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
         return renewal;
     }
 
-    /** Renews the certificate with a key and request the location generates, in the caller's transaction. */
-    private void renewInLocation(Location location, SecuredParentUUID entityUuid, SecuredUUID locationUuid,
-            String certificateUuid) throws LocationException, NotFoundException {
-        CertificateLocation certificateLocation = requireRenewableInLocation(location, entityUuid, locationUuid,
-                certificateUuid);
-        LocationRenewal renewal = LocationRenewal.of(certificateLocation);
+    /**
+     * The reason a failed link gives the caller: the message of a failure Core raised itself, never a database's, which
+     * can carry statements, constraint names and row values.
+     */
+    private static String linkFailureReason(Exception e) {
+        Throwable cause = NestedExceptionUtils.getMostSpecificCause(e);
+        return cause instanceof LocationException || cause instanceof NotFoundException
+                || cause instanceof AttributeException ? cause.getMessage() : "the location could not be updated";
+    }
 
-        // generate new CSR
-        GenerateCsrResponseDto generateCsrResponseDto = generateCsrLocation(certificateLocation.getLocation(),
-                renewal.csrAttributes(), true);
-        logger
-                .info("Received certificate signing request from Location {}",
-                        certificateLocation.getLocation().getName());
-
-        // renew existing Certificate
-        UUID renewedUuid = null;
-        Certificate certificate = null;
-
+    /** Renews the certificate with the request the location generated, reporting any failure as the location's. */
+    private UUID renewCertificateForLocation(LocationRenewal renewal, String csr, Consumer<UUID> beforeDispatch)
+            throws LocationException {
         try {
-            renewedUuid = renewCertificate(renewal, generateCsrResponseDto.getCsr(), null);
-            certificate = certificateService.getCertificateEntity(SecuredUUID.fromUUID(renewedUuid));
+            return renewCertificate(renewal, csr, beforeDispatch);
         } catch (Exception e) {
             logger.error("Failed to renew Certificate", RedactedFailure.forLog(e));
             throw new LocationException(
                     "Failed to renew certificate to the location. Error Issuing certificate from Authority. "
                             + e.getMessage());
         }
-
-        // add renewed Certificate to Location
-        try {
-            addCertificateToLocation(certificateLocation.getLocation(), certificate,
-                    generateCsrResponseDto.getPushAttributes(), renewal.csrAttributes(),
-                    generateCsrResponseDto.getMetadata());
-
-        } catch (Exception e) {
-            logger.error("Failed to add new Certificate", RedactedFailure.forLog(e));
-            throw new LocationException("Failed to add the new certificate to the location. Reason: " + e.getMessage());
-        }
-
-        logger
-                .info("Certificate {} successfully requested for renew and prepared to be pushed to Location {}",
-                        renewedUuid, certificateLocation.getLocation().getName());
     }
 
     /** Checks that the certificate can be renewed in the location before the location generates a key for it. */
@@ -1452,17 +1467,22 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
             throw new IllegalStateException(e);
         }
         transactionHandler
-                .runInNewTransaction(() -> linkCertificate(location.getUuid(), certificateUuid, definitions,
+                .runInNewTransaction(() -> linkCertificate(location, certificateUuid, definitions,
                         generateCsrResponseDto, csrAttributes));
     }
 
-    /** Links the certificate to the location with what the location generated for it, in the caller's transaction. */
-    private void linkCertificate(UUID locationUuid, UUID certificateUuid, LocationAttributeDefinitions definitions,
+    /**
+     * Links the certificate to the location with what the location generated for it, in the caller's transaction. A
+     * location moved to another entity since it was read is not linked, as its key was generated under the first.
+     */
+    private void linkCertificate(Location location, UUID certificateUuid, LocationAttributeDefinitions definitions,
             GenerateCsrResponseDto generateCsrResponseDto, List<RequestAttribute> csrAttributes) {
         try {
             Location linkedLocation = locationRepository
-                    .findByUuidAndEnabledIsTrue(locationUuid)
-                    .orElseThrow(() -> new NotFoundException(Location.class, locationUuid));
+                    .findByUuidAndEnabledIsTrue(location.getUuid())
+                    .orElseThrow(() -> new NotFoundException(Location.class, location.getUuid()));
+            requireUnderEntity(linkedLocation, SecuredParentUUID.fromUUID(location.getEntityInstanceReferenceUuid()),
+                    location.getSecuredUuid());
             Certificate linked = certificateService.getCertificateEntity(SecuredUUID.fromUUID(certificateUuid));
             addCertificateToLocation(linkedLocation, linked, definitions, generateCsrResponseDto.getPushAttributes(),
                     csrAttributes, generateCsrResponseDto.getMetadata());
@@ -1523,11 +1543,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
 
     private LocationAttributeDefinitions fetchAttributeDefinitions(Location location) throws LocationException {
         try {
-            return new LocationAttributeDefinitions(
-                    listPushAttributes(SecuredParentUUID.fromUUID(location.getEntityInstanceReferenceUuid()),
-                            SecuredUUID.fromString(location.getUuid().toString())),
-                    listCsrAttributes(SecuredParentUUID.fromUUID(location.getEntityInstanceReferenceUuid()),
-                            SecuredUUID.fromString(location.getUuid().toString())));
+            return new LocationAttributeDefinitions(pushAttributesOf(location), csrAttributesOf(location));
         } catch (NotFoundException e) {
             logger.error("Unable to find the location with uuid: {}", location.getUuid());
             throw new LocationException(
