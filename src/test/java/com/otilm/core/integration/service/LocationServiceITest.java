@@ -1486,7 +1486,9 @@ class LocationServiceITest extends BaseSpringBootTest {
                                         location.getSecuredUuid(), certificate.getUuid().toString()));
 
         // then
-        assertThat(exception.getMessage()).startsWith("Failed to add the new certificate to the location.");
+        assertThat(exception.getMessage())
+                .startsWith("Failed to add the new certificate to the location.")
+                .doesNotContain("Exception");
     }
 
     @Test

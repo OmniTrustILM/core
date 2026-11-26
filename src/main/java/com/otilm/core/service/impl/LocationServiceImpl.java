@@ -119,6 +119,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.core.NestedExceptionUtils;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -1002,7 +1003,8 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
                     renewal.csrAttributes());
         } catch (Exception e) {
             logger.error("Failed to add new Certificate", RedactedFailure.forLog(e));
-            throw new LocationException("Failed to add the new certificate to the location. Reason: " + e.getMessage());
+            throw new LocationException("Failed to add the new certificate to the location. Reason: "
+                    + NestedExceptionUtils.getMostSpecificCause(e).getMessage());
         }
 
         logger
