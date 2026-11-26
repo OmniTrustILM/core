@@ -1018,15 +1018,25 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
         logger
                 .info("Certificate {} successfully requested for renew and prepared to be pushed to Location {}",
                         renewedUuid, location.getName());
-        return transactionHandler.runInTransaction(() -> renewedLocationDto(location.getUuid()));
+        return transactionHandler
+                .runInTransaction(() -> renewedLocationDto(location))
+                .orElseThrow(() -> new NotFoundException(Location.class, locationUuid));
     }
 
-    /** Maps the location the certificate was renewed in, with its attributes, in the caller's transaction. */
-    private LocationDto renewedLocationDto(UUID locationUuid) {
-        Location location = locationRepository
-                .findByUuid(locationUuid)
-                .orElseThrow(
-                        () -> new IllegalStateException("The location %s no longer exists".formatted(locationUuid)));
+    /**
+     * Maps the location the certificate was renewed in, with its attributes, in the caller's transaction, while it is
+     * still under the entity the caller was authorized on.
+     */
+    private Optional<LocationDto> renewedLocationDto(Location renewedIn) {
+        return locationRepository
+                .findByUuid(renewedIn.getUuid())
+                .filter(location -> renewedIn
+                        .getEntityInstanceReferenceUuid()
+                        .equals(location.getEntityInstanceReferenceUuid()))
+                .map(this::locationDtoWithAttributes);
+    }
+
+    private LocationDto locationDtoWithAttributes(Location location) {
         LocationDto locationDto = mapLocationToDto(location);
         locationDto
                 .setCustomAttributes(
@@ -1457,17 +1467,22 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
             throw new IllegalStateException(e);
         }
         transactionHandler
-                .runInNewTransaction(() -> linkCertificate(location.getUuid(), certificateUuid, definitions,
+                .runInNewTransaction(() -> linkCertificate(location, certificateUuid, definitions,
                         generateCsrResponseDto, csrAttributes));
     }
 
-    /** Links the certificate to the location with what the location generated for it, in the caller's transaction. */
-    private void linkCertificate(UUID locationUuid, UUID certificateUuid, LocationAttributeDefinitions definitions,
+    /**
+     * Links the certificate to the location with what the location generated for it, in the caller's transaction. A
+     * location moved to another entity since it was read is not linked, as its key was generated under the first.
+     */
+    private void linkCertificate(Location location, UUID certificateUuid, LocationAttributeDefinitions definitions,
             GenerateCsrResponseDto generateCsrResponseDto, List<RequestAttribute> csrAttributes) {
         try {
             Location linkedLocation = locationRepository
-                    .findByUuidAndEnabledIsTrue(locationUuid)
-                    .orElseThrow(() -> new NotFoundException(Location.class, locationUuid));
+                    .findByUuidAndEnabledIsTrue(location.getUuid())
+                    .orElseThrow(() -> new NotFoundException(Location.class, location.getUuid()));
+            requireUnderEntity(linkedLocation, SecuredParentUUID.fromUUID(location.getEntityInstanceReferenceUuid()),
+                    location.getSecuredUuid());
             Certificate linked = certificateService.getCertificateEntity(SecuredUUID.fromUUID(certificateUuid));
             addCertificateToLocation(linkedLocation, linked, definitions, generateCsrResponseDto.getPushAttributes(),
                     csrAttributes, generateCsrResponseDto.getMetadata());

@@ -1525,6 +1525,36 @@ class LocationServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void linksNothing_whenTheLocationMovesToAnotherEntityDuringTheRenewal() throws Exception {
+        // given
+        prepareCertificateForRenewalInLocation();
+        X509CertificateEntity renewedCertificate = certificateRepository.save(aCertificate().build());
+        recordTransactionInLocationAndAuthorityCalls(new LinkedHashMap<>(), renewedCertificate.getUuid());
+        EntityInstanceReference otherEntity = anotherEntity();
+        ClientCertificateDataResponseDto responseDto = new ClientCertificateDataResponseDto();
+        responseDto.setUuid(renewedCertificate.getUuid().toString());
+        when(clientOperationService.renewCertificate(any(), any(), any(), any(), any(), any()))
+                .thenAnswer(invocation -> {
+                    Location moved = reloadedLocation();
+                    moved.setEntityInstanceReference(otherEntity);
+                    locationRepository.save(moved);
+                    return responseDto;
+                });
+
+        // when
+        ThrowingCallable renewInTheLocation = () -> locationService
+                .renewCertificateInLocation(entityInstanceReference.getSecuredParentUuid(), location.getSecuredUuid(),
+                        certificate.getUuid().toString());
+
+        // then
+        assertThatThrownBy(renewInTheLocation)
+                .isInstanceOf(LocationException.class)
+                .hasMessageContaining("Failed to add the new certificate to the location.");
+        assertThat(certificateLocationRepository
+                .findById(new CertificateLocationId(location.getUuid(), renewedCertificate.getUuid()))).isEmpty();
+    }
+
+    @Test
     void givesNoInternalDetail_whenAddingTheRenewedCertificateToTheLocationFailsUnexpectedly() throws Exception {
         // given
         prepareCertificateForRenewalInLocation();
