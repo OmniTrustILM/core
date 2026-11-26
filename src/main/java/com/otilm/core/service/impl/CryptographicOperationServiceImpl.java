@@ -6,7 +6,6 @@ import com.otilm.api.exception.NotSupportedException;
 import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
-import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.client.cryptography.operations.CipherDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.DecryptDataResponseDto;
 import com.otilm.api.model.client.cryptography.operations.EncryptDataResponseDto;
@@ -38,7 +37,6 @@ import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.crypto.AttributesWithOwner;
 import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
-import com.otilm.core.model.crypto.TokenInstanceFullModel;
 import com.otilm.core.model.crypto.TokenProfileBasicModel;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.ExternalAuthorization;
@@ -48,7 +46,7 @@ import com.otilm.core.service.CryptographicKeyEventHistoryService;
 import com.otilm.core.service.CryptographicKeyInternalService;
 import com.otilm.core.service.CryptographicOperationExternalService;
 import com.otilm.core.service.CryptographicOperationInternalService;
-import com.otilm.core.service.handler.ConnectorCapabilityService;
+import com.otilm.core.service.handler.DataDigestSigningCapability;
 import com.otilm.core.service.handler.key.KeyProviderAdapter;
 import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
 import com.otilm.core.service.handler.key.KeyProviderV1Adapter;
@@ -118,13 +116,13 @@ public class CryptographicOperationServiceImpl
 
     private KeyProviderAdapterFactory keyProviderAdapterFactory;
     private TokenProviderAdapterFactory tokenProviderAdapterFactory;
-    private ConnectorCapabilityService connectorCapabilityService;
+    private DataDigestSigningCapability dataDigestSigningCapability;
 
     // Setters
 
     @Autowired
-    public void setConnectorCapabilityService(ConnectorCapabilityService connectorCapabilityService) {
-        this.connectorCapabilityService = connectorCapabilityService;
+    public void setDataDigestSigningCapability(DataDigestSigningCapability dataDigestSigningCapability) {
+        this.dataDigestSigningCapability = dataDigestSigningCapability;
     }
 
     @Autowired
@@ -363,20 +361,16 @@ public class CryptographicOperationServiceImpl
         return executeSignData(adapter, keyItem, request, mode);
     }
 
-    // The flag is read from the token instance on every call: the cached key item is not refreshed when a
-    // connector's capabilities change.
+    // Callers refuse such a key before they get here; a provider can still lose the capability in between.
     private void requireDataDigestSigning(CryptographicKeyItemOperationModel keyItem) throws NotFoundException {
-        if (!keyItem.hasConnectorInterface()) {
-            throw new ValidationException("Key item " + keyItem.keyItemUuid()
+        switch (dataDigestSigningCapability.of(keyItem)) {
+            case SUPPORTED -> {
+                // Signs the digest as it is.
+            }
+            case VERSION_1_PROVIDER -> throw new ValidationException("Key item " + keyItem.keyItemUuid()
                     + " is served by a version 1 cryptography provider, which cannot sign data digests.");
-        }
-        UUID tokenInstanceUuid = keyItem.tokenInstanceReferenceUuid();
-        TokenInstanceFullModel token = tokenInstanceReferenceRepository
-                .findFullModelByUuid(tokenInstanceUuid)
-                .orElseThrow(() -> new NotFoundException(TokenInstanceReference.class, tokenInstanceUuid));
-        if (!connectorCapabilityService.supports(token.connectorInterface(), FeatureFlag.DATA_DIGEST_SIGNING)) {
-            throw new ValidationException("The cryptography provider of key item " + keyItem.keyItemUuid()
-                    + " does not support data digest signing.");
+            case NOT_ADVERTISED -> throw new ValidationException("The cryptography provider of key item "
+                    + keyItem.keyItemUuid() + " does not support data digest signing.");
         }
     }
 

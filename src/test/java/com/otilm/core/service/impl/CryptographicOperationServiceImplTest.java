@@ -44,6 +44,7 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CryptographicKeyEventHistoryService;
 import com.otilm.core.service.CryptographicKeyInternalService;
 import com.otilm.core.service.handler.ConnectorCapabilityService;
+import com.otilm.core.service.handler.DataDigestSigningCapability;
 import com.otilm.core.service.handler.key.KeyProviderAdapter;
 import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
 import com.otilm.core.service.handler.key.ResolvedSignatureAlgorithm;
@@ -115,7 +116,9 @@ class CryptographicOperationServiceImplTest {
     @BeforeEach
     void createService() {
         service = new CryptographicOperationServiceImpl();
-        service.setConnectorCapabilityService(new ConnectorCapabilityService());
+        service
+                .setDataDigestSigningCapability(new DataDigestSigningCapability(new ConnectorCapabilityService(),
+                        tokenInstanceReferenceRepository));
         service.setKeyProviderAdapterFactory(keyProviderAdapterFactory);
         service.setTokenProviderAdapterFactory(tokenProviderAdapterFactory);
         service.setTokenInstanceReferenceRepository(tokenInstanceReferenceRepository);

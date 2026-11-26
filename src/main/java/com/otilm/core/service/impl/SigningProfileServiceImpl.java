@@ -38,6 +38,7 @@ import com.otilm.api.model.common.PaginationResponseDto;
 import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.common.signature.DocumentTransferMode;
 import com.otilm.api.model.common.signature.SignatureLevel;
@@ -79,8 +80,11 @@ import com.otilm.core.mapper.signing.SigningProfileMapper;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.crypto.AttributesWithOwner;
 import com.otilm.core.model.signing.CertificatePurposeRequirements;
+import com.otilm.core.model.signing.SigningKeyItems;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.TspProfileModel;
+import com.otilm.core.model.signing.resolved.ResolvedManagedScheme;
+import com.otilm.core.model.signing.resolved.ResolvedStaticKeyManagedSigning;
 import com.otilm.core.model.signing.scheme.SigningSchemeModel;
 import com.otilm.core.model.signing.scheme.StaticKeyManagedSigning;
 import com.otilm.core.model.signing.workflow.SigningWorkflow;
@@ -99,6 +103,7 @@ import com.otilm.core.service.SigningRecordExternalService;
 import com.otilm.core.service.SigningRecordInternalService;
 import com.otilm.core.service.TokenProfileInternalService;
 import com.otilm.core.service.TspProfileInternalService;
+import com.otilm.core.service.handler.DataDigestSigningCapability;
 import com.otilm.core.service.model.SecuredList;
 import com.otilm.core.service.writer.SigningProfileWriter;
 import com.otilm.core.signing.contentsigning.declaration.ContentSigningDeclarations;
@@ -162,6 +167,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     private CryptographicOperationInternalService cryptographicOperationService;
     private ManagedSchemeResolver managedSchemeResolver;
     private SignerFactory signerFactory;
+    private DataDigestSigningCapability dataDigestSigningCapability;
     private CertificateInternalService certificateService;
     private ConnectorInternalService connectorService;
     private TokenProfileInternalService tokenProfileService;
@@ -463,8 +469,8 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         validateSigningSchemeCoherence(request.getSigningScheme());
         attributeEngine.validateCustomAttributesContent(Resource.SIGNING_PROFILE, request.getCustomAttributes());
         validateContentSigningWorkflow(request, null);
-        validateRawSigningWorkflow(request);
         validateSigningKeyWorkflowBinding(request);
+        validateRawSigningWorkflow(request);
         List<BaseAttribute> formattingDefinitions = fetchFormattingAttributeDefinitions(request.getWorkflow(),
                 request.getSigningScheme().getSigningScheme());
         AttributesWithOwner signingSchema = fetchValidatedSigningOperationSchema(request.getSigningScheme());
@@ -519,8 +525,8 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         validateSigningSchemeCoherence(request.getSigningScheme());
         attributeEngine.validateCustomAttributesContent(Resource.SIGNING_PROFILE, request.getCustomAttributes());
         validateContentSigningWorkflow(request, uuid.getValue());
-        validateRawSigningWorkflow(request);
         validateSigningKeyWorkflowBinding(request);
+        validateRawSigningWorkflow(request);
         List<BaseAttribute> formattingDefinitions = fetchFormattingAttributeDefinitions(request.getWorkflow(),
                 request.getSigningScheme().getSigningScheme());
         AttributesWithOwner signingSchema = fetchValidatedSigningOperationSchema(request.getSigningScheme());
@@ -1097,17 +1103,34 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
 
     /** Signing resolves the algorithm the same way, so save checks the algorithm the profile signs with. */
     private SignatureAlgorithm signatureAlgorithmOf(String profileName, StaticKeyManagedSigningRequestDto scheme) {
+        ResolvedManagedScheme signingScheme = resolveSigningScheme(profileName, scheme);
+        return signatureAlgorithmOf(profileName, scheme.getCertificateUuid(), signingScheme);
+    }
+
+    private ResolvedManagedScheme resolveSigningScheme(String profileName, StaticKeyManagedSigningRequestDto scheme) {
         var signing = new StaticKeyManagedSigning(scheme.getCertificateUuid(),
                 Objects.requireNonNullElse(scheme.getSigningOperationAttributes(), List.of()));
         try {
-            return signerFactory.signatureAlgorithm(managedSchemeResolver.resolve(profileName, signing));
+            return managedSchemeResolver.resolve(profileName, signing);
         } catch (SigningEngineException e) {
-            log
-                    .info("Signing Profile '{}' cannot resolve its signature algorithm: {}", profileName,
-                            e.operatorMessage());
-            throw new ValidationException("Signature algorithm cannot be resolved for certificate %s: %s"
-                    .formatted(scheme.getCertificateUuid(), e.clientMessage()));
+            throw unresolvableSignatureAlgorithm(profileName, scheme.getCertificateUuid(), e);
         }
+    }
+
+    private SignatureAlgorithm signatureAlgorithmOf(String profileName, UUID certificateUuid,
+            ResolvedManagedScheme signingScheme) {
+        try {
+            return signerFactory.signatureAlgorithm(signingScheme);
+        } catch (SigningEngineException e) {
+            throw unresolvableSignatureAlgorithm(profileName, certificateUuid, e);
+        }
+    }
+
+    private static ValidationException unresolvableSignatureAlgorithm(String profileName, UUID certificateUuid,
+            SigningEngineException e) {
+        log.info("Signing Profile '{}' cannot resolve its signature algorithm: {}", profileName, e.operatorMessage());
+        return new ValidationException("Signature algorithm cannot be resolved for certificate %s: %s"
+                .formatted(certificateUuid, e.clientMessage()));
     }
 
     /**
@@ -1132,7 +1155,8 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
 
     /**
      * Runs outside the persistence transaction, beside {@code validateContentSigningWorkflow}. A delegated raw profile
-     * names no certificate, since its signer connector holds the key, so the algorithm rule does not apply to it.
+     * names no certificate, since its signer connector holds the key, so neither the algorithm rule nor the provider
+     * rule applies to it.
      */
     private void validateRawSigningWorkflow(SigningProfileRequestDto request) throws NotFoundException {
         if (!(request.getWorkflow() instanceof RawSigningWorkflowRequestDto)) {
@@ -1143,8 +1167,22 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         if (!(scheme instanceof StaticKeyManagedSigningRequestDto staticKeyScheme)) {
             return;
         }
-        requireCertificateAccess(staticKeyScheme.getCertificateUuid());
-        RawSigningProfileRules.requireDataDigestSigning(signatureAlgorithmOf(request.getName(), staticKeyScheme));
+        UUID certificateUuid = staticKeyScheme.getCertificateUuid();
+        requireCertificateAccess(certificateUuid);
+        ResolvedManagedScheme signingScheme = resolveSigningScheme(request.getName(), staticKeyScheme);
+        SignatureAlgorithm signatureAlgorithm = signatureAlgorithmOf(request.getName(), certificateUuid, signingScheme);
+        RawSigningProfileRules.requireDataDigestSigning(signatureAlgorithm);
+        RawSigningProfileRules
+                .requireDataDigestSigningProvider(certificateUuid, dataDigestSigningSupportOf(signingScheme));
+    }
+
+    /** Signing signs with the private key item, which resolving the signature algorithm has already found. */
+    private DataDigestSigningCapability.Support dataDigestSigningSupportOf(ResolvedManagedScheme signingScheme)
+            throws NotFoundException {
+        return switch (signingScheme) {
+            case ResolvedStaticKeyManagedSigning staticKey -> dataDigestSigningCapability
+                    .of(SigningKeyItems.first(KeyType.PRIVATE_KEY, staticKey.keyItems()).orElseThrow());
+        };
     }
 
     /**
@@ -1675,6 +1713,11 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     @Autowired
     public void setSignerFactory(SignerFactory signerFactory) {
         this.signerFactory = signerFactory;
+    }
+
+    @Autowired
+    public void setDataDigestSigningCapability(DataDigestSigningCapability dataDigestSigningCapability) {
+        this.dataDigestSigningCapability = dataDigestSigningCapability;
     }
 
     @Autowired
