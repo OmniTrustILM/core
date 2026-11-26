@@ -93,6 +93,21 @@ class TestStyleArchSelfTest {
         }
 
         @Test
+        void reportsTheMethod_whenItPassesAnAssertionAsAMethodReference() {
+            // given
+            JavaClasses planted = importPlanted(PlantedJunitAssertionByMethodReference.class);
+
+            // when
+            List<String> violations = violationsOf(TestStyleArchTest.noJunitOrHamcrestAssertions(), planted);
+
+            // then
+            assertThat(violations)
+                    .singleElement()
+                    .asString()
+                    .contains("PlantedJunitAssertionByMethodReference.checksEach()>");
+        }
+
+        @Test
         void passes_whenTheMethodAssertsWithAssertJ() {
             // given
             JavaClasses planted = importPlanted(PlantedAssertJAssertions.class);
@@ -394,6 +409,13 @@ class TestStyleArchSelfTest {
         void checksLater() {
             Runnable check = () -> Assertions.assertTrue(true);
             check.run();
+        }
+    }
+
+    static class PlantedJunitAssertionByMethodReference {
+
+        void checksEach() {
+            List.of(1, 2).forEach(Assertions::assertNotNull);
         }
     }
 
