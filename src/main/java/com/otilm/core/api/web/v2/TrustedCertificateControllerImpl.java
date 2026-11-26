@@ -16,7 +16,6 @@ import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.logging.LogResource;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.v2.TrustedCertificateExternalService;
-import java.security.cert.CertificateException;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.RestController;
@@ -43,8 +42,7 @@ public class TrustedCertificateControllerImpl implements TrustedCertificateContr
     }
 
     @Override
-    public TrustedCertificateBulkResultDto addTrustedCertificates(TrustedCertificateAddRequestDto request)
-            throws CertificateException {
+    public TrustedCertificateBulkResultDto addTrustedCertificates(TrustedCertificateAddRequestDto request) {
         return trustedCertificateService.addTrustedCertificates(request);
     }
 

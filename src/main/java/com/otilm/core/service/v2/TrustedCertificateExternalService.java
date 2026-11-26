@@ -10,7 +10,6 @@ import com.otilm.api.model.client.trustedcertificate.v2.TrustedCertificateRemove
 import com.otilm.api.model.client.trustedcertificate.v2.TrustedCertificateUpdateRequestDto;
 import com.otilm.core.security.authz.SecuredUUID;
 
-import java.security.cert.CertificateException;
 import java.util.List;
 
 /**
@@ -39,10 +38,8 @@ public interface TrustedCertificateExternalService {
      *
      * @param request the certificates and purposes
      * @return one result per distinct requested certificate
-     * @throws CertificateException if the uploaded certificate cannot be stored
      */
-    TrustedCertificateBulkResultDto addTrustedCertificates(TrustedCertificateAddRequestDto request)
-            throws CertificateException;
+    TrustedCertificateBulkResultDto addTrustedCertificates(TrustedCertificateAddRequestDto request);
 
     /**
      * Replaces the purposes of trusted certificates.

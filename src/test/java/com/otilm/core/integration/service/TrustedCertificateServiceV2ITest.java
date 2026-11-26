@@ -7,6 +7,8 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.v2.TrustedCertificateExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.WireMockPorts;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
@@ -77,6 +79,7 @@ class TrustedCertificateServiceV2ITest extends BaseSpringBootTest {
 
         // then
         assertThat(detail.getIssuer()).isEqualTo("CN=Test CA");
+        assertThat(detail.getNotAfter()).isEqualTo(OffsetDateTime.of(2025, 12, 31, 23, 59, 59, 0, ZoneOffset.UTC));
     }
 
     @Test

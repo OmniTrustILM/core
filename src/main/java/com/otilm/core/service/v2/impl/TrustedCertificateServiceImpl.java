@@ -17,6 +17,9 @@ import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.v2.TrustedCertificateExternalService;
 import jakarta.transaction.Transactional;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -107,9 +110,13 @@ public class TrustedCertificateServiceImpl implements TrustedCertificateExternal
         dto.setSerialNumber(provisioningDto.serialNumber());
         dto.setSubject(provisioningDto.subject());
         dto.setThumbprint(provisioningDto.thumbprint());
-        dto.setNotBefore(provisioningDto.notBefore());
-        dto.setNotAfter(provisioningDto.notAfter());
+        dto.setNotBefore(atUtc(provisioningDto.notBefore()));
+        dto.setNotAfter(atUtc(provisioningDto.notAfter()));
         return dto;
     }
 
+    /** Provisioning reports certificate validity in UTC without the offset. */
+    private static OffsetDateTime atUtc(LocalDateTime provisioningTime) {
+        return provisioningTime == null ? null : provisioningTime.atOffset(ZoneOffset.UTC);
+    }
 }
