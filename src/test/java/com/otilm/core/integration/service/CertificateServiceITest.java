@@ -2043,9 +2043,9 @@ class CertificateServiceITest extends BaseSpringBootTest {
         @Test
         void refusesDelete_whenOnlyASupersededVersionHoldsTheCertificate() {
             // given
-            var renewedCertificate = saveCertificate("renewed");
+            Certificate renewedCertificate = saveCertificate("renewed");
             signingProfileSeeder.seedRenewedOnto("renewed-profile", certificate, renewedCertificate);
-            var certificateUuid = certificate.getSecuredUuid();
+            SecuredUUID certificateUuid = certificate.getSecuredUuid();
 
             // when
             ThrowingCallable deleteCertificate = () -> certificateService.deleteCertificate(certificateUuid);
@@ -2054,7 +2054,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
             assertThatThrownBy(deleteCertificate)
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining("it is kept by superseded versions of Signing Profile(s)"
-                            + " (released only by deleting the Signing Profile): renewed-profile.");
+                            + " (released only by deleting the Signing Profile, which first requires deleting its signing records): renewed-profile.");
             assertThat(certificateRepository.existsById(certificate.getUuid())).isTrue();
         }
 
@@ -2062,7 +2062,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
         void refusesDelete_whenTheCurrentVersionHoldsTheCertificate() {
             // given
             signingProfileSeeder.seedSigningWith("signing-profile", certificate);
-            var certificateUuid = certificate.getSecuredUuid();
+            SecuredUUID certificateUuid = certificate.getSecuredUuid();
 
             // when
             ThrowingCallable deleteCertificate = () -> certificateService.deleteCertificate(certificateUuid);
@@ -2078,7 +2078,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
         void recordsFailedHistoryNamingTheProfile_whenRefusingDelete() {
             // given
             signingProfileSeeder.seedSigningWith("signing-profile", certificate);
-            var certificateUuid = certificate.getSecuredUuid();
+            SecuredUUID certificateUuid = certificate.getSecuredUuid();
 
             // when
             ThrowingCallable deleteCertificate = () -> certificateService.deleteCertificate(certificateUuid);
@@ -2094,9 +2094,9 @@ class CertificateServiceITest extends BaseSpringBootTest {
         }
 
         @Test
-        void deletesCertificate_whenNoSigningProfileVersionHoldsIt() throws NotFoundException {
+        void deletesCertificate_whenNoSigningProfileVersionHoldsIt() throws Exception {
             // given
-            var otherCertificate = saveCertificate("other");
+            Certificate otherCertificate = saveCertificate("other");
             signingProfileSeeder.seedSigningWith("signing-profile", otherCertificate);
 
             // when
@@ -2110,13 +2110,14 @@ class CertificateServiceITest extends BaseSpringBootTest {
         @Test
         void deletesOnlyUnheldCertificates_whenBulkDeletingMixedCertificates() {
             // given
-            var heldByCurrentVersion = saveCertificate("held-by-current-version");
-            var heldBySupersededVersion = saveCertificate("held-by-superseded-version");
-            var unheld = saveCertificate("unheld");
+            Certificate heldByCurrentVersion = saveCertificate("held-by-current-version");
+            Certificate heldBySupersededVersion = saveCertificate("held-by-superseded-version");
+            Certificate unheld = saveCertificate("unheld");
             signingProfileSeeder.seedSigningWith("signing-profile", heldByCurrentVersion);
             signingProfileSeeder
                     .seedRenewedOnto("renewed-profile", heldBySupersededVersion, saveCertificate("renewed"));
-            var request = removalOf(certificate, heldByCurrentVersion, unheld, heldBySupersededVersion);
+            RemoveCertificateDto request = removalOf(certificate, heldByCurrentVersion, unheld,
+                    heldBySupersededVersion);
 
             // when
             certificateService.bulkDeleteCertificate(SecurityFilter.create(), request);
@@ -2134,12 +2135,12 @@ class CertificateServiceITest extends BaseSpringBootTest {
         @Test
         void notifiesEachSkippedCertificateWithItsProfiles_whenBulkDeleting() {
             // given
-            var heldByCurrentVersion = saveCertificate("held-by-current-version");
-            var heldBySupersededVersion = saveCertificate("held-by-superseded-version");
+            Certificate heldByCurrentVersion = saveCertificate("held-by-current-version");
+            Certificate heldBySupersededVersion = saveCertificate("held-by-superseded-version");
             signingProfileSeeder.seedSigningWith("signing-profile", heldByCurrentVersion);
             signingProfileSeeder
                     .seedRenewedOnto("renewed-profile", heldBySupersededVersion, saveCertificate("renewed"));
-            var request = removalOf(heldByCurrentVersion, heldBySupersededVersion);
+            RemoveCertificateDto request = removalOf(heldByCurrentVersion, heldBySupersededVersion);
 
             // when
             certificateService.bulkDeleteCertificate(SecurityFilter.create(), request);
@@ -2161,14 +2162,14 @@ class CertificateServiceITest extends BaseSpringBootTest {
                                     .eq("Could not delete certificate held-by-superseded-version with UUID "
                                             + heldBySupersededVersion.getUuid()
                                             + ": it is kept by superseded versions of Signing Profile(s)"
-                                            + " (released only by deleting the Signing Profile): renewed-profile."));
+                                            + " (released only by deleting the Signing Profile, which first requires deleting its signing records): renewed-profile."));
         }
 
         @Test
         void recordsFailedHistoryNamingTheProfile_whenBulkDeleteSkipsACertificate() {
             // given
             signingProfileSeeder.seedSigningWith("signing-profile", certificate);
-            var request = removalOf(certificate);
+            RemoveCertificateDto request = removalOf(certificate);
 
             // when
             certificateService.bulkDeleteCertificate(SecurityFilter.create(), request);

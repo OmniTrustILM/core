@@ -12,7 +12,8 @@ import java.util.stream.Collectors;
 /**
  * The Signing Profiles whose stored versions hold one certificate, which therefore cannot be deleted. A superseded
  * version keeps its certificate because the raw-signing key binding reads a key's signing history from the stored
- * versions, so only deleting the Signing Profile releases it.
+ * versions, so only deleting the Signing Profile releases it, and a profile with signing records cannot be deleted
+ * until they are.
  *
  * @param currentVersionProfiles names of the profiles whose current version holds the certificate, sorted
  * @param supersededOnlyProfiles names of the profiles that hold it only in superseded versions, sorted
@@ -48,8 +49,17 @@ public record SigningProfileCertificateUse(List<String> currentVersionProfiles, 
         return new SigningProfileCertificateUse(List.copyOf(currentVersionNames), List.copyOf(supersededVersionNames));
     }
 
-    /** Why the certificate cannot be deleted, worded to follow "it is" or "Certificate is". */
-    public String reason() {
+    public String deleteRefusal(String certificateName, UUID certificateUuid) {
+        return "Could not delete certificate %s with UUID %s: it is %s."
+                .formatted(certificateName, certificateUuid, reason());
+    }
+
+    /** The refusal as the certificate's event history records it. */
+    public String historyMessage() {
+        return "Certificate is " + reason();
+    }
+
+    private String reason() {
         List<String> parts = new ArrayList<>();
         if (!currentVersionProfiles.isEmpty()) {
             parts
@@ -58,14 +68,9 @@ public record SigningProfileCertificateUse(List<String> currentVersionProfiles, 
         }
         if (!supersededOnlyProfiles.isEmpty()) {
             parts
-                    .add("kept by superseded versions of Signing Profile(s) (released only by deleting the Signing Profile): "
+                    .add("kept by superseded versions of Signing Profile(s) (released only by deleting the Signing Profile, which first requires deleting its signing records): "
                             + String.join(", ", supersededOnlyProfiles));
         }
         return String.join("; ", parts);
-    }
-
-    public String deleteRefusal(String certificateName, UUID certificateUuid) {
-        return "Could not delete certificate %s with UUID %s: it is %s."
-                .formatted(certificateName, certificateUuid, reason());
     }
 }

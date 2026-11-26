@@ -1002,8 +1002,9 @@ public class CertificateServiceImpl
         }
         certificateEventHistoryService
                 .addEventHistorySurvivingRollback(certificate.getUuid(), CertificateEvent.DELETE,
-                        CertificateEventStatus.FAILED, "Certificate is " + use.reason(), null);
-        throw new ValidationException(use.deleteRefusal(certificate.getCommonName(), certificate.getUuid()));
+                        CertificateEventStatus.FAILED, use.historyMessage(), null);
+        throw new ValidationException(use
+                .deleteRefusal(CertificateUtil.formatCommonName(certificate.getCommonName()), certificate.getUuid()));
     }
 
     private Map<UUID, SigningProfileCertificateUse> signingProfileUsesOf(List<UUID> certificateUuids) {
@@ -1266,32 +1267,42 @@ public class CertificateServiceImpl
         List<Certificate> fetched = certificateRepository.findAllWithAssociationsByUuidIn(permittedUuids);
         Map<UUID, SigningProfileCertificateUse> uses = signingProfileUsesOf(permittedUuids);
         List<HeldCertificate> heldCertificates = recordHeldCertificates(fetched, uses);
-        List<Certificate> certificates = fetched.stream().filter(c -> !uses.containsKey(c.getUuid())).toList();
-        if (certificates.isEmpty()) {
-            return new BatchDeletion(0, heldCertificates);
-        }
-        List<UUID> deletableUuids = certificates.stream().map(Certificate::getUuid).toList();
-        List<SecuredUUID> deletableSecuredUuids = deletableUuids.stream().map(SecuredUUID::fromUUID).toList();
+        List<Certificate> deletable = fetched.stream().filter(c -> !uses.containsKey(c.getUuid())).toList();
 
         // 3. Do the work.
-        locationInternalService.removeCertificatesFromLocationsOnDelete(deletableSecuredUuids);
+        deleteWithDependents(deletable);
+        return new BatchDeletion(deletable.size(), heldCertificates);
+    }
 
-        crlService.clearCrlsForCaCertificate(deletableUuids);
+    /**
+     * Removes what depends on the certificates, then the certificates. It receives only the certificates the batch may
+     * delete, so none of its steps can reach one that was set aside, such as one a Signing Profile version holds.
+     */
+    private void deleteWithDependents(List<Certificate> certificates) {
+        if (certificates.isEmpty()) {
+            return;
+        }
+        List<UUID> certificateUuids = certificates.stream().map(Certificate::getUuid).toList();
+        List<SecuredUUID> securedCertificateUuids = certificateUuids.stream().map(SecuredUUID::fromUUID).toList();
+
+        locationInternalService.removeCertificatesFromLocationsOnDelete(securedCertificateUuids);
+
+        crlService.clearCrlsForCaCertificate(certificateUuids);
 
         certificates.forEach(c -> {
             c.setOwner(null);
             c.getGroups().clear();
         });
-        objectAssociationService.bulkRemoveObjectAssociations(Resource.CERTIFICATE, deletableUuids);
-        commentService.bulkRemoveObjectComments(Resource.CERTIFICATE, deletableUuids);
-        complianceProfileAssociationWriter.deleteAllForObjects(Resource.CERTIFICATE, deletableUuids);
-        pendingNotificationWriter.deleteForObjects(Resource.CERTIFICATE, deletableUuids);
-        attributeEngine.bulkDeleteObjectAttributeContent(Resource.CERTIFICATE, deletableUuids);
+        objectAssociationService.bulkRemoveObjectAssociations(Resource.CERTIFICATE, certificateUuids);
+        commentService.bulkRemoveObjectComments(Resource.CERTIFICATE, certificateUuids);
+        complianceProfileAssociationWriter.deleteAllForObjects(Resource.CERTIFICATE, certificateUuids);
+        pendingNotificationWriter.deleteForObjects(Resource.CERTIFICATE, certificateUuids);
+        attributeEngine.bulkDeleteObjectAttributeContent(Resource.CERTIFICATE, certificateUuids);
 
         // After the comment locks, as in deleteCertificate: the opposite order could deadlock the two paths
-        scepProfileRepository.clearCaCertificateReferenceIn(deletableUuids);
-        cmpProfileRepository.clearSigningCertificateReferenceIn(deletableUuids);
-        estProfileWriter.removeTrustedCaCertificates(deletableUuids);
+        scepProfileRepository.clearCaCertificateReferenceIn(certificateUuids);
+        cmpProfileRepository.clearSigningCertificateReferenceIn(certificateUuids);
+        estProfileWriter.removeTrustedCaCertificates(certificateUuids);
 
         List<UUID> certificateRequestUuids = certificates
                 .stream()
@@ -1302,12 +1313,12 @@ public class CertificateServiceImpl
         certificateRepository.deleteAllInBatch(certificates);
         certificateContentRepository.deleteUnusedCertificateContents();
         certificateRequestWriter.deleteUnreferenced(certificateRequestUuids);
-        return new BatchDeletion(certificates.size(), heldCertificates);
     }
 
     /**
      * Records the refused delete in the history of each certificate a Signing Profile version holds. The record is
-     * written in the batch's transaction, so it is kept only when the requester is also notified.
+     * written in the batch's transaction, so it is kept only when the batch commits; the requester is notified after
+     * that commit.
      */
     private List<HeldCertificate> recordHeldCertificates(List<Certificate> certificates,
             Map<UUID, SigningProfileCertificateUse> uses) {
@@ -1317,8 +1328,10 @@ public class CertificateServiceImpl
             if (use != null) {
                 certificateEventHistoryService
                         .addEventHistory(certificate.getUuid(), CertificateEvent.DELETE, CertificateEventStatus.FAILED,
-                                "Certificate is " + use.reason(), (String) null);
-                String refusal = use.deleteRefusal(certificate.getCommonName(), certificate.getUuid());
+                                use.historyMessage(), (String) null);
+                String refusal = use
+                        .deleteRefusal(CertificateUtil.formatCommonName(certificate.getCommonName()),
+                                certificate.getUuid());
                 heldCertificates.add(new HeldCertificate(certificate.getUuid(), refusal));
             }
         }

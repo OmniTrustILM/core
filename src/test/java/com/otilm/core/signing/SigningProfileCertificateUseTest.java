@@ -17,7 +17,7 @@ class SigningProfileCertificateUseTest {
     class ByCertificate {
 
         @Test
-        void separatesProfiles_byWhetherTheirCurrentVersionHoldsTheCertificate() {
+        void splitsProfilesIntoCurrentAndSupersededOnly_whenVersionsOfSeveralProfilesHoldTheCertificate() {
             // given
             var currentVersion = new CertificateHoldingVersion(CERTIFICATE_UUID, "signing-profile", 2, 2);
             var supersededVersion = new CertificateHoldingVersion(CERTIFICATE_UUID, "renewed-profile", 1, 3);
@@ -48,7 +48,7 @@ class SigningProfileCertificateUseTest {
         }
 
         @Test
-        void namesEachProfileOnce_inAlphabeticalOrder() {
+        void namesEachProfileOnceAlphabetically_whenSeveralVersionsOfAProfileHoldTheCertificate() {
             // given
             var laterVersionOfZulu = new CertificateHoldingVersion(CERTIFICATE_UUID, "zulu", 2, 3);
             var alpha = new CertificateHoldingVersion(CERTIFICATE_UUID, "alpha", 1, 3);
@@ -120,7 +120,7 @@ class SigningProfileCertificateUseTest {
             assertThat(refusal)
                     .isEqualTo("Could not delete certificate signer.example.com with UUID " + CERTIFICATE_UUID
                             + ": it is kept by superseded versions of Signing Profile(s)"
-                            + " (released only by deleting the Signing Profile): renewed-profile.");
+                            + " (released only by deleting the Signing Profile, which first requires deleting its signing records): renewed-profile.");
         }
 
         @Test
@@ -136,7 +136,7 @@ class SigningProfileCertificateUseTest {
                     .isEqualTo("Could not delete certificate signer.example.com with UUID " + CERTIFICATE_UUID
                             + ": it is used by the current version of Signing Profile(s): signing-profile;"
                             + " kept by superseded versions of Signing Profile(s)"
-                            + " (released only by deleting the Signing Profile): renewed-profile.");
+                            + " (released only by deleting the Signing Profile, which first requires deleting its signing records): renewed-profile.");
         }
     }
 }
