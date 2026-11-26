@@ -21,6 +21,7 @@ import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.content.data.ProtectionLevel;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
+import com.otilm.api.model.common.attribute.v3.MetadataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.IntegerAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.ObjectAttributeContentV3;
@@ -30,6 +31,7 @@ import com.otilm.api.model.common.attribute.v3.content.data.ResourceSecretConten
 import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.api.model.connector.secrets.content.ApiKeySecretContent;
+import com.otilm.api.model.connector.v3.authority.AuthorityConnectionResponseDto;
 import com.otilm.api.model.connector.v3.authority.CaCertificatesRequestDtoV3;
 import com.otilm.api.model.connector.v3.authority.CaCertificatesResponseDto;
 import com.otilm.api.model.connector.v3.authority.CertificateTypesRequestDtoV3;
@@ -1473,10 +1475,54 @@ class AuthorityProviderV3AdapterTest {
         verifyNoInteractions(authorityClientV3, certClientV3);
     }
 
-    @Test
-    void checkAuthorityConnectionDelegates() throws ConnectorException {
-        adapter.checkAuthorityConnection(authority, List.of());
-        verify(authorityClientV3).checkAuthorityConnection(eq(connectorInfo), any());
+    // ── CheckAuthorityConnection ──────────────────────────────────────────────
+
+    @Nested
+    class CheckAuthorityConnection {
+
+        @Test
+        void returnsTheReportedMetadata_whenTheConnectorAnswersWithMetadata() throws Exception {
+            // given
+            var accountUrl = new MetadataAttributeV3();
+            accountUrl.setName("acmeAccountUrl");
+            var body = new AuthorityConnectionResponseDto();
+            body.setMetadata(List.of(accountUrl));
+            when(authorityClientV3.checkAuthorityConnection(connectorInfo, List.of()))
+                    .thenReturn(ResponseEntity.ok(body));
+
+            // when
+            List<MetadataAttribute> metadata = adapter.checkAuthorityConnection(authority, List.of());
+
+            // then
+            assertThat(metadata).containsExactly(accountUrl);
+        }
+
+        @Test
+        void returnsNoMetadata_whenTheConnectorAnswersWithoutContent() throws Exception {
+            // given
+            when(authorityClientV3.checkAuthorityConnection(connectorInfo, List.of()))
+                    .thenReturn(ResponseEntity.noContent().build());
+
+            // when
+            List<MetadataAttribute> metadata = adapter.checkAuthorityConnection(authority, List.of());
+
+            // then
+            assertThat(metadata).isEmpty();
+        }
+
+        @Test
+        void returnsNoMetadata_whenTheBodyCarriesNoMetadata() throws Exception {
+            // given
+            var bodyWithoutMetadata = new AuthorityConnectionResponseDto();
+            when(authorityClientV3.checkAuthorityConnection(connectorInfo, List.of()))
+                    .thenReturn(ResponseEntity.ok(bodyWithoutMetadata));
+
+            // when
+            List<MetadataAttribute> metadata = adapter.checkAuthorityConnection(authority, List.of());
+
+            // then
+            assertThat(metadata).isEmpty();
+        }
     }
 
     // ---- pollStatus: revoke + register branches ----

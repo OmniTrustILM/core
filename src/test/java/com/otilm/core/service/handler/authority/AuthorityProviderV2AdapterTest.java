@@ -606,13 +606,17 @@ class AuthorityProviderV2AdapterTest {
     // --- checkAuthorityConnection ---
 
     @Test
-    void checkAuthorityConnection_delegatesToValidateRaProfileAttributes() throws Exception {
+    void returnsNoMetadata_whenTheConnectorValidatesTheAuthorityAttributes() throws Exception {
+        // given
         List<RequestAttribute> attrs = List.of(mock(RequestAttribute.class));
         when(authorityClient.validateRAProfileAttributes(connectorInfo, "auth-instance-uuid", attrs)).thenReturn(true);
 
-        adapter.checkAuthorityConnection(authority, attrs);
+        // when
+        List<MetadataAttribute> metadata = adapter.checkAuthorityConnection(authority, attrs);
 
+        // then
         verify(authorityClient).validateRAProfileAttributes(connectorInfo, "auth-instance-uuid", attrs);
+        assertThat(metadata).isEmpty();
     }
 
     // --- validate attributes (v2 delegates to the connector /validate endpoints) ---

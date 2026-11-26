@@ -255,12 +255,13 @@ public class AuthorityProviderV2Adapter extends AbstractAuthorityProviderAdapter
      * the connector with the given attributes and throws on failure.
      */
     @Override
-    public void checkAuthorityConnection(AuthorityInstanceReference authority, List<RequestAttribute> attributes)
-            throws ValidationException, ConnectorException {
+    public List<MetadataAttribute> checkAuthorityConnection(AuthorityInstanceReference authority,
+            List<RequestAttribute> attributes) throws ValidationException, ConnectorException {
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
         connectorApiFactory
                 .getAuthorityInstanceApiClient(connectorDto)
                 .validateRAProfileAttributes(connectorDto, authority.getAuthorityInstanceUuid(), attributes);
+        return List.of();
     }
 
     @Override

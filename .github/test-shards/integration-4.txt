@@ -92,6 +92,7 @@ com/otilm/core/integration/service/renewal/RenewalInfoRefreshITest.java
 com/otilm/core/integration/service/renewal/RenewalWindowWriterITest.java
 com/otilm/core/integration/service/v2/UploadedCsrValidationITest.java
 com/otilm/core/integration/service/v2/impl/ClientOperationRequestAttributePropagationITest.java
+com/otilm/core/integration/service/v3/AuthorityMetadataITest.java
 com/otilm/core/integration/service/writer/RenewalRefreshWriterITest.java
 com/otilm/core/integration/signing/rawsigning/RawSigningEngineITest.java
 com/otilm/core/integration/signing/tsa/TsaServiceAuthzITest.java
