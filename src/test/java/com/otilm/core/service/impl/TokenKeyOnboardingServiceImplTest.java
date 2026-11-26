@@ -24,6 +24,7 @@ import com.otilm.core.util.CryptographyUtil;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
@@ -41,6 +42,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -170,6 +172,44 @@ class TokenKeyOnboardingServiceImplTest {
                             TokenKeyOnboardingResultDto::getKeyName)
                     .containsExactly(TokenKeyOnboardingOutcome.BLOCKED, TokenKeyStatus.IN_INVENTORY,
                             TokenKeyOnboardingServiceImpl.HELD_MEANWHILE, null, null);
+        }
+
+        @Test
+        void blocksThePrivateKeyAloneAsImportInProgress_whenAKeyPairImportOpensBeforeItIsWritten() throws Exception {
+            // given
+            ProviderKeyPair pair = aProviderKeyPair().withoutPublicKey().build();
+            resolves(pair);
+            when(cryptographicKeyWriter.onboardUnlessImporting(any(), eq(profile), eq(null), any(), any(), any()))
+                    .thenReturn(Optional.empty());
+
+            // when
+            TokenKeyOnboardingResultDto result = onboard(pair);
+
+            // then
+            assertThat(result)
+                    .extracting(TokenKeyOnboardingResultDto::getOutcome, TokenKeyOnboardingResultDto::getStatus,
+                            TokenKeyOnboardingResultDto::getReason)
+                    .containsExactly(TokenKeyOnboardingOutcome.BLOCKED, TokenKeyStatus.IMPORT_IN_PROGRESS,
+                            TokenKeyOnboardingServiceImpl.IMPORTING_ON_TOKEN);
+        }
+
+        @Test
+        void failsThePrivateKeyAlone_whenTheKeyThatTookItsHandleIsGoneBeforeTheRetryLooks() throws Exception {
+            // given
+            ProviderKeyPair pair = aProviderKeyPair().withoutPublicKey().build();
+            resolves(pair);
+            when(cryptographicKeyWriter.onboardUnlessImporting(any(), eq(profile), eq(null), any(), any(), any()))
+                    .thenThrow(new DuplicateKeyException("handle digest taken"));
+
+            // when
+            TokenKeyOnboardingResultDto result = onboard(pair);
+
+            // then
+            assertThat(result)
+                    .extracting(TokenKeyOnboardingResultDto::getOutcome, TokenKeyOnboardingResultDto::getReason)
+                    .containsExactly(TokenKeyOnboardingOutcome.FAILED, TokenKeyOnboardingServiceImpl.ONBOARDING_FAILED);
+            verify(cryptographicKeyWriter, times(2))
+                    .holdersOfHandles(profile.tokenInstanceReferenceUuid(), Set.of(pair.privateKey().handleDigest()));
         }
 
         // ── Helpers ───────────────────────────────────────────────────────────

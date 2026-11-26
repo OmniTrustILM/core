@@ -18,7 +18,9 @@ import org.springframework.stereotype.Component;
  * Bounds what CRL downloads cost this Core instance. Each downloaded CRL is held in memory until it is stored, so:
  * <ul>
  * <li>work for one issuer runs one at a time;</li>
- * <li>at most {@code validation.crl.max-concurrent-downloads} CRLs are read at once;</li>
+ * <li>at most {@code validation.crl.max-concurrent-downloads} CRLs are read at once. The limit counts the downloads
+ * whose caller still waits: one its caller stopped waiting for may still be resolving its host name, but it stops at
+ * its first read after that;</li>
  * <li>a failed download is reported again for further certificates of the issuer until
  * {@code validation.crl.retry-after-failure} has passed, instead of being repeated for each of them.</li>
  * </ul>

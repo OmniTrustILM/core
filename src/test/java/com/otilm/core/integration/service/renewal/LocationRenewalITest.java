@@ -16,23 +16,28 @@ import com.otilm.core.dao.entity.CertificateLocationId;
 import com.otilm.core.dao.entity.CertificateRenewalLocation;
 import com.otilm.core.dao.entity.Certificate_;
 import com.otilm.core.dao.entity.Location;
+import com.otilm.core.dao.entity.workflows.TriggerAssociation;
+import com.otilm.core.dao.entity.workflows.TriggerHistory;
 import com.otilm.core.dao.repository.CertificateEventHistoryRepository;
 import com.otilm.core.dao.repository.CertificateLocationRepository;
 import com.otilm.core.dao.repository.CertificateRenewalInfoRepository;
 import com.otilm.core.dao.repository.CertificateRenewalLocationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
+import com.otilm.core.dao.repository.workflows.TriggerHistoryRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.CertificateEventHistoryInternalService;
 import com.otilm.core.service.LocationExternalService;
+import com.otilm.core.service.TriggerInternalService;
 import com.otilm.core.service.handler.authority.CertificateOperation;
 import com.otilm.core.service.renewal.RenewalEligibility;
 import com.otilm.core.service.renewal.RenewalWindowWriter;
 import com.otilm.core.service.renewal.Window;
 import com.otilm.core.service.renewal.WindowWrite;
 import com.otilm.core.service.renewal.auto.AutoRenewalAction;
+import com.otilm.core.service.renewal.auto.AutoRenewalAfterCommit;
 import com.otilm.core.service.renewal.auto.LocationRenewalHandler;
 import com.otilm.core.service.renewal.auto.TriggerContext;
 import com.otilm.core.service.v2.ClientOperationInternalService;
@@ -42,16 +47,24 @@ import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.QueuedMessageDelivery;
 import com.otilm.core.util.builders.V3ConnectorStubs;
 import com.otilm.core.util.seeders.AutoRenewalSeeder;
+import com.zaxxer.hikari.HikariDataSource;
+import com.zaxxer.hikari.HikariPoolMXBean;
 import jakarta.persistence.EntityManager;
 import java.io.InputStream;
 import java.security.KeyStore;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import javax.sql.DataSource;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -108,6 +121,12 @@ class LocationRenewalITest extends BaseSpringBootTest {
     private ClientOperationInternalService clientOperationService;
     @Autowired
     private QueuedMessageDelivery delivery;
+    @Autowired
+    private TriggerInternalService triggerService;
+    @Autowired
+    private TriggerHistoryRepository triggerHistoryRepository;
+    @Autowired
+    private DataSource dataSource;
 
     private final LocationExternalService locationStub = mock(LocationExternalService.class);
     private final TriggerContext trigger = new TriggerContext(UUID.randomUUID(), UUID.randomUUID(), null, null);
@@ -122,8 +141,8 @@ class LocationRenewalITest extends BaseSpringBootTest {
     void seedDueCertificate() {
         certificate = seeder.seedDueCertificate(seeder.seedRaProfile(true));
         LocationRenewalHandler handler = new LocationRenewalHandler(locationStub, renewalLocationRepository,
-                certificateRepository, certificateLocationRepository, eventHistoryService, entityManager,
-                transactionManager);
+                renewalInfoRepository, certificateRepository, certificateLocationRepository, eventHistoryService,
+                entityManager, transactionManager);
         action = new AutoRenewalAction(renewalInfoRepository, certificateRepository, eventHistoryService, entityManager,
                 transactionManager, typeHandlerRegistry, List.of(handler));
     }
@@ -156,25 +175,35 @@ class LocationRenewalITest extends BaseSpringBootTest {
     }
 
     @Test
-    void callsTheLocationRenewalOutsideAnyTransaction_whenTheTriggerEvaluationRunsInOne() throws Exception {
+    void callsTheLocationRenewalWithoutATransactionOnceTheEventCommitted_whenTheEventRunsInATransaction()
+            throws Exception {
         // given
         Location web = seeder.seedKeyGeneratingLocation(certificate, "web");
         Certificate successor = seeder.seedSuccessor(certificate.getRaProfile(), CertificateState.PENDING_ISSUE);
-        AtomicBoolean transactionActiveDuringRenewal = new AtomicBoolean(true);
+        AtomicReference<UUID> firingUuid = new AtomicReference<>();
+        Map<String, Boolean> duringRenewal = new LinkedHashMap<>();
+        HikariPoolMXBean pool = dataSource.unwrap(HikariDataSource.class).getHikariPoolMXBean();
+        int activeBefore = pool.getActiveConnections();
+        AtomicInteger activeDuringRenewal = new AtomicInteger(-1);
         when(locationStub
                 .renewCertificateInLocationForSuccessor(any(SecuredParentUUID.class), inLocation(web),
                         eq(certificate.getUuid()), any()))
                 .thenAnswer(invocation -> {
-                    transactionActiveDuringRenewal.set(TransactionSynchronizationManager.isActualTransactionActive());
+                    duringRenewal
+                            .put("transactionActive", TransactionSynchronizationManager.isActualTransactionActive());
+                    duringRenewal.put("eventCommitted", isCommitted(firingUuid.get()));
+                    activeDuringRenewal.set(pool.getActiveConnections());
                     requestRenewal(successor, invocation.getArgument(3));
                     return successor.getUuid();
                 });
 
         // when
-        new TransactionTemplate(transactionManager).executeWithoutResult(status -> performQuietly());
+        fireInEvent(firingUuid);
 
         // then
-        assertThat(transactionActiveDuringRenewal).isFalse();
+        assertThat(duringRenewal)
+                .containsExactly(Map.entry("transactionActive", false), Map.entry("eventCommitted", true));
+        assertThat(activeDuringRenewal).hasValue(activeBefore);
         assertStarted(seeder.locationRow(certificate, web), successor);
     }
 
@@ -469,6 +498,141 @@ class LocationRenewalITest extends BaseSpringBootTest {
     }
 
     @Test
+    void countsAFailedAttempt_whenTheSuccessorIsRevokedBeforeTheLocationCompleted() throws Exception {
+        // given
+        Location web = seeder.seedKeyGeneratingLocation(certificate, "web");
+        Certificate revoked = seeder.seedSuccessor(certificate.getRaProfile(), CertificateState.REVOKED);
+        seeder.seedRenewalRelation(certificate, revoked);
+        seeder.seedLocationRenewal(certificate, web, revoked);
+        Instant before = Instant.now();
+
+        // when
+        ThrowingCallable fire = () -> action.perform(certificate, trigger);
+
+        // then
+        assertThatThrownBy(fire).isInstanceOf(RuleException.class).hasMessageContaining("revoked");
+        CertificateRenewalLocation row = seeder.locationRow(certificate, web);
+        assertThat(row.getAttempt()).isEqualTo(1);
+        assertThat(row.getNotBefore()).isAfterOrEqualTo(before.plus(Duration.ofHours(1)));
+        assertThat(row.getSuccessorUuid()).isNull();
+        assertThat(row.getCompletedAt()).isNull();
+        verifyRenewals(web, 0);
+    }
+
+    @Test
+    void renewsInTheLocationAgain_whenOnlyARevokedSuccessorIsRelatedAndTheBackoffIsOver() throws Exception {
+        // given
+        Location web = seeder.seedKeyGeneratingLocation(certificate, "web");
+        Certificate revoked = seeder.seedSuccessor(certificate.getRaProfile(), CertificateState.REVOKED);
+        seeder.seedRenewalRelation(certificate, revoked);
+        CertificateRenewalLocation row = seeder.seedLocationRenewal(certificate, web, revoked);
+        row.setSuccessorUuid(null);
+        row.setAttempt(1);
+        endBackoff(row);
+        Certificate retried = stubRenewal(web, CertificateState.PENDING_ISSUE);
+
+        // when
+        action.perform(certificate, trigger);
+
+        // then
+        verifyRenewals(web, 1);
+        assertStarted(seeder.locationRow(certificate, web), retried);
+    }
+
+    @Test
+    void reopensTheLocation_whenTheSuccessorIsRevokedAfterTheLocationCompleted() throws Exception {
+        // given
+        Location web = seeder.seedKeyGeneratingLocation(certificate, "web");
+        Certificate revoked = seeder.seedSuccessor(certificate.getRaProfile(), CertificateState.REVOKED);
+        seeder.seedRenewalRelation(certificate, revoked);
+        CertificateRenewalLocation completed = seeder.seedLocationRenewal(certificate, web, revoked);
+        completed.setCompletedAt(Instant.now().minus(Duration.ofDays(1)));
+        renewalLocationRepository.save(completed);
+
+        // when
+        action.perform(certificate, trigger);
+
+        // then
+        CertificateRenewalLocation row = seeder.locationRow(certificate, web);
+        assertThat(row.getCompletedAt()).isNull();
+        assertThat(row.getSuccessorUuid()).isNull();
+        assertThat(row.getAttempt()).isEqualTo(1);
+        assertThat(row.getNotBefore()).isNull();
+        assertThat(seeder.renewalRow(certificate.getUuid()).getRenewAt()).isNull();
+        assertThat(renewHistory())
+                .extracting(CertificateEventHistory::getMessage)
+                .anyMatch(message -> message.contains("%s was revoked".formatted(revoked.getUuid())));
+        assertThat(dueForRenewalEvent()).containsExactly(certificate.getUuid());
+        verifyRenewals(web, 0);
+    }
+
+    @Test
+    void recordsThatRenewalStopsAfterTheReopen_whenTheRevokedSuccessorReachesTheAttemptLimit() throws Exception {
+        // given
+        Location web = seeder.seedKeyGeneratingLocation(certificate, "web");
+        Certificate revoked = seeder.seedSuccessor(certificate.getRaProfile(), CertificateState.REVOKED);
+        int maxAttempts = certificate.getRaProfile().getAutoRenewalMaxAttempts();
+        CertificateRenewalLocation completed = seeder.seedLocationRenewal(certificate, web, revoked);
+        completed.setCompletedAt(Instant.now().minus(Duration.ofDays(1)));
+        completed.setAttempt(maxAttempts - 1);
+        renewalLocationRepository.save(completed);
+
+        // when
+        action.perform(certificate, trigger);
+
+        // then
+        assertThat(seeder.locationRow(certificate, web).getAttempt()).isEqualTo(maxAttempts);
+        assertThat(renewHistory())
+                .extracting(CertificateEventHistory::getMessage)
+                .contains("Automatic renewal in location web stopped after %d attempts".formatted(maxAttempts),
+                        ("Automatic renewal in location web: the renewed certificate %s was revoked; the attempt limit"
+                                + " is reached, so it is not renewed there again (attempt %d of %d)")
+                                .formatted(revoked.getUuid(), maxAttempts, maxAttempts));
+    }
+
+    @Test
+    void raisesTheRenewalDueEvent_whenOneLocationsSuccessorIsRevokedAndAnotherIsIssued() throws Exception {
+        // given
+        Location web = seeder.seedKeyGeneratingLocation(certificate, "web");
+        Location mail = seeder.seedKeyGeneratingLocation(certificate, "mail");
+        Certificate issued = seeder.seedSuccessor(certificate.getRaProfile(), CertificateState.ISSUED);
+        seeder.seedRenewalRelation(certificate, issued);
+        Certificate revoked = seeder.seedSuccessor(certificate.getRaProfile(), CertificateState.REVOKED);
+        seeder.seedRenewalRelation(certificate, revoked);
+        CertificateRenewalLocation webRow = seeder.seedLocationRenewal(certificate, web, issued);
+        webRow.setCompletedAt(Instant.now().minus(Duration.ofDays(1)));
+        CertificateRenewalLocation mailRow = seeder.seedLocationRenewal(certificate, mail, revoked);
+        mailRow.setCompletedAt(Instant.now().minus(Duration.ofDays(1)));
+        renewalLocationRepository.saveAll(List.of(webRow, mailRow));
+
+        // when
+        List<UUID> due = dueForRenewalEvent();
+
+        // then
+        assertThat(due).containsExactly(certificate.getUuid());
+    }
+
+    @Test
+    void dropsTheCompletedRow_whenItsSuccessorIsRevokedAndTheLocationNoLongerHoldsTheCertificate() throws Exception {
+        // given
+        Location web = seeder.seedKeyGeneratingLocation(certificate, "web");
+        Certificate revoked = seeder.seedSuccessor(certificate.getRaProfile(), CertificateState.REVOKED);
+        seeder.seedRenewalRelation(certificate, revoked);
+        seeder.seedLocationEntry(web, revoked);
+        CertificateRenewalLocation completed = seeder.seedLocationRenewal(certificate, web, revoked);
+        completed.setCompletedAt(Instant.now().minus(Duration.ofDays(1)));
+        renewalLocationRepository.save(completed);
+        certificateLocationRepository.deleteById(new CertificateLocationId(web.getUuid(), certificate.getUuid()));
+
+        // when
+        action.perform(certificate, trigger);
+
+        // then
+        assertThat(renewalLocationRepository.findByCertificateUuid(certificate.getUuid())).isEmpty();
+        verifyRenewals(web, 0);
+    }
+
+    @Test
     void pushesTheRenewedCertificateInPlaceOfTheOldOne_whenTheAuthorityIssuesTheLocationRenewalLater()
             throws Exception {
         // given
@@ -612,12 +776,34 @@ class LocationRenewalITest extends BaseSpringBootTest {
                         .toList());
     }
 
-    private void performQuietly() {
-        try {
-            action.perform(certificate, trigger);
-        } catch (RuleException e) {
-            throw new AssertionError("The renewal failed", e);
-        }
+    /**
+     * Fires the action as the event handling does, inside a transaction that has written the firing's history, and
+     * hands out the firing before the action runs.
+     */
+    private void fireInEvent(AtomicReference<UUID> firingUuid) {
+        AutoRenewalAfterCommit afterCommit = new AutoRenewalAfterCommit(action, triggerService, transactionManager);
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            TriggerAssociation association = seeder.seedRenewTrigger(trigger.ownerUuid());
+            TriggerHistory firing = triggerService
+                    .createTriggerHistory(association.getTriggerUuid(), association, certificate.getUuid(), null, null,
+                            Resource.CERTIFICATE);
+            entityManager.flush();
+            firingUuid.set(firing.getUuid());
+            try {
+                afterCommit
+                        .perform(certificate, new TriggerContext(association.getTriggerUuid(), trigger.ownerUuid(),
+                                firing.getUuid(), null));
+            } catch (RuleException e) {
+                throw new AssertionError("The renewal failed", e);
+            }
+        });
+    }
+
+    /** Whether another connection sees the firing's history, which only a committed event transaction makes visible. */
+    private boolean isCommitted(UUID firingUuid) throws Exception {
+        return CompletableFuture
+                .supplyAsync(() -> triggerHistoryRepository.existsById(firingUuid))
+                .get(1, TimeUnit.MINUTES);
     }
 
     /** The certificates the renewal-due event would be raised for, among the one under test. */

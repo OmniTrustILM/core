@@ -35,8 +35,15 @@ public interface KeyImportRepository extends JpaRepository<KeyImport, UUID> {
     List<String> findImportingSpkiFingerprintsOnToken(@Param("tokenInstanceUuid") UUID tokenInstanceUuid,
             @Param("states") Collection<KeyImportState> states);
 
+    boolean existsByTokenInstanceUuidAndSpkiFingerprintIsNotNullAndStateIn(UUID tokenInstanceUuid,
+            Collection<KeyImportState> states);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     List<KeyImport> findForUpdateBySpkiFingerprintAndStateIn(String spkiFingerprint, Collection<KeyImportState> states);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    List<KeyImport> findForUpdateByTokenInstanceUuidAndSpkiFingerprintIsNotNullAndStateIn(UUID tokenInstanceUuid,
+            Collection<KeyImportState> states);
 
     /**
      * The attempts in the given states that are due for a look, the longest waiting first, locked: an attempt a retry
