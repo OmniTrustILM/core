@@ -110,7 +110,7 @@ class RawSigningProfileRulesTest {
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining(certificateUuid.toString())
                     .hasMessageContaining("is registered as a version 1 connector")
-                    .hasMessageContaining("Register the provider through a v2 connector");
+                    .hasMessageContaining("whose key is on a cryptography provider registered through a v2 connector");
         }
 
         @Test
@@ -127,7 +127,7 @@ class RawSigningProfileRulesTest {
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining(certificateUuid.toString())
                     .hasMessageContaining("does not advertise data digest signing")
-                    .hasMessageContaining("Register the provider through a v2 connector");
+                    .hasMessageContaining("whose key is on a cryptography provider registered through a v2 connector");
         }
 
         @Test

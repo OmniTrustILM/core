@@ -79,6 +79,7 @@ import com.otilm.core.enums.FilterField;
 import com.otilm.core.mapper.signing.SigningProfileMapper;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.crypto.AttributesWithOwner;
+import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.signing.CertificatePurposeRequirements;
 import com.otilm.core.model.signing.SigningKeyItems;
 import com.otilm.core.model.signing.SigningProfileModel;
@@ -1154,9 +1155,10 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     }
 
     /**
-     * Runs outside the persistence transaction, beside {@code validateContentSigningWorkflow}. A delegated raw profile
-     * names no certificate, since its signer connector holds the key, so neither the algorithm rule nor the provider
-     * rule applies to it.
+     * Runs outside the persistence transaction, beside {@code validateContentSigningWorkflow}, and after the key
+     * binding check, so a key another workflow signs with is refused for that whatever its provider. A delegated raw
+     * profile names no certificate, since its signer connector holds the key, so neither the algorithm rule nor the
+     * provider rule applies to it.
      */
     private void validateRawSigningWorkflow(SigningProfileRequestDto request) throws NotFoundException {
         if (!(request.getWorkflow() instanceof RawSigningWorkflowRequestDto)) {
@@ -1176,13 +1178,14 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
                 .requireDataDigestSigningProvider(certificateUuid, dataDigestSigningSupportOf(signingScheme));
     }
 
-    /** Signing signs with the private key item, which resolving the signature algorithm has already found. */
+    /** Signing uses the private key item; resolving the signature algorithm has already refused a key without one. */
     private DataDigestSigningCapability.Support dataDigestSigningSupportOf(ResolvedManagedScheme signingScheme)
             throws NotFoundException {
-        return switch (signingScheme) {
-            case ResolvedStaticKeyManagedSigning staticKey -> dataDigestSigningCapability
-                    .of(SigningKeyItems.first(KeyType.PRIVATE_KEY, staticKey.keyItems()).orElseThrow());
+        CryptographicKeyItemOperationModel privateKeyItem = switch (signingScheme) {
+            case ResolvedStaticKeyManagedSigning staticKey ->
+                SigningKeyItems.first(KeyType.PRIVATE_KEY, staticKey.keyItems()).orElseThrow();
         };
+        return dataDigestSigningCapability.of(privateKeyItem);
     }
 
     /**

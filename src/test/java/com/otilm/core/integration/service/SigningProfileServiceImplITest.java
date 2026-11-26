@@ -334,7 +334,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
     private Validator beanValidator;
 
     /**
-     * The row is re-read because the field's instance predates {@code certificateUploader.validate} and would write a
+     * The row is re-read because the given instance predates {@code certificateUploader.validate} and would write a
      * stale NOT_CHECKED validation status back.
      */
     private void widenSigningCertificate(Certificate certificate, CertificateKeyUsage keyUsage,
@@ -974,7 +974,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         }
 
         @Test
-        void create_v1Key_storesTheSigningAttributesWithoutAnOwner() throws Exception {
+        void storesTheSigningAttributesWithoutAnOwner_whenTheKeyIsOnAVersion1Provider() throws Exception {
             // given — content signing, since raw signing refuses a version 1 provider
             SigningProfileDto onTheVersion1Key = signingProfileService
                     .createSigningProfile(aSigningProfileRequest()
@@ -990,7 +990,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                             onTheVersion1Key.getVersion());
 
             // then
-            assertEquals(2, ownerless.size());
+            assertThat(ownerless).hasSize(2);
         }
 
         @Test
@@ -1158,8 +1158,8 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         }
 
         @Test
-        void update_swappingAV1KeyForAV2Key_replacesTheSigningAttributes() throws Exception {
-            // given: a v1-backed profile holding Core's RSA attributes; content signing, since raw signing refuses a
+        void replacesTheSigningAttributes_whenAnUpdateSwapsAVersion1KeyForAV2Key() throws Exception {
+            // given — a v1-backed profile holding Core's RSA attributes; content signing, since raw signing refuses a
             // version 1 provider
             SigningProfileDto created = signingProfileService
                     .createSigningProfile(aSigningProfileRequest()
@@ -1168,7 +1168,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                             .withManagedContentSigning(UUID.fromString(contentSigningFormattingConnector.getUuid()))
                             .build());
 
-            // when: updated in place onto the v2-backed certificate
+            // when — updated in place onto the v2-backed certificate
             SigningProfileDto updated = signingProfileService
                     .updateSigningProfile(SecuredUUID.fromString(created.getUuid()),
                             aSigningProfileRequestFromExistingProfile(created)
@@ -1177,16 +1177,17 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                                     .build());
 
             // then
-            List<ResponseAttribute> stored = assertInstanceOf(StaticKeyManagedSigningDto.class,
-                    updated.getSigningScheme()).getSigningOperationAttributes();
-            assertEquals(Set.copyOf(SIGNING_FORM),
-                    stored.stream().map(ResponseAttribute::getName).collect(Collectors.toSet()));
-            assertEquals(updated,
-                    signingProfileService.getSigningProfile(SecuredUUID.fromString(created.getUuid()), null));
-            assertTrue(attributeContent2ObjectRepository
+            assertThat(updated.getSigningScheme())
+                    .isInstanceOfSatisfying(StaticKeyManagedSigningDto.class,
+                            scheme -> assertThat(scheme.getSigningOperationAttributes())
+                                    .extracting(ResponseAttribute::getName)
+                                    .containsExactlyInAnyOrderElementsOf(SIGNING_FORM));
+            assertThat(signingProfileService.getSigningProfile(SecuredUUID.fromString(created.getUuid()), null))
+                    .isEqualTo(updated);
+            assertThat(attributeContent2ObjectRepository
                     .getObjectDataAttributesContentNoConnector(AttributeType.DATA, AttributeOperation.SIGN, null,
-                            Resource.SIGNING_PROFILE, UUID.fromString(created.getUuid()), updated.getVersion())
-                    .isEmpty());
+                            Resource.SIGNING_PROFILE, UUID.fromString(created.getUuid()), updated.getVersion()))
+                    .isEmpty();
         }
 
         @Test
@@ -2815,7 +2816,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining(certificateOnVersion1Provider.toString())
                     .hasMessageContaining("is registered as a version 1 connector")
-                    .hasMessageContaining("Register the provider through a v2 connector");
+                    .hasMessageContaining("whose key is on a cryptography provider registered through a v2 connector");
             assertThat(signingProfileRepository.findByName(request.getName())).isEmpty();
         }
 
@@ -2960,6 +2961,35 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
 
         @Test
         void refusesContentProfile_whenARawProfileWithNoRecordsMovedOffTheKey() throws Exception {
+            // given — defaultManagedStaticKeySigningProfile, a raw profile with no signing record, moves to another key
+            KeyPair anotherKeyPair = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+            persistV2KeyPair(dataDigestSigningProvider.token(), dataDigestSigningProvider.profile(), anotherKeyPair);
+            Certificate certificateOfAnotherKey = issueSigningCertificate(anotherKeyPair, "Raw Signing On Another Key");
+            signingProfileService
+                    .updateSigningProfile(SecuredUUID.fromString(defaultManagedStaticKeySigningProfile.getUuid()),
+                            aSigningProfileRequestFromExistingProfile(defaultManagedStaticKeySigningProfile)
+                                    .withStaticKeyManagedSigning(certificateOfAnotherKey.getUuid(),
+                                            rawKeySigningAttributes())
+                                    .build());
+            SigningProfileRequestDto contentRequest = aSigningProfileRequest()
+                    .withName("content-on-the-abandoned-raw-key")
+                    .withStaticKeyManagedSigning(defaultRawSigningCertificate.getUuid(), rawKeySigningAttributes())
+                    .withManagedContentSigning(UUID.fromString(contentSigningFormattingConnector.getUuid()))
+                    .build();
+
+            // when
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService.createSigningProfile(contentRequest);
+
+            // then
+            assertThatThrownBy(create)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("signs, or has signed, raw digests for Signing Profile(s)")
+                    .hasMessageContaining(defaultManagedStaticKeySigningProfile.getName());
+            assertThat(signingProfileRepository.findByName(contentRequest.getName())).isEmpty();
+        }
+
+        @Test
+        void refusesContentProfile_whenARawProfileWithNoRecordsMovedToDelegatedSigning() throws Exception {
             // given — defaultManagedStaticKeySigningProfile, a raw profile with no signing record, moves off its key to
             // delegated signing
             signingProfileService

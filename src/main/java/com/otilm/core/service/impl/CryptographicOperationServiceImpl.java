@@ -47,6 +47,7 @@ import com.otilm.core.service.CryptographicKeyInternalService;
 import com.otilm.core.service.CryptographicOperationExternalService;
 import com.otilm.core.service.CryptographicOperationInternalService;
 import com.otilm.core.service.handler.DataDigestSigningCapability;
+import com.otilm.core.service.handler.DataDigestSigningCapability.Support;
 import com.otilm.core.service.handler.key.KeyProviderAdapter;
 import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
 import com.otilm.core.service.handler.key.KeyProviderV1Adapter;
@@ -361,17 +362,19 @@ public class CryptographicOperationServiceImpl
         return executeSignData(adapter, keyItem, request, mode);
     }
 
-    // Callers refuse such a key before they get here; a provider can still lose the capability in between.
+    // Callers refuse such a key before they get here; a provider can still lose the capability in between. Anything
+    // but SUPPORTED is refused, so a Support value added later cannot let a digest through.
     private void requireDataDigestSigning(CryptographicKeyItemOperationModel keyItem) throws NotFoundException {
-        switch (dataDigestSigningCapability.of(keyItem)) {
-            case SUPPORTED -> {
-                // Signs the digest as it is.
-            }
-            case VERSION_1_PROVIDER -> throw new ValidationException("Key item " + keyItem.keyItemUuid()
-                    + " is served by a version 1 cryptography provider, which cannot sign data digests.");
-            case NOT_ADVERTISED -> throw new ValidationException("The cryptography provider of key item "
-                    + keyItem.keyItemUuid() + " does not support data digest signing.");
+        Support support = dataDigestSigningCapability.of(keyItem);
+        if (support == Support.SUPPORTED) {
+            return;
         }
+        String refusal = support == Support.VERSION_1_PROVIDER
+                ? "Key item " + keyItem.keyItemUuid()
+                        + " is served by a version 1 cryptography provider, which cannot sign data digests."
+                : "The cryptography provider of key item " + keyItem.keyItemUuid()
+                        + " does not support data digest signing.";
+        throw new ValidationException(refusal);
     }
 
     private SignDataResponseDto executeSignData(KeyProviderAdapter adapter, CryptographicKeyItemOperationModel keyItem,

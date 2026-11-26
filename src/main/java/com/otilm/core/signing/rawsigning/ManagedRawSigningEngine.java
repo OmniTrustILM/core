@@ -46,9 +46,10 @@ public class ManagedRawSigningEngine {
 
     private static final String CLIENT_MESSAGE = "Internal error during signing";
 
-    /** Says what is wrong and who can fix it, but names no provider, connector or key of the platform's setup. */
+    /** Says what is wrong and what fixes it, but names no provider, connector or key of the platform's setup. */
     static final String PROVIDER_CANNOT_SIGN_DIGESTS = "The cryptography provider of this Signing Profile's signing key "
-            + "cannot sign data digests; it must be registered through a v2 connector that supports data digest signing";
+            + "cannot sign data digests; the Signing Profile needs a key on a provider registered through a v2 "
+            + "connector that supports data digest signing";
 
     private final SignerFactory signerFactory;
     private final SigningCertificateValidatorFactory signingCertificateValidatorFactory;

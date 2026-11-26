@@ -41,7 +41,8 @@ public final class RawSigningProfileRules {
 
     /**
      * A provider that cannot sign a digest as it is would fail every raw request, so the profile is refused while its
-     * operator is still setting it up.
+     * operator is still setting it up. A token keeps the connector registration it was created on, so registering the
+     * provider anew does not move an existing key: the profile needs a certificate of a key on such a registration.
      *
      * @param certificateUuid the signing certificate whose key the profile signs with
      * @param support whether the key's cryptography provider signs data digests
@@ -54,8 +55,9 @@ public final class RawSigningProfileRules {
                 ? "is registered as a version 1 connector"
                 : "does not advertise data digest signing";
         throw new ValidationException(("The cryptography provider of the signing key of certificate %s %s, so it "
-                + "cannot sign the data digests raw signing takes. Register the provider through a v2 connector that "
-                + "supports data digest signing.").formatted(certificateUuid, reason));
+                + "cannot sign the data digests raw signing takes. Use a certificate whose key is on a cryptography "
+                + "provider registered through a v2 connector that supports data digest signing.")
+                .formatted(certificateUuid, reason));
     }
 
     /**

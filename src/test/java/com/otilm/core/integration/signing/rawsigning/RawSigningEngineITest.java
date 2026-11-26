@@ -349,7 +349,7 @@ class RawSigningEngineITest extends BaseSpringBootTest {
         assertThatThrownBy(create)
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("does not advertise data digest signing")
-                .hasMessageContaining("Register the provider through a v2 connector");
+                .hasMessageContaining("whose key is on a cryptography provider registered through a v2 connector");
         assertThat(signingProfileRepository.findByName(profileName)).isEmpty();
     }
 
@@ -516,8 +516,8 @@ class RawSigningEngineITest extends BaseSpringBootTest {
             List<String> messages = read(response, "$");
             assertThat(messages)
                     .containsExactly("The cryptography provider of this Signing Profile's signing key cannot sign "
-                            + "data digests; it must be registered through a v2 connector that supports data digest "
-                            + "signing");
+                            + "data digests; the Signing Profile needs a key on a provider registered through a v2 "
+                            + "connector that supports data digest signing");
             v2Token.connectorMock().verifyNoOperationRequest("sign");
             assertThat(loadRecords(profile)).isEmpty();
         }
