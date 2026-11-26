@@ -99,6 +99,8 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityResourceFilter;
 import com.otilm.core.service.CertificateExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.SecretEncodingVersion;
+import com.otilm.core.util.SecretsUtil;
 import com.otilm.core.util.SqlCapture;
 import com.otilm.core.util.builders.DataAttributeV3Builder;
 import com.otilm.core.util.builders.RequestAttributeV3Builder;
@@ -115,8 +117,10 @@ import java.time.Month;
 import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -3369,22 +3373,55 @@ class AttributeEngineITest extends BaseSpringBootTest {
             assertThat(updates).isZero();
         }
 
+        @ParameterizedTest(name = "{0}")
+        @MethodSource("undecryptableCiphertexts")
+        void rewritesEncryptedDefault_whenItsStoredCiphertextDoesNotDecrypt(List<String> storedCiphertext) {
+            // given
+            UUID attributeUuid = UUID.randomUUID();
+            var secretDefault = "secret default";
+            inNewTransaction(() -> register(
+                    setEncryptedProtection(setDefaultValue(createIssueAttribute(attributeUuid), secretDefault))));
+            inNewTransaction(() -> replaceStoredCiphertext(attributeUuid, storedCiphertext));
+
+            // when
+            long updates = countDefinitionUpdates(() -> register(
+                    setEncryptedProtection(setDefaultValue(createIssueAttribute(attributeUuid), secretDefault))));
+
+            // then
+            AttributeDefinition reloaded = inNewTransaction(
+                    () -> attributeDefinitionRepository.findByAttributeUuid(attributeUuid).orElseThrow());
+            String storedPlaintext = SecretsUtil
+                    .decodeAndDecryptSecretString(reloaded.getEncryptedData().getFirst(), SecretEncodingVersion.V1);
+            assertThat(updates).isEqualTo(1);
+            assertThat(storedPlaintext).isEqualTo(secretDefault);
+        }
+
         // ── Helpers ───────────────────────────────────────────────────────────
 
         private static final String DEFAULT_CONTENT_REFERENCE = "default";
 
         /**
          * Values as connector JSON deserializes them: dates and times as text, numbers as {@code Double} or
-         * {@code Integer}, including a decimal a float cannot hold exactly.
+         * {@code Integer}, objects as maps.
          */
         private static Stream<Arguments> encryptedDefaultsAsConnectorsSendThem() {
             return Stream
                     .of(Arguments.of(AttributeContentType.DATE, "2026-11-26"),
                             Arguments.of(AttributeContentType.TIME, "10:15:30"),
                             Arguments.of(AttributeContentType.DATETIME, "2026-11-26T10:15:30Z"),
+                            Arguments.of(AttributeContentType.DATETIME, "2026-11-26T10:15:30.000Z"),
                             Arguments.of(AttributeContentType.FLOAT, 1.5d),
                             Arguments.of(AttributeContentType.FLOAT, 3.14159265d),
-                            Arguments.of(AttributeContentType.FLOAT, 2));
+                            Arguments.of(AttributeContentType.FLOAT, 2),
+                            Arguments.of(AttributeContentType.OBJECT, new LinkedHashMap<>(Map.of("size", 1))),
+                            Arguments.of(AttributeContentType.SECRET, new LinkedHashMap<>(Map.of("secret", "s3cr3t"))));
+        }
+
+        /** Stored ciphertext that does not decrypt: an entry a hand edit left empty, and text that is no ciphertext. */
+        private static Stream<Named<List<String>>> undecryptableCiphertexts() {
+            return Stream
+                    .of(Named.of("missing entry", Arrays.asList((String) null)),
+                            Named.of("not ciphertext", List.of("not-a-valid-secret")));
         }
 
         private static Stream<Arguments> changedIssueAttributes() {
@@ -3417,6 +3454,12 @@ class AttributeEngineITest extends BaseSpringBootTest {
             UnaryOperator<DataAttributeV2> changeDefault = attribute -> setDefaultValue(attribute, "second");
             UnaryOperator<DataAttributeV2> changeEncryptedDefault = attribute -> setDefaultValue(attribute,
                     "second secret");
+            UnaryOperator<DataAttributeV2> encryptedDecimalDefault = attribute -> {
+                attribute.setContentType(AttributeContentType.FLOAT);
+                return setEncryptedProtection(setDefaultValue(attribute, 3.14159265d));
+            };
+            UnaryOperator<DataAttributeV2> changeBeyondFloatPrecision = attribute -> setDefaultValue(attribute,
+                    3.14159266d);
             return Stream
                     .of(Arguments.of(plain, named("description", changeDescription)),
                             Arguments.of(plain, named("property no column mirrors", changeGroupProperty)),
@@ -3425,7 +3468,10 @@ class AttributeEngineITest extends BaseSpringBootTest {
                             Arguments.of(withDefault, named("default content", changeDefault)),
                             Arguments
                                     .of(encryptedWithDefault,
-                                            named("encrypted default content", changeEncryptedDefault)));
+                                            named("encrypted default content", changeEncryptedDefault)),
+                            Arguments
+                                    .of(encryptedDecimalDefault, named("encrypted decimal beyond float precision",
+                                            changeBeyondFloatPrecision)));
         }
 
         private static Named<UnaryOperator<DataAttributeV2>> named(String change,
@@ -3489,6 +3535,12 @@ class AttributeEngineITest extends BaseSpringBootTest {
 
         private void register(BaseAttribute attribute) {
             publish(connectorAuthority.getUuid(), null, attribute);
+        }
+
+        private void replaceStoredCiphertext(UUID attributeUuid, List<String> ciphertext) {
+            AttributeDefinition stored = attributeDefinitionRepository.findByAttributeUuid(attributeUuid).orElseThrow();
+            stored.setEncryptedData(ciphertext);
+            attributeDefinitionRepository.save(stored);
         }
 
         /** Counts the attribute definition rows the work updates when it runs in its own transaction. */

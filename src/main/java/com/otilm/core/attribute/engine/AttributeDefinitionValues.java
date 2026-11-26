@@ -2,7 +2,6 @@ package com.otilm.core.attribute.engine;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import java.util.ArrayList;
@@ -20,25 +19,20 @@ final class AttributeDefinitionValues {
 
     private static final Logger logger = LoggerFactory.getLogger(AttributeDefinitionValues.class);
 
-    /**
-     * Writes dates as the ISO text connectors send, where the attribute-content recipe would write a decrypted date as
-     * an array.
-     */
-    private static final ObjectMapper MAPPER = ObjectMapperFactory
-            .attributeContent()
-            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+    private static final ObjectMapper MAPPER = ObjectMapperFactory.attributeContent();
 
     private AttributeDefinitionValues() {
     }
 
     /**
-     * Returns whether both definitions have the same JSON value. Either side may already be a {@link JsonNode}. A side
-     * that cannot be rendered counts as different, so the caller writes the definition.
+     * Returns whether both definitions have the same JSON value. A side that cannot be rendered counts as different, so
+     * the caller writes the definition.
      */
     static boolean sameValue(Object stored, Object candidate) {
         try {
-            return withSetsSorted(toTree(stored))
-                    .equals(AttributeDefinitionValues::compareNumbersByValue, withSetsSorted(toTree(candidate)));
+            return withSetsSorted(MAPPER.valueToTree(stored))
+                    .equals(AttributeDefinitionValues::compareNumbersByValue,
+                            withSetsSorted(MAPPER.valueToTree(candidate)));
         } catch (IllegalArgumentException e) {
             logger.debug("Attribute definition comparison failed to serialize; persisting the definition", e);
             return false;
@@ -46,25 +40,13 @@ final class AttributeDefinitionValues {
     }
 
     /**
-     * Compares numbers by value rather than node type. Decrypted content holds a {@code Float} where a connector's JSON
-     * gives a {@code Double} or an {@code Integer}, and keeps only float precision, so a float on either side compares
-     * as a float. Other numbers compare by the JSON text they write.
+     * Compares numbers by value rather than by node type or written form: a {@code jsonb} column returns
+     * {@code 10000000} where a connector's JSON gave {@code 1.0E7}.
      */
     private static int compareNumbersByValue(JsonNode left, JsonNode right) {
-        if (left.equals(right)) {
-            return 0;
-        }
-        if (!left.isNumber() || !right.isNumber()) {
-            return 1;
-        }
-        if (left.isFloat() || right.isFloat()) {
-            return Float.compare(left.floatValue(), right.floatValue()) == 0 ? 0 : 1;
-        }
-        return left.asText().equals(right.asText()) ? 0 : 1;
-    }
-
-    static JsonNode toTree(Object value) {
-        return value instanceof JsonNode tree ? tree : MAPPER.valueToTree(value);
+        boolean sameValue = left.equals(right)
+                || (left.isNumber() && right.isNumber() && left.decimalValue().compareTo(right.decimalValue()) == 0);
+        return sameValue ? 0 : 1;
     }
 
     /**
@@ -72,8 +54,7 @@ final class AttributeDefinitionValues {
      * order, so their order is normalized before comparing.
      */
     private static JsonNode withSetsSorted(JsonNode tree) {
-        JsonNode copy = tree.deepCopy();
-        if (copy.path("attributeCallback").path("mappings") instanceof ArrayNode mappings) {
+        if (tree.path("attributeCallback").path("mappings") instanceof ArrayNode mappings) {
             for (JsonNode mapping : mappings) {
                 if (mapping.path("targets") instanceof ArrayNode targets) {
                     sortElements(targets);
@@ -81,7 +62,7 @@ final class AttributeDefinitionValues {
             }
             sortElements(mappings);
         }
-        return copy;
+        return tree;
     }
 
     private static void sortElements(ArrayNode array) {

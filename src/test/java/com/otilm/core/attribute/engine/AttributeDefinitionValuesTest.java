@@ -8,7 +8,6 @@ import com.otilm.api.model.common.attribute.common.properties.DataAttributePrope
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.content.BaseAttributeContentV2;
 import java.io.Serializable;
-import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -95,42 +94,14 @@ class AttributeDefinitionValuesTest {
     }
 
     @Test
-    void reportsSameValue_whenADateIsTypedOnOneSideAndTextOnTheOther() {
-        // given
-        var decryptedDate = LocalDate.of(2026, 11, 26);
-        var sentDate = "2026-11-26";
-
-        // when
-        boolean same = AttributeDefinitionValues
-                .sameValue(createAttributeWithContent(decryptedDate), createAttributeWithContent(sentDate));
-
-        // then
-        assertThat(same).isTrue();
-    }
-
-    @Test
     void reportsSameValue_whenANumberIsAFloatOnOneSideAndADoubleOnTheOther() {
         // given
-        var decryptedFloat = 1.5f;
+        var storedFloat = 1.5f;
         var sentDouble = 1.5d;
 
         // when
         boolean same = AttributeDefinitionValues
-                .sameValue(createAttributeWithContent(decryptedFloat), createAttributeWithContent(sentDouble));
-
-        // then
-        assertThat(same).isTrue();
-    }
-
-    @Test
-    void reportsSameValue_whenTheSentDoubleRoundsToTheStoredFloat() {
-        // given
-        var decryptedFloat = Float.valueOf("3.14159265");
-        var sentDouble = 3.14159265d;
-
-        // when
-        boolean same = AttributeDefinitionValues
-                .sameValue(createAttributeWithContent(decryptedFloat), createAttributeWithContent(sentDouble));
+                .sameValue(createAttributeWithContent(storedFloat), createAttributeWithContent(sentDouble));
 
         // then
         assertThat(same).isTrue();
@@ -139,12 +110,26 @@ class AttributeDefinitionValuesTest {
     @Test
     void reportsSameValue_whenTheSentIntegerEqualsTheStoredFloat() {
         // given
-        var decryptedFloat = Float.valueOf("2");
+        var storedFloat = Float.valueOf("2");
         var sentInteger = 2;
 
         // when
         boolean same = AttributeDefinitionValues
-                .sameValue(createAttributeWithContent(decryptedFloat), createAttributeWithContent(sentInteger));
+                .sameValue(createAttributeWithContent(storedFloat), createAttributeWithContent(sentInteger));
+
+        // then
+        assertThat(same).isTrue();
+    }
+
+    @Test
+    void reportsSameValue_whenANumberIsWrittenInExponentNotation() {
+        // given
+        var storedInteger = 10_000_000;
+        var sentDouble = 1.0E7;
+
+        // when
+        boolean same = AttributeDefinitionValues
+                .sameValue(createAttributeWithContent(storedInteger), createAttributeWithContent(sentDouble));
 
         // then
         assertThat(same).isTrue();
