@@ -1,9 +1,14 @@
 package com.otilm.core.service.scep;
 
 import com.otilm.api.exception.ScepException;
+import com.otilm.api.model.core.certificate.CertificateOperation;
+import com.otilm.api.model.core.certificate.CertificateType;
+import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.scep.FailInfo;
 import com.otilm.core.certificate.request.RequestAttributePolicyViolationException;
+import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
+import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.scep.ScepProfile;
 import com.otilm.core.service.scep.impl.ScepServiceImpl;
@@ -13,14 +18,18 @@ import java.lang.reflect.UndeclaredThrowableException;
 import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequest;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.mock;
 
 /**
@@ -62,6 +71,53 @@ class ScepPkcsReqRequestAttributeValidationTest {
                             .doesNotContainIgnoringCase("exception")
                             .doesNotContain("com.otilm");
                 });
+    }
+
+    @Test
+    void answersBadRequestNamingTheOperation_whenTheTypeCannotBeEnrolledThroughScep() throws Exception {
+        // given
+        var refusal = UnsupportedCertificateTypeException
+                .unsupportedOperation(CertificateType.X509.getCode(), CertificateOperation.ENROLL_SCEP);
+        ClientOperationInternalService clientOperationService = mock(ClientOperationInternalService.class);
+        given(clientOperationService.issueCertificate(any(), any(), any(), any())).willThrow(refusal);
+        ScepServiceImpl service = seededScepService(clientOperationService);
+        ScepRequest scepRequest = mock(ScepRequest.class);
+        given(scepRequest.getPkcs10Request())
+                .willReturn(new JcaPKCS10CertificationRequest(Base64.getDecoder().decode(PKCS10_BASE64)));
+
+        // when — the reflective call wraps the declared ScepException
+        ThrowingCallable issue = () -> ReflectionTestUtils.invokeMethod(service, "issueCertificate", scepRequest, null);
+
+        // then
+        assertThatThrownBy(issue)
+                .isInstanceOf(UndeclaredThrowableException.class)
+                .cause()
+                .isInstanceOfSatisfying(ScepException.class,
+                        e -> assertThat(e.getFailInfo()).isEqualTo(FailInfo.BAD_REQUEST))
+                .hasMessageContaining(refusal.getMessage());
+    }
+
+    @Test
+    void answersBadRequestBeforeAnySubmission_whenTheTypeCannotBeEnrolledThroughScep() {
+        // given
+        var refusal = UnsupportedCertificateTypeException
+                .unsupportedOperation(CertificateType.X509.getCode(), CertificateOperation.ENROLL_SCEP);
+        ClientOperationInternalService clientOperationService = mock(ClientOperationInternalService.class);
+        willThrow(refusal).given(clientOperationService).requireEnrollmentSupport(any(), eq(CertificateProtocol.SCEP));
+        ScepServiceImpl service = seededScepService(clientOperationService);
+        Certificate matchedRegistration = aCertificate().build();
+
+        // when — the reflective call wraps the declared ScepException
+        ThrowingCallable requireEnrollable = () -> ReflectionTestUtils
+                .invokeMethod(service, "requireEnrollable", matchedRegistration);
+
+        // then
+        assertThatThrownBy(requireEnrollable)
+                .isInstanceOf(UndeclaredThrowableException.class)
+                .cause()
+                .isInstanceOfSatisfying(ScepException.class,
+                        e -> assertThat(e.getFailInfo()).isEqualTo(FailInfo.BAD_REQUEST))
+                .hasMessageContaining(refusal.getMessage());
     }
 
     @Test

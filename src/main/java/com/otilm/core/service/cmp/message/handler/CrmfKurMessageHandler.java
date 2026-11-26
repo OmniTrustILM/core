@@ -11,9 +11,11 @@ import com.otilm.api.interfaces.core.cmp.error.CmpProcessingException;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.cmp.CmpTransactionState;
+import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.api.model.core.v2.ClientCertificateRekeyRequestDto;
+import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.X509CertificateEntity;
@@ -156,10 +158,17 @@ public class CrmfKurMessageHandler implements MessageHandler<ClientCertificateDa
                 dtoBuilder.authorizationSecret(configuration.getMatchedChallenge());
             }
             RaProfile raProfile = configuration.getRaProfile();
+            // the rekey below carries no protocol information, so that the new certificate inherits its attribution
+            clientOperationService
+                    .requireEnrollmentSupport(dbCertificate.getCertificateType(), CertificateProtocol.CMP);
             // -- (1)certification request (ask for issue)
             return clientOperationService
-                    .rekeyCertificate(SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
+                    .rekeyCertificateThroughProtocol(
+                            SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
                             raProfile.getSecuredUuid(), certificateUUID, dtoBuilder.build());
+        } catch (UnsupportedCertificateTypeException e) {
+            // before the catch below, which would report it as a registration rejection
+            throw new CmpProcessingException(tid, PKIFailureInfo.badRequest, e.getMessage());
         } catch (ValidationException e) {
             // Gate/completion denial (e.g. the authorization expired or locked between the protection-layer
             // MAC check and this re-gate) — surface the single generic rejection, as ir/cr does.

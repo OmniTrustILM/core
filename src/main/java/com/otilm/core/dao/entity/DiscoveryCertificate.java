@@ -8,6 +8,7 @@ import com.otilm.core.util.DtoMapper;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
@@ -35,8 +36,10 @@ import org.hibernate.type.SqlTypes;
 @Entity
 // Mapped here too, not just migrated: tests build their schema from entities, so a constraint that lives only
 // in the migration is one they never exercise.
-@Table(name = "discovery_certificate", uniqueConstraints = @UniqueConstraint(name = "uq_discovery_certificate_ref",
-        columnNames = {"discovery_uuid", "unique_ref"}))
+@Table(name = "discovery_certificate",
+        uniqueConstraints = @UniqueConstraint(name = "uq_discovery_certificate_ref",
+                columnNames = {"discovery_uuid", "unique_ref"}),
+        indexes = @Index(name = "idx_discovery_certificate_content", columnList = "certificate_content_id"))
 public class DiscoveryCertificate extends UniquelyIdentifiedAndAudited
         implements
             Serializable,

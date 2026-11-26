@@ -13,6 +13,7 @@ import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.connector.secrets.SecretType;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateDetail;
+import com.otilm.api.model.core.certificate.CertificateOperation;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.compliance.ComplianceRuleStatus;
@@ -24,6 +25,9 @@ import com.otilm.api.model.core.secret.SecretState;
 import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.otilm.api.model.core.workflows.ConditionItemDto;
 import com.otilm.api.model.core.workflows.ConditionItemRequestDto;
+import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
+import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
+import com.otilm.core.certificate.type.X509CertificateTypeHandler;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.ComplianceProfile;
@@ -59,10 +63,12 @@ import com.otilm.core.service.CertificateExternalService;
 import com.otilm.core.service.ComplianceExternalService;
 import com.otilm.core.service.ComplianceInternalService;
 import com.otilm.core.service.compliance.BaseComplianceTest;
+import com.otilm.core.service.impl.ComplianceServiceImpl;
 import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.builders.CertificateBuilder;
 import com.otilm.core.util.builders.CertificateRequestEntityBuilder;
+import com.otilm.core.util.builders.ComplianceProfileFixtures;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.security.cert.X509Certificate;
@@ -73,6 +79,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -80,8 +87,15 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authorization.AuthorizationDeniedException;
 
+import static com.otilm.core.util.RestrictedTypeHandlerFixtures.registryWithX509Lacking;
 import static com.otilm.core.util.builders.CryptographicKeyBuilder.aCryptographicKey;
 import static com.otilm.core.util.builders.CryptographicKeyItemBuilder.aKeyItem;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.when;
 
 class ComplianceServiceITest extends BaseComplianceTest {
@@ -91,6 +105,15 @@ class ComplianceServiceITest extends BaseComplianceTest {
 
     @Autowired
     private ComplianceInternalService complianceService;
+
+    @Autowired
+    private ComplianceServiceImpl complianceServiceImpl;
+
+    @Autowired
+    private X509CertificateTypeHandler x509Handler;
+
+    @Autowired
+    private CertificateTypeHandlerRegistry typeHandlerRegistry;
     @Autowired
     private ComplianceExternalService complianceExternalService;
 
@@ -694,6 +717,133 @@ class ComplianceServiceITest extends BaseComplianceTest {
         Certificate checked = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
         Assertions.assertEquals(ComplianceStatus.NOT_CHECKED, checked.getComplianceStatus());
         Assertions.assertNull(checked.getComplianceResult());
+    }
+
+    @Test
+    void leavesTheStoredResultAsItIs_whenTheTypeOfTheCertificateDoesNotSupportComplianceChecks() throws Exception {
+        // given
+        Certificate certificate = uploadCertificateWithStaleResult("CN=Test-Unsupported", unassociatedRaProfileUuid);
+        ComplianceStatus statusBefore = certificate.getComplianceStatus();
+        complianceServiceImpl
+                .setTypeHandlerRegistry(registryWithX509Lacking(x509Handler, CertificateOperation.CHECK_COMPLIANCE));
+
+        // when
+        try {
+            complianceService.checkResourceObjectCompliance(Resource.CERTIFICATE, certificate.getUuid());
+        } finally {
+            complianceServiceImpl.setTypeHandlerRegistry(typeHandlerRegistry);
+        }
+
+        // then
+        assertThat(certificateRepository.findByUuid(certificate.getUuid()).orElseThrow().getComplianceStatus())
+                .isEqualTo(statusBefore);
+    }
+
+    @Test
+    void leavesTheStoredResultAsItIs_whenCheckingTheRaProfileOfACertificateWhoseTypeHasNoComplianceCheck()
+            throws Exception {
+        // given — a profile without rules, which marks every certificate it checks compliant
+        ComplianceProfileFixtures
+                .associateNewComplianceProfile(complianceProfileRepository, complianceProfileAssociationRepository,
+                        Resource.RA_PROFILE, unassociatedRaProfileUuid);
+        Certificate certificate = uploadCertificateWithStaleResult("CN=Test-Unsupported-Profile",
+                unassociatedRaProfileUuid);
+        ComplianceStatus statusBefore = certificate.getComplianceStatus();
+        complianceServiceImpl
+                .setTypeHandlerRegistry(registryWithX509Lacking(x509Handler, CertificateOperation.CHECK_COMPLIANCE));
+
+        // when
+        try {
+            complianceService.checkResourceObjectCompliance(Resource.RA_PROFILE, unassociatedRaProfileUuid);
+        } finally {
+            complianceServiceImpl.setTypeHandlerRegistry(typeHandlerRegistry);
+        }
+
+        // then
+        assertThat(certificateRepository.findByUuid(certificate.getUuid()).orElseThrow().getComplianceStatus())
+                .isEqualTo(statusBefore);
+    }
+
+    @Test
+    void leavesTheStoredResultAsItIs_whenCheckingAComplianceProfileOfACertificateWhoseTypeHasNoComplianceCheck()
+            throws Exception {
+        // given — a profile without rules, which marks every certificate it checks compliant
+        ComplianceProfile ruleLess = ComplianceProfileFixtures
+                .associateNewComplianceProfile(complianceProfileRepository, complianceProfileAssociationRepository,
+                        Resource.RA_PROFILE, unassociatedRaProfileUuid);
+        Certificate certificate = uploadCertificateWithStaleResult("CN=Test-Unsupported-By-Profile",
+                unassociatedRaProfileUuid);
+        ComplianceStatus statusBefore = certificate.getComplianceStatus();
+        complianceServiceImpl
+                .setTypeHandlerRegistry(registryWithX509Lacking(x509Handler, CertificateOperation.CHECK_COMPLIANCE));
+
+        // when
+        try {
+            complianceService
+                    .checkCompliance(List.of(SecuredUUID.fromUUID(ruleLess.getUuid())), Resource.CERTIFICATE, null);
+        } finally {
+            complianceServiceImpl.setTypeHandlerRegistry(typeHandlerRegistry);
+        }
+
+        // then
+        assertThat(certificateRepository.findByUuid(certificate.getUuid()).orElseThrow().getComplianceStatus())
+                .isEqualTo(statusBefore);
+    }
+
+    @Test
+    void checksTheSupportedCertificateAndLeavesTheOther_whenOnlyOneOfTheSelectionHasAComplianceCheck()
+            throws Exception {
+        // given — a profile without rules, which marks every certificate it checks compliant
+        ComplianceProfileFixtures
+                .associateNewComplianceProfile(complianceProfileRepository, complianceProfileAssociationRepository,
+                        Resource.RA_PROFILE, unassociatedRaProfileUuid);
+        Certificate supported = uploadCertificateWithStaleResult("CN=Test-Mixed-Supported", unassociatedRaProfileUuid);
+        Certificate unsupported = uploadCertificateWithStaleResult("CN=Test-Mixed-Unsupported",
+                unassociatedRaProfileUuid);
+        ComplianceStatus staleStatus = unsupported.getComplianceStatus();
+        CertificateTypeHandlerRegistry mixedSupport = spy(typeHandlerRegistry);
+        doReturn(false)
+                .when(mixedSupport)
+                .supports(argThat(certificate -> certificate.getUuid().equals(unsupported.getUuid())),
+                        eq(CertificateOperation.CHECK_COMPLIANCE));
+        complianceServiceImpl.setTypeHandlerRegistry(mixedSupport);
+        List<UUID> selection = List.of(supported.getUuid(), unsupported.getUuid());
+
+        // when
+        try {
+            complianceExternalService.checkResourceObjectsComplianceValidation(Resource.CERTIFICATE, selection);
+            complianceExternalService.checkResourceObjectsComplianceAsync(Resource.CERTIFICATE, selection);
+        } finally {
+            complianceServiceImpl.setTypeHandlerRegistry(typeHandlerRegistry);
+        }
+
+        // then
+        assertThat(certificateRepository.findByUuid(supported.getUuid()).orElseThrow().getComplianceStatus())
+                .isEqualTo(ComplianceStatus.OK);
+        assertThat(certificateRepository.findByUuid(unsupported.getUuid()).orElseThrow().getComplianceStatus())
+                .isEqualTo(staleStatus);
+    }
+
+    @Test
+    void refusesNamingTheOperation_whenNoneOfTheCertificatesToCheckHasAComplianceCheck() throws Exception {
+        // given
+        var unsupported = CertificateOperation.CHECK_COMPLIANCE;
+        Certificate certificate = uploadCertificateWithStaleResult("CN=Test-Unsupported-Explicit",
+                unassociatedRaProfileUuid);
+        complianceServiceImpl.setTypeHandlerRegistry(registryWithX509Lacking(x509Handler, unsupported));
+
+        // when
+        ThrowingCallable check = () -> complianceExternalService
+                .checkResourceObjectsComplianceValidation(Resource.CERTIFICATE, List.of(certificate.getUuid()));
+
+        // then
+        try {
+            assertThatThrownBy(check)
+                    .isInstanceOf(UnsupportedCertificateTypeException.class)
+                    .hasMessageContaining(unsupported.getLabel());
+        } finally {
+            complianceServiceImpl.setTypeHandlerRegistry(typeHandlerRegistry);
+        }
     }
 
     @Test

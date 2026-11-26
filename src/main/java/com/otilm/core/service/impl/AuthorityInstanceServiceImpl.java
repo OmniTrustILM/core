@@ -14,10 +14,13 @@ import com.otilm.api.model.client.authority.AuthorityInstanceRequestDto;
 import com.otilm.api.model.client.authority.AuthorityInstanceUpdateRequestDto;
 import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
+import com.otilm.api.model.client.metadata.MetadataResponseDto;
 import com.otilm.api.model.common.BulkActionMessageDto;
 import com.otilm.api.model.common.NameAndIdDto;
 import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceObjectContentData;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceSimpleContentData;
 import com.otilm.api.model.connector.authority.AuthorityProviderInstanceDto;
@@ -177,6 +180,11 @@ public class AuthorityInstanceServiceImpl
         authorityInstanceDto
                 .setCustomAttributes(
                         attributeEngine.getObjectCustomAttributesContent(Resource.AUTHORITY, uuid.getValue()));
+        authorityInstanceDto
+                .setMetadata(attributeEngine
+                        .getMappedMetadataContent(ObjectAttributeContentInfo
+                                .builder(Resource.AUTHORITY, authorityInstanceReference.getUuid())
+                                .build()));
         if (authorityInstanceReference.getConnector() == null) {
             authorityInstanceDto.setConnectorName(authorityInstanceReference.getConnectorName() + " (Deleted)");
             authorityInstanceDto.setConnectorUuid("");
@@ -226,6 +234,7 @@ public class AuthorityInstanceServiceImpl
 
     @Override
     @ExternalAuthorization(resource = Resource.AUTHORITY, action = ResourceAction.CREATE)
+    @Transactional(rollbackFor = Exception.class)
     public AuthorityInstanceDto createAuthorityInstance(AuthorityInstanceRequestDto request)
             throws AlreadyExistException, ConnectorException, AttributeException, NotFoundException {
         if (authorityInstanceReferenceRepository.findByName(request.getName()).isPresent()) {
@@ -296,6 +305,7 @@ public class AuthorityInstanceServiceImpl
 
     @Override
     @ExternalAuthorization(resource = Resource.AUTHORITY, action = ResourceAction.UPDATE)
+    @Transactional(rollbackFor = Exception.class)
     public AuthorityInstanceDto editAuthorityInstance(SecuredUUID uuid, AuthorityInstanceUpdateRequestDto request)
             throws ConnectorException, AttributeException, NotFoundException {
         AuthorityInstanceReference authorityInstanceRef = getAuthorityInstanceReferenceEntity(uuid);
@@ -321,10 +331,11 @@ public class AuthorityInstanceServiceImpl
         credentialService.loadFullCredentialData(dataAttributes);
         resourceService.loadResourceObjectContentData(dataAttributes);
 
+        List<MetadataAttribute> metadata = null;
         if (isV3(iface)) {
             // v3 is stateless: no updateAuthorityInstance endpoint — re-probe connectivity with
             // the new attributes; persisting the attribute content below is the actual update.
-            adapterFactory
+            metadata = adapterFactory
                     .forAuthority(authorityInstanceRef)
                     .checkAuthorityConnection(authorityInstanceRef,
                             AttributeDefinitionUtils.getClientAttributes(dataAttributes));
@@ -351,6 +362,9 @@ public class AuthorityInstanceServiceImpl
                                 .builder(Resource.AUTHORITY, authorityInstanceRef.getUuid())
                                 .connector(authorityInstanceRef.getConnectorUuid())
                                 .build(), request.getAttributes()));
+        if (metadata != null) {
+            dto.setMetadata(replaceMetadata(authorityInstanceRef, metadata));
+        }
 
         return dto;
     }
@@ -673,7 +687,7 @@ public class AuthorityInstanceServiceImpl
         authorityInstanceRef.setStatus("connected");
 
         AuthorityProviderAdapter adapter = adapterFactory.forAuthority(authorityInstanceRef);
-        adapter
+        List<MetadataAttribute> metadata = adapter
                 .checkAuthorityConnection(authorityInstanceRef,
                         AttributeDefinitionUtils.getClientAttributes(dataAttributes));
 
@@ -690,7 +704,32 @@ public class AuthorityInstanceServiceImpl
                                 .builder(Resource.AUTHORITY, authorityInstanceRef.getUuid())
                                 .connector(authorityInstanceRef.getConnectorUuid())
                                 .build(), request.getAttributes()));
+        dto.setMetadata(replaceMetadata(authorityInstanceRef, metadata));
         return dto;
+    }
+
+    /**
+     * Replaces the authority's whole metadata set with what the connector reported on its last successful connection
+     * check, so values the connector no longer reports do not linger, and returns the stored set as the detail shows
+     * it.
+     */
+    private List<MetadataResponseDto> replaceMetadata(AuthorityInstanceReference authorityInstanceRef,
+            List<MetadataAttribute> metadata) throws AttributeException {
+        logger
+                .debug("Replacing metadata of authority {} with {} attributes", authorityInstanceRef.getUuid(),
+                        metadata.size());
+        attributeEngine
+                .deleteObjectAttributeContentByType(AttributeType.META, Resource.AUTHORITY,
+                        authorityInstanceRef.getUuid());
+        attributeEngine
+                .updateMetadataAttributes(metadata,
+                        ObjectAttributeContentInfo
+                                .builder(Resource.AUTHORITY, authorityInstanceRef.getUuid())
+                                .connector(authorityInstanceRef.getConnectorUuid())
+                                .build());
+        return attributeEngine
+                .getMappedMetadataContent(
+                        ObjectAttributeContentInfo.builder(Resource.AUTHORITY, authorityInstanceRef.getUuid()).build());
     }
 
     private AuthorityInstanceReference getAuthorityInstanceReferenceEntity(SecuredUUID uuid) throws NotFoundException {

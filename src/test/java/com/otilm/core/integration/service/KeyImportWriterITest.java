@@ -94,6 +94,7 @@ import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.Query;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
+import java.security.PublicKey;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.Month;
@@ -114,6 +115,7 @@ import java.util.concurrent.TimeUnit;
 import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -922,6 +924,64 @@ class KeyImportWriterITest extends BaseSpringBootTest {
         assertThat(importEvents(KeyEventStatus.SUCCESS))
                 .containsExactlyInAnyOrder(publicKey.getUuid(), privateKey.getUuid());
         assertThat(objectAssociationService.getOwner(Resource.CRYPTOGRAPHIC_KEY, recordUuid)).isNull();
+    }
+
+    // ── PrivateKeyHandle ──────────────────────────────────────────────────────
+
+    @Nested
+    class PrivateKeyHandle {
+
+        @Test
+        void storesTheHandleOfThePrivateKey_whenCompletingANewKey() throws Exception {
+            // given
+            TokenProfileFullModel profile = persistedProfile();
+            KeyPair pair = rsa();
+            KeyImportAttempt attempt = keyImportWriter.open(terms(profile, pair), "retry-handle", "imported key", SENT);
+            ImportedKeyRegistration registration = registration(profile, pair, attempt, Set.of());
+
+            // when
+            ImportedKey imported = keyImportWriter.complete(attempt.uuid(), registration).orElseThrow();
+
+            // then
+            assertThat(readHandleDigest(imported.key().uuid()))
+                    .isNotNull()
+                    .isEqualTo(digestPrivateKeyHandle(registration));
+        }
+
+        @Test
+        void storesTheHandleOfThePrivateKey_whenCompletingAnAdoption() throws Exception {
+            // given
+            TokenProfileFullModel profile = persistedProfile();
+            KeyPair pair = rsa();
+            UUID recordUuid = certificatePublicKey(pair);
+            KeyImportAttempt attempt = keyImportWriter
+                    .open(terms(profile, pair), "retry-adopt-handle", "imported key", SENT);
+            ImportedKeyRegistration registration = registration(profile, pair, attempt, Set.of()).adopting(recordUuid);
+
+            // when
+            keyImportWriter.complete(attempt.uuid(), registration).orElseThrow();
+
+            // then
+            assertThat(readHandleDigest(recordUuid)).isNotNull().isEqualTo(digestPrivateKeyHandle(registration));
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private String readHandleDigest(UUID keyUuid) {
+            return jdbcTemplate
+                    .queryForObject("SELECT handle_digest FROM cryptographic_key WHERE uuid = ?", String.class,
+                            keyUuid);
+        }
+
+        private static String digestPrivateKeyHandle(ImportedKeyRegistration registration) {
+            return registration
+                    .items()
+                    .stream()
+                    .filter(item -> item.type() == KeyType.PRIVATE_KEY)
+                    .findFirst()
+                    .orElseThrow()
+                    .handleDigest();
+        }
     }
 
     /**
@@ -1778,7 +1838,7 @@ class KeyImportWriterITest extends BaseSpringBootTest {
                 length, new RemoteKeyReference.MetadataReference(List.of(handle("public-handle", "p"))), publicMaterial,
                 List.of());
         ProviderKeyItem privateKey = new ProviderKeyItem("imported key private key", KeyType.PRIVATE_KEY, algorithm,
-                length, new RemoteKeyReference.MetadataReference(List.of(handle("private-handle", "q"))), null,
+                length, new RemoteKeyReference.MetadataReference(List.of(privateKeyHandleOf(pair.getPublic()))), null,
                 List.of());
         return new ImportedKeyRegistration(profile, List.of(publicKey, privateKey), attempt.keyReference(),
                 fingerprintOf(pair), true,
@@ -1881,10 +1941,19 @@ class KeyImportWriterITest extends BaseSpringBootTest {
         return generator.generateKeyPair();
     }
 
+    /** The token's handle for the private key of a pair. Each pair gets its own. */
+    static MetadataAttribute privateKeyHandleOf(PublicKey publicKey) {
+        return handle("private-handle", fingerprintOf(publicKey));
+    }
+
     static String fingerprintOf(KeyPair pair) {
+        return fingerprintOf(pair.getPublic());
+    }
+
+    private static String fingerprintOf(PublicKey publicKey) {
         return CryptographyUtil
-                .calculateKeyFingerprint(new KeyMaterial(KeyFormat.SPKI,
-                        Base64.getEncoder().encodeToString(pair.getPublic().getEncoded())));
+                .calculateKeyFingerprint(
+                        new KeyMaterial(KeyFormat.SPKI, Base64.getEncoder().encodeToString(publicKey.getEncoded())));
     }
 
     /**

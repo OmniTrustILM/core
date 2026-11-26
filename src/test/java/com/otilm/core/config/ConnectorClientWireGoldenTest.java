@@ -15,8 +15,14 @@ import org.springframework.web.reactive.function.client.ExchangeStrategies;
 class ConnectorClientWireGoldenTest {
 
     @Test
-    void connectorClientMapperIsConfiguredAsOnThe35Line() {
-        WireGolden.assertFingerprintMatches("connector-client-mapper.txt", connectorClientMapper());
+    void matchesItsGolden() {
+        // given — the mapper ApiClientCodecs builds on core's classpath
+
+        // when
+        ObjectMapper mapper = connectorClientMapper();
+
+        // then
+        WireGolden.assertFingerprintMatches("connector-client-mapper.txt", mapper);
     }
 
     @SuppressWarnings("removal")

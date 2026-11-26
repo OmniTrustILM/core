@@ -34,6 +34,7 @@ com/otilm/core/integration/messaging/jms/listeners/poll/PendingIssueReaperITest.
 com/otilm/core/integration/messaging/proxy/ProxyClientITest.java
 com/otilm/core/integration/messaging/proxy/ProxyMessageCorrelatorITest.java
 com/otilm/core/integration/messaging/proxy/ProxyRequestExpiryITest.java
+com/otilm/core/integration/migration/BackfillKeyHandleDigestsMigrationITest.java
 com/otilm/core/integration/migration/CbomSyncSkipRetentionMigrationITest.java
 com/otilm/core/integration/migration/CertificateProtocolAssociationUniqueMigrationITest.java
 com/otilm/core/integration/migration/CertificateRequestPerCertificateMigrationITest.java
@@ -61,6 +62,7 @@ com/otilm/core/integration/repository/PessimisticLockITest.java
 com/otilm/core/integration/repository/SecurityFilterRepositoryITest.java
 com/otilm/core/integration/service/AcmeAccountServiceITest.java
 com/otilm/core/integration/service/AcmeProfileServiceITest.java
+com/otilm/core/integration/service/ActionServiceRenewExecutionITest.java
 com/otilm/core/integration/service/AttributesV2CallbackDispatchITest.java
 com/otilm/core/integration/service/AuthServiceITest.java
 com/otilm/core/integration/service/BrandingSettingsITest.java
@@ -82,6 +84,7 @@ com/otilm/core/integration/service/ProxyServiceITest.java
 com/otilm/core/integration/service/RaProfileServiceITest.java
 com/otilm/core/integration/service/ResourceServiceITest.java
 com/otilm/core/integration/service/SettingServiceITest.java
+com/otilm/core/integration/service/SettingServiceRenewalInfoITest.java
 com/otilm/core/integration/service/TimeQualityConfigurationCacheITest.java
 com/otilm/core/integration/service/TimeQualityConfigurationServiceJmsITest.java
 com/otilm/core/integration/service/TokenInstanceServiceV2ITest.java
@@ -93,6 +96,9 @@ com/otilm/core/integration/service/UserManagementServiceCacheEvictionITest.java
 com/otilm/core/integration/service/UserManagementServiceITest.java
 com/otilm/core/integration/service/registration/RegistrationChallengeGateITest.java
 com/otilm/core/integration/service/registration/RegistrationChallengeStoreITest.java
+com/otilm/core/integration/service/renewal/ApprovedAutoRenewalITest.java
+com/otilm/core/integration/service/renewal/AutoRenewalActionITest.java
+com/otilm/core/integration/service/renewal/AutoRenewalConcurrencyITest.java
 com/otilm/core/integration/service/writer/registration/CertificateRegistrationAuthorizationWriterITest.java
 com/otilm/core/integration/service/writer/registration/CertificateRegistrationWriterITest.java
 com/otilm/core/integration/tasks/CbomSyncTaskITest.java
