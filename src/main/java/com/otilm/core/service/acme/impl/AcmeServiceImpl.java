@@ -1568,7 +1568,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
                     ? linkedBeforeDispatch.get()
                     : readableCertificateUuid(UUID.fromString(certificateOutput.getUuid()));
         } catch (UnsupportedCertificateTypeException e) {
-            acmeChallengeWriter.failFinalizeSubmission(order.getUuid());
+            acmeChallengeWriter.failFinalizeSubmission(order.getUuid(), e.getMessage());
             throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.BAD_CSR, e.getMessage());
         } catch (Exception e) {
             logger.error("Issue Certificate failed. Exception: {}", e.getMessage());

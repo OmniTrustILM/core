@@ -1096,8 +1096,9 @@ class AcmeServiceITest extends BaseSpringBootTest {
         } finally {
             clientOperationServiceImpl.setTypeHandlerRegistry(typeHandlerRegistry);
         }
-        assertThat(acmeOrderRepository.findByOrderId(ORDER_ID_VALID).orElseThrow().getStatus())
-                .isEqualTo(OrderStatus.INVALID);
+        AcmeOrder refused = acmeOrderRepository.findByOrderId(ORDER_ID_VALID).orElseThrow();
+        assertThat(refused.getStatus()).isEqualTo(OrderStatus.INVALID);
+        assertThat(refused.getErrorDetail()).contains(unsupported.getLabel());
     }
 
     @Test

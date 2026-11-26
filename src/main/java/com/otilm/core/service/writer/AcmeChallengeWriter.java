@@ -236,11 +236,25 @@ public class AcmeChallengeWriter {
      */
     @Transactional
     public AcmeOrder failFinalizeSubmission(UUID orderUuid) {
+        return closeAfterFailedSubmission(orderUuid, REQUEST_NOT_SUBMITTED);
+    }
+
+    /**
+     * As {@link #failFinalizeSubmission(UUID)}, for a refusal that the platform words itself.
+     *
+     * @param reason what the client reads back on the order; it must quote nothing a client or a connector sent
+     */
+    @Transactional
+    public AcmeOrder failFinalizeSubmission(UUID orderUuid, String reason) {
+        return closeAfterFailedSubmission(orderUuid, reason);
+    }
+
+    private AcmeOrder closeAfterFailedSubmission(UUID orderUuid, String reason) {
         AcmeOrder order = lockOrderRow(orderUuid);
         OrderStatus statusBefore = order.getStatus();
         if (statusBefore == OrderStatus.PROCESSING) {
             order.setStatus(OrderStatus.INVALID);
-            order.setErrorDetail(REQUEST_NOT_SUBMITTED);
+            order.setErrorDetail(reason);
         }
         recordOrderTransition(order, statusBefore);
         return order;

@@ -124,9 +124,9 @@ class EstAnswers {
     }
 
     /**
-     * Answers a failure to take a request for a new certificate: a policy violation with the platform's text, a failed
-     * issue once the platform has handed over the new certificate's UUID, otherwise service unavailable. Logged once,
-     * by the rule of {@link #logFailure}.
+     * Answers a failure to take a request for a new certificate. A refusal that the platform words itself, a policy
+     * violation or an operation the certificate type does not support, carries that text, as it quotes nothing a client
+     * or a connector sent. Any other failure is logged once, by the rule of {@link #logFailure}.
      *
      * @param submittedUuid the certificate that the platform handed to that step, {@code null} when it handed none
      * @param what what was submitted, as the log line names it

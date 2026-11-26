@@ -142,8 +142,8 @@ public class CrmfIrCrMessageHandler implements MessageHandler<ClientCertificateD
     /**
      * Completes the pre-registration the MAC resolved to (protection validation already verified the MAC and stashed
      * the match on the context): the CRMF identity must exactly equal the registration, and issuance runs through the
-     * register→issue completion with the registration challenge as the authorization secret. Every rejection reuses the
-     * single generic wire message.
+     * register→issue completion with the registration challenge as the authorization secret. A rejection of the
+     * registration or of its challenge reuses the single generic wire message.
      */
     private ClientCertificateDataResponseDto completeRegistration(CertReqMessages crmf,
             ConfigurationContext configuration, ASN1OctetString tid) throws CmpBaseException {
@@ -156,7 +156,7 @@ public class CrmfIrCrMessageHandler implements MessageHandler<ClientCertificateD
         try {
             clientOperationService.requireEnrollmentSupport(matched.getCertificateType(), CertificateProtocol.CMP);
         } catch (UnsupportedCertificateTypeException e) {
-            // before the completion, whose refusals are all answered as a registration rejection
+            // before the completion, so that the refusal is answered with its own reason
             throw new CmpProcessingException(tid, PKIFailureInfo.badRequest, e.getMessage());
         }
 

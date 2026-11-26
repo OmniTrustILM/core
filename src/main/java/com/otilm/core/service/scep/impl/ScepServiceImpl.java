@@ -631,7 +631,12 @@ public class ScepServiceImpl implements ScepExternalService {
             // Reject before issuing when the response could never be delivered, so the platform
             // does not commit a certificate the client can never retrieve (RFC 8894 §3.2.2).
             verifyResponseEnvelopable(scepRequest);
-            requireEnrollable(matchedRegistration);
+            try {
+                requireEnrollable(matchedRegistration);
+            } catch (ScepException e) {
+                // answered here, as the refusal concerns no request that Intune would have validated
+                return buildFailedResponse(e, scepRequest.getTransactionId());
+            }
             if (matchedRegistration != null) {
                 return completeRegistration(scepRequest, matchedRegistration);
             }

@@ -8,6 +8,7 @@ import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
+import com.otilm.api.model.core.certificate.CertificateOperation;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.connector.ConnectorStatus;
@@ -17,6 +18,8 @@ import com.otilm.api.model.core.protocol.ProtocolChallengeSource;
 import com.otilm.api.model.core.scep.FailInfo;
 import com.otilm.api.model.core.scep.MessageType;
 import com.otilm.api.model.core.scep.PkiStatus;
+import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
+import com.otilm.core.certificate.type.X509CertificateTypeHandler;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
@@ -50,6 +53,7 @@ import com.otilm.core.service.scep.ScepExternalService;
 import com.otilm.core.service.scep.ScepMessageTestData;
 import com.otilm.core.service.scep.impl.ScepServiceImpl;
 import com.otilm.core.service.scep.message.ScepConstants;
+import com.otilm.core.service.v2.impl.ClientOperationServiceImpl;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.LoopbackWireMock;
@@ -104,6 +108,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
+import static com.otilm.core.util.RestrictedTypeHandlerFixtures.registryWithX509Lacking;
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
@@ -170,6 +175,12 @@ class ScepRegistrationEnrolmentITest extends BaseSpringBootTest {
     private CryptographicKeySeeder cryptographicKeySeeder;
     @Autowired
     private ActionProducer actionProducer;
+    @Autowired
+    private ClientOperationServiceImpl clientOperationServiceImpl;
+    @Autowired
+    private X509CertificateTypeHandler x509Handler;
+    @Autowired
+    private CertificateTypeHandlerRegistry typeHandlerRegistry;
 
     private WireMockServer mockServer;
     private RaProfile raProfile;
@@ -394,6 +405,34 @@ class ScepRegistrationEnrolmentITest extends BaseSpringBootTest {
         transaction.setCertificateUuid(certificateUuid);
         transaction.setScepProfile(profile);
         scepTransactionRepository.save(transaction);
+    }
+
+    @Test
+    void answersBadRequestAndLeavesTheRegistrationOpen_whenTheTypeCannotBeEnrolledThroughScep() throws Exception {
+        // given
+        Certificate placeholder = registeredPlaceholder(SUBJECT_DN, null, CHALLENGE);
+        byte[] enrolment = enrolment(SUBJECT_DN, null, CHALLENGE);
+        clientOperationServiceImpl
+                .setTypeHandlerRegistry(registryWithX509Lacking(x509Handler, CertificateOperation.ENROLL_SCEP));
+
+        // when
+        ResponseEntity<Object> response;
+        try {
+            response = postPkiOperation(enrolment);
+        } finally {
+            clientOperationServiceImpl.setTypeHandlerRegistry(typeHandlerRegistry);
+        }
+
+        // then
+        assertScepFormatted(response);
+        assertThat(attribute(response, ScepConstants.id_pkiStatus))
+                .isEqualTo(String.valueOf(PkiStatus.FAILURE.getValue()));
+        assertThat(attribute(response, ScepConstants.id_failInfo))
+                .isEqualTo(String.valueOf(FailInfo.BAD_REQUEST.getValue()));
+        Certificate untouched = certificateRepository.findByUuid(placeholder.getUuid()).orElseThrow();
+        assertThat(untouched.getState()).isEqualTo(CertificateState.REGISTERED);
+        assertThat(untouched.getCertificateRequestUuid()).isNull();
+        assertThat(scepTransactionRepository.findByTransactionId(ScepMessageTestData.TRANSACTION_ID)).isEmpty();
     }
 
     @Test

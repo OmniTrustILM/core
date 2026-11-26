@@ -95,9 +95,10 @@ public class EstEnrollment {
      * challenge that completing the registration verifies
      * @return the certificate, or the answer that it is not ready yet
      * @throws EstException {@link EstError#POLICY_VIOLATION} when the request does not meet the policy of the RA
-     * Profile, {@link EstError#REQUEST_REJECTED} when the certificate was rejected, {@link EstError#ISSUANCE_FAILED}
-     * when it could not be issued, {@link EstError#SERVICE_UNAVAILABLE} when the request could not be submitted, and
-     * {@link EstError#REGISTRATION_REJECTED} when the registration of the client cannot answer the request
+     * Profile, {@link EstError#REQUEST_REJECTED} when the request was refused or the certificate rejected,
+     * {@link EstError#ISSUANCE_FAILED} when it could not be issued, {@link EstError#SERVICE_UNAVAILABLE} when the
+     * request could not be submitted, and {@link EstError#REGISTRATION_REJECTED} when the registration of the client
+     * cannot answer the request
      * @throws IllegalStateException when the certificate ends in a state that no enrolment reaches
      */
     public ResponseEntity<byte[]> enroll(EstRoute route, EstClient client, Pkcs10CertificateRequest csr,
@@ -367,8 +368,8 @@ public class EstEnrollment {
 
     /**
      * Completes the registration through the platform, which verifies the password and counts a wrong one against it. A
-     * refusal is answered as a request that matches no registration; a {@link CertificateException} as the service
-     * being unavailable. Both are logged by class only.
+     * refusal of the registration or of its password is answered as a request that matches no registration; a
+     * {@link CertificateException} as the service being unavailable. Both are logged by class only.
      */
     private void complete(EstRoute route, UUID registrationUuid, Pkcs10CertificateRequest csr,
             @Sensitive String password) {

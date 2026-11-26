@@ -306,9 +306,10 @@ class EstEnrollmentTest {
         ThrowingCallable enroll = () -> enrollment.enroll(route, aRegistrationClient(), csr, credentials());
 
         // then
-        assertThatThrownBy(enroll)
-                .isInstanceOfSatisfying(EstException.class,
-                        e -> assertThat(e.error()).isEqualTo(EstError.REQUEST_REJECTED));
+        assertThatThrownBy(enroll).isInstanceOfSatisfying(EstException.class, e -> {
+            assertThat(e.error()).isEqualTo(EstError.REQUEST_REJECTED);
+            assertThat(e.detail()).contains(refusal.getMessage());
+        });
         verifyNoInteractions(clientOperationExternalService);
     }
 
