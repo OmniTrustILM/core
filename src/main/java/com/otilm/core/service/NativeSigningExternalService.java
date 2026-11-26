@@ -21,8 +21,8 @@ public interface NativeSigningExternalService {
             throws NotFoundException, SigningEngineException;
 
     /**
-     * Signs every digest of the request with the Signing Profile's key in one run. The run succeeds or fails as a whole
-     * and records its digests only on success.
+     * Signs every item of the request with the Signing Profile's key in one run. The run succeeds or fails as a whole
+     * and stages signing records only on success, as the profile's record policy defines them.
      *
      * @throws NotFoundException if no Signing Profile has the UUID
      * @throws ValidationException if the profile cannot serve native raw signing, or the request pins a certificate

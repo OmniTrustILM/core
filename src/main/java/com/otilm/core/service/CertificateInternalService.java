@@ -126,6 +126,11 @@ public interface CertificateInternalService extends ResourceExtensionService {
      * structural key references, cached in {@link CacheConfig#SIGNING_CERTIFICATE_CACHE}.
      *
      * <p>
+     * Each Core instance caches the snapshot on its own and a change evicts it only on the instance that commits it, so
+     * a revoked certificate keeps signing on other instances until their entry expires. Reading it from the database
+     * would close that window at the cost of a query on every signing request.
+     *
+     * <p>
      * No authorization check — must not be called from REST controllers.
      *
      * @throws NotFoundException if no certificate exists for the UUID

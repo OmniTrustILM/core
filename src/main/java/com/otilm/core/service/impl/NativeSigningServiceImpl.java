@@ -92,9 +92,10 @@ public class NativeSigningServiceImpl implements NativeSigningExternalService {
         ResolvedManagedRawSigningProfile rawSigningProfile = resolvedProfile(signingProfile,
                 ResolvedManagedRawSigningProfile.class, "a managed raw-signing profile");
         requirePinnedCertificate(rawSigningProfile, request.getCertificateFingerprint());
+        List<byte[]> signerCertificateChain = encodedChain(rawSigningProfile);
         RawSigningResult result = rawSigningEngine
                 .sign(rawSigningRequest(request), signingProfile, rawSigningProfile, SigningProtocol.ILM_NATIVE);
-        return signRawResponse(rawSigningProfile, result);
+        return signRawResponse(signerCertificateChain, result);
     }
 
     /**
@@ -132,8 +133,9 @@ public class NativeSigningServiceImpl implements NativeSigningExternalService {
     }
 
     /**
-     * A caller pins the certificate it prepared its digests for, so a signature under any other certificate would not
-     * verify for the caller. The refusal comes before the key is used.
+     * A caller pins the signing certificate it expects for its items, and the refusal comes before the key is used. The
+     * pin is compared with the certificate this instance signs with, which reflects a profile or certificate change
+     * committed on another instance only once the cached entry expires.
      */
     private static void requirePinnedCertificate(ResolvedManagedRawSigningProfile profile, String pinnedFingerprint)
             throws SigningEngineException {
@@ -210,12 +212,17 @@ public class NativeSigningServiceImpl implements NativeSigningExternalService {
         return new RawSigningRequest(request.getSignatureInputMode(), request.getDigestAlgorithm(), items);
     }
 
-    private static SignRawResponseDto signRawResponse(ResolvedManagedRawSigningProfile profile, RawSigningResult result)
-            throws SigningEngineException {
-        List<byte[]> signerCertificateChain = new ArrayList<>(result.certificateChain().size());
-        for (X509Certificate certificate : result.certificateChain()) {
-            signerCertificateChain.add(encoded(profile, certificate));
+    /** Encoded before the run, so a failure here stops the request before the key is used or a record is staged. */
+    private static List<byte[]> encodedChain(ResolvedManagedRawSigningProfile profile) throws SigningEngineException {
+        List<X509Certificate> chain = profile.resolvedScheme().chain().chain();
+        List<byte[]> encodedChain = new ArrayList<>(chain.size());
+        for (X509Certificate certificate : chain) {
+            encodedChain.add(encoded(profile, certificate));
         }
+        return encodedChain;
+    }
+
+    private static SignRawResponseDto signRawResponse(List<byte[]> signerCertificateChain, RawSigningResult result) {
         List<SignRawResultDto> results = result
                 .items()
                 .stream()

@@ -345,7 +345,6 @@ class RawSigningEngineITest extends BaseSpringBootTest {
             originalPlatformSettings = SettingsCache.getSettings(SettingsSection.PLATFORM);
         }
 
-        /** The settings cache outlives the test. A lowered cap left in it would refuse the next test's batch. */
         @AfterEach
         void restoreThePlatformSettings() {
             new SettingsCache()
@@ -650,7 +649,6 @@ class RawSigningEngineITest extends BaseSpringBootTest {
             assertThat(loadRecords(profile)).isEmpty();
         }
 
-        /** Signing with the profile does not stand in for the permission to sign with its key. */
         @Test
         void answers403_whenTheCallerMaySignWithTheProfileOnly() throws Exception {
             // given
