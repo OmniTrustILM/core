@@ -34,6 +34,7 @@ import com.otilm.api.model.core.acme.ProblemDocument;
 import com.otilm.api.model.core.authority.CertificateRevocationReason;
 import com.otilm.api.model.core.certificate.CertificateChainResponseDto;
 import com.otilm.api.model.core.certificate.CertificateDetail;
+import com.otilm.api.model.core.certificate.CertificateOperation;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
@@ -47,6 +48,8 @@ import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.certificate.request.ProtocolRequestAttributeValidator;
 import com.otilm.core.certificate.request.RequestAttributePolicyViolationException;
+import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
+import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.X509CertificateEntity;
@@ -178,6 +181,13 @@ public class AcmeServiceImpl implements AcmeExternalService {
 
     private AttributeEngine attributeEngine;
     private ProtocolRequestAttributeValidator protocolRequestAttributeValidator;
+
+    private CertificateTypeHandlerRegistry typeHandlerRegistry;
+
+    @Autowired
+    public void setTypeHandlerRegistry(CertificateTypeHandlerRegistry typeHandlerRegistry) {
+        this.typeHandlerRegistry = typeHandlerRegistry;
+    }
 
     @Autowired
     public void setAcmeChallengeWriter(AcmeChallengeWriter acmeChallengeWriter) {
@@ -944,6 +954,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
 
         revokeRequest.setReason(reason);
         revokeRequest.setAttributes(getClientOperationAttributes(true, acmeAccount, isRaProfileBased));
+        requireRevocable(cert);
 
         try {
             clientOperationService
@@ -1535,7 +1546,8 @@ public class AcmeServiceImpl implements AcmeExternalService {
      * once the submission returns. A queued one is not checked again: a failure then would fail the order of a
      * certificate still being issued.
      */
-    private AcmeOrder createCert(AcmeOrder order, ClientCertificateIssueRequestDto certificateIssueRequestDto) {
+    private AcmeOrder createCert(AcmeOrder order, ClientCertificateIssueRequestDto certificateIssueRequestDto)
+            throws AcmeProblemDocumentException {
         String certificateId = AcmeRandomGeneratorAndValidator.generateRandomId();
         AtomicReference<UUID> linkedBeforeDispatch = new AtomicReference<>();
         Consumer<UUID> linkToOrder = submittedUuid -> {
@@ -1555,6 +1567,9 @@ public class AcmeServiceImpl implements AcmeExternalService {
             certificateUuid = linkedBeforeDispatch.get() != null
                     ? linkedBeforeDispatch.get()
                     : readableCertificateUuid(UUID.fromString(certificateOutput.getUuid()));
+        } catch (UnsupportedCertificateTypeException e) {
+            acmeChallengeWriter.failFinalizeSubmission(order.getUuid(), e.getMessage());
+            throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.BAD_CSR, e.getMessage());
         } catch (Exception e) {
             logger.error("Issue Certificate failed. Exception: {}", e.getMessage());
             return acmeChallengeWriter.failFinalizeSubmission(order.getUuid());
@@ -1890,6 +1905,15 @@ public class AcmeServiceImpl implements AcmeExternalService {
                 .findWithContextByChallengeId(challengeId)
                 .orElseThrow(() -> new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.SERVER_INTERNAL,
                         "Requested challenge is not found"));
+    }
+
+    // checked here and not left to the revocation itself, whose refusal would roll back the answer to the client
+    private void requireRevocable(Certificate certificate) throws AcmeProblemDocumentException {
+        try {
+            typeHandlerRegistry.requireSupport(certificate, CertificateOperation.REVOKE);
+        } catch (UnsupportedCertificateTypeException e) {
+            throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.MALFORMED, e.getMessage());
+        }
     }
 
     /**

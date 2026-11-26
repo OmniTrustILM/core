@@ -35,6 +35,7 @@ import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.certificate.SupportedCertificateTypeDto;
 import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.api.model.core.compliance.v2.ComplianceCheckResultDto;
+import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.logging.enums.Module;
 import com.otilm.api.model.core.logging.enums.Operation;
@@ -191,6 +192,10 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.DefaultTransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import static com.otilm.api.model.core.certificate.CertificateOperation.ENROLL_ACME;
+import static com.otilm.api.model.core.certificate.CertificateOperation.ENROLL_CMP;
+import static com.otilm.api.model.core.certificate.CertificateOperation.ENROLL_EST;
+import static com.otilm.api.model.core.certificate.CertificateOperation.ENROLL_SCEP;
 import static com.otilm.api.model.core.certificate.CertificateOperation.PUSH_TO_LOCATION;
 import static com.otilm.api.model.core.certificate.CertificateOperation.REKEY;
 import static com.otilm.api.model.core.certificate.CertificateOperation.RENEW;
@@ -587,6 +592,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         // Issue/renew/rekey reach this body by self-invocation, bypassing the annotation above, so without this probe
         // a platform key signs a CSR before the nested CREATE gate can deny. Denies nobody that gate would admit.
         certificateService.checkCreatePermissions();
+        requireEnrollmentSupport(certificateType, protocolInfo);
         request.setFormat(requestFormatResolver.resolve(request.getFormat(), certificateType));
         boolean createCustomAttributes = !AuthHelper.isLoggedProtocolUser();
         if (createCustomAttributes) {
@@ -798,6 +804,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             final SecuredUUID raProfileUuid, final ClientCertificateIssueRequestDto request,
             final CertificateProtocolInfo protocolInfo, final Consumer<UUID> beforeDispatch, final UUID predecessorUuid)
             throws NotFoundException, CertificateOperationException {
+        requireEnrollmentSupport(request.getCertificateType(), protocolInfo);
         request.setFormat(requestFormatResolver.resolve(request.getFormat(), request.getCertificateType()));
         // validate RA profile
         RaProfile raProfile = raProfileRepository
@@ -2719,6 +2726,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         Certificate oldCertificate = validateOldCertificateForOperation(certificateUuid, raProfileUuid.toString(),
                 ResourceAction.RENEW, authorityUuid);
         typeHandlerRegistry.requireSupport(oldCertificate, RENEW);
+        requireEnrollmentSupport(oldCertificate.getCertificateType(), protocolInfo);
         requireAuthoritySupport(oldCertificate.getCertificateType(), oldCertificate.getRaProfile(),
                 protocolInfo != null);
         if (request != null) {
@@ -3008,6 +3016,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         Certificate oldCertificate = validateOldCertificateForOperation(certificateUuid, raProfileUuid.toString(),
                 ResourceAction.REKEY, authorityUuid);
         typeHandlerRegistry.requireSupport(oldCertificate, REKEY);
+        requireEnrollmentSupport(oldCertificate.getCertificateType(), protocolInfo);
         requireAuthoritySupport(oldCertificate.getCertificateType(), oldCertificate.getRaProfile(), throughProtocol);
         if (request != null) {
             // the old certificate is removed from its locations before the new one is pushed, so a type that cannot
@@ -3707,6 +3716,28 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         return handler
                 .readRequest(certificate.getCertificateRequest().getContent(),
                         certificate.getCertificateRequest().getCertificateRequestFormat());
+    }
+
+    private void requireEnrollmentSupport(CertificateType certificateType, CertificateProtocolInfo protocolInfo) {
+        if (protocolInfo != null) {
+            requireEnrollmentSupportOf(certificateType, protocolInfo.getProtocol());
+        }
+    }
+
+    // NOT_SUPPORTED so that the refusal does not mark the transaction of the protocol that asks for rollback
+    @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public void requireEnrollmentSupport(CertificateType certificateType, CertificateProtocol protocol) {
+        requireEnrollmentSupportOf(certificateType, protocol);
+    }
+
+    private void requireEnrollmentSupportOf(CertificateType certificateType, CertificateProtocol protocol) {
+        handlerOf(certificateType).requireSupport(switch (protocol) {
+            case ACME -> ENROLL_ACME;
+            case SCEP -> ENROLL_SCEP;
+            case CMP -> ENROLL_CMP;
+            case EST -> ENROLL_EST;
+        });
     }
 
     private CertificateTypeHandler handlerOf(CertificateType certificateType) {

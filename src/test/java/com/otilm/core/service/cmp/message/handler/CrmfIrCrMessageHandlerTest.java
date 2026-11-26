@@ -1,12 +1,16 @@
 package com.otilm.core.service.cmp.message.handler;
 
+import com.otilm.api.interfaces.core.cmp.error.CmpProcessingException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.RequestAttributeV2;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
+import com.otilm.api.model.core.certificate.CertificateOperation;
+import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
+import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.cmp.CmpProfile;
@@ -20,9 +24,11 @@ import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.service.v2.ClientOperationInternalService;
 import java.util.List;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.asn1.ASN1Integer;
 import org.bouncycastle.asn1.DEROctetString;
 import org.bouncycastle.asn1.cmp.PKIBody;
+import org.bouncycastle.asn1.cmp.PKIFailureInfo;
 import org.bouncycastle.asn1.cmp.PKIHeader;
 import org.bouncycastle.asn1.cmp.PKIHeaderBuilder;
 import org.bouncycastle.asn1.cmp.PKIMessage;
@@ -38,9 +44,13 @@ import org.mockito.ArgumentCaptor;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -76,6 +86,53 @@ class CrmfIrCrMessageHandlerTest {
                         any(ClientCertificateIssueRequestDto.class), protocolInfo.capture());
         assertThat(protocolInfo.getValue().getProtocol()).isEqualTo(CertificateProtocol.CMP);
         assertThat(protocolInfo.getValue().getProtocolProfileUuid()).isEqualTo(cmpProfileUuid);
+    }
+
+    @Test
+    void rejectsWithBadRequestNamingTheOperation_whenTheTypeCannotBeEnrolledThroughCmp() throws Exception {
+        // given
+        var refusal = UnsupportedCertificateTypeException
+                .unsupportedOperation(CertificateType.X509.getCode(), CertificateOperation.ENROLL_CMP);
+        ConfigurationContext configuration = configuration(UUID.randomUUID(), UUID.randomUUID());
+        when(clientOperationService
+                .issueCertificate(any(SecuredParentUUID.class), any(SecuredUUID.class),
+                        any(ClientCertificateIssueRequestDto.class), any(CertificateProtocolInfo.class)))
+                .thenThrow(refusal);
+        PKIMessage request = irMessage();
+
+        // when
+        ThrowingCallable handle = () -> handler.handle(request, configuration);
+
+        // then
+        assertThatThrownBy(handle)
+                .isInstanceOfSatisfying(CmpProcessingException.class,
+                        e -> assertThat(e.getFailureInfo()).isEqualTo(PKIFailureInfo.badRequest))
+                .hasMessageContaining(refusal.getMessage());
+    }
+
+    @Test
+    void rejectsTheCompletionWithBadRequest_whenTheTypeOfTheRegistrationCannotBeEnrolledThroughCmp() {
+        // given
+        var refusal = UnsupportedCertificateTypeException
+                .unsupportedOperation(CertificateType.X509.getCode(), CertificateOperation.ENROLL_CMP);
+        ClientOperationExternalService clientOperationExternalService = mock(ClientOperationExternalService.class);
+        handler.setClientOperationExternalService(clientOperationExternalService);
+        handler.setRegistrationIdentityVerifier(mock(CmpRegistrationIdentityVerifier.class));
+        ConfigurationContext configuration = configuration(UUID.randomUUID(), UUID.randomUUID());
+        when(configuration.isRegistrationMode()).thenReturn(true);
+        when(configuration.getMatchedRegistration()).thenReturn(aCertificate().withUuid(UUID.randomUUID()).build());
+        doThrow(refusal).when(clientOperationService).requireEnrollmentSupport(any(), eq(CertificateProtocol.CMP));
+        PKIMessage request = irMessage();
+
+        // when
+        ThrowingCallable handle = () -> handler.handle(request, configuration);
+
+        // then
+        assertThatThrownBy(handle)
+                .isInstanceOfSatisfying(CmpProcessingException.class,
+                        e -> assertThat(e.getFailureInfo()).isEqualTo(PKIFailureInfo.badRequest))
+                .hasMessageContaining(refusal.getMessage());
+        verifyNoInteractions(clientOperationExternalService);
     }
 
     @Test

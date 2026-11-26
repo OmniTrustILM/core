@@ -7,12 +7,15 @@ import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
+import com.otilm.api.model.core.certificate.CertificateOperation;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.scep.FailInfo;
 import com.otilm.api.model.core.scep.MessageType;
 import com.otilm.api.model.core.scep.PkiStatus;
+import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
+import com.otilm.core.certificate.type.X509CertificateTypeHandler;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
@@ -37,6 +40,7 @@ import com.otilm.core.service.scep.ScepExternalService;
 import com.otilm.core.service.scep.ScepMessageTestData;
 import com.otilm.core.service.scep.impl.ScepServiceImpl;
 import com.otilm.core.service.scep.message.ScepConstants;
+import com.otilm.core.service.v2.impl.ClientOperationServiceImpl;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.LoopbackWireMock;
@@ -74,6 +78,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 
 import static com.otilm.core.util.KeyMetaFixtures.keyIdMeta;
+import static com.otilm.core.util.RestrictedTypeHandlerFixtures.registryWithX509Lacking;
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static com.otilm.core.util.seeders.CryptographicKeySeeder.KeyItemSpec.signingPrivateKey;
 import static com.otilm.core.util.seeders.CryptographicKeySeeder.KeyItemSpec.verifyingPublicKey;
@@ -127,6 +132,12 @@ class ScepPkiOperationITest extends BaseSpringBootTest {
     private CryptographicKeySeeder cryptographicKeySeeder;
     @Autowired
     private CryptographicKeyItemRepository cryptographicKeyItemRepository;
+    @Autowired
+    private ClientOperationServiceImpl clientOperationServiceImpl;
+    @Autowired
+    private X509CertificateTypeHandler x509Handler;
+    @Autowired
+    private CertificateTypeHandlerRegistry typeHandlerRegistry;
 
     private WireMockServer mockServer;
     private RaProfile raProfile;
@@ -241,6 +252,35 @@ class ScepPkiOperationITest extends BaseSpringBootTest {
         assertNotEquals(FailInfo.BAD_MESSAGE_CHECK.getValue(),
                 Integer.parseInt(attribute(response, ScepConstants.id_failInfo)),
                 "a matching challenge password must not be reported as an integrity failure");
+    }
+
+    @Test
+    void answersBadRequestAndStoresNothing_whenTheTypeCannotBeEnrolledThroughScep() throws Exception {
+        // given
+        scepProfile.setRequireManualApproval(true);
+        scepProfileRepository.save(scepProfile);
+        long storedCertificates = certificateRepository.count();
+        clientOperationServiceImpl
+                .setTypeHandlerRegistry(registryWithX509Lacking(x509Handler, CertificateOperation.ENROLL_SCEP));
+
+        // when
+        ResponseEntity<Object> response;
+        try {
+            response = scepService
+                    .handlePost(SCEP_PROFILE_NAME, ScepServiceImpl.SCEP_OPERATION_PKI_OPERATION,
+                            ScepMessageTestData.passwordEnvelopedPkcsReq(ScepMessageTestData.CHALLENGE_PASSWORD));
+        } finally {
+            clientOperationServiceImpl.setTypeHandlerRegistry(typeHandlerRegistry);
+        }
+
+        // then
+        assertScepFormatted(response);
+        assertThat(attribute(response, ScepConstants.id_pkiStatus))
+                .isEqualTo(String.valueOf(PkiStatus.FAILURE.getValue()));
+        assertThat(attribute(response, ScepConstants.id_failInfo))
+                .isEqualTo(String.valueOf(FailInfo.BAD_REQUEST.getValue()));
+        assertThat(certificateRepository.count()).isEqualTo(storedCertificates);
+        assertThat(scepTransactionRepository.count()).isZero();
     }
 
     /**
