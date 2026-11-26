@@ -2116,7 +2116,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
             signingProfileSeeder.seedSigningWith("signing-profile", heldByCurrentVersion);
             signingProfileSeeder
                     .seedRenewedOnto("renewed-profile", heldBySupersededVersion, saveCertificate("renewed"));
-            RemoveCertificateDto request = removalOf(certificate, heldByCurrentVersion, unheld,
+            RemoveCertificateDto request = createRemovalRequest(certificate, heldByCurrentVersion, unheld,
                     heldBySupersededVersion);
 
             // when
@@ -2140,7 +2140,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
             signingProfileSeeder.seedSigningWith("signing-profile", heldByCurrentVersion);
             signingProfileSeeder
                     .seedRenewedOnto("renewed-profile", heldBySupersededVersion, saveCertificate("renewed"));
-            RemoveCertificateDto request = removalOf(heldByCurrentVersion, heldBySupersededVersion);
+            RemoveCertificateDto request = createRemovalRequest(heldByCurrentVersion, heldBySupersededVersion);
 
             // when
             certificateService.bulkDeleteCertificate(SecurityFilter.create(), request);
@@ -2169,7 +2169,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
         void recordsFailedHistoryNamingTheProfile_whenBulkDeleteSkipsACertificate() {
             // given
             signingProfileSeeder.seedSigningWith("signing-profile", certificate);
-            RemoveCertificateDto request = removalOf(certificate);
+            RemoveCertificateDto request = createRemovalRequest(certificate);
 
             // when
             certificateService.bulkDeleteCertificate(SecurityFilter.create(), request);
@@ -2195,7 +2195,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
                                     .build()));
         }
 
-        private static RemoveCertificateDto removalOf(Certificate... certificates) {
+        private static RemoveCertificateDto createRemovalRequest(Certificate... certificates) {
             RemoveCertificateDto request = new RemoveCertificateDto();
             request.setUuids(Arrays.stream(certificates).map(certificate -> certificate.getUuid().toString()).toList());
             return request;
