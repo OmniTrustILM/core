@@ -68,6 +68,7 @@ import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.EntityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.LocationRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
+import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.SecuredParentUUID;
@@ -124,6 +125,7 @@ import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -181,6 +183,8 @@ class LocationServiceITest extends BaseSpringBootTest {
     private ClientOperationServiceImpl clientOperationService;
     @MockitoSpyBean
     private ConnectorApiFactory connectorApiFactory;
+    @MockitoSpyBean
+    private TransactionHandler transactionHandler;
 
     private DataAttributeV2 testAttribute;
     private DataAttributeV2 testAttribute2;
@@ -1552,6 +1556,31 @@ class LocationServiceITest extends BaseSpringBootTest {
                 .hasMessageContaining("Failed to add the new certificate to the location.");
         assertThat(certificateLocationRepository
                 .findById(new CertificateLocationId(location.getUuid(), renewedCertificate.getUuid()))).isEmpty();
+    }
+
+    @Test
+    void reportsTheLocationNotFound_whenItMovesToAnotherEntityAfterTheRenewedCertificateIsLinked() throws Exception {
+        // given
+        prepareCertificateForRenewalInLocation();
+        X509CertificateEntity renewedCertificate = certificateRepository.save(aCertificate().build());
+        recordTransactionInLocationAndAuthorityCalls(new LinkedHashMap<>(), renewedCertificate.getUuid());
+        EntityInstanceReference otherEntity = anotherEntity();
+        doAnswer(invocation -> {
+            Location moved = reloadedLocation();
+            moved.setEntityInstanceReference(otherEntity);
+            locationRepository.save(moved);
+            return invocation.callRealMethod();
+        }).when(transactionHandler).runInTransaction(any());
+
+        // when
+        ThrowingCallable renewInTheLocation = () -> locationService
+                .renewCertificateInLocation(entityInstanceReference.getSecuredParentUuid(), location.getSecuredUuid(),
+                        certificate.getUuid().toString());
+
+        // then
+        assertThatThrownBy(renewInTheLocation).isInstanceOf(NotFoundException.class);
+        assertThat(certificateLocationRepository
+                .findById(new CertificateLocationId(location.getUuid(), renewedCertificate.getUuid()))).isPresent();
     }
 
     @Test
