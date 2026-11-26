@@ -14,6 +14,7 @@ import com.otilm.api.model.client.authority.AuthorityInstanceRequestDto;
 import com.otilm.api.model.client.authority.AuthorityInstanceUpdateRequestDto;
 import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
+import com.otilm.api.model.client.metadata.MetadataResponseDto;
 import com.otilm.api.model.common.BulkActionMessageDto;
 import com.otilm.api.model.common.NameAndIdDto;
 import com.otilm.api.model.common.NameAndUuidDto;
@@ -362,7 +363,7 @@ public class AuthorityInstanceServiceImpl
                                 .connector(authorityInstanceRef.getConnectorUuid())
                                 .build(), request.getAttributes()));
         if (metadata != null) {
-            replaceMetadata(authorityInstanceRef, metadata);
+            dto.setMetadata(replaceMetadata(authorityInstanceRef, metadata));
         }
 
         return dto;
@@ -703,16 +704,17 @@ public class AuthorityInstanceServiceImpl
                                 .builder(Resource.AUTHORITY, authorityInstanceRef.getUuid())
                                 .connector(authorityInstanceRef.getConnectorUuid())
                                 .build(), request.getAttributes()));
-        replaceMetadata(authorityInstanceRef, metadata);
+        dto.setMetadata(replaceMetadata(authorityInstanceRef, metadata));
         return dto;
     }
 
     /**
      * Replaces the authority's whole metadata set with what the connector reported on its last successful connection
-     * check, so values the connector no longer reports do not linger.
+     * check, so values the connector no longer reports do not linger, and returns the stored set as the detail shows
+     * it.
      */
-    private void replaceMetadata(AuthorityInstanceReference authorityInstanceRef, List<MetadataAttribute> metadata)
-            throws AttributeException {
+    private List<MetadataResponseDto> replaceMetadata(AuthorityInstanceReference authorityInstanceRef,
+            List<MetadataAttribute> metadata) throws AttributeException {
         logger
                 .debug("Replacing metadata of authority {} with {} attributes", authorityInstanceRef.getUuid(),
                         metadata.size());
@@ -725,6 +727,9 @@ public class AuthorityInstanceServiceImpl
                                 .builder(Resource.AUTHORITY, authorityInstanceRef.getUuid())
                                 .connector(authorityInstanceRef.getConnectorUuid())
                                 .build());
+        return attributeEngine
+                .getMappedMetadataContent(
+                        ObjectAttributeContentInfo.builder(Resource.AUTHORITY, authorityInstanceRef.getUuid()).build());
     }
 
     private AuthorityInstanceReference getAuthorityInstanceReferenceEntity(SecuredUUID uuid) throws NotFoundException {

@@ -16,7 +16,6 @@ import com.otilm.api.model.common.attribute.common.AttributeContent;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.authority.AuthorityInstanceDto;
-import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.repository.AttributeContent2ObjectRepository;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
@@ -64,8 +63,6 @@ class AuthorityMetadataITest extends BaseSpringBootTest {
 
     @Autowired
     private AuthorityInstanceExternalService authorityInstanceService;
-    @Autowired
-    private AttributeEngine attributeEngine;
     @Autowired
     private AttributeContent2ObjectRepository attributeContent2ObjectRepository;
     @Autowired
@@ -123,6 +120,7 @@ class AuthorityMetadataITest extends BaseSpringBootTest {
 
         // then
         assertThat(loadMetadataValues(created.getUuid())).containsExactly(Map.entry(ACCOUNT_URL, accountUrl));
+        assertThat(extractMetadataValues(created.getMetadata())).containsExactly(Map.entry(ACCOUNT_URL, accountUrl));
     }
 
     @Test
@@ -135,11 +133,12 @@ class AuthorityMetadataITest extends BaseSpringBootTest {
         stubConnectionCheck(buildMetadataAnswer(buildMetadataJson(ACCOUNT_URL, newAccountUrl)));
 
         // when
-        edit("https://acme.example/directory");
+        AuthorityInstanceDto edited = edit("https://acme.example/directory");
 
         // then
         assertThat(loadMetadataValues(authority.getUuid().toString()))
                 .containsExactly(Map.entry(ACCOUNT_URL, newAccountUrl));
+        assertThat(extractMetadataValues(edited.getMetadata())).containsExactly(Map.entry(ACCOUNT_URL, newAccountUrl));
     }
 
     @Test
@@ -267,10 +266,10 @@ class AuthorityMetadataITest extends BaseSpringBootTest {
         wireMockServer.stubFor(post(urlEqualTo(CONNECTION_PATH)).willReturn(answer));
     }
 
-    private void edit(String directoryUrl) throws Exception {
+    private AuthorityInstanceDto edit(String directoryUrl) throws Exception {
         var request = new AuthorityInstanceUpdateRequestDto();
         request.setAttributes(buildDirectoryUrlAttributes(directoryUrl));
-        authorityInstanceService.editAuthorityInstance(authority.getSecuredUuid(), request);
+        return authorityInstanceService.editAuthorityInstance(authority.getSecuredUuid(), request);
     }
 
     private Map<String, Object> loadMetadataValues(String authorityUuid) throws Exception {
