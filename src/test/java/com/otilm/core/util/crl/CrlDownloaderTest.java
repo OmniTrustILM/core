@@ -4,16 +4,25 @@ import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder;
 import com.otilm.core.util.LoopbackWireMock;
 import java.io.ByteArrayInputStream;
+import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InterruptedIOException;
 import java.io.OutputStream;
 import java.io.SequenceInputStream;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.Proxy;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Random;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeUnit;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -30,6 +39,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
+import static org.junit.jupiter.api.Timeout.ThreadMode.SEPARATE_THREAD;
 
 class CrlDownloaderTest {
 
@@ -40,6 +50,10 @@ class CrlDownloaderTest {
     private static final String CRL_PATH = "/ca.crl";
     /** Bounds how long a silent server holds a connection its client never closes. */
     private static final int HOLD_LIMIT_MILLIS = 20_000;
+    /** Well within the read timeout, so a server sending slowly never lets a single read time out. */
+    private static final int SLOW_SEND_INTERVAL_MILLIS = 200;
+    /** Well below the hold limit, so only the cancelled download, not the server, can close the connection in time. */
+    private static final Duration CONNECTION_CLOSE_WAIT = Duration.ofSeconds(2);
 
     private WireMockServer crlServer;
 
@@ -51,6 +65,36 @@ class CrlDownloaderTest {
     @AfterEach
     void stopCrlServer() {
         crlServer.stop();
+    }
+
+    @Test
+    void rethrowsRuntimeExceptionUnchanged_whenDownloadThreadFailsWithOne() {
+        // given
+        var failure = new IllegalArgumentException("worker failure");
+        var downloader = new CrlDownloader(url -> {
+            throw failure;
+        }, CONNECT_TIMEOUT_MILLIS, READ_TIMEOUT_MILLIS, SIZE_LIMIT, DOWNLOAD_TIMEOUT);
+
+        // when
+        ThrowingCallable download = () -> downloader.download(crlUrl());
+
+        // then
+        assertThatThrownBy(download).isSameAs(failure);
+    }
+
+    @Test
+    void rethrowsErrorUnchanged_whenDownloadThreadFailsWithOne() {
+        // given
+        var failure = new AssertionError("worker failure");
+        var downloader = new CrlDownloader(url -> {
+            throw failure;
+        }, CONNECT_TIMEOUT_MILLIS, READ_TIMEOUT_MILLIS, SIZE_LIMIT, DOWNLOAD_TIMEOUT);
+
+        // when
+        ThrowingCallable download = () -> downloader.download(crlUrl());
+
+        // then
+        assertThatThrownBy(download).isSameAs(failure);
     }
 
     @Test
@@ -225,6 +269,96 @@ class CrlDownloaderTest {
     }
 
     @Test
+    @Timeout(value = 30, threadMode = SEPARATE_THREAD)
+    void refusesCrlWithinDeadline_whenChunkFramingArrivesSlowly() throws Exception {
+        // given
+        var deadlineShorterThanFraming = Duration.ofMillis(800);
+        try (ServerSocket framingServer = new ServerSocket(0, 1, InetAddress.getByName(LoopbackWireMock.HOST))) {
+            var framingConnection = new FutureTask<Void>(() -> serveEndlessChunkSizeLine(framingServer), null);
+            Thread.ofVirtual().start(framingConnection);
+            String url = LoopbackWireMock.url(framingServer.getLocalPort()) + CRL_PATH;
+            CrlDownloader downloader = downloader(deadlineShorterThanFraming);
+
+            // when
+            long start = System.nanoTime();
+            ThrowingCallable download = () -> downloader.download(url);
+
+            // then
+            assertThatThrownBy(download)
+                    .isInstanceOfSatisfying(CrlDownloadException.class,
+                            e -> assertThat(e.reason()).isEqualTo("its download took longer than 800 ms"));
+            assertThat(Duration.ofNanos(System.nanoTime() - start))
+                    .as("stopped by the deadline, while one read of the chunk framing still runs")
+                    .isLessThan(Duration.ofSeconds(3));
+            assertThat(framingConnection)
+                    .as("the download closed its connection once the caller stopped waiting")
+                    .succeedsWithin(CONNECTION_CLOSE_WAIT);
+        }
+    }
+
+    /**
+     * The connection is opened through a SOCKS proxy that never answers the client's greeting, so the JDK is still
+     * opening the connection when the deadline falls.
+     */
+    @Test
+    @Timeout(value = 30, threadMode = SEPARATE_THREAD)
+    void refusesCrlWithinDeadline_whenDeadlineFallsWhileConnectionIsOpened() throws Exception {
+        // given
+        var deadlineShorterThanConnectTimeout = Duration.ofMillis(800);
+        var connectTimeoutMillis = 5_000;
+        try (ServerSocket silentProxy = new ServerSocket(0, 1, InetAddress.getByName(LoopbackWireMock.HOST))) {
+            var heldConnection = new FutureTask<Void>(() -> readRequestWithoutAnswering(silentProxy), null);
+            Thread.ofVirtual().start(heldConnection);
+            var downloader = new CrlDownloader(openConnectionsThroughSocksProxy(silentProxy.getLocalPort()),
+                    connectTimeoutMillis, READ_TIMEOUT_MILLIS, SIZE_LIMIT, deadlineShorterThanConnectTimeout);
+
+            // when
+            long start = System.nanoTime();
+            ThrowingCallable download = () -> downloader.download(crlUrl());
+
+            // then
+            assertThatThrownBy(download)
+                    .isInstanceOfSatisfying(CrlDownloadException.class,
+                            e -> assertThat(e.reason()).isEqualTo("its download took longer than 800 ms"));
+            assertThat(Duration.ofNanos(System.nanoTime() - start))
+                    .as("stopped by the deadline, not by the 5 s connect timeout")
+                    .isLessThan(Duration.ofSeconds(3));
+            assertThat(heldConnection)
+                    .as("the download closed its connection once the caller stopped waiting")
+                    .succeedsWithin(CONNECTION_CLOSE_WAIT);
+        }
+    }
+
+    @Test
+    @Timeout(value = 30, threadMode = SEPARATE_THREAD)
+    void failsAsInterrupted_whenCallerIsInterruptedDuringDownload() throws Exception {
+        // given
+        var timeoutsLongerThanCloseWait = Duration.ofSeconds(15);
+        try (ServerSocket silentServer = new ServerSocket(0, 1, InetAddress.getByName(LoopbackWireMock.HOST))) {
+            var connected = new CountDownLatch(1);
+            var heldConnection = new FutureTask<Void>(() -> readRequestWithoutAnswering(silentServer, connected), null);
+            Thread.ofVirtual().start(heldConnection);
+            String url = LoopbackWireMock.url(silentServer.getLocalPort()) + CRL_PATH;
+            var downloader = new CrlDownloader(CONNECT_TIMEOUT_MILLIS, (int) timeoutsLongerThanCloseWait.toMillis(),
+                    SIZE_LIMIT, timeoutsLongerThanCloseWait);
+            var download = new FutureTask<InterruptedDownload>(() -> downloadReportingInterrupt(downloader, url));
+            Thread caller = Thread.ofVirtual().start(download);
+            assertThat(connected.await(5, TimeUnit.SECONDS)).isTrue();
+
+            // when
+            caller.interrupt();
+
+            // then
+            InterruptedDownload outcome = download.get(5, TimeUnit.SECONDS);
+            assertThat(outcome.failure()).isInstanceOf(InterruptedIOException.class);
+            assertThat(outcome.interruptedAfterwards()).as("the caller keeps its interrupt status").isTrue();
+            assertThat(heldConnection)
+                    .as("the download closed its connection once the caller was interrupted")
+                    .succeedsWithin(CONNECTION_CLOSE_WAIT);
+        }
+    }
+
+    @Test
     void refusesCrl_whenEndOfDeclaredBodyArrivesAfterDeadline() {
         // given
         var downloadTimeout = Duration.ofMillis(200);
@@ -275,16 +409,82 @@ class CrlDownloaderTest {
         });
     }
 
+    private static void readRequestWithoutAnswering(ServerSocket server) {
+        readRequestWithoutAnswering(server, new CountDownLatch(1));
+    }
+
     /**
      * Reads the request and never answers, holding the connection until the client hangs up, as a stalled server does.
      */
-    private static void readRequestWithoutAnswering(ServerSocket server) {
+    private static void readRequestWithoutAnswering(ServerSocket server, CountDownLatch connected) {
         try (Socket client = server.accept()) {
+            connected.countDown();
             client.setSoTimeout(HOLD_LIMIT_MILLIS);
             client.getInputStream().transferTo(OutputStream.nullOutputStream());
         } catch (IOException connectionEnded) {
             // the client hung up, or the hold limit passed
         }
+    }
+
+    /**
+     * Answers with a chunked body whose first chunk-size line never ends, sent one digit at a time, so no single socket
+     * read stalls. The pause between digits is a read from the client, so the server stops as soon as the client hangs
+     * up.
+     */
+    private static void serveEndlessChunkSizeLine(ServerSocket server) {
+        try (Socket client = server.accept()) {
+            client.setSoTimeout(HOLD_LIMIT_MILLIS);
+            InputStream fromClient = client.getInputStream();
+            readRequestHead(fromClient);
+            OutputStream out = client.getOutputStream();
+            out.write("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n".getBytes(StandardCharsets.US_ASCII));
+            client.setSoTimeout(SLOW_SEND_INTERVAL_MILLIS);
+            long holdUntil = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(HOLD_LIMIT_MILLIS);
+            boolean clientConnected = true;
+            while (clientConnected && System.nanoTime() - holdUntil < 0) {
+                out.write('0');
+                out.flush();
+                clientConnected = staysConnectedForReadTimeout(fromClient);
+            }
+        } catch (IOException connectionEnded) {
+            // the client hung up
+        }
+    }
+
+    private static boolean staysConnectedForReadTimeout(InputStream fromClient) throws IOException {
+        try {
+            return fromClient.read() != -1;
+        } catch (SocketTimeoutException stillConnected) {
+            return true;
+        }
+    }
+
+    private static void readRequestHead(InputStream in) throws IOException {
+        byte[] endOfHead = "\r\n\r\n".getBytes(StandardCharsets.US_ASCII);
+        int matched = 0;
+        while (matched < endOfHead.length) {
+            int next = in.read();
+            if (next == -1) {
+                throw new EOFException("request ended before its head");
+            }
+            if (next == endOfHead[matched]) {
+                matched++;
+            } else {
+                matched = next == endOfHead[0] ? 1 : 0;
+            }
+        }
+    }
+
+    private static InterruptedDownload downloadReportingInterrupt(CrlDownloader downloader, String url) {
+        try {
+            downloader.download(url);
+            return new InterruptedDownload(null, Thread.currentThread().isInterrupted());
+        } catch (IOException e) {
+            return new InterruptedDownload(e, Thread.currentThread().isInterrupted());
+        }
+    }
+
+    private record InterruptedDownload(IOException failure, boolean interruptedAfterwards) {
     }
 
     private void stubCrl(ResponseDefinitionBuilder response) {
@@ -293,6 +493,11 @@ class CrlDownloaderTest {
 
     private String crlUrl() {
         return LoopbackWireMock.url(crlServer) + CRL_PATH;
+    }
+
+    private static CrlDownloader.ConnectionOpener openConnectionsThroughSocksProxy(int proxyPort) {
+        var proxy = new Proxy(Proxy.Type.SOCKS, new InetSocketAddress(LoopbackWireMock.HOST, proxyPort));
+        return url -> url.openConnection(proxy);
     }
 
     private static CrlDownloader downloader(Duration downloadTimeout) {

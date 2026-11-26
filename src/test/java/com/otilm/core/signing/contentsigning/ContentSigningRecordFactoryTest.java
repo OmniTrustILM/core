@@ -17,6 +17,7 @@ import java.math.BigInteger;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -91,13 +92,13 @@ class ContentSigningRecordFactoryTest {
         }
 
         @Test
-        void recordsAnAugmentedDocumentWithNoDtbsOrSignatureOfItsOwn() {
-            // given: the augmentation entry acquires a timestamp only
+        void recordsTheDocumentWithoutDtbsOrSignature_whenTheEntryOnlyAugmentsIt() {
+            // given — the augmentation entry acquires a timestamp only
 
             // when
             SigningRecordInput input = factory
                     .source(aSigningProfile().build(), aResolvedContentSigningProfile().build(),
-                            new SignedContent("timestamped".getBytes(), SignatureLevel.TIMESTAMPED,
+                            new SignedContent("timestamped".getBytes(), "application/pdf", SignatureLevel.TIMESTAMPED,
                                     List.of(BigInteger.ONE)),
                             null, null, Instant.EPOCH, SigningProtocol.CSC_API)
                     .build();
@@ -187,17 +188,20 @@ class ContentSigningRecordFactoryTest {
         }
 
         @Test
-        void aMetadataSerializationFailureIsAnInternalDefectRatherThanASilentlyEmptyRecord() throws Exception {
+        void refusesToBuild_whenTheMetadataCannotBeSerialized() throws Exception {
             // given
             ObjectMapper failingMapper = mock(ObjectMapper.class);
             when(failingMapper.writeValueAsString(any())).thenThrow(mock(JsonProcessingException.class));
             SigningRecordInputSource deferred = new ContentSigningRecordFactory(failingMapper)
                     .source(aSigningProfile().build(), aResolvedContentSigningProfile().build(),
-                            new SignedContent("signed".getBytes(), SignatureLevel.SIGNED, List.of()), null, null,
-                            Instant.EPOCH, SigningProtocol.CSC_API);
+                            new SignedContent("signed".getBytes(), "application/pdf", SignatureLevel.SIGNED, List.of()),
+                            null, null, Instant.EPOCH, SigningProtocol.CSC_API);
 
-            // when / then
-            assertThatThrownBy(deferred::build).isInstanceOf(IllegalStateException.class);
+            // when
+            ThrowingCallable build = deferred::build;
+
+            // then
+            assertThatThrownBy(build).isInstanceOf(IllegalStateException.class);
         }
     }
 
@@ -221,7 +225,8 @@ class ContentSigningRecordFactoryTest {
     private SigningRecordInputSource source(ResolvedManagedContentSigningProfile profile, SignatureLevel level,
             List<BigInteger> serials) {
         return factory
-                .source(aSigningProfile().build(), profile, new SignedContent("signed".getBytes(), level, serials),
-                        "dtbs".getBytes(), "signature".getBytes(), Instant.EPOCH, SigningProtocol.CSC_API);
+                .source(aSigningProfile().build(), profile,
+                        new SignedContent("signed".getBytes(), "application/pdf", level, serials), "dtbs".getBytes(),
+                        "signature".getBytes(), Instant.EPOCH, SigningProtocol.CSC_API);
     }
 }

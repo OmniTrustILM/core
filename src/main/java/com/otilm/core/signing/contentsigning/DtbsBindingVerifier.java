@@ -9,7 +9,7 @@ import java.util.Objects;
 
 /**
  * Verifies that the data-to-be-signed a formatting connector produced is bound to the document the caller authorized.
- * The engine runs this before the signing key signs.
+ * The engine runs this before the signing key signs, for a batch whose caller authorized a digest per document.
  *
  * <p>
  * The check compares the connector's echoed {@code documentDigest} against the digest authorized when the operation was

@@ -64,13 +64,14 @@ import com.otilm.api.model.connector.cryptography.v2.key.ExportKeyResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.ImportKeyAttributesRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.ImportableKeyTypeV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyCreationResponseV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.KeyEntryStatus;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyExportableAttribute;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyHandleV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyOperationResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyPairDataResponseV2Dto;
-import com.otilm.api.model.connector.cryptography.v2.key.KeyResolutionOutcome;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyResolutionV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.ListKeysRequestV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.ListedKeyEntryV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.ListedKeyPairV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.PrivateKeyDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.PrivateKeyDataV2Dto;
@@ -80,8 +81,6 @@ import com.otilm.api.model.connector.cryptography.v2.key.ResolveKeysRequestV2Dto
 import com.otilm.api.model.connector.cryptography.v2.key.ResolveKeysResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.SecretKeyDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.SecretKeyDataV2Dto;
-import com.otilm.api.model.connector.cryptography.v2.key.UnusableKeyReason;
-import com.otilm.api.model.connector.cryptography.v2.key.UnusableKeyV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.material.EncryptedKeyMaterialV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.CipherDataRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.DecryptDataResponseV2Dto;
@@ -118,12 +117,12 @@ import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.crypto.ImmutableCryptographicKeyFullModel;
 import com.otilm.core.model.crypto.ImmutableTokenInstanceFullModel;
 import com.otilm.core.model.crypto.ImmutableTokenProfileFullModel;
+import com.otilm.core.model.crypto.KeyMaterial;
 import com.otilm.core.model.crypto.KeyOperationScope;
+import com.otilm.core.model.crypto.ProviderKeyEntry;
+import com.otilm.core.model.crypto.ProviderKeyEntryPage;
 import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.ProviderKeyPair;
-import com.otilm.core.model.crypto.ProviderKeyPairPage;
-import com.otilm.core.model.crypto.ProviderKeyPairResolution;
-import com.otilm.core.model.crypto.ProviderUnusableKey;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
 import com.otilm.core.model.crypto.TransferableKeyType;
@@ -147,6 +146,9 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
+import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
+import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
+import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Named;
@@ -164,11 +166,11 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
 import static com.otilm.core.util.builders.ListKeysResponseV2DtoBuilder.aKeyListing;
-import static com.otilm.core.util.builders.ListedKeyPairV2DtoBuilder.aListedKeyPair;
+import static com.otilm.core.util.builders.ListedKeyEntryV2DtoBuilder.aListedKeyPair;
+import static com.otilm.core.util.builders.ListedKeyEntryV2DtoBuilder.anUnusableKey;
+import static com.otilm.core.util.builders.ListedKeyEntryV2DtoBuilder.keyPairMetaOf;
 import static com.otilm.core.util.builders.ResolveKeysResponseV2DtoBuilder.aKeyResolutionResponse;
 import static com.otilm.core.util.builders.ResolveKeysResponseV2DtoBuilder.answered;
-import static com.otilm.core.util.builders.ResolveKeysResponseV2DtoBuilder.found;
-import static com.otilm.core.util.builders.UnusableKeyV2DtoBuilder.anUnusableKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -482,7 +484,6 @@ class KeyProviderV2AdapterTest {
         byte[] publicKeySpki = generator.generateKeyPair().getPublic().getEncoded();
         PublicKeyDataV2Dto publicData = new PublicKeyDataV2Dto();
         publicData.setAlgorithm(KeyAlgorithm.RSA);
-        publicData.setLength(2048);
         publicData.setPublicKeySpki(publicKeySpki);
         PublicKeyDataResponseV2Dto publicKey = new PublicKeyDataResponseV2Dto();
         publicKey.setKeyData(publicData);
@@ -511,7 +512,7 @@ class KeyProviderV2AdapterTest {
     }
 
     private static HeldKey heldKey(PublicKey publicKey) {
-        return new HeldKey(KeyRequestType.KEY_PAIR, KeyAlgorithm.RSA, 2048, publicKey.getEncoded(), null);
+        return new HeldKey(KeyRequestType.KEY_PAIR, KeyAlgorithm.RSA, null, publicKey.getEncoded(), null);
     }
 
     private static HeldKey heldSecret(int length) {
@@ -535,7 +536,6 @@ class KeyProviderV2AdapterTest {
         material.setEncryptedPrivateKeyInfo(envelope);
         PublicKeyDataV2Dto descriptor = new PublicKeyDataV2Dto();
         descriptor.setAlgorithm(KeyAlgorithm.RSA);
-        descriptor.setLength(2048);
         descriptor.setPublicKeySpki(publicKey.getEncoded());
         ExportKeyResponseV2Dto response = new ExportKeyResponseV2Dto();
         response.setMaterial(material);
@@ -585,13 +585,12 @@ class KeyProviderV2AdapterTest {
             assertThat(publicKey.reference())
                     .isEqualTo(new RemoteKeyReference.MetadataReference(response.getPublicKeyData().getKeyMeta()));
             assertThat(privateKey.type()).isEqualTo(KeyType.PRIVATE_KEY);
-            assertThat(privateKey.material()).isNull();
             assertThat(privateKey.reference())
                     .isEqualTo(new RemoteKeyReference.MetadataReference(response.getPrivateKeyData().getKeyMeta()));
         }
 
         @Test
-        void preservesAbsentLength_forPqcPair() throws Exception {
+        void sizesEachHalfByItsParameterSet_whenThePairIsPostQuantum() throws Exception {
             // given
             KeyPairDataResponseV2Dto response = PqcKeyFixtures.response(PqcKeyFixtures.keyPair());
             when(client.createKey(any(), any())).thenReturn(ResponseEntity.ok(response));
@@ -600,10 +599,48 @@ class KeyProviderV2AdapterTest {
             List<ProviderKeyItem> items = adapter.createKey(profile, KeyRequestType.KEY_PAIR, List.of(), "pqc", false);
 
             // then
-            assertThat(items).hasSize(2).allSatisfy(item -> {
-                assertThat(item.algorithm()).isEqualTo(KeyAlgorithm.MLDSA);
-                assertThat(item.length()).isNull();
-            });
+            assertThat(items)
+                    .extracting(ProviderKeyItem::algorithm, ProviderKeyItem::parameterSet, ProviderKeyItem::length)
+                    .containsExactly(
+                            tuple(KeyAlgorithm.MLDSA, PqcKeyFixtures.ML_DSA_PARAMETER_SET,
+                                    PqcKeyFixtures.ML_DSA_PUBLIC_KEY_BITS),
+                            tuple(KeyAlgorithm.MLDSA, PqcKeyFixtures.ML_DSA_PARAMETER_SET,
+                                    PqcKeyFixtures.ML_DSA_PRIVATE_KEY_BITS));
+        }
+
+        @Test
+        void storesTheSpkisIdentifierForThePrivateHalf_whenTheConnectorSentNone() throws Exception {
+            // given
+            KeyPairDataResponseV2Dto response = keyPairResponse();
+            byte[] spki = response.getPublicKeyData().getKeyData().getPublicKeySpki();
+            byte[] spkiIdentifier = SubjectPublicKeyInfo.getInstance(spki).getAlgorithm().getEncoded();
+            when(client.createKey(any(), any())).thenReturn(ResponseEntity.ok(response));
+
+            // when
+            List<ProviderKeyItem> items = adapter.createKey(profile, KeyRequestType.KEY_PAIR, List.of(), "rsa", false);
+
+            // then
+            KeyMaterial privateMaterial = items.get(1).material();
+            assertThat(privateMaterial.format()).isEqualTo(KeyFormat.ALGORITHM_IDENTIFIER);
+            assertThat(Base64.getDecoder().decode(privateMaterial.serializedValue())).isEqualTo(spkiIdentifier);
+        }
+
+        @Test
+        void storesTheConnectorsOwnIdentifierForThePrivateHalf_whenTheConnectorSendsOne() throws Exception {
+            // given
+            KeyPairDataResponseV2Dto response = keyPairResponse();
+            byte[] identifierWithoutTheSpkisNull = new AlgorithmIdentifier(PKCSObjectIdentifiers.rsaEncryption)
+                    .getEncoded();
+            response.getPrivateKeyData().getKeyData().setAlgorithmIdentifier(identifierWithoutTheSpkisNull);
+            when(client.createKey(any(), any())).thenReturn(ResponseEntity.ok(response));
+
+            // when
+            List<ProviderKeyItem> items = adapter.createKey(profile, KeyRequestType.KEY_PAIR, List.of(), "rsa", false);
+
+            // then
+            KeyMaterial privateMaterial = items.get(1).material();
+            assertThat(Base64.getDecoder().decode(privateMaterial.serializedValue()))
+                    .isEqualTo(identifierWithoutTheSpkisNull);
         }
 
         @Test
@@ -1009,33 +1046,39 @@ class KeyProviderV2AdapterTest {
         void mapsEachListedPair() throws Exception {
             // given
             var storageName = "signer";
-            ListedKeyPairV2Dto signer = aListedKeyPair().withStorageName(storageName).build();
-            when(client.listKeys(any(), any())).thenReturn(aKeyListing().withKeys(signer).withTotalItems(7).build());
+            ListedKeyEntryV2Dto signer = aListedKeyPair().withStorageName(storageName).build();
+            when(client.listKeys(any(), any())).thenReturn(aKeyListing().withEntries(signer).withTotalItems(7).build());
 
             // when
-            ProviderKeyPairPage listed = adapter.listKeyPairs(profile, 0, 10);
+            ProviderKeyEntryPage listed = adapter.listKeyPairs(profile, 0, 10);
 
             // then
             assertThat(listed.totalItems()).isEqualTo(7L);
-            assertThat(listed.keyPairs()).hasSize(1);
-            ProviderKeyPair pair = listed.keyPairs().getFirst();
-            assertThat(pair.storageName()).isEqualTo(storageName);
+            ProviderKeyEntry entry = listed.entries().getFirst();
+            assertThat(listed.entries()).hasSize(1);
+            assertThat(entry.status()).isEqualTo(KeyEntryStatus.AVAILABLE);
+            ProviderKeyPair pair = entry.keyPair();
+            assertThat(entry.storageName()).isEqualTo(storageName);
             assertThat(pair.publicKey().material().format()).isEqualTo(KeyFormat.SPKI);
             assertThat(pair.privateKey().reference())
-                    .isEqualTo(new RemoteKeyReference.MetadataReference(signer.getPrivateKeyData().getKeyMeta()));
+                    .isEqualTo(new RemoteKeyReference.MetadataReference(
+                            ((ListedKeyPairV2Dto) signer.getKey()).getPrivateKeyData().getKeyMeta()));
         }
 
         @Test
         void mapsAPairListedWithoutAPublicKey() throws Exception {
             // given
             when(client.listKeys(any(), any()))
-                    .thenReturn(aKeyListing().withKeys(aListedKeyPair().withoutPublicKey().build()).build());
+                    .thenReturn(aKeyListing().withEntries(aListedKeyPair().withoutPublicKey().build()).build());
 
             // when
-            ProviderKeyPairPage listed = adapter.listKeyPairs(profile, 0, 10);
+            ProviderKeyEntryPage listed = adapter.listKeyPairs(profile, 0, 10);
 
             // then
-            assertThat(listed.keyPairs()).singleElement().returns(null, ProviderKeyPair::publicKey);
+            assertThat(listed.entries())
+                    .singleElement()
+                    .extracting(ProviderKeyEntry::keyPair)
+                    .returns(null, ProviderKeyPair::publicKey);
         }
 
         @Test
@@ -1080,8 +1123,8 @@ class KeyProviderV2AdapterTest {
         void rejectsAPageEchoingAnExpandedSecret(Resource secretScope) throws Exception {
             // given
             stubExpandedSecret(secretScope, TOKEN_SECRET);
-            ListedKeyPairV2Dto echoing = aListedKeyPair().withStorageName(TOKEN_SECRET).withoutPublicKey().build();
-            when(client.listKeys(any(), any())).thenReturn(aKeyListing().withKeys(echoing).build());
+            ListedKeyEntryV2Dto echoing = aListedKeyPair().withStorageName(TOKEN_SECRET).withoutPublicKey().build();
+            when(client.listKeys(any(), any())).thenReturn(aKeyListing().withEntries(echoing).build());
 
             // when
             ThrowingCallable listKeyPairs = () -> adapter.listKeyPairs(profile, 0, 10);
@@ -1091,67 +1134,155 @@ class KeyProviderV2AdapterTest {
         }
 
         @Test
-        void mapsTheUnusableKeysWithTheirReasons() throws Exception {
+        void keepsTheConnectorsDiagnostic_whenItQuotesNoExpandedSecret() throws Exception {
+            // given
+            stubExpandedSecret(Resource.TOKEN, TOKEN_SECRET);
+            var noKeyId = "The private key has no CKA_ID, by which this connector addresses a key.";
+            when(client.listKeys(any(), any()))
+                    .thenReturn(aKeyListing().withEntries(anUnusableKey().withDiagnostic(noKeyId).build()).build());
+
+            // when
+            ProviderKeyEntryPage listed = adapter.listKeyPairs(profile, 0, 10);
+
+            // then
+            assertThat(listed.entries().getFirst().diagnostic()).isEqualTo(noKeyId);
+        }
+
+        @ParameterizedTest
+        @EnumSource(value = Resource.class, names = {"TOKEN", "TOKEN_PROFILE"})
+        void withholdsTheConnectorsDiagnostic_whenItQuotesAnExpandedSecret(Resource secretScope) throws Exception {
+            // given
+            stubExpandedSecret(secretScope, TOKEN_SECRET);
+            var quotingTheSecret = "C_Login failed with the PIN " + TOKEN_SECRET + ".";
+            when(client.listKeys(any(), any()))
+                    .thenReturn(aKeyListing()
+                            .withEntries(anUnusableKey().withDiagnostic(quotingTheSecret).build())
+                            .build());
+
+            // when
+            ProviderKeyEntryPage listed = adapter.listKeyPairs(profile, 0, 10);
+
+            // then
+            assertThat(listed.entries().getFirst().diagnostic()).isNull();
+        }
+
+        @ParameterizedTest
+        @EnumSource(value = Resource.class, names = {"TOKEN", "TOKEN_PROFILE"})
+        void withholdsTheConnectorsDiagnostic_whenItIsAnExpandedSecret(Resource secretScope) throws Exception {
+            // given
+            stubExpandedSecret(secretScope, TOKEN_SECRET);
+            var storageName = "legacy";
+            when(client.listKeys(any(), any()))
+                    .thenReturn(aKeyListing()
+                            .withEntries(
+                                    anUnusableKey().withStorageName(storageName).withDiagnostic(TOKEN_SECRET).build())
+                            .build());
+
+            // when
+            ProviderKeyEntryPage listed = adapter.listKeyPairs(profile, 0, 10);
+
+            // then
+            assertThat(listed.entries())
+                    .singleElement()
+                    .returns(null, ProviderKeyEntry::diagnostic)
+                    .returns(storageName, ProviderKeyEntry::storageName);
+        }
+
+        @Test
+        void withholdsTheConnectorsDiagnostic_whenItQuotesATokenSecretStoredEncrypted() throws Exception {
+            // given
+            var pin = "4711-0815";
+            var pinRow = sealedRow("token-pin", pin);
+            stubAttributes(Resource.TOKEN, profile.tokenInstanceReferenceUuid(), List.of(pinRow),
+                    List.of(resolvedFrom(pinRow, new StringAttributeContentV2(pin))));
+            var quotingThePin = "C_Login failed with the PIN " + pin + ".";
+            when(client.listKeys(any(), any()))
+                    .thenReturn(
+                            aKeyListing().withEntries(anUnusableKey().withDiagnostic(quotingThePin).build()).build());
+
+            // when
+            ProviderKeyEntryPage listed = adapter.listKeyPairs(profile, 0, 10);
+
+            // then
+            assertThat(listed.entries().getFirst().diagnostic()).isNull();
+        }
+
+        @Test
+        void rejectsAPageEchoingATokenSecretStoredEncrypted() throws Exception {
+            // given
+            var pin = "4711-0815";
+            var pinRow = sealedRow("token-pin", pin);
+            stubAttributes(Resource.TOKEN, profile.tokenInstanceReferenceUuid(), List.of(pinRow),
+                    List.of(resolvedFrom(pinRow, new StringAttributeContentV2(pin))));
+            when(client.listKeys(any(), any()))
+                    .thenReturn(aKeyListing().withEntries(anUnusableKey().withStorageName(pin).build()).build());
+
+            // when
+            ThrowingCallable listKeyPairs = () -> adapter.listKeyPairs(profile, 0, 10);
+
+            // then
+            assertThatThrownBy(listKeyPairs).isInstanceOf(OutboundSecretLeakException.class);
+        }
+
+        @Test
+        void mapsTheUnusableKeysWithTheirStatuses() throws Exception {
             // given
             when(client.listKeys(any(), any()))
                     .thenReturn(aKeyListing()
-                            .withUnusableKeys(anUnusableKey().withStorageName("legacy").build(),
+                            .withEntries(anUnusableKey().withStorageName("legacy").build(),
                                     anUnusableKey()
                                             .withStorageName(null)
-                                            .withReason(UnusableKeyReason.UNSUPPORTED_TYPE)
+                                            .withStatus(KeyEntryStatus.UNSUPPORTED_TYPE)
                                             .build(),
                                     anUnusableKey()
                                             .withStorageName("damaged")
-                                            .withReason(UnusableKeyReason.UNREADABLE)
+                                            .withStatus(KeyEntryStatus.UNREADABLE)
                                             .build(),
                                     anUnusableKey()
                                             .withStorageName("vanished")
-                                            .withReason(UnusableKeyReason.NOT_FOUND)
+                                            .withStatus(KeyEntryStatus.NOT_FOUND)
                                             .build())
                             .build());
 
             // when
-            ProviderKeyPairPage listed = adapter.listKeyPairs(profile, 0, 10);
+            ProviderKeyEntryPage listed = adapter.listKeyPairs(profile, 0, 10);
 
             // then
-            assertThat(listed.keyPairs()).isEmpty();
-            assertThat(listed.unusableKeys())
-                    .containsExactly(
-                            new ProviderUnusableKey("legacy", UnusableKeyReason.UNADDRESSABLE, KeyAlgorithm.RSA, 2048),
-                            new ProviderUnusableKey(null, UnusableKeyReason.UNSUPPORTED_TYPE, KeyAlgorithm.RSA, 2048),
-                            new ProviderUnusableKey("damaged", UnusableKeyReason.UNREADABLE, KeyAlgorithm.RSA, 2048),
-                            new ProviderUnusableKey("vanished", UnusableKeyReason.NOT_FOUND, KeyAlgorithm.RSA, 2048));
+            assertThat(listed.entries())
+                    .containsExactly(unusable(KeyEntryStatus.UNADDRESSABLE, "legacy", KeyAlgorithm.RSA, 2048),
+                            unusable(KeyEntryStatus.UNSUPPORTED_TYPE, null, KeyAlgorithm.RSA, 2048),
+                            unusable(KeyEntryStatus.UNREADABLE, "damaged", KeyAlgorithm.RSA, 2048),
+                            unusable(KeyEntryStatus.NOT_FOUND, "vanished", null, null));
             assertThat(listed.totalItems()).isEqualTo(4L);
         }
 
         @Test
         void mapsAnUnusableKeyListedWithoutKeyData() throws Exception {
             // given
-            UnusableKeyV2Dto unread = anUnusableKey().withStorageName("legacy").withoutKeyData().build();
-            when(client.listKeys(any(), any())).thenReturn(aKeyListing().withUnusableKeys(unread).build());
+            ListedKeyEntryV2Dto unread = anUnusableKey().withStorageName("legacy").withoutKeyData().build();
+            when(client.listKeys(any(), any())).thenReturn(aKeyListing().withEntries(unread).build());
 
             // when
-            ProviderKeyPairPage listed = adapter.listKeyPairs(profile, 0, 10);
+            ProviderKeyEntryPage listed = adapter.listKeyPairs(profile, 0, 10);
 
             // then
-            assertThat(listed.unusableKeys())
-                    .containsExactly(new ProviderUnusableKey("legacy", UnusableKeyReason.UNADDRESSABLE, null, null));
+            assertThat(listed.entries()).containsExactly(unusable(KeyEntryStatus.UNADDRESSABLE, "legacy", null, null));
         }
 
         @Test
         void mapsAnUnusableKeyListedWithoutALength() throws Exception {
             // given
-            UnusableKeyV2Dto mlDsa = anUnusableKey().withAlgorithm(KeyAlgorithm.MLDSA).withLength(null).build();
-            when(client.listKeys(any(), any())).thenReturn(aKeyListing().withUnusableKeys(mlDsa).build());
+            ListedKeyEntryV2Dto mlDsa = anUnusableKey().withAlgorithm(KeyAlgorithm.MLDSA).withLength(null).build();
+            when(client.listKeys(any(), any())).thenReturn(aKeyListing().withEntries(mlDsa).build());
 
             // when
-            ProviderKeyPairPage listed = adapter.listKeyPairs(profile, 0, 10);
+            ProviderKeyEntryPage listed = adapter.listKeyPairs(profile, 0, 10);
 
             // then
-            assertThat(listed.unusableKeys())
+            assertThat(listed.entries())
                     .singleElement()
-                    .returns(KeyAlgorithm.MLDSA, ProviderUnusableKey::algorithm)
-                    .returns(null, ProviderUnusableKey::length);
+                    .returns(KeyAlgorithm.MLDSA, ProviderKeyEntry::algorithm)
+                    .returns(null, ProviderKeyEntry::length);
         }
 
         @ParameterizedTest
@@ -1160,9 +1291,8 @@ class KeyProviderV2AdapterTest {
             // given
             stubExpandedSecret(secretScope, TOKEN_SECRET);
             when(client.listKeys(any(), any()))
-                    .thenReturn(aKeyListing()
-                            .withUnusableKeys(anUnusableKey().withStorageName(TOKEN_SECRET).build())
-                            .build());
+                    .thenReturn(
+                            aKeyListing().withEntries(anUnusableKey().withStorageName(TOKEN_SECRET).build()).build());
 
             // when
             ThrowingCallable listKeyPairs = () -> adapter.listKeyPairs(profile, 0, 10);
@@ -1178,12 +1308,21 @@ class KeyProviderV2AdapterTest {
             MetadataAttributeV2 echoing = new MetadataAttributeV2();
             echoing.setName("note");
             echoing.setContent(List.of(new StringAttributeContentV2(TOKEN_SECRET)));
-            UnusableKeyV2Dto described = anUnusableKey().withMetadata(List.of(echoing)).build();
-            when(client.listKeys(any(), any())).thenReturn(aKeyListing().withUnusableKeys(described).build());
+            ListedKeyEntryV2Dto described = anUnusableKey().withMetadata(List.of(echoing)).build();
+            when(client.listKeys(any(), any())).thenReturn(aKeyListing().withEntries(described).build());
 
-            // when / then
-            assertThatThrownBy(() -> adapter.listKeyPairs(profile, 0, 10))
-                    .isInstanceOf(OutboundSecretLeakException.class);
+            // when
+            ThrowingCallable listKeyPairs = () -> adapter.listKeyPairs(profile, 0, 10);
+
+            // then
+            assertThatThrownBy(listKeyPairs).isInstanceOf(OutboundSecretLeakException.class);
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private static ProviderKeyEntry unusable(KeyEntryStatus status, String storageName, KeyAlgorithm algorithm,
+                Integer length) {
+            return new ProviderKeyEntry(status, null, storageName, null, algorithm, length);
         }
     }
 
@@ -1199,8 +1338,7 @@ class KeyProviderV2AdapterTest {
             List<MetadataAttribute> archive = metadata("archive-handle");
             when(client.resolveKeys(any(), any()))
                     .thenReturn(aKeyResolutionResponse()
-                            .withAnswers(answered(KeyResolutionOutcome.NOT_FOUND),
-                                    answered(KeyResolutionOutcome.NOT_FOUND))
+                            .withAnswers(answered(KeyEntryStatus.NOT_FOUND), answered(KeyEntryStatus.NOT_FOUND))
                             .build());
 
             // when
@@ -1220,57 +1358,52 @@ class KeyProviderV2AdapterTest {
         void returnsTheAnswersInHandleOrder_whenTheConnectorAnswersOutOfOrder() throws Exception {
             // given
             var storageName = "signer";
-            ListedKeyPairV2Dto signer = aListedKeyPair().withStorageName(storageName).build();
-            ResolveKeysResponseV2Dto reversed = new ResolveKeysResponseV2Dto(List
-                    .of(new KeyResolutionV2Dto("1", KeyResolutionOutcome.FOUND, signer),
-                            new KeyResolutionV2Dto("0", KeyResolutionOutcome.NOT_FOUND, null)));
-            when(client.resolveKeys(any(), any())).thenReturn(reversed);
+            ListedKeyEntryV2Dto signer = aListedKeyPair().withStorageName(storageName).build();
+            List<KeyResolutionV2Dto> inOrder = aKeyResolutionResponse()
+                    .withAnswers(answered(KeyEntryStatus.NOT_FOUND), signer)
+                    .build()
+                    .getResults();
+            when(client.resolveKeys(any(), any())).thenReturn(new ResolveKeysResponseV2Dto(inOrder.reversed()));
 
             // when
-            List<ProviderKeyPairResolution> resolved = adapter
-                    .resolveKeyPairs(profile, List.of(metadata("gone-handle"), signer.getKeyPairMeta()));
+            List<ProviderKeyEntry> resolved = adapter
+                    .resolveKeyPairs(profile, List.of(metadata("gone-handle"), keyPairMetaOf(signer)));
 
             // then
             assertThat(resolved)
-                    .extracting(ProviderKeyPairResolution::outcome)
-                    .containsExactly(KeyResolutionOutcome.NOT_FOUND, KeyResolutionOutcome.FOUND);
-            assertThat(resolved.getLast().keyPair().storageName()).isEqualTo(storageName);
+                    .extracting(ProviderKeyEntry::status)
+                    .containsExactly(KeyEntryStatus.NOT_FOUND, KeyEntryStatus.AVAILABLE);
+            assertThat(resolved.getLast().storageName()).isEqualTo(storageName);
         }
 
         @Test
         void mapsAFoundKeyPair() throws Exception {
             // given
-            ListedKeyPairV2Dto signer = aListedKeyPair().withStorageName("signer").build();
-            when(client.listKeys(any(), any())).thenReturn(aKeyListing().withKeys(signer).build());
-            when(client.resolveKeys(any(), any()))
-                    .thenReturn(aKeyResolutionResponse().withAnswers(found(signer)).build());
-            ProviderKeyPair listed = adapter.listKeyPairs(profile, 0, 10).keyPairs().getFirst();
+            ListedKeyEntryV2Dto signer = aListedKeyPair().withStorageName("signer").build();
+            when(client.listKeys(any(), any())).thenReturn(aKeyListing().withEntries(signer).build());
+            when(client.resolveKeys(any(), any())).thenReturn(aKeyResolutionResponse().withAnswers(signer).build());
+            ProviderKeyEntry listed = adapter.listKeyPairs(profile, 0, 10).entries().getFirst();
 
             // when
-            List<ProviderKeyPairResolution> resolved = adapter
-                    .resolveKeyPairs(profile, List.of(signer.getKeyPairMeta()));
+            List<ProviderKeyEntry> resolved = adapter.resolveKeyPairs(profile, List.of(keyPairMetaOf(signer)));
 
             // then
-            ProviderKeyPairResolution resolution = resolved.getFirst();
-            assertThat(resolved).hasSize(1);
-            assertThat(resolution.outcome()).isEqualTo(KeyResolutionOutcome.FOUND);
-            assertThat(resolution.keyPair()).usingRecursiveComparison().isEqualTo(listed);
+            assertThat(resolved).singleElement().usingRecursiveComparison().isEqualTo(listed);
         }
 
         @ParameterizedTest
-        @EnumSource(value = KeyResolutionOutcome.class,
-                names = {"NOT_FOUND", "AMBIGUOUS", "UNREADABLE", "INVALID_HANDLE"})
-        void mapsEachOutcomeWithoutAKeyPair(KeyResolutionOutcome outcome) throws Exception {
+        @EnumSource(value = KeyEntryStatus.class,
+                names = {"NOT_FOUND", "UNADDRESSABLE", "UNREADABLE", "INVALID_HANDLE"})
+        void mapsEachStatusWithoutAKeyPair(KeyEntryStatus status) throws Exception {
             // given
             when(client.resolveKeys(any(), any()))
-                    .thenReturn(aKeyResolutionResponse().withAnswers(answered(outcome)).build());
+                    .thenReturn(aKeyResolutionResponse().withAnswers(answered(status)).build());
 
             // when
-            List<ProviderKeyPairResolution> resolved = adapter
-                    .resolveKeyPairs(profile, List.of(metadata("pair-handle")));
+            List<ProviderKeyEntry> resolved = adapter.resolveKeyPairs(profile, List.of(metadata("pair-handle")));
 
             // then
-            assertThat(resolved).containsExactly(new ProviderKeyPairResolution(outcome, null));
+            assertThat(resolved).containsExactly(new ProviderKeyEntry(status, null, null, null, null, null));
         }
 
         @Test
@@ -1316,16 +1449,66 @@ class KeyProviderV2AdapterTest {
         void refusesAnAnswerEchoingAnExpandedSecret(Resource secretScope) throws Exception {
             // given
             stubExpandedSecret(secretScope, TOKEN_SECRET);
-            ListedKeyPairV2Dto echoing = aListedKeyPair().withStorageName(TOKEN_SECRET).withoutPublicKey().build();
-            var handles = List.of(echoing.getKeyPairMeta());
-            when(client.resolveKeys(any(), any()))
-                    .thenReturn(aKeyResolutionResponse().withAnswers(found(echoing)).build());
+            ListedKeyEntryV2Dto echoing = aListedKeyPair().withStorageName(TOKEN_SECRET).withoutPublicKey().build();
+            var handles = List.of(keyPairMetaOf(echoing));
+            when(client.resolveKeys(any(), any())).thenReturn(aKeyResolutionResponse().withAnswers(echoing).build());
 
             // when
             ThrowingCallable resolveKeyPairs = () -> adapter.resolveKeyPairs(profile, handles);
 
             // then
             assertThatThrownBy(resolveKeyPairs).isInstanceOf(OutboundSecretLeakException.class);
+        }
+
+        @Test
+        void withholdsTheConnectorsDiagnostic_whenItQuotesAnExpandedSecret() throws Exception {
+            // given
+            stubExpandedSecret(Resource.TOKEN, TOKEN_SECRET);
+            var gone = aListedKeyPair().withStatus(KeyEntryStatus.NOT_FOUND).build();
+            gone.setDiagnostic("No private key under the PIN " + TOKEN_SECRET + ".");
+            when(client.resolveKeys(any(), any())).thenReturn(aKeyResolutionResponse().withAnswers(gone).build());
+
+            // when
+            List<ProviderKeyEntry> resolved = adapter.resolveKeyPairs(profile, List.of(metadata("gone-handle")));
+
+            // then
+            assertThat(resolved.getFirst().diagnostic()).isNull();
+        }
+
+        @Test
+        void withholdsTheConnectorsDiagnostic_whenItIsAnExpandedSecret() throws Exception {
+            // given
+            stubExpandedSecret(Resource.TOKEN_PROFILE, TOKEN_SECRET);
+            var gone = answered(KeyEntryStatus.NOT_FOUND);
+            gone.setDiagnostic(TOKEN_SECRET);
+            when(client.resolveKeys(any(), any())).thenReturn(aKeyResolutionResponse().withAnswers(gone).build());
+
+            // when
+            List<ProviderKeyEntry> resolved = adapter.resolveKeyPairs(profile, List.of(metadata("gone-handle")));
+
+            // then
+            assertThat(resolved)
+                    .singleElement()
+                    .returns(KeyEntryStatus.NOT_FOUND, ProviderKeyEntry::status)
+                    .returns(null, ProviderKeyEntry::diagnostic);
+        }
+
+        @Test
+        void withholdsTheConnectorsDiagnostic_whenItQuotesATokenProfileSecretStoredEncrypted() throws Exception {
+            // given
+            var password = "slot-password-7";
+            var passwordRow = sealedRow("slot-password", password);
+            stubAttributes(Resource.TOKEN_PROFILE, profile.uuid(), List.of(passwordRow),
+                    List.of(resolvedFrom(passwordRow, new StringAttributeContentV2(password))));
+            var gone = answered(KeyEntryStatus.NOT_FOUND);
+            gone.setDiagnostic("No private key under the password " + password + ".");
+            when(client.resolveKeys(any(), any())).thenReturn(aKeyResolutionResponse().withAnswers(gone).build());
+
+            // when
+            List<ProviderKeyEntry> resolved = adapter.resolveKeyPairs(profile, List.of(metadata("gone-handle")));
+
+            // then
+            assertThat(resolved.getFirst().diagnostic()).isNull();
         }
     }
 
@@ -1403,7 +1586,7 @@ class KeyProviderV2AdapterTest {
             response.setKeyReference(reference.toString());
             when(client.listExportKeyAttributes(any(), any())).thenReturn(List.of());
             when(client.exportKey(any(), any())).thenReturn(response);
-            HeldKey held = new HeldKey(KeyRequestType.KEY_PAIR, KeyAlgorithm.RSA, 2048, pair.getPublic().getEncoded(),
+            HeldKey held = new HeldKey(KeyRequestType.KEY_PAIR, KeyAlgorithm.RSA, null, pair.getPublic().getEncoded(),
                     reference);
 
             // when
@@ -2472,16 +2655,16 @@ class KeyProviderV2AdapterTest {
         }
 
         @Test
-        void sendsPrehashedDigest_whenModeIsPrehashedDigest() throws Exception {
+        void sendsDataDigest_whenModeIsDataDigest() throws Exception {
             // given
             stubSynchronousSigning();
-            SignatureInputMode prehashed = SignatureInputMode.PREHASHED_DIGEST;
+            SignatureInputMode dataDigest = SignatureInputMode.DATA_DIGEST;
 
             // when
-            adapter.signData(v2KeyItem(metadata("handle")), signRequest(List.of()), prehashed);
+            adapter.signData(v2KeyItem(metadata("handle")), signRequest(List.of()), dataDigest);
 
             // then
-            assertThat(captureSentSignBody().getSignatureInputMode()).isEqualTo(prehashed);
+            assertThat(captureSentSignBody().getSignatureInputMode()).isEqualTo(dataDigest);
         }
 
         @Test

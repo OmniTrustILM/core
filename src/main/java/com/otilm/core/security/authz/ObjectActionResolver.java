@@ -43,9 +43,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * Reports the actions the current principal may perform on objects of one resource, as {@link ObjectActionRequirements}
- * describes the endpoints that perform them. Objects that do not exist, or that the principal may neither list nor
- * view, are left out. Each decision is the one enforcement makes, asked once per call, and the requested objects are
- * read in one query.
+ * describes the endpoints that perform them.
  */
 @Component
 public class ObjectActionResolver {
@@ -62,6 +60,19 @@ public class ObjectActionResolver {
         this.entityManagerFactory = entityManagerFactory;
     }
 
+    /**
+     * Reports the actions the current principal may perform on each requested object, in request order. Objects that do
+     * not exist, or that the principal may neither list nor view, are left out, and an object requested twice is
+     * reported once. Each decision is the one enforcement makes, asked once per call; the requested objects are read in
+     * one query, as are their owner and group associations.
+     *
+     * <p>
+     * <b>OPA outage.</b> While the authorization cache is enabled, a principal allowed all resources is answered by
+     * {@link AllResourcesGrant} without asking OPA, except on a resource where it denies an object. While OPA is
+     * unreachable the report can therefore list actions that enforcement, which always asks OPA, refuses.
+     *
+     * @throws ValidationException when the resource has no objects identified by UUID and authorized individually
+     */
     public List<ObjectAllowedActionsDto> resolve(Resource resource, List<UUID> objectUuids) {
         ResourceObjects objects = ObjectActionRequirements
                 .of(resource)
@@ -71,6 +82,42 @@ public class ObjectActionResolver {
         Call call = new Call();
         Set<UUID> requested = new LinkedHashSet<>(objectUuids);
         Set<UUID> existing = call.load(resource, objects, requested);
+        return authorizationEnforcer
+                .batched(resource, announced(call, resource, objects, existing),
+                        () -> allowedActions(call, resource, objects, requested, existing));
+    }
+
+    /** The existing objects and the objects of the same resource that their requirements link to. */
+    private static Set<UUID> announced(Call call, Resource resource, ResourceObjects objects, Set<UUID> existing) {
+        Set<UUID> announced = new LinkedHashSet<>(existing);
+        requirements(objects)
+                .flatMap(requirement -> linkedToSameResource(resource, requirement))
+                .distinct()
+                .forEach(attribute -> existing
+                        .forEach(objectUuid -> call
+                                .attribute(resource, attribute, objectUuid)
+                                .ifPresent(announced::add)));
+        return announced;
+    }
+
+    private static Stream<String> linkedToSameResource(Resource resource, Requirement requirement) {
+        return switch (requirement) {
+            case OnLinked(Resource linked, String attribute, var action, var metWhenEmpty) ->
+                linked == resource ? Stream.of(attribute) : Stream.empty();
+            case WhenEmpty(var attribute, Requirement inner) -> linkedToSameResource(resource, inner);
+            case WhenEquals(var attribute, var value, Requirement inner) -> linkedToSameResource(resource, inner);
+            default -> Stream.empty();
+        };
+    }
+
+    private static Stream<Requirement> requirements(ResourceObjects objects) {
+        return Stream
+                .of(Stream.of(objects.listing(), objects.viewing()), objects.actions().values().stream())
+                .flatMap(lists -> lists.flatMap(List::stream));
+    }
+
+    private static List<ObjectAllowedActionsDto> allowedActions(Call call, Resource resource, ResourceObjects objects,
+            Set<UUID> requested, Set<UUID> existing) {
         List<ObjectAllowedActionsDto> items = new ArrayList<>();
         for (UUID objectUuid : requested) {
             if (!existing.contains(objectUuid) || !call.isVisible(resource, objects, objectUuid)) {
@@ -94,11 +141,7 @@ public class ObjectActionResolver {
         if (objects.parentAttribute() != null) {
             attributes.add(objects.parentAttribute());
         }
-        Stream
-                .of(Stream.of(objects.listing(), objects.viewing()), objects.actions().values().stream())
-                .flatMap(lists -> lists.flatMap(List::stream))
-                .flatMap(ObjectActionResolver::attributesRead)
-                .forEach(attributes::add);
+        requirements(objects).flatMap(ObjectActionResolver::attributesRead).forEach(attributes::add);
         return attributes;
     }
 
@@ -271,18 +314,8 @@ public class ObjectActionResolver {
                     .findFirst();
         }
 
-        /**
-         * Reads through an EntityManager of its own, closed after the read, so no connection is held across the
-         * authorization calls between reads, as the request's EntityManager would hold one until the response is
-         * written.
-         */
         private <T> T read(Function<EntityManager, T> query) {
-            EntityManager reader = entityManagerFactory.createEntityManager();
-            try {
-                return query.apply(reader);
-            } finally {
-                reader.close();
-            }
+            return DetachedReads.read(entityManagerFactory, query);
         }
 
         private static String key(Resource resource, String attribute, UUID objectUuid) {

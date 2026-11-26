@@ -13,6 +13,7 @@ import com.otilm.api.model.core.cryptography.key.KeyItemListDto;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.core.dao.converter.ReplaceOnlyMutability;
+import com.otilm.core.key.description.DescribedKey;
 import com.otilm.core.model.NamedModel;
 import com.otilm.core.model.compliance.ComplianceResultDto;
 import com.otilm.core.util.DtoMapper;
@@ -118,6 +119,9 @@ public class CryptographicKeyItem extends UniquelyIdentified
     @Column(name = "length")
     private Integer length;
 
+    @Column(name = "parameter_set")
+    private String parameterSet;
+
     @Column(name = "state")
     @Enumerated(EnumType.STRING)
     private KeyState state;
@@ -180,6 +184,12 @@ public class CryptographicKeyItem extends UniquelyIdentified
         this.length = KeySizeUtil.knownLength(length);
     }
 
+    public void describeAs(DescribedKey description) {
+        setKeyAlgorithm(description.algorithm());
+        setParameterSet(description.parameterSet());
+        setLength(description.length());
+    }
+
     public List<KeyUsage> getUsage() {
         return KeyUsage.convertBitMaskToSet(usage).stream().toList();
     }
@@ -193,6 +203,11 @@ public class CryptographicKeyItem extends UniquelyIdentified
                 .convertSetToBitMask(usage.isEmpty() ? EnumSet.noneOf(KeyUsage.class) : EnumSet.copyOf(usage));
     }
 
+    /** The response requires a format, and a connector may report none for a private key listed alone. */
+    private KeyFormat responseFormat() {
+        return format == null ? KeyFormat.CUSTOM : format;
+    }
+
     @Override
     public KeyItemDetailDto mapToDto() {
         KeyItemDetailDto dto = new KeyItemDetailDto();
@@ -202,9 +217,10 @@ public class CryptographicKeyItem extends UniquelyIdentified
             dto.setKeyReferenceUuid(keyReferenceUuid.toString());
         }
         dto.setKeyAlgorithm(keyAlgorithm);
+        dto.setParameterSet(parameterSet);
         dto.setType(type);
         dto.setLength(length);
-        dto.setFormat(format);
+        dto.setFormat(responseFormat());
         dto.setState(state);
         dto.setEnabled(enabled);
         dto.setUsage(getUsage());
@@ -223,9 +239,10 @@ public class CryptographicKeyItem extends UniquelyIdentified
             dto.setKeyReferenceUuid(keyReferenceUuid.toString());
         }
         dto.setKeyAlgorithm(keyAlgorithm);
+        dto.setParameterSet(parameterSet);
         dto.setType(type);
         dto.setLength(length);
-        dto.setFormat(format);
+        dto.setFormat(responseFormat());
         dto.setState(state);
         dto.setEnabled(enabled);
         dto.setUsage(getUsage());

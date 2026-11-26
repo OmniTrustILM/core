@@ -30,6 +30,7 @@ import com.otilm.core.util.serialnumber.SerialNumberGenerator;
 import java.math.BigInteger;
 import java.util.List;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import org.bouncycastle.tsp.TimeStampToken;
 import org.bouncycastle.tsp.TimeStampTokenInfo;
@@ -38,11 +39,13 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.access.AccessDeniedException;
 
 import static com.otilm.core.signing.record.SigningRecordInputBuilder.aSigningRecordInput;
 import static com.otilm.core.signing.tsa.messages.TspRequestBuilder.aTspRequest;
 import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningProfile;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
@@ -454,6 +457,24 @@ class ManagedTimestampEngineTest {
         assertThat(response).isInstanceOf(TspResponse.Rejected.class);
         assertThat(((TspResponse.Rejected) response).failureInfo()).isEqualTo(TspFailureInfo.SYSTEM_FAILURE);
         assertThat(((TspResponse.Rejected) response).statusString()).isEqualTo(cause.clientMessage());
+    }
+
+    @Test
+    void passesTheDenialThrough_whenTheCallerMayNotSignWithTheTimestampingKey() throws Exception {
+        // given
+        var denial = new AccessDeniedException("Access Denied. Required 'Sign' permission for 'Key'");
+        when(timeQualityRegister.getStatus(any())).thenReturn(TimeQualityStatus.OK);
+        when(signingCertificateValidator.validate(any(), any(), anyBoolean(), any())).thenReturn(ValidationResult.ok());
+        when(serialNumberGenerator.generate()).thenReturn(BigInteger.ONE);
+        when(tokenGenerator.generate(any(), any(), any(), any(), any())).thenThrow(denial);
+
+        // when
+        ThrowingCallable issue = () -> engine
+                .issue(aTspRequest().build(), signingProfile, aResolvedProfile(false, null),
+                        SigningProtocol.INTERNAL_TSA);
+
+        // then
+        assertThatThrownBy(issue).isSameAs(denial);
     }
 
     @Test

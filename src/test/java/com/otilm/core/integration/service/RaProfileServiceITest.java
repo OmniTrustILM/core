@@ -34,6 +34,8 @@ import com.otilm.api.model.common.attribute.v3.mapping.ObjectType;
 import com.otilm.api.model.common.attribute.v3.mapping.RdnMappedField;
 import com.otilm.api.model.common.attribute.v3.mapping.ValueSourceType;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateType;
+import com.otilm.api.model.core.certificate.SupportedCertificateTypeDto;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.connector.FunctionGroupCode;
 import com.otilm.api.model.core.raprofile.AttributeSetMergeMode;
@@ -110,6 +112,7 @@ import org.springframework.security.concurrent.DelegatingSecurityContextExecutor
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
 class RaProfileServiceITest extends ApprovalProfileData {
@@ -739,6 +742,19 @@ class RaProfileServiceITest extends ApprovalProfileData {
     }
 
     @Test
+    void listsX509Only_whenTheAuthorityHasNoOperationThatReportsItsTypes() throws Exception {
+        // given — the RA profile belongs to a v2 authority, which cannot report its certificate types
+
+        // when
+        List<SupportedCertificateTypeDto> types = raProfileService
+                .listSupportedCertificateTypes(authorityInstanceReference.getSecuredParentUuid(),
+                        raProfile.getSecuredUuid());
+
+        // then
+        assertThat(types).containsExactly(SupportedCertificateTypeDto.of(CertificateType.X509));
+    }
+
+    @Test
     void testListRevokeCertificateAttributes() throws ConnectorException, NotFoundException {
         mockServer
                 .stubFor(WireMock
@@ -1055,6 +1071,7 @@ class RaProfileServiceITest extends ApprovalProfileData {
                         call("deactivate CMP", RaProfileExternalService::deactivateCmpForRaProfile),
                         call("list revoke attributes", RaProfileExternalService::listRevokeCertificateAttributes),
                         call("list issue attributes", RaProfileExternalService::listIssueCertificateAttributes),
+                        call("list certificate types", RaProfileExternalService::listSupportedCertificateTypes),
                         call("list renew attributes", RaProfileExternalService::listRenewCertificateAttributes),
                         call("list identify attributes", RaProfileExternalService::listIdentifyCertificateAttributes),
                         call("get CA certificates", RaProfileExternalService::getAuthorityCertificateChain),

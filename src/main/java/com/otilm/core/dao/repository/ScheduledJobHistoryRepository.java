@@ -25,6 +25,9 @@ public interface ScheduledJobHistoryRepository extends SecurityFilterRepository<
     Optional<ScheduledJobHistory> findFirstByScheduledJobJobNameAndSchedulerExecutionStatusOrderByJobExecutionDesc(
             String jobName, SchedulerJobExecutionStatus status);
 
+    Optional<ScheduledJobHistory> findFirstByScheduledJobUuidAndSchedulerExecutionStatusAndUuidNotOrderByJobExecutionDesc(
+            UUID scheduledJobUuid, SchedulerJobExecutionStatus status, UUID excludedHistoryUuid);
+
     /**
      * Closes a run in one statement, if it is still open. The row count is the point: a row that vanished (the job was
      * deleted, cascading its history) or that another finisher closed first shows as 0, where a detached-entity save

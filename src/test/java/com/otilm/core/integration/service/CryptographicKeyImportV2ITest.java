@@ -810,10 +810,10 @@ class CryptographicKeyImportV2ITest extends BaseSpringBootTest {
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
-    void importKey_reportsWhetherTheImportedKeyCanBeRemovedFromTheInventory(boolean tokenListsKeys) throws Exception {
+    void reportsWhetherTheImportedKeyCanBeRemovedFromTheInventory(boolean tokenListsKeys) throws Exception {
         // given
-        if (tokenListsKeys) {
-            declare(FeatureFlag.STATELESS, FeatureFlag.KEY_IMPORT, FeatureFlag.KEY_LIST);
+        if (!tokenListsKeys) {
+            declare(FeatureFlag.STATELESS, FeatureFlag.KEY_IMPORT, FeatureFlag.UNLISTABLE_TOKEN);
         }
         connectorMock.stubImportKey(200, imported(pair.getPublic()));
 
@@ -1336,7 +1336,6 @@ class CryptographicKeyImportV2ITest extends BaseSpringBootTest {
     static KeyPairDataResponseV2Dto imported(PublicKey publicKey) {
         PublicKeyDataV2Dto publicData = new PublicKeyDataV2Dto();
         publicData.setAlgorithm(KeyAlgorithm.RSA);
-        publicData.setLength(2048);
         publicData.setPublicKeySpki(publicKey.getEncoded());
         publicData.setMetadata(List.of());
         PublicKeyDataResponseV2Dto publicKeyData = new PublicKeyDataResponseV2Dto();
@@ -1348,7 +1347,7 @@ class CryptographicKeyImportV2ITest extends BaseSpringBootTest {
         privateData.setMetadata(List.of());
         PrivateKeyDataResponseV2Dto privateKeyData = new PrivateKeyDataResponseV2Dto();
         privateKeyData.setKeyData(privateData);
-        privateKeyData.setKeyMeta(List.of(KeyImportWriterITest.handle("private-handle", "q")));
+        privateKeyData.setKeyMeta(List.of(KeyImportWriterITest.privateKeyHandleOf(publicKey)));
         KeyPairDataResponseV2Dto answer = new KeyPairDataResponseV2Dto();
         answer.setPublicKeyData(publicKeyData);
         answer.setPrivateKeyData(privateKeyData);

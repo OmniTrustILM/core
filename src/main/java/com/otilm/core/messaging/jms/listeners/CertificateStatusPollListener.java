@@ -32,6 +32,8 @@ import com.otilm.core.service.handler.authority.ConnectorOperationErrorCodes;
 import com.otilm.core.service.handler.authority.StatusPollResult;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateRevocationFinalizer;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine;
+import com.otilm.core.service.renewal.auto.AsyncRenewalLocationReplacer;
+import com.otilm.core.service.writer.AcmeOrderWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationAuthorizationWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationWriter;
 import com.otilm.core.service.writer.statuspoll.CertificateStatusPollWriter;
@@ -41,6 +43,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.TransientDataAccessException;
+import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Component;
 
 /**
@@ -88,6 +91,8 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     private CertificateRelationRepository certificateRelationRepository;
     private CertificateLocationRepository certificateLocationRepository;
     private LocationInternalService locationInternalService;
+    private AcmeOrderWriter acmeOrderWriter;
+    private AsyncRenewalLocationReplacer asyncRenewalLocationReplacer;
 
     @Override
     public void processMessage(CertificateStatusPollMessage msg) throws MessageHandlingException {
@@ -195,6 +200,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
             revocationFinalizer.destroyKeyIfRequested(resolution.keyCleanup(), cert.getUuid());
             updateMetaAfterCommit(cert, op, status);
             pushIssuedCertificateToLocations(cert.getUuid(), op, status);
+            replaceRenewedCertificateInLocations(cert.getUuid(), op, status);
             fireRegistrationEventIfCompleted(cert.getUuid(), op, status.status());
         }
         // Stop polling — safe even when a racing actor resolved it: the unique constraint means one poll row per cert.
@@ -251,10 +257,9 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
             } else {
                 // COMPLETED for issue/renew with no certificate content is self-contradictory: we cannot
                 // reach ISSUED without persisting a certificate, so fail it rather than reach an empty ISSUED.
-                stateMachine
-                        .transition(locked, op.terminalFailureState(), null,
-                                "Async " + op + " reported COMPLETED but connector returned no certificate data");
-                retireFailedCertificateLinks(locked);
+                String reason = "Async " + op + " reported COMPLETED but connector returned no certificate data";
+                stateMachine.transition(locked, op.terminalFailureState(), null, reason);
+                retireFailedCertificateLinks(locked, reason);
             }
             return CertificateRevocationFinalizer.KeyCleanup.NONE;
         }
@@ -276,7 +281,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
         // Fate-coupling: only a terminal FAILED verdict retires a pre-registered cert's authorization. A failed
         // REVOKE returns to ISSUED (not FAILED) and must keep its registration for renew/rekey reuse.
         if (targetState == CertificateState.FAILED) {
-            retireFailedCertificateLinks(locked);
+            retireFailedCertificateLinks(locked, status.requesterReason());
         }
         return CertificateRevocationFinalizer.KeyCleanup.NONE;
     }
@@ -402,7 +407,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
             CertificateState terminal = op.terminalFailureState();
             stateMachine.transition(locked, terminal, null, reason);
             if (terminal == CertificateState.FAILED) {
-                retireFailedCertificateLinks(locked);
+                retireFailedCertificateLinks(locked, reason);
             }
         });
         // Resolved (failed, or already resolved by a racing actor) — stop polling it.
@@ -413,15 +418,22 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
      * Retires the links of a certificate that reached a terminal FAILED verdict, in the caller's locked transaction:
      * its registration authorization (state → CLOSED) when it carries one, and any predecessor relations — a FAILED
      * certificate must not stay linked as a pending successor of its source, the same invariant the synchronous failure
-     * paths maintain in {@code handleFailedOrRejectedEvent}. Both parts are guarded no-ops for certificates without
-     * them.
+     * paths maintain in {@code handleFailedOrRejectedEvent}. The ACME order the certificate was requested for, if any,
+     * records the reason for its client when there is one the client may read. Each part is a guarded no-op for
+     * certificates without it.
+     *
+     * @param requesterReason a reason Core wrote, or the connector's reason for the authority's verdict unless it
+     * quotes a secret the poll sent; null for none
      */
-    private void retireFailedCertificateLinks(Certificate locked) {
+    private void retireFailedCertificateLinks(Certificate locked, @Nullable String requesterReason) {
         if (registrationAuthorizationRepository.existsByCertificateUuid(locked.getUuid())) {
             registrationAuthorizationWriter.close(locked.getUuid());
         }
         if (!locked.getPredecessorRelations().isEmpty()) {
             certificateRelationRepository.deleteAll(locked.getPredecessorRelations());
+        }
+        if (requesterReason != null) {
+            acmeOrderWriter.recordIssuanceFailure(locked.getUuid(), requesterReason);
         }
     }
 
@@ -489,6 +501,11 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     }
 
     @Autowired
+    public void setAcmeOrderWriter(AcmeOrderWriter acmeOrderWriter) {
+        this.acmeOrderWriter = acmeOrderWriter;
+    }
+
+    @Autowired
     public void setTransactionHandler(TransactionHandler transactionHandler) {
         this.transactionHandler = transactionHandler;
     }
@@ -534,8 +551,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
      */
     private void pushIssuedCertificateToLocations(UUID certificateUuid, CertificateOperation op,
             StatusPollResult status) {
-        if (op != CertificateOperation.ISSUE || status.status() != CertificateOperationStatus.COMPLETED
-                || status.certificateData() == null || status.certificateData().isEmpty()) {
+        if (op != CertificateOperation.ISSUE || !issuedCertificate(status)) {
             return;
         }
         List<CertificateLocation> certificateLocations;
@@ -558,6 +574,23 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
         }
     }
 
+    /**
+     * Post-commit replacement of the certificate a renewal renewed by the one the authority issued later, in its
+     * locations or in the key-generating location that renewed it, when an automatic renewal asked for it. Never
+     * throws.
+     */
+    private void replaceRenewedCertificateInLocations(UUID certificateUuid, CertificateOperation op,
+            StatusPollResult status) {
+        if (op == CertificateOperation.RENEW && issuedCertificate(status)) {
+            asyncRenewalLocationReplacer.replaceInLocations(certificateUuid);
+        }
+    }
+
+    private static boolean issuedCertificate(StatusPollResult status) {
+        return status.status() == CertificateOperationStatus.COMPLETED && status.certificateData() != null
+                && !status.certificateData().isEmpty();
+    }
+
     private void fireRegistrationEventIfCompleted(UUID certificateUuid, CertificateOperation op,
             CertificateOperationStatus status) {
         if (op == CertificateOperation.REGISTER && status == CertificateOperationStatus.COMPLETED) {
@@ -577,6 +610,11 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     @Autowired
     public void setCertificateLocationRepository(CertificateLocationRepository certificateLocationRepository) {
         this.certificateLocationRepository = certificateLocationRepository;
+    }
+
+    @Autowired
+    public void setAsyncRenewalLocationReplacer(AsyncRenewalLocationReplacer asyncRenewalLocationReplacer) {
+        this.asyncRenewalLocationReplacer = asyncRenewalLocationReplacer;
     }
 
     @Autowired

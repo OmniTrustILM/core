@@ -36,6 +36,7 @@ import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.model.crypto.CryptographicKeyBasicModel;
 import com.otilm.core.model.crypto.CryptographicKeyFullModel;
 import com.otilm.core.model.crypto.CryptographicKeyItemBasicModel;
+import com.otilm.core.model.crypto.HandleHolderSummary;
 import com.otilm.core.model.crypto.ImmutableCryptographicKeyBasicModel;
 import com.otilm.core.model.crypto.ImmutableCryptographicKeyFullModel;
 import com.otilm.core.model.crypto.ImportedKeyRegistration;
@@ -149,7 +150,7 @@ public class CryptographicKeyWriter {
             throws AttributeException {
         UUID tokenProfileUuid = tokenProfile == null ? null : tokenProfile.uuid();
         CryptographicKeyBasicModel savedKey = save(request.getName(), request.getDescription(), tokenProfileUuid,
-                tokenInstance.uuid());
+                tokenInstance.uuid(), privateKeyHandleDigestOf(items));
         // Core owns the permission: nothing reported by a connector may grant it, whatever the request states.
         boolean exportable = !isDiscovered && Boolean.TRUE.equals(request.getExportable());
         KeyItemOrigin origin = creationOrigin(tokenProfile, tokenInstance, isDiscovered);
@@ -164,12 +165,12 @@ public class CryptographicKeyWriter {
      * onboarding states, and links it to the certificates carrying its public key. An unsettled import may yet register
      * or destroy the key pair, so its attempt is locked and refuses the onboarding.
      *
-     * @param spkiFingerprint the fingerprint of the key pair's public key
+     * @param spkiFingerprint the fingerprint of the key pair's public key, or null for a private key alone
      * @param items the key pair's items, as the connector listed them
      * @param customAttributes the key's custom attributes, validated already, or {@code null} for none
      * @param customAttributePermissions permissions applied to the custom attributes, resolved before the transaction
      * since resolving them may ask the policy engine
-     * @return the onboarded key, or nothing while an unsettled import holds its public key
+     * @return the onboarded key, or nothing while an unsettled import may hold the key pair
      * @throws AttributeException if storing an item's metadata or the custom attributes fails
      * @throws NotFoundException if a custom attribute's definition no longer exists
      */
@@ -177,10 +178,11 @@ public class CryptographicKeyWriter {
     public Optional<CryptographicKeyBasicModel> onboardUnlessImporting(String name, TokenProfileFullModel profile,
             String spkiFingerprint, List<ProviderKeyItem> items, List<RequestAttribute> customAttributes,
             SecurityResourceFilter customAttributePermissions) throws AttributeException, NotFoundException {
-        if (!lockUnsettledImportsOf(spkiFingerprint).isEmpty()) {
+        if (!lockUnsettledImportsThatMayHold(spkiFingerprint, profile.tokenInstanceReferenceUuid()).isEmpty()) {
             return Optional.empty();
         }
-        CryptographicKeyBasicModel key = save(name, null, profile.uuid(), profile.tokenInstanceReferenceUuid());
+        CryptographicKeyBasicModel key = save(name, null, profile.uuid(), profile.tokenInstanceReferenceUuid(),
+                privateKeyHandleDigestOf(items));
         KeyItemOrigin origin = onboardingOrigin(profile);
         for (ProviderKeyItem item : items) {
             createKeyContent(profile, profile.tokenInstance(), item, key, ONBOARDED_ENABLED, ONBOARDED_EXPORTABLE,
@@ -192,8 +194,7 @@ public class CryptographicKeyWriter {
                             customAttributePermissions);
         }
         objectAssociationService.setOwnerFromProfile(Resource.CRYPTOGRAPHIC_KEY, key.uuid());
-        // The unique fingerprint is the last guard against a key registered meanwhile.
-        cryptographicKeyItemRepository.flush();
+        failIfAKeyWasRegisteredMeanwhile();
         return Optional.of(key);
     }
 
@@ -217,14 +218,36 @@ public class CryptographicKeyWriter {
             return Optional.empty();
         }
         CryptographicKey publicKeyRecord = lockAdoptableRecord(recordUuid);
-        return Optional
-                .of(joinRecord(publicKeyRecord, profile, items, ONBOARDED_ENABLED, ONBOARDED_EXPORTABLE,
-                        onboardingOrigin(profile)));
+        CryptographicKeyBasicModel key = joinRecord(publicKeyRecord, profile, items, ONBOARDED_ENABLED,
+                ONBOARDED_EXPORTABLE, onboardingOrigin(profile));
+        failIfAKeyWasRegisteredMeanwhile();
+        return Optional.of(key);
+    }
+
+    /**
+     * Flushes the writes through a repository. A unique fingerprint or handle digest that a key registered meanwhile
+     * holds then fails here as a data integrity violation.
+     */
+    private void failIfAKeyWasRegisteredMeanwhile() {
+        cryptographicKeyRepository.flush();
     }
 
     private static KeyItemOrigin onboardingOrigin(TokenProfileFullModel profile) {
         return new KeyItemOrigin(KeyEvent.ONBOARD, "Key Onboarded to Token Profile " + profile.name()
                 + " from Token Instance " + profile.tokenInstance().name(), null);
+    }
+
+    /**
+     * The unsettled import attempts that may hold the key pair, locked until the transaction ends. A private key alone
+     * has no public key to match an attempt by, so every key-pair import on its token may hold it.
+     */
+    private List<KeyImport> lockUnsettledImportsThatMayHold(String spkiFingerprint, UUID tokenInstanceUuid) {
+        if (spkiFingerprint == null) {
+            return keyImportRepository
+                    .findForUpdateByTokenInstanceUuidAndSpkiFingerprintIsNotNullAndStateIn(tokenInstanceUuid,
+                            KeyImportState.UNSETTLED);
+        }
+        return lockUnsettledImportsOf(spkiFingerprint);
     }
 
     /** The unsettled import attempts holding the public key, locked until the transaction ends. */
@@ -288,7 +311,7 @@ public class CryptographicKeyWriter {
             throw new ValidationException(ValidationError.create(NAME_TAKEN.formatted(metadata.name())));
         }
         CryptographicKeyBasicModel key = save(metadata.name(), metadata.description(), profile.uuid(),
-                profile.tokenInstanceReferenceUuid());
+                profile.tokenInstanceReferenceUuid(), privateKeyHandleDigestOf(registration.items()));
         KeyItemOrigin origin = importOrigin(profile, registration.keyReference(), registration.quarantined());
         for (ProviderKeyItem item : registration.items()) {
             createKeyContent(profile, profile.tokenInstance(), item, key, false, registration.exportable(), origin);
@@ -348,6 +371,34 @@ public class CryptographicKeyWriter {
                 .filter(item -> item.getFingerprint() != null && spkiFingerprints.contains(item.getFingerprint()))
                 .collect(Collectors
                         .toMap(CryptographicKeyItem::getFingerprint, CryptographicKeyWriter::toHolderSummary));
+    }
+
+    /** The keys on the token instance that hold the given private key handles, in any state, by handle digest. */
+    @Transactional(readOnly = true)
+    public Map<String, HandleHolderSummary> holdersOfHandles(UUID tokenInstanceUuid, Collection<String> handleDigests) {
+        if (handleDigests.isEmpty()) {
+            return Map.of();
+        }
+        return cryptographicKeyRepository
+                .findWithAllItemsByTokenInstanceAndHandleDigestIn(tokenInstanceUuid, handleDigests)
+                .stream()
+                .collect(Collectors
+                        .toMap(CryptographicKey::getHandleDigest, CryptographicKeyWriter::toHandleHolderSummary));
+    }
+
+    private static HandleHolderSummary toHandleHolderSummary(CryptographicKey holder) {
+        CryptographicKeyItem privateKey = itemOfType(holder, KeyType.PRIVATE_KEY)
+                .orElseThrow(() -> new IllegalStateException("A key holding a handle holds no private key"));
+        String publicKeyFingerprint = itemOfType(holder, KeyType.PUBLIC_KEY)
+                .map(CryptographicKeyItem::getFingerprint)
+                .orElse(null);
+        return new HandleHolderSummary(holder.getUuid(), holder.getName(), holder.getTokenInstanceReferenceUuid(),
+                privateKey.getKeyAlgorithm(), privateKey.getParameterSet(), privateKey.getLength(),
+                publicKeyFingerprint, holder.isActive());
+    }
+
+    private static Optional<CryptographicKeyItem> itemOfType(CryptographicKey key, KeyType type) {
+        return key.getItems().stream().filter(item -> item.getType() == type).findFirst();
     }
 
     private static PublicKeyHolderSummary toHolderSummary(CryptographicKeyItem publicKey) {
@@ -416,6 +467,7 @@ public class CryptographicKeyWriter {
         CryptographicKeyItem publicKey = publicKeyRecord.solePublicKeyItem();
         publicKeyRecord.setTokenProfileUuid(profile.uuid());
         publicKeyRecord.setTokenInstanceReferenceUuid(profile.tokenInstanceReferenceUuid());
+        publicKeyRecord.setHandleDigest(privateKeyHandleDigestOf(items));
         CryptographicKeyBasicModel key = ImmutableCryptographicKeyBasicModel.from(publicKeyRecord);
         for (ProviderKeyItem item : items) {
             if (item.type() == KeyType.PUBLIC_KEY) {
@@ -496,6 +548,7 @@ public class CryptographicKeyWriter {
         String fingerprint = CryptographyUtil.calculateKeyFingerprint(item.material());
         keyItem.setFingerprint(fingerprint);
 
+        keyItem.setParameterSet(item.parameterSet());
         keyItem.setLength(item.length());
         if (item.reference() instanceof RemoteKeyReference.UuidReference(UUID uuid)) {
             keyItem.setKeyReferenceUuid(uuid);
@@ -672,6 +725,9 @@ public class CryptographicKeyWriter {
         for (CryptographicKeyItem keyItem : keyItems) {
             CryptographicKey key = keyItem.getKey();
             key.getItems().remove(keyItem);
+            if (keyItem.getType() == KeyType.PRIVATE_KEY) {
+                key.setHandleDigest(null);
+            }
             if (key.getItems().isEmpty()) {
                 key.setOwner(null);
                 key.getGroups().clear();
@@ -714,6 +770,7 @@ public class CryptographicKeyWriter {
         requireTokenAsRead(keyRead);
         attributeEngine.deleteObjectAttributeContent(Resource.CRYPTOGRAPHIC_KEY, keyItemUuid);
         complianceProfileAssociationWriter.deleteAllForObject(Resource.CRYPTOGRAPHIC_KEY_ITEM, keyItemUuid);
+        cryptographicKeyRepository.clearHandleDigestOfPrivateKey(keyItemUuid);
         return cryptographicKeyItemRepository.deleteItemByUuid(keyItemUuid) > 0;
     }
 
@@ -843,6 +900,7 @@ public class CryptographicKeyWriter {
         if (cryptographicKeyItemRepository.finalizeKeyItemDestruction(keyItemUuid) == 0) {
             throw new NotFoundException(CryptographicKeyItem.class, keyItemUuid);
         }
+        cryptographicKeyRepository.clearHandleDigestOfPrivateKey(keyItemUuid);
         keyEventHistoryService
                 .addEventHistory(KeyEvent.DESTROY, KeyEventStatus.SUCCESS, "Key destroyed.", null, keyItemUuid);
     }
@@ -854,19 +912,31 @@ public class CryptographicKeyWriter {
      * @param description the key's description, or {@code null}
      * @param tokenProfileUuid UUID of the associated token profile, or {@code null} if unassigned
      * @param tokenInstanceReferenceUuid UUID of the associated token instance, or {@code null} if unassigned
+     * @param handleDigest the digest of the private key's handle, or {@code null} without one
      * @return immutable basic model of the saved key
      */
     private CryptographicKeyBasicModel save(String name, String description, UUID tokenProfileUuid,
-            UUID tokenInstanceReferenceUuid) {
+            UUID tokenInstanceReferenceUuid, String handleDigest) {
         CryptographicKey key = new CryptographicKey();
         key.setName(name);
         key.setDescription(description);
         key.setTokenProfileUuid(tokenProfileUuid);
         key.setTokenInstanceReferenceUuid(tokenInstanceReferenceUuid);
+        key.setHandleDigest(handleDigest);
 
         CryptographicKey savedKey = cryptographicKeyRepository.save(key);
         logger.atDebug().addArgument(savedKey::toIdentifierString).log("Cryptographic Key saved: {}");
         return ImmutableCryptographicKeyBasicModel.from(savedKey);
+    }
+
+    /** The digest of the private key's handle, or null for items without a private key or a handle. */
+    private static String privateKeyHandleDigestOf(List<ProviderKeyItem> items) {
+        return items
+                .stream()
+                .filter(item -> item.type() == KeyType.PRIVATE_KEY)
+                .findFirst()
+                .map(ProviderKeyItem::handleDigest)
+                .orElse(null);
     }
 
     /**

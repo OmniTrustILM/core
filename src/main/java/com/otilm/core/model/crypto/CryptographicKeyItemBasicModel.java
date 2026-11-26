@@ -14,9 +14,9 @@ import java.util.UUID;
 
 /** Key-item snapshot for API mapping, without a reference back to the wrapper entity. */
 public record CryptographicKeyItemBasicModel(UUID uuid, UUID parentKeyUuid, String name, RemoteKeyReference reference,
-        KeyType type, KeyAlgorithm algorithm, KeyFormat format, String keyData, Integer length, KeyState state,
-        boolean enabled, List<KeyUsage> usages, KeyCompromiseReason reason, ComplianceStatus complianceStatus,
-        boolean exportable) implements NamedModel {
+        KeyType type, KeyAlgorithm algorithm, String parameterSet, KeyFormat format, String keyData, Integer length,
+        KeyState state, boolean enabled, List<KeyUsage> usages, KeyCompromiseReason reason,
+        ComplianceStatus complianceStatus, boolean exportable) implements NamedModel {
 
     public CryptographicKeyItemBasicModel {
         usages = List.copyOf(usages);
@@ -33,8 +33,8 @@ public record CryptographicKeyItemBasicModel(UUID uuid, UUID parentKeyUuid, Stri
                 ? new RemoteKeyReference.UuidReference(item.getKeyReferenceUuid())
                 : new RemoteKeyReference.MetadataReference(item.getKeyMeta());
         return new CryptographicKeyItemBasicModel(item.getUuid(), item.getKeyUuid(), item.getName(), reference,
-                item.getType(), item.getKeyAlgorithm(), item.getFormat(), item.getKeyData(), item.getLength(),
-                item.getState(), item.isEnabled(), item.getUsage(), item.getReason(), item.getComplianceStatus(),
-                item.isExportable());
+                item.getType(), item.getKeyAlgorithm(), item.getParameterSet(), item.getFormat(), item.getKeyData(),
+                item.getLength(), item.getState(), item.isEnabled(), item.getUsage(), item.getReason(),
+                item.getComplianceStatus(), item.isExportable());
     }
 }

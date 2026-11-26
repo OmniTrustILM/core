@@ -14,6 +14,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -77,6 +78,30 @@ public interface CryptographicKeyRepository extends SecurityFilterRepository<Cry
                                WHERE publicKey.fingerprint IN :fingerprints)
             """)
     List<CryptographicKey> findWithAllItemsByItemFingerprintIn(@Param("fingerprints") Collection<String> fingerprints);
+
+    /** The keys on the token instance that hold the given private key handles, with all their items. */
+    @Query("""
+            SELECT DISTINCT key FROM CryptographicKey key JOIN FETCH key.items
+            WHERE key.tokenInstanceReferenceUuid = :tokenInstanceUuid AND key.handleDigest IN :handleDigests
+            """)
+    List<CryptographicKey> findWithAllItemsByTokenInstanceAndHandleDigestIn(
+            @Param("tokenInstanceUuid") UUID tokenInstanceUuid,
+            @Param("handleDigests") Collection<String> handleDigests);
+
+    /**
+     * Clears the handle digest of the key the given private key item belongs to. A key the token later keeps under the
+     * same handle can then be onboarded.
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            UPDATE CryptographicKey key
+            SET key.handleDigest = NULL, key.updated = CURRENT_TIMESTAMP
+            WHERE key.handleDigest IS NOT NULL
+              AND key.uuid IN (SELECT item.keyUuid FROM CryptographicKeyItem item
+                               WHERE item.uuid = :itemUuid
+                                 AND item.type = com.otilm.api.model.common.enums.cryptography.KeyType.PRIVATE_KEY)
+            """)
+    void clearHandleDigestOfPrivateKey(@Param("itemUuid") UUID itemUuid);
 
     @Query("SELECT key.name FROM CryptographicKey key WHERE key.name IN :names")
     List<String> findNamesIn(@Param("names") Collection<String> names);

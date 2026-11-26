@@ -1172,6 +1172,8 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     }
 
     @Override
+    // Joins the caller's transaction; the class-level NOT_SUPPORTED would suspend it onto a second connection.
+    @Transactional(propagation = Propagation.SUPPORTS)
     public UUID findKeyByFingerprint(String fingerprint) {
         CryptographicKeyItem item = cryptographicKeyItemRepository.findByFingerprint(fingerprint).orElse(null);
         if (item != null) {
@@ -1694,6 +1696,9 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
                                 .prepareSearch(FilterField.CKI_USAGE,
                                         Arrays.stream(KeyUsage.values()).map(KeyUsage::getCode).toList()),
                         SearchHelper.prepareSearch(FilterField.CKI_LENGTH),
+                        SearchHelper
+                                .prepareSearch(FilterField.CKI_PARAMETER_SET,
+                                        cryptographicKeyItemRepository.findStoredParameterSets()),
                         SearchHelper.prepareSearch(FilterField.CKI_ENABLED),
                         SearchHelper.prepareSearch(FilterField.CKI_CREATED),
                         SearchHelper

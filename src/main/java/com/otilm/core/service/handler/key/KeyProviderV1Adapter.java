@@ -39,15 +39,17 @@ import com.otilm.core.attribute.RsaSignatureAttributes;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.client.ConnectorApiFactory;
+import com.otilm.core.key.description.ProviderKeyItems;
+import com.otilm.core.key.description.ProviderKeyItems.DescribedPair;
 import com.otilm.core.key.normalization.NormalizedKey;
 import com.otilm.core.model.crypto.CryptographicKeyFullModel;
 import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.crypto.KeyImportAttempt;
 import com.otilm.core.model.crypto.KeyImportTerms;
 import com.otilm.core.model.crypto.KeyMaterial;
+import com.otilm.core.model.crypto.ProviderKeyEntry;
+import com.otilm.core.model.crypto.ProviderKeyEntryPage;
 import com.otilm.core.model.crypto.ProviderKeyItem;
-import com.otilm.core.model.crypto.ProviderKeyPairPage;
-import com.otilm.core.model.crypto.ProviderKeyPairResolution;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
@@ -86,7 +88,7 @@ public class KeyProviderV1Adapter implements KeyProviderAdapter, KeyCreationVali
     public List<ProviderKeyItem> listKeys(TokenInstanceBasicModel tokenInstance) throws ConnectorException {
         List<KeyDataResponseDto> keys = keyManagementSyncApiClient
                 .listKeys(connectorInfo, tokenInstance.tokenInstanceUuid());
-        return keys.stream().map(this::toCreatedKeyItem).toList();
+        return ProviderKeyItems.describedByAssociation(keys.stream().map(this::toCreatedKeyItem).toList());
     }
 
     @Override
@@ -136,8 +138,11 @@ public class KeyProviderV1Adapter implements KeyProviderAdapter, KeyCreationVali
             throws ConnectorException {
         KeyPairDataResponseDto response = keyManagementSyncApiClient
                 .createKeyPair(connectorInfo, tokenInstanceUuid, request);
-        ProviderKeyItem publicKeyItem = toCreatedKeyItem(response.getPublicKeyData());
-        ProviderKeyItem privateKeyItem = toCreatedKeyItem(response.getPrivateKeyData());
+        DescribedPair described = ProviderKeyItems
+                .describedPair(toCreatedKeyItem(response.getPublicKeyData()),
+                        toCreatedKeyItem(response.getPrivateKeyData()));
+        ProviderKeyItem publicKeyItem = described.publicKey();
+        ProviderKeyItem privateKeyItem = described.privateKey();
         log
                 .info("A key pair has been created on remote device through connector {} ({}); Private key reference: {}; Public key reference: {}",
                         connectorInfo.getName(), connectorInfo.getUuid(),
@@ -150,7 +155,7 @@ public class KeyProviderV1Adapter implements KeyProviderAdapter, KeyCreationVali
             throws ConnectorException {
         KeyDataResponseDto response = keyManagementSyncApiClient
                 .createSecretKey(connectorInfo, tokenInstanceUuid, request);
-        ProviderKeyItem secretKeyItem = toCreatedKeyItem(response);
+        ProviderKeyItem secretKeyItem = ProviderKeyItems.described(toCreatedKeyItem(response));
         log
                 .info("A secret key has been created on remote device through connector {} ({}); Key reference: {}",
                         connectorInfo.getName(), connectorInfo.getUuid(),
@@ -187,12 +192,12 @@ public class KeyProviderV1Adapter implements KeyProviderAdapter, KeyCreationVali
     }
 
     @Override
-    public ProviderKeyPairPage listKeyPairs(TokenProfileFullModel tokenProfile, int offset, int limit) {
+    public ProviderKeyEntryPage listKeyPairs(TokenProfileFullModel tokenProfile, int offset, int limit) {
         throw new UnsupportedOperationException("Key pair listing is unsupported on a V1 connector");
     }
 
     @Override
-    public List<ProviderKeyPairResolution> resolveKeyPairs(TokenProfileFullModel tokenProfile,
+    public List<ProviderKeyEntry> resolveKeyPairs(TokenProfileFullModel tokenProfile,
             List<List<MetadataAttribute>> keyPairMetas) {
         throw new UnsupportedOperationException("Key pair resolution is unsupported on a V1 connector");
     }

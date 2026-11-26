@@ -15,6 +15,7 @@ import com.otilm.core.dao.repository.signing.SigningRecordRepository;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.SigningRecordExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.SqlCapture;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -132,6 +133,19 @@ class SigningRecordStatisticsServiceITest extends BaseSpringBootTest {
         assertContiguous(keys, Duration.ofHours(1));
         assertThat(dto.getVolumeOverTime().values().stream().mapToLong(Long::longValue).sum())
                 .isEqualTo(dto.getCountLast24h());
+    }
+
+    @Test
+    void readsUnderOneSnapshot_whenAssemblingTheFigures() throws Exception {
+        // given — the records every test seeds
+
+        // when
+        List<String> statements = SqlCapture
+                .during(() -> statistics(SigningRecordStatisticsPeriod.LAST_7D))
+                .statements();
+
+        // then
+        assertThat(statements.getFirst()).isEqualToIgnoringCase("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
     }
 
     private SigningRecordStatisticsDto statistics(SigningRecordStatisticsPeriod period) {

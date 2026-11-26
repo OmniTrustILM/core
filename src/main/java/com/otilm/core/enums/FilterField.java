@@ -20,6 +20,7 @@ import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateSubjectType;
 import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.certificate.RenewalWindowSource;
 import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.api.model.core.connector.AuthType;
 import com.otilm.api.model.core.connector.ConnectorStatus;
@@ -47,6 +48,7 @@ import com.otilm.core.dao.entity.Cbom_;
 import com.otilm.core.dao.entity.CertificateLocation_;
 import com.otilm.core.dao.entity.CertificateProtocolAssociation_;
 import com.otilm.core.dao.entity.CertificateRelation_;
+import com.otilm.core.dao.entity.CertificateRenewalInfo_;
 import com.otilm.core.dao.entity.CertificateRequestEntity_;
 import com.otilm.core.dao.entity.Certificate_;
 import com.otilm.core.dao.entity.Comment_;
@@ -187,6 +189,12 @@ public enum FilterField {
     ACME_ACCOUNT(Resource.CERTIFICATE, Resource.ACME_ACCOUNT,
             List.of(Certificate_.protocolAssociation, CertificateProtocolAssociation_.acmeAccount),
             AcmeAccount_.accountId, "ACME Account", SearchFieldTypeEnum.LIST),
+    RENEWAL_WINDOW_START(Resource.CERTIFICATE, null, List.of(Certificate_.renewalInfo),
+            CertificateRenewalInfo_.windowStart, "Renewal Window Start", SearchFieldTypeEnum.DATETIME),
+    RENEWAL_WINDOW_END(Resource.CERTIFICATE, null, List.of(Certificate_.renewalInfo), CertificateRenewalInfo_.windowEnd,
+            "Renewal Window End", SearchFieldTypeEnum.DATETIME),
+    RENEWAL_WINDOW_SOURCE(Resource.CERTIFICATE, null, List.of(Certificate_.renewalInfo), CertificateRenewalInfo_.source,
+            "Renewal Window Source", SearchFieldTypeEnum.LIST, RenewalWindowSource.class),
 
     // Certificate Request
     CERT_REQUEST_COMMON_NAME(Resource.CERTIFICATE_REQUEST, null, null, CertificateRequestEntity_.commonName,
@@ -229,6 +237,8 @@ public enum FilterField {
             SearchFieldTypeEnum.LIST, KeyUsage.class, null, false, null),
     CKI_LENGTH(Resource.CRYPTOGRAPHIC_KEY, null, null, CryptographicKeyItem_.length, "Key Size",
             SearchFieldTypeEnum.NUMBER),
+    CKI_PARAMETER_SET(Resource.CRYPTOGRAPHIC_KEY, null, null, CryptographicKeyItem_.parameterSet, "Parameter Set",
+            SearchFieldTypeEnum.LIST),
     CKI_ENABLED(Resource.CRYPTOGRAPHIC_KEY, null, null, CryptographicKeyItem_.enabled, Constants.ENABLED,
             SearchFieldTypeEnum.BOOLEAN),
     // The key's created, not the item's, because that is the value the listing renders as creationTime.

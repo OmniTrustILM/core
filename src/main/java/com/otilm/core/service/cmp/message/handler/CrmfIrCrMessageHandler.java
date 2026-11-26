@@ -9,10 +9,12 @@ import com.otilm.api.interfaces.core.cmp.error.CmpCrmfValidationException;
 import com.otilm.api.interfaces.core.cmp.error.CmpProcessingException;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.cmp.CmpTransactionState;
+import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.core.certificate.request.RequestAttributePolicyViolationException;
+import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
@@ -38,7 +40,6 @@ import org.bouncycastle.asn1.crmf.CertReqMessages;
 import org.slf4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * <p>
@@ -56,8 +57,8 @@ import org.springframework.transaction.annotation.Transactional;
  * "https://doc.primekey.com/bouncycastle/how-to-guides-pki-at-the-edge/how-to-generate-key-pairs-and-certification-requests#HowtoGenerateKeyPairsandCertificationRequests-GenerateCRMFCertificationRequestusingCMP">How
  * to generate CRMF request</a>
  */
+// Not @Transactional: a transaction here would keep its connection while the submission takes another.
 @Component
-@Transactional
 public class CrmfIrCrMessageHandler implements MessageHandler<ClientCertificateDataResponseDto> {
 
     private static final List<Integer> ALLOWED_TYPES = List
@@ -129,6 +130,8 @@ public class CrmfIrCrMessageHandler implements MessageHandler<ClientCertificateD
         } catch (RequestAttributePolicyViolationException e) {
             throw new CmpCrmfValidationException(tid, request.getBody().getType(), PKIFailureInfo.badCertTemplate,
                     e.getMessage());
+        } catch (UnsupportedCertificateTypeException e) {
+            throw new CmpProcessingException(tid, PKIFailureInfo.badRequest, e.getMessage());
         } catch (CertificateRequestException | NotFoundException | CertificateException | IOException
                 | NoSuchAlgorithmException | InvalidKeyException | CertificateOperationException e) {
             throw new CmpProcessingException(tid, PKIFailureInfo.systemFailure, "cannot issue certificate", e);
@@ -139,8 +142,8 @@ public class CrmfIrCrMessageHandler implements MessageHandler<ClientCertificateD
     /**
      * Completes the pre-registration the MAC resolved to (protection validation already verified the MAC and stashed
      * the match on the context): the CRMF identity must exactly equal the registration, and issuance runs through the
-     * register→issue completion with the registration challenge as the authorization secret. Every rejection reuses the
-     * single generic wire message.
+     * register→issue completion with the registration challenge as the authorization secret. A rejection of the
+     * registration or of its challenge reuses the single generic wire message.
      */
     private ClientCertificateDataResponseDto completeRegistration(CertReqMessages crmf,
             ConfigurationContext configuration, ASN1OctetString tid) throws CmpBaseException {
@@ -150,6 +153,12 @@ public class CrmfIrCrMessageHandler implements MessageHandler<ClientCertificateD
                     CmpRegistrationResolver.REGISTRATION_REJECTION);
         }
         registrationIdentityVerifier.verify(crmf, matched, CertificateEvent.ISSUE, tid);
+        try {
+            clientOperationService.requireEnrollmentSupport(matched.getCertificateType(), CertificateProtocol.CMP);
+        } catch (UnsupportedCertificateTypeException e) {
+            // before the completion, so that the refusal is answered with its own reason
+            throw new CmpProcessingException(tid, PKIFailureInfo.badRequest, e.getMessage());
+        }
 
         try {
             ClientCertificateIssueRequestDto dto = new ClientCertificateIssueRequestDto();

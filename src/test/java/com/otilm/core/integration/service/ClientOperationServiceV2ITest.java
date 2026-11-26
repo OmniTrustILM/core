@@ -50,13 +50,17 @@ import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
+import com.otilm.api.model.core.certificate.CertificateOperation;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
 import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.certificate.SupportedCertificateTypeDto;
 import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
+import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.otilm.api.model.core.proxy.ProxyStatus;
@@ -74,6 +78,10 @@ import com.otilm.core.attribute.SignatureAlgorithmUtils;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
+import com.otilm.core.certificate.type.AuthorityCertificateTypes;
+import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
+import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
+import com.otilm.core.certificate.type.X509CertificateTypeHandler;
 import com.otilm.core.config.CustomAuditAware;
 import com.otilm.core.dao.entity.Approval;
 import com.otilm.core.dao.entity.ApprovalProfileVersion;
@@ -179,8 +187,10 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Date;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
@@ -234,7 +244,9 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import static com.otilm.core.util.RestrictedTypeHandlerFixtures.registryWithX509Lacking;
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+import static com.otilm.core.util.builders.CertificateContentBuilder.aCertificateContent;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
@@ -294,6 +306,12 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
     @Autowired
     private ClientOperationInternalService clientOperationInternalService;
+    @Autowired
+    private ClientOperationServiceImpl clientOperationServiceImpl;
+    @Autowired
+    private X509CertificateTypeHandler x509Handler;
+    @Autowired
+    private CertificateTypeHandlerRegistry typeHandlerRegistry;
 
     @Autowired
     private ApprovalProfileExternalService approvalProfileService;
@@ -306,6 +324,9 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
     @MockitoSpyBean
     private ActionProducer actionProducer;
+
+    @MockitoSpyBean
+    private AuthorityCertificateTypes authorityCertificateTypes;
 
     @MockitoSpyBean
     private CertificateEventHistoryInternalService certificateEventHistoryService;
@@ -447,6 +468,36 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     @AfterEach
     void tearDown() {
         mockServer.stop();
+    }
+
+    @Test
+    void listsTheTypesTheAuthorityReports_whenAskedForTheRaProfile() throws Exception {
+        // given
+        Set<CertificateType> reported = EnumSet.of(CertificateType.X509, CertificateType.SSH);
+        doReturn(reported).when(authorityCertificateTypes).supportedTypes(raProfile.getUuid());
+
+        // when
+        List<SupportedCertificateTypeDto> types = clientOperationService
+                .listSupportedCertificateTypes(authorityInstanceReference.getSecuredParentUuid(),
+                        raProfile.getSecuredUuid());
+
+        // then
+        assertThat(types)
+                .containsExactlyInAnyOrder(SupportedCertificateTypeDto.of(CertificateType.X509),
+                        SupportedCertificateTypeDto.of(CertificateType.SSH));
+    }
+
+    @Test
+    void listsX509Only_whenTheAuthorityHasNoOperationThatReportsItsTypes() throws Exception {
+        // given — the RA profile belongs to a v2 authority, which cannot report its certificate types
+
+        // when
+        List<SupportedCertificateTypeDto> types = clientOperationService
+                .listSupportedCertificateTypes(authorityInstanceReference.getSecuredParentUuid(),
+                        raProfile.getSecuredUuid());
+
+        // then
+        assertThat(types).containsExactly(SupportedCertificateTypeDto.of(CertificateType.X509));
     }
 
     @Test
@@ -683,6 +734,66 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         assertThat(seen).hasSize(1);
         assertThat(certificateRepository.findByUuid(seen.getFirst())).isEmpty();
         verify(actionProducer, never()).produceMessage(any());
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("protocolEnrollments")
+    void refusesNamingTheOperation_whenTheTypeCannotBeEnrolledThroughTheProtocol(CertificateOperation unsupported,
+            OperationOnACertificate protocolRequest) throws Exception {
+        // given
+        stubIssueEndpoints();
+        long certificatesBefore = certificateRepository.count();
+        clientOperationServiceImpl.setTypeHandlerRegistry(registryWithX509Lacking(x509Handler, unsupported));
+
+        // when
+        ThrowingCallable issue = () -> protocolRequest.run(this);
+
+        // then
+        try {
+            assertThatThrownBy(issue)
+                    .isInstanceOf(UnsupportedCertificateTypeException.class)
+                    .hasMessageContaining(unsupported.getLabel());
+        } finally {
+            clientOperationServiceImpl.setTypeHandlerRegistry(typeHandlerRegistry);
+        }
+        assertThat(certificateRepository.count()).isEqualTo(certificatesBefore);
+    }
+
+    @Test
+    void submitsWithoutAskingTheAuthorityForItsTypes_whenAProtocolRequestsTheCertificate() throws Exception {
+        // given
+        stubIssueEndpoints();
+        doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedTypes(any());
+        CertificateProtocolInfo protocolInfo = CertificateProtocolInfo.est(UUID.randomUUID());
+
+        // when
+        ClientCertificateDataResponseDto response = clientOperationInternalService
+                .issueCertificate(authorityInstanceReference.getSecuredParentUuid(), raProfile.getSecuredUuid(),
+                        issueRequest(), protocolInfo);
+
+        // then
+        assertThat(certificateRepository.findByUuid(UUID.fromString(response.getUuid()))).isPresent();
+        verify(authorityCertificateTypes, never()).requireSupport(any(), any());
+    }
+
+    @Test
+    void refusesBeforeStoring_whenARequestOutsideAProtocolAsksForATypeTheAuthorityDoesNotIssue() throws Exception {
+        // given
+        stubIssueEndpoints();
+        doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedTypes(any());
+        long certificatesBefore = certificateRepository.count();
+        ClientCertificateIssueRequestDto request = issueRequest();
+
+        // when
+        ThrowingCallable issue = () -> clientOperationInternalService
+                .issueCertificate(authorityInstanceReference.getSecuredParentUuid(), raProfile.getSecuredUuid(),
+                        request, null);
+
+        // then
+        assertThatThrownBy(issue)
+                .isInstanceOf(UnsupportedCertificateTypeException.class)
+                .hasMessageContaining(raProfile.getName());
+        assertThat(certificateRepository.count()).isEqualTo(certificatesBefore);
     }
 
     @Test
@@ -959,6 +1070,9 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                 .of(operation("list issue attributes",
                         (service, authority, profile, certificateUuid) -> service
                                 .listIssueCertificateAttributes(authority, profile)),
+                        operation("list certificate types",
+                                (service, authority, profile, certificateUuid) -> service
+                                        .listSupportedCertificateTypes(authority, profile)),
                         operation("list register attributes",
                                 (service, authority, profile, certificateUuid) -> service
                                         .listRegisterCertificateAttributes(authority, profile)),
@@ -1747,6 +1861,208 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                 .getCertificate(SecuredUUID.fromString(submitted.getUuid()));
         assertThat(detail.getCertificateRequest().getCertificateRequestFormat())
                 .isEqualTo(CertificateRequestFormat.PKCS10);
+    }
+
+    @Test
+    void storesPkcs10_whenRenewingWithARequestWithoutAFormat() throws Exception {
+        // given
+        stubAuthorityProviderAttributesEndpoints();
+        var subjectDn = "CN=renew-no-format";
+        KeyPair currentKeys = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+        storeAsCurrentCertificate(currentKeys, subjectDn);
+        ClientCertificateRenewRequestDto request = new ClientCertificateRenewRequestDto();
+        request.setRequest(generatePkcs10(currentKeys, subjectDn));
+
+        // when
+        ClientCertificateDataResponseDto renewed = clientOperationService
+                .renewCertificate(authorityInstanceReference.getSecuredParentUuid(), raProfile.getSecuredUuid(),
+                        certificate.getUuid().toString(), request);
+
+        // then
+        assertThat(loadStoredRequestFormat(renewed)).isEqualTo(CertificateRequestFormat.PKCS10);
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("operationsOnACertificate")
+    void refusesNamingTheOperation_whenTheTypeOfTheCertificateDoesNotSupportIt(CertificateOperation unsupported,
+            OperationOnACertificate operation) {
+        // given
+        long certificatesBefore = certificateRepository.count();
+        clientOperationServiceImpl.setTypeHandlerRegistry(registryWithX509Lacking(x509Handler, unsupported));
+
+        // when
+        ThrowingCallable operate = () -> operation.run(this);
+
+        // then
+        try {
+            assertThatThrownBy(operate)
+                    .isInstanceOf(UnsupportedCertificateTypeException.class)
+                    .hasMessageContaining(unsupported.getLabel());
+        } finally {
+            clientOperationServiceImpl.setTypeHandlerRegistry(typeHandlerRegistry);
+        }
+        assertThat(certificateRepository.count()).isEqualTo(certificatesBefore);
+        mockServer.verify(0, WireMock.anyRequestedFor(WireMock.anyUrl()));
+    }
+
+    @Test
+    void refusesToIssueARequestStoredEarlier_whenTheAuthorityDoesNotIssueTheTypeOfTheCertificate() throws Exception {
+        // given
+        doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedTypes(any());
+        UUID requestedUuid = prepareCertificateForIssuance();
+
+        // when
+        ThrowingCallable issue = () -> clientOperationService
+                .issueExistingCertificate(authorityInstanceReference.getSecuredParentUuid(), raProfile.getSecuredUuid(),
+                        requestedUuid.toString(), null);
+
+        // then
+        assertThatThrownBy(issue)
+                .isInstanceOf(UnsupportedCertificateTypeException.class)
+                .hasMessageContaining(raProfile.getName());
+        verify(actionProducer, never()).produceMessage(any());
+    }
+
+    @Test
+    void refusesToRenew_whenTheAuthorityDoesNotIssueTheTypeOfTheCertificate() throws Exception {
+        // given
+        doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedTypes(any());
+        long certificatesBefore = certificateRepository.count();
+        ClientCertificateRenewRequestDto request = new ClientCertificateRenewRequestDto();
+
+        // when
+        ThrowingCallable renew = () -> clientOperationService
+                .renewCertificate(authorityInstanceReference.getSecuredParentUuid(), raProfile.getSecuredUuid(),
+                        certificate.getUuid().toString(), request);
+
+        // then
+        assertThatThrownBy(renew)
+                .isInstanceOf(UnsupportedCertificateTypeException.class)
+                .hasMessageContaining(raProfile.getName());
+        assertThat(certificateRepository.count()).isEqualTo(certificatesBefore);
+        mockServer.verify(0, WireMock.anyRequestedFor(WireMock.anyUrl()));
+    }
+
+    @Test
+    void renewsWithoutAskingTheAuthorityForItsTypes_whenAProtocolRequestsTheRenewal() throws Exception {
+        // given
+        stubAuthorityProviderAttributesEndpoints();
+        doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedTypes(any());
+        var subjectDn = "CN=renew-through-protocol";
+        KeyPair currentKeys = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+        storeAsCurrentCertificate(currentKeys, subjectDn);
+        ClientCertificateRenewRequestDto request = new ClientCertificateRenewRequestDto();
+        request.setRequest(generatePkcs10(currentKeys, subjectDn));
+        CertificateProtocolInfo protocolInfo = CertificateProtocolInfo.est(UUID.randomUUID());
+
+        // when
+        ClientCertificateDataResponseDto renewed = clientOperationInternalService
+                .renewCertificate(authorityInstanceReference.getSecuredParentUuid(), raProfile.getSecuredUuid(),
+                        certificate.getUuid().toString(), request, protocolInfo, null);
+
+        // then
+        assertThat(certificateRepository.findByUuid(UUID.fromString(renewed.getUuid()))).isPresent();
+        verify(authorityCertificateTypes, never()).requireSupport(any(), any());
+    }
+
+    @Test
+    void refusesToRekey_whenTheAuthorityDoesNotIssueTheTypeOfTheCertificate() throws Exception {
+        // given
+        doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedTypes(any());
+        long certificatesBefore = certificateRepository.count();
+        ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
+
+        // when
+        ThrowingCallable rekey = () -> clientOperationService
+                .rekeyCertificate(authorityInstanceReference.getSecuredParentUuid(), raProfile.getSecuredUuid(),
+                        certificate.getUuid().toString(), request);
+
+        // then
+        assertThatThrownBy(rekey)
+                .isInstanceOf(UnsupportedCertificateTypeException.class)
+                .hasMessageContaining(raProfile.getName());
+        assertThat(certificateRepository.count()).isEqualTo(certificatesBefore);
+        mockServer.verify(0, WireMock.anyRequestedFor(WireMock.anyUrl()));
+    }
+
+    @Test
+    void refusesAsValidation_whenManuallyIssuingWithoutACertificate() throws Exception {
+        // given
+        setupPendingIssueCertWithRealCsr();
+        ManuallyIssueCertificateRequestDto withoutCertificate = new ManuallyIssueCertificateRequestDto();
+        withoutCertificate.setCustomAttributes(List.of());
+
+        // when
+        ThrowingCallable issue = () -> clientOperationService
+                .manuallyIssueCertificate(SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
+                        raProfile.getSecuredUuid(), certificate.getUuid().toString(), withoutCertificate);
+
+        // then
+        assertThatThrownBy(issue).isInstanceOf(ValidationException.class);
+        assertThat(certificateRepository.findByUuid(certificate.getUuid()).orElseThrow().getState())
+                .isEqualTo(CertificateState.PENDING_ISSUE);
+    }
+
+    @Test
+    void storesPkcs10_whenRekeyingWithARequestWithoutAFormat() throws Exception {
+        // given
+        stubAuthorityProviderAttributesEndpoints();
+        var subjectDn = "CN=rekey-no-format";
+        storeAsCurrentCertificate(CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null), subjectDn);
+        KeyPair newKeys = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+        ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
+        request.setRequest(generatePkcs10(newKeys, subjectDn));
+
+        // when
+        ClientCertificateDataResponseDto rekeyed = clientOperationService
+                .rekeyCertificate(authorityInstanceReference.getSecuredParentUuid(), raProfile.getSecuredUuid(),
+                        certificate.getUuid().toString(), request);
+
+        // then
+        assertThat(loadStoredRequestFormat(rekeyed)).isEqualTo(CertificateRequestFormat.PKCS10);
+    }
+
+    @Test
+    void rekeysWithoutAskingTheAuthorityForItsTypes_whenAProtocolRequestsTheRekey() throws Exception {
+        // given
+        stubAuthorityProviderAttributesEndpoints();
+        doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedTypes(any());
+        var subjectDn = "CN=rekey-through-protocol";
+        storeAsCurrentCertificate(CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null), subjectDn);
+        KeyPair newKeys = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+        ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
+        request.setRequest(generatePkcs10(newKeys, subjectDn));
+
+        // when
+        ClientCertificateDataResponseDto rekeyed = clientOperationInternalService
+                .rekeyCertificateThroughProtocol(authorityInstanceReference.getSecuredParentUuid(),
+                        raProfile.getSecuredUuid(), certificate.getUuid().toString(), request);
+
+        // then
+        assertThat(certificateRepository.findByUuid(UUID.fromString(rekeyed.getUuid()))).isPresent();
+        verify(authorityCertificateTypes, never()).requireSupport(any(), any());
+    }
+
+    @Test
+    void rekeysWithoutAskingTheAuthorityForItsTypes_whenTheRekeyCarriesProtocolInformation() throws Exception {
+        // given
+        stubAuthorityProviderAttributesEndpoints();
+        doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedTypes(any());
+        var subjectDn = "CN=rekey-with-protocol-information";
+        storeAsCurrentCertificate(CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null), subjectDn);
+        KeyPair newKeys = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+        ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
+        request.setRequest(generatePkcs10(newKeys, subjectDn));
+        CertificateProtocolInfo protocolInfo = CertificateProtocolInfo.est(UUID.randomUUID());
+
+        // when
+        ClientCertificateDataResponseDto rekeyed = clientOperationInternalService
+                .rekeyCertificate(authorityInstanceReference.getSecuredParentUuid(), raProfile.getSecuredUuid(),
+                        certificate.getUuid().toString(), request, protocolInfo, null);
+
+        // then
+        assertThat(certificateRepository.findByUuid(UUID.fromString(rekeyed.getUuid()))).isPresent();
+        verify(authorityCertificateTypes, never()).requireSupport(any(), any());
     }
 
     @Test
@@ -2550,33 +2866,6 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         certificate.setCertificateRequestUuid(csr.getUuid());
         certificateRepository.save(certificate);
         return certificate.getUuid();
-    }
-
-    @Test
-    void issueCertificateAction_pushesToLocationLinkedAfterTheClaim() throws Exception {
-        UUID certUuid = prepareCertificateForIssuance();
-        String certificateData = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
-        mockServer
-                .stubFor(WireMock
-                        .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue"))
-                        .willReturn(WireMock.okJson("{ \"certificateData\": \"" + certificateData + "\" }")));
-        mockServer
-                .stubFor(WireMock
-                        .post(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/push"))
-                        .willReturn(WireMock.okJson("{\"withKey\": true}")));
-        // A pending certificate can be linked to a location at any time before it is issued.
-        doAnswer(inv -> {
-            placeOnLocation(certUuid, "linked-after-claim");
-            return inv.callRealMethod();
-        }).when(certificateService).issueRequestedCertificate(any(), any(), any());
-
-        clientOperationInternalService.issueCertificateAction(certUuid, true);
-
-        mockServer
-                .verify(1,
-                        WireMock
-                                .postRequestedFor(
-                                        WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/push")));
     }
 
     @Test
@@ -3559,35 +3848,6 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                                 + "to precede ISSUED on the sync renew path");
     }
 
-    @Test
-    void renewCertificateAction_keepsRuntimeCauseOutOfHistoryAndError_whenLocalUpdateFailsAfterAcceptance()
-            throws Exception {
-        // given - the connector renews synchronously, then recording the issued successor fails
-        prepareCertificateForRenewal();
-        String certificateData = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
-        mockServer
-                .stubFor(WireMock
-                        .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/renew"))
-                        .willReturn(WireMock.okJson("{ \"certificateData\": \"" + certificateData + "\" }")));
-        doThrow(new RuntimeException("internal db detail"))
-                .when(certificateService)
-                .issueRequestedCertificate(any(), any(), any());
-        ClientCertificateRenewRequestDto request = ClientCertificateRenewRequestDto.builder().build();
-        UUID successorUuid = certificate.getUuid();
-
-        // when
-        CertificateOperationException ex = Assertions
-                .assertThrows(CertificateOperationException.class,
-                        () -> clientOperationInternalService.renewCertificateAction(successorUuid, request, true));
-
-        // then
-        Assertions
-                .assertEquals("Connector accepted renewal but local update failed for certificate %s: internal error"
-                        .formatted(successorUuid), ex.getMessage());
-        assertFailedHistory(CertificateEvent.RENEW,
-                "Connector accepted renewal but local update failed: internal error");
-    }
-
     /**
      * The synchronous (HTTP 200) rekey path moves the new certificate to PENDING_ISSUE via the state machine BEFORE the
      * connector call, then finishes in ISSUED — mirroring the renew path.
@@ -3617,34 +3877,6 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                                         && "Certificate requested".equals(h.getMessage())),
                         "expected the PENDING_ISSUE audit row (ISSUE/SUCCESS, \"Certificate requested\") "
                                 + "to precede ISSUED on the sync rekey path");
-    }
-
-    @Test
-    void rekeyCertificateAction_keepsRuntimeCauseOutOfHistoryAndError_whenLocalUpdateFailsAfterAcceptance()
-            throws Exception {
-        // given - the connector rekeys synchronously, then recording the issued successor fails
-        prepareCertificateForRenewal();
-        String certificateData = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
-        mockServer
-                .stubFor(WireMock
-                        .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/renew"))
-                        .willReturn(WireMock.okJson("{ \"certificateData\": \"" + certificateData + "\" }")));
-        doThrow(new RuntimeException("internal db detail"))
-                .when(certificateService)
-                .issueRequestedCertificate(any(), any(), any());
-        ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
-        UUID successorUuid = certificate.getUuid();
-
-        // when
-        CertificateOperationException ex = Assertions
-                .assertThrows(CertificateOperationException.class,
-                        () -> clientOperationInternalService.rekeyCertificateAction(successorUuid, request, true));
-
-        // then
-        Assertions
-                .assertEquals("Connector accepted rekey but local update failed for certificate %s: internal error"
-                        .formatted(successorUuid), ex.getMessage());
-        assertFailedHistory(CertificateEvent.REKEY, "Connector accepted rekey but local update failed: internal error");
     }
 
     @Test
@@ -5532,6 +5764,23 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         }
 
         @Test
+        void completesTheRegistrationWithoutAskingTheAuthorityForItsTypes() throws Exception {
+            // given
+            doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedTypes(any());
+            ClientCertificateIssueRequestDto completion = createCompletionRequest();
+
+            // when
+            clientOperationService.issueExistingCertificate(authorityUuid, raProfileUuid, registrationUuid, completion);
+
+            // then
+            assertThat(certificateRepository
+                    .findByUuid(UUID.fromString(registrationUuid))
+                    .orElseThrow()
+                    .getCertificateRequestUuid()).isNotNull();
+            verify(authorityCertificateTypes, never()).requireSupport(any(), any());
+        }
+
+        @Test
         void completesTheRegistration_whenRetriedAfterTheIssueCouldNotBeQueued() throws Exception {
             // given — a completion whose issue could not be queued
             doThrow(new IllegalStateException("broker down")).doNothing().when(actionProducer).produceMessage(any());
@@ -5925,7 +6174,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
             stubIssuedSynchronously(RENEW_PATH);
             doThrow(new RuntimeException("internal db detail"))
                     .when(certificateService)
-                    .issueRequestedCertificate(any(), any(), any());
+                    .issueRequestedCertificate(any(), any(), any(), any());
             ClientCertificateRenewRequestDto request = ClientCertificateRenewRequestDto.builder().build();
 
             // when
@@ -5945,7 +6194,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
             stubIssuedSynchronously(RENEW_PATH);
             doThrow(new RuntimeException("internal db detail"))
                     .when(certificateService)
-                    .issueRequestedCertificate(any(), any(), any());
+                    .issueRequestedCertificate(any(), any(), any(), any());
             ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
 
             // when
@@ -6157,6 +6406,58 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     class RenewCertificateAction {
 
         @Test
+        void keepsRuntimeCauseOutOfHistoryAndError_whenLocalUpdateFailsAfterAcceptance() throws Exception {
+            // given — the connector renews synchronously, then recording the issued successor fails
+            prepareCertificateForRenewal();
+            String certificateData = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
+            mockServer
+                    .stubFor(WireMock
+                            .post(WireMock
+                                    .urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/renew"))
+                            .willReturn(WireMock.okJson("{ \"certificateData\": \"" + certificateData + "\" }")));
+            doThrow(new RuntimeException("internal db detail"))
+                    .when(certificateService)
+                    .issueRequestedCertificate(any(), any(), any(), any());
+            ClientCertificateRenewRequestDto request = ClientCertificateRenewRequestDto.builder().build();
+            UUID successorUuid = certificate.getUuid();
+
+            // when
+            ThrowingCallable renew = () -> clientOperationInternalService
+                    .renewCertificateAction(successorUuid, request, true);
+
+            // then
+            assertThatThrownBy(renew)
+                    .isInstanceOf(CertificateOperationException.class)
+                    .hasMessageContaining(
+                            "Connector accepted renewal but local update failed for certificate " + successorUuid)
+                    .hasMessageNotContaining("internal db detail");
+            assertFailedHistory(CertificateEvent.RENEW,
+                    "Connector accepted renewal but local update failed: internal error");
+        }
+
+        @Test
+        void refusesTheSuccessor_whenTheAuthorityReturnsAnotherTypeThanRequested() throws Exception {
+            // given
+            prepareCertificateForRenewal();
+            var returnedType = CertificateType.SSH;
+            stubRenewalReturningX509ContentLabelled(returnedType);
+            ClientCertificateRenewRequestDto request = ClientCertificateRenewRequestDto.builder().build();
+            UUID successorUuid = certificate.getUuid();
+            var refusal = "The authority returned a certificate of type %s where %s was requested"
+                    .formatted(returnedType.getLabel(), CertificateType.X509.getLabel());
+
+            // when
+            ThrowingCallable renew = () -> clientOperationInternalService
+                    .renewCertificateAction(successorUuid, request, true);
+
+            // then
+            assertThatThrownBy(renew).isInstanceOf(CertificateOperationException.class).hasMessageContaining(refusal);
+            assertFailedHistory(CertificateEvent.RENEW,
+                    "Connector accepted renewal but local update failed: " + refusal);
+            assertPendingWithoutContent(successorUuid);
+        }
+
+        @Test
         void doesNotLogConnectorText_whenTheAuthorityRefuses() {
             // given
             var connectorEcho = "connector-echo-7f3a";
@@ -6336,6 +6637,57 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     class RekeyCertificateAction {
 
         @Test
+        void keepsRuntimeCauseOutOfHistoryAndError_whenLocalUpdateFailsAfterAcceptance() throws Exception {
+            // given — the connector rekeys synchronously, then recording the issued successor fails
+            prepareCertificateForRenewal();
+            String certificateData = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
+            mockServer
+                    .stubFor(WireMock
+                            .post(WireMock
+                                    .urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/renew"))
+                            .willReturn(WireMock.okJson("{ \"certificateData\": \"" + certificateData + "\" }")));
+            doThrow(new RuntimeException("internal db detail"))
+                    .when(certificateService)
+                    .issueRequestedCertificate(any(), any(), any(), any());
+            ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
+            UUID successorUuid = certificate.getUuid();
+
+            // when
+            ThrowingCallable rekey = () -> clientOperationInternalService
+                    .rekeyCertificateAction(successorUuid, request, true);
+
+            // then
+            assertThatThrownBy(rekey)
+                    .isInstanceOf(CertificateOperationException.class)
+                    .hasMessageContaining(
+                            "Connector accepted rekey but local update failed for certificate " + successorUuid)
+                    .hasMessageNotContaining("internal db detail");
+            assertFailedHistory(CertificateEvent.REKEY,
+                    "Connector accepted rekey but local update failed: internal error");
+        }
+
+        @Test
+        void refusesTheSuccessor_whenTheAuthorityReturnsAnotherTypeThanRequested() throws Exception {
+            // given
+            prepareCertificateForRenewal();
+            var returnedType = CertificateType.SSH;
+            stubRenewalReturningX509ContentLabelled(returnedType);
+            ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
+            UUID successorUuid = certificate.getUuid();
+            var refusal = "The authority returned a certificate of type %s where %s was requested"
+                    .formatted(returnedType.getLabel(), CertificateType.X509.getLabel());
+
+            // when
+            ThrowingCallable rekey = () -> clientOperationInternalService
+                    .rekeyCertificateAction(successorUuid, request, true);
+
+            // then
+            assertThatThrownBy(rekey).isInstanceOf(CertificateOperationException.class).hasMessageContaining(refusal);
+            assertFailedHistory(CertificateEvent.REKEY, "Connector accepted rekey but local update failed: " + refusal);
+            assertPendingWithoutContent(successorUuid);
+        }
+
+        @Test
         void doesNotLogConnectorText_whenTheAuthorityRefuses() {
             // given
             var connectorEcho = "connector-echo-7f3a";
@@ -6446,6 +6798,35 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     class IssueCertificateAction {
 
         @Test
+        void pushesToALocationLinkedAfterTheClaim() throws Exception {
+            // given — a pending certificate can be linked to a location at any time before it is issued
+            UUID certUuid = prepareCertificateForIssuance();
+            String certificateData = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
+            mockServer
+                    .stubFor(WireMock
+                            .post(WireMock
+                                    .urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue"))
+                            .willReturn(WireMock.okJson("{ \"certificateData\": \"" + certificateData + "\" }")));
+            mockServer
+                    .stubFor(WireMock
+                            .post(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/push"))
+                            .willReturn(WireMock.okJson("{\"withKey\": true}")));
+            doAnswer(inv -> {
+                placeOnLocation(certUuid, "linked-after-claim");
+                return inv.callRealMethod();
+            }).when(certificateService).issueRequestedCertificate(any(), any(), any(), any());
+
+            // when
+            clientOperationInternalService.issueCertificateAction(certUuid, true);
+
+            // then
+            mockServer
+                    .verify(1, WireMock
+                            .postRequestedFor(
+                                    WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/push")));
+        }
+
+        @Test
         void failsTheCertificateWithoutConnectorText_whenTheLocationRejectsCleaningItUp() {
             // given
             var locationEcho = "location-echo-4c1d";
@@ -6471,6 +6852,160 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static Stream<Arguments> protocolEnrollments() {
+        return Stream
+                .of(Arguments
+                        .of(named("issue through ACME", CertificateOperation.ENROLL_ACME),
+                                issueThrough(CertificateProtocolInfo.Acme(UUID.randomUUID(), UUID.randomUUID()))),
+                        Arguments
+                                .of(named("issue through SCEP", CertificateOperation.ENROLL_SCEP),
+                                        issueThrough(CertificateProtocolInfo.Scep(UUID.randomUUID()))),
+                        Arguments
+                                .of(named("issue through CMP", CertificateOperation.ENROLL_CMP),
+                                        issueThrough(CertificateProtocolInfo.Cmp(UUID.randomUUID()))),
+                        Arguments
+                                .of(named("issue through EST", CertificateOperation.ENROLL_EST),
+                                        issueThrough(CertificateProtocolInfo.est(UUID.randomUUID()))),
+                        Arguments
+                                .of(named("request submitted through SCEP", CertificateOperation.ENROLL_SCEP),
+                                        (OperationOnACertificate) test -> test.clientOperationInternalService
+                                                .submitCertificateRequest(new ClientCertificateRequestDto(),
+                                                        CertificateProtocolInfo.Scep(UUID.randomUUID()))),
+                        Arguments
+                                .of(named("renewal through EST", CertificateOperation.ENROLL_EST),
+                                        (OperationOnACertificate) test -> test.clientOperationInternalService
+                                                .renewCertificate(
+                                                        test.authorityInstanceReference.getSecuredParentUuid(),
+                                                        test.raProfile.getSecuredUuid(),
+                                                        test.certificate.getUuid().toString(),
+                                                        new ClientCertificateRenewRequestDto(),
+                                                        CertificateProtocolInfo.est(UUID.randomUUID()), null)),
+                        Arguments
+                                .of(named("rekey through EST", CertificateOperation.ENROLL_EST),
+                                        (OperationOnACertificate) test -> test.clientOperationInternalService
+                                                .rekeyCertificate(
+                                                        test.authorityInstanceReference.getSecuredParentUuid(),
+                                                        test.raProfile.getSecuredUuid(),
+                                                        test.certificate.getUuid().toString(),
+                                                        new ClientCertificateRekeyRequestDto(),
+                                                        CertificateProtocolInfo.est(UUID.randomUUID()), null)),
+                        Arguments
+                                .of(named("direct check for CMP", CertificateOperation.ENROLL_CMP),
+                                        (OperationOnACertificate) test -> test.clientOperationInternalService
+                                                .requireEnrollmentSupport(CertificateType.X509,
+                                                        CertificateProtocol.CMP)));
+    }
+
+    private static OperationOnACertificate issueThrough(CertificateProtocolInfo protocolInfo) {
+        return test -> test.clientOperationInternalService
+                .issueCertificate(test.authorityInstanceReference.getSecuredParentUuid(),
+                        test.raProfile.getSecuredUuid(), test.issueRequest(), protocolInfo);
+    }
+
+    private static Stream<Arguments> operationsOnACertificate() {
+        return Stream
+                .of(Arguments
+                        .of(CertificateOperation.REVOKE,
+                                (OperationOnACertificate) test -> test.clientOperationService
+                                        .revokeCertificate(test.authorityInstanceReference.getSecuredParentUuid(),
+                                                test.raProfile.getSecuredUuid(), test.certificate.getUuid().toString(),
+                                                new ClientCertificateRevocationDto())),
+                        Arguments
+                                .of(CertificateOperation.RENEW,
+                                        (OperationOnACertificate) test -> test.clientOperationService
+                                                .renewCertificate(
+                                                        test.authorityInstanceReference.getSecuredParentUuid(),
+                                                        test.raProfile.getSecuredUuid(),
+                                                        test.certificate.getUuid().toString(),
+                                                        new ClientCertificateRenewRequestDto())),
+                        Arguments
+                                .of(CertificateOperation.REKEY,
+                                        (OperationOnACertificate) test -> test.clientOperationService
+                                                .rekeyCertificate(
+                                                        test.authorityInstanceReference.getSecuredParentUuid(),
+                                                        test.raProfile.getSecuredUuid(),
+                                                        test.certificate.getUuid().toString(),
+                                                        new ClientCertificateRekeyRequestDto())),
+                        Arguments
+                                .of(named("renewal replacing in locations", CertificateOperation.PUSH_TO_LOCATION),
+                                        (OperationOnACertificate) test -> test.clientOperationService
+                                                .renewCertificate(
+                                                        test.authorityInstanceReference.getSecuredParentUuid(),
+                                                        test.raProfile.getSecuredUuid(),
+                                                        test.certificate.getUuid().toString(),
+                                                        createRenewalRequestReplacingInLocations())),
+                        Arguments
+                                .of(named("rekey replacing in locations", CertificateOperation.PUSH_TO_LOCATION),
+                                        (OperationOnACertificate) test -> test.clientOperationService
+                                                .rekeyCertificate(
+                                                        test.authorityInstanceReference.getSecuredParentUuid(),
+                                                        test.raProfile.getSecuredUuid(),
+                                                        test.certificate.getUuid().toString(),
+                                                        createRekeyRequestReplacingInLocations())));
+    }
+
+    private static ClientCertificateRekeyRequestDto createRekeyRequestReplacingInLocations() {
+        ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
+        request.setReplaceInLocations(true);
+        return request;
+    }
+
+    private static ClientCertificateRenewRequestDto createRenewalRequestReplacingInLocations() {
+        ClientCertificateRenewRequestDto request = new ClientCertificateRenewRequestDto();
+        request.setReplaceInLocations(true);
+        return request;
+    }
+
+    @FunctionalInterface
+    private interface OperationOnACertificate {
+        void run(ClientOperationServiceV2ITest test) throws Exception;
+    }
+
+    private void stubRenewalReturningX509ContentLabelled(CertificateType statedType) throws Exception {
+        String certificateData = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/renew"))
+                        .willReturn(WireMock
+                                .okJson("{ \"certificateData\": \"%s\", \"certificateType\": \"%s\" }"
+                                        .formatted(certificateData, statedType.getCode()))));
+    }
+
+    private void assertPendingWithoutContent(UUID certificateUuid) {
+        Certificate reloaded = certificateRepository.findByUuid(certificateUuid).orElseThrow();
+        assertThat(reloaded.getState()).isEqualTo(CertificateState.PENDING_ISSUE);
+        CertificateContent stored = reloaded.getCertificateContent();
+        assertThat(stored == null ? null : stored.getContent()).isNull();
+    }
+
+    private void storeAsCurrentCertificate(KeyPair holderKeys, String subjectDn) throws Exception {
+        KeyPair issuerKeys = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+        X509Certificate issuer = CertificateGeneratorHelper.generateCACertificate(issuerKeys, subjectDn + "-issuer");
+        X509Certificate current = CertificateGeneratorHelper
+                .generateEndEntityCertificate(issuerKeys, issuer, holderKeys, subjectDn, null);
+        CertificateContent content = certificateContentRepository
+                .save(aCertificateContent()
+                        .withContent(Base64.getEncoder().encodeToString(current.getEncoded()))
+                        .build());
+        certificate.setCertificateContent(content);
+        certificate.setHybridCertificate(false);
+        certificate.setAltKeyUuid(null);
+        certificateRepository.save(certificate);
+    }
+
+    private static String generatePkcs10(KeyPair keys, String subjectDn) throws Exception {
+        return CertificateGeneratorHelper
+                .generateCsrBase64Der(keys.getPrivate(), keys.getPublic(), subjectDn, "SHA256withRSA");
+    }
+
+    private CertificateRequestFormat loadStoredRequestFormat(ClientCertificateDataResponseDto response)
+            throws Exception {
+        return certificateExternalService
+                .getCertificate(SecuredUUID.fromString(response.getUuid()))
+                .getCertificateRequest()
+                .getCertificateRequestFormat();
+    }
 
     private static Stream<Arguments> connectorCancelAnswers() {
         return Stream

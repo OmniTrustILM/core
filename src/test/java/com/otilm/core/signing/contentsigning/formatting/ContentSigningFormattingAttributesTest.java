@@ -4,12 +4,10 @@ import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.interfaces.client.v1.signing.contentsigning.ContentSigningFormattingSyncApiClient;
-import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
-import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
-import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
-import com.otilm.api.model.common.attribute.v2.InfoAttributeV2;
+import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
+import com.otilm.api.model.common.attribute.v3.InfoAttributeV3;
 import com.otilm.api.model.common.signature.SignatureLevel;
 import com.otilm.api.model.connector.signatures.contentsigning.common.ContentSigningFormattingAttributesDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.ContentSigningFormattingOperation;
@@ -24,6 +22,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import static com.otilm.core.util.builders.DataAttributeV3Builder.aDataAttribute;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -188,7 +187,7 @@ class ContentSigningFormattingAttributesTest {
             when(connectorApiFactory.getContentSigningFormattingApiClient(connector)).thenReturn(apiClient);
             when(apiClient.listFormattingAttributes(connector, ContentSigningFormattingOperation.COMPUTE_DTBS))
                     .thenReturn(profileListing(attribute("reason")));
-            DataAttributeV2 divergent = attribute("reason");
+            DataAttributeV3 divergent = attribute("reason");
             divergent.setContentType(AttributeContentType.INTEGER);
             when(apiClient.listFormattingAttributes(connector, ContentSigningFormattingOperation.EMBED_SIGNATURE_VALUE))
                     .thenReturn(profileListing(divergent));
@@ -206,7 +205,7 @@ class ContentSigningFormattingAttributesTest {
             when(connectorApiFactory.getContentSigningFormattingApiClient(connector)).thenReturn(apiClient);
             when(apiClient.listFormattingAttributes(connector, ContentSigningFormattingOperation.COMPUTE_DTBS))
                     .thenReturn(profileListing(attribute("reason")));
-            DataAttributeV2 divergent = attribute("reason");
+            DataAttributeV3 divergent = attribute("reason");
             divergent.getProperties().setRequired(true);
             when(apiClient.listFormattingAttributes(connector, ContentSigningFormattingOperation.EMBED_SIGNATURE_VALUE))
                     .thenReturn(profileListing(divergent));
@@ -216,6 +215,28 @@ class ContentSigningFormattingAttributesTest {
 
             // then
             assertThatThrownBy(aggregate).isInstanceOf(ValidationException.class).hasMessageContaining("reason");
+        }
+
+        @Test
+        void namesBothOperations_whenTwoOperationsDeclareTheSameNameDifferently() throws Exception {
+            // given
+            when(connectorApiFactory.getContentSigningFormattingApiClient(connector)).thenReturn(apiClient);
+            when(apiClient.listFormattingAttributes(connector, ContentSigningFormattingOperation.COMPUTE_DTBS))
+                    .thenReturn(profileListing(attribute("reason")));
+            DataAttributeV3 divergent = attribute("reason");
+            divergent.setContentType(AttributeContentType.INTEGER);
+            when(apiClient.listFormattingAttributes(connector, ContentSigningFormattingOperation.EMBED_SIGNATURE_VALUE))
+                    .thenReturn(profileListing(divergent));
+
+            // when
+            ThrowingCallable aggregate = () -> attributes.aggregate(connector, SignatureLevel.SIGNED);
+
+            // then
+            assertThatThrownBy(aggregate)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("'%s'".formatted(ContentSigningFormattingOperation.COMPUTE_DTBS.getCode()))
+                    .hasMessageContaining(
+                            "'%s'".formatted(ContentSigningFormattingOperation.EMBED_SIGNATURE_VALUE.getCode()));
         }
 
         @Test
@@ -270,7 +291,7 @@ class ContentSigningFormattingAttributesTest {
         @Test
         void rejectsTheListing_whenARequestAttributeIsNotADataAttribute() throws Exception {
             // given
-            var infoAttribute = new InfoAttributeV2();
+            var infoAttribute = new InfoAttributeV3();
             infoAttribute.setName("notice");
             stubListings(requestListing(infoAttribute), profileListing());
 
@@ -338,6 +359,41 @@ class ContentSigningFormattingAttributesTest {
                     .hasMessageContaining("a group and a request attribute need distinct names");
         }
 
+        @Test
+        void rejectsTheListing_whenARequestAttributesGroupIsBlank() throws Exception {
+            // given
+            var underABlankGroup = attribute("location");
+            underABlankGroup.getProperties().setGroup(" ");
+            stubListings(requestListing(underABlankGroup), profileListing());
+
+            // when
+            ThrowingCallable aggregate = () -> attributes.aggregate(connector, SignatureLevel.SIGNED);
+
+            // then
+            assertThatThrownBy(aggregate)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("'%s'".formatted(underABlankGroup.getName()))
+                    .hasMessageContaining("blank");
+        }
+
+        @Test
+        void rejectsTheListing_whenItDeclaresARequestAttributeTwiceDifferently() throws Exception {
+            // given
+            var location = attribute("location");
+            var divergentLocation = attribute("location");
+            divergentLocation.setContentType(AttributeContentType.INTEGER);
+            stubListings(requestListing(location, divergentLocation), profileListing());
+
+            // when
+            ThrowingCallable aggregate = () -> attributes.aggregate(connector, SignatureLevel.SIGNED);
+
+            // then
+            assertThatThrownBy(aggregate)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("'%s' twice".formatted(location.getName()))
+                    .hasMessageNotContaining("earlier operation");
+        }
+
         // ── Helpers ───────────────────────────────────────────────────────────
 
         private void stubListings(ContentSigningFormattingAttributesDto computeDtbs,
@@ -360,15 +416,7 @@ class ContentSigningFormattingAttributesTest {
         return new ContentSigningFormattingAttributesDto(List.of(profileAttributes), List.of());
     }
 
-    private static DataAttributeV2 attribute(String name) {
-        DataAttributeV2 attribute = new DataAttributeV2();
-        attribute.setUuid(UUID.nameUUIDFromBytes(name.getBytes()).toString());
-        attribute.setName(name);
-        attribute.setType(AttributeType.DATA);
-        attribute.setContentType(AttributeContentType.STRING);
-        DataAttributeProperties properties = new DataAttributeProperties();
-        properties.setLabel(name);
-        attribute.setProperties(properties);
-        return attribute;
+    private static DataAttributeV3 attribute(String name) {
+        return aDataAttribute().withUuid(UUID.nameUUIDFromBytes(name.getBytes())).withName(name).build();
     }
 }

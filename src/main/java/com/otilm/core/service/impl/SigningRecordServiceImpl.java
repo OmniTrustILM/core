@@ -67,7 +67,6 @@ import org.apache.commons.lang3.function.TriFunction;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -139,9 +138,10 @@ public class SigningRecordServiceImpl implements SigningRecordExternalService, S
     @Override
     @ExternalAuthorization(resource = Resource.SIGNING_RECORD, action = ResourceAction.LIST,
             parentResource = Resource.SIGNING_PROFILE, parentAction = ResourceAction.LIST)
-    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    @Transactional(readOnly = true)
     public SigningRecordStatisticsDto getSigningRecordStatistics(SigningRecordStatisticsPeriod period,
             SecurityFilter filter) {
+        signingRecordWriter.readUnderOneSnapshot();
         filter.setParentRefProperty(SIGNING_PROFILE_PARENT_REF);
         Instant now = Instant.now();
 

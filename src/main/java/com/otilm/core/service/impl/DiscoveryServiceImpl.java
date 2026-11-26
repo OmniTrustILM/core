@@ -14,10 +14,13 @@ import com.otilm.api.model.client.certificate.DiscoveryResponseDto;
 import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
+import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.client.discovery.DiscoveryCertificateResponseDto;
 import com.otilm.api.model.client.discovery.DiscoveryDetailDto;
 import com.otilm.api.model.client.discovery.DiscoveryDto;
 import com.otilm.api.model.client.discovery.DiscoveryListDto;
+import com.otilm.api.model.client.discovery.DiscoveryWindowDto;
+import com.otilm.api.model.client.discovery.DiscoveryWindowMode;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.PaginationResponseDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
@@ -37,6 +40,7 @@ import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.api.model.core.search.SearchFieldDataDto;
+import com.otilm.core.aop.OutsideTransaction;
 import com.otilm.core.attribute.engine.AttributeColumnProjector;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
@@ -52,7 +56,6 @@ import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.DiscoveryCertificate;
 import com.otilm.core.dao.entity.DiscoveryMessage;
 import com.otilm.core.dao.entity.Discovery_;
-import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.DiscoveryCertificateRepository;
@@ -63,23 +66,22 @@ import com.otilm.core.enums.FilterField;
 import com.otilm.core.events.data.DiscoveryResult;
 import com.otilm.core.events.handlers.DiscoveryFinishedEventHandler;
 import com.otilm.core.exception.UnsupportedDiscoveryVersionException;
+import com.otilm.core.logging.RedactedFailure;
 import com.otilm.core.mapper.discovery.DiscoveryDtoMapper;
 import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.messaging.jms.producers.NotificationProducer;
 import com.otilm.core.messaging.model.NotificationRecipient;
 import com.otilm.core.model.auth.ResourceAction;
-import com.otilm.core.model.discovery.DiscoveryRunLifecycle;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.CommentInternalService;
 import com.otilm.core.service.ConnectorInternalService;
 import com.otilm.core.service.CredentialInternalService;
 import com.otilm.core.service.DiscoveryExternalService;
 import com.otilm.core.service.DiscoveryInternalService;
 import com.otilm.core.service.ResourceInternalService;
-import com.otilm.core.service.TriggerInternalService;
+import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.handler.discovery.DiscoveryDetailCounts;
 import com.otilm.core.service.handler.discovery.DiscoveryProviderAdapter;
 import com.otilm.core.service.handler.discovery.DiscoveryProviderAdapterFactory;
@@ -142,13 +144,11 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
 
     private ListingSortResolver listingSortResolver;
 
-    private TriggerInternalService triggerInternalService;
     private DiscoveryRepository discoveryRepository;
     private ConnectorApiFactory connectorApiFactory;
     private ConnectorInternalService connectorService;
     private DiscoveryCertificateRepository discoveryCertificateRepository;
     private DiscoveryDetailCounts detailCounts;
-    private CertificateContentRepository certificateContentRepository;
 
     private DiscoveryProviderAdapterFactory discoveryProviderAdapterFactory;
     private DiscoveryWriter discoveryWriter;
@@ -158,10 +158,15 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     private EventProducer eventProducer;
     private NotificationProducer notificationProducer;
 
-    private CommentInternalService commentService;
     private DiscoveryMessageRepository discoveryMessageRepository;
     private ConnectorInterfaceRepository connectorInterfaceRepository;
     private DiscoveryItemRepository discoveryItemRepository;
+    private ConnectorCapabilityService capabilityService;
+
+    @Autowired
+    public void setCapabilityService(ConnectorCapabilityService capabilityService) {
+        this.capabilityService = capabilityService;
+    }
 
     @Autowired
     public void setDiscoveryItemRepository(DiscoveryItemRepository discoveryItemRepository) {
@@ -171,11 +176,6 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     @Autowired
     public void setConnectorInterfaceRepository(ConnectorInterfaceRepository connectorInterfaceRepository) {
         this.connectorInterfaceRepository = connectorInterfaceRepository;
-    }
-
-    @Autowired
-    public void setCommentService(CommentInternalService commentService) {
-        this.commentService = commentService;
     }
 
     @Autowired
@@ -216,11 +216,6 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     @Autowired
     public void setDiscoveryProviderAdapterFactory(DiscoveryProviderAdapterFactory discoveryProviderAdapterFactory) {
         this.discoveryProviderAdapterFactory = discoveryProviderAdapterFactory;
-    }
-
-    @Autowired
-    public void setTriggerInternalService(TriggerInternalService triggerInternalService) {
-        this.triggerInternalService = triggerInternalService;
     }
 
     @Autowired
@@ -282,11 +277,6 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     @Autowired
     public void setDetailCounts(DiscoveryDetailCounts detailCounts) {
         this.detailCounts = detailCounts;
-    }
-
-    @Autowired
-    public void setCertificateContentRepository(CertificateContentRepository certificateContentRepository) {
-        this.certificateContentRepository = certificateContentRepository;
     }
 
     @Override
@@ -625,6 +615,21 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
         }
     }
 
+    private void validateWindow(DiscoveryDto request, ConnectorInterfaceEntity discoveryInterface, boolean scheduled) {
+        DiscoveryWindowDto window = request.getWindow();
+        if (window == null || window.getMode() == null || window.getMode() == DiscoveryWindowMode.FULL) {
+            return;
+        }
+        if (discoveryInterface == null
+                || !capabilityService.supports(discoveryInterface, FeatureFlag.DISCOVERY_INCREMENTAL)) {
+            throw new ValidationException(
+                    "a discovery window needs a connector whose discovery interface advertises discoveryIncremental");
+        }
+        if (window.getMode() == DiscoveryWindowMode.SINCE_LAST_SUCCESSFUL_RUN && !scheduled) {
+            throw new ValidationException("sinceLastSuccessfulRun is available only for a scheduled discovery");
+        }
+    }
+
     /** What the connector says it can discover right now. Never persisted, so every caller asks. */
     private List<Resource> liveSupportedResources(UUID connectorUuid) throws NotFoundException, ConnectorException {
         ApiClientConnectorInfo connector = connectorService.getConnectorForApiClient(connectorUuid);
@@ -822,75 +827,77 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
 
     @Override
     @ExternalAuthorization(resource = Resource.DISCOVERY, action = ResourceAction.DELETE)
+    @OutsideTransaction
     public void deleteDiscovery(SecuredUUID uuid) throws NotFoundException {
-        Discovery discovery = discoveryRepository
-                .findByUuid(uuid)
-                .orElseThrow(() -> new NotFoundException(Discovery.class, uuid));
-        // A v2 run still at its connector is driven by agenda rows this delete would cascade away, so nothing would
-        // ever end it. PROCESSING is refused too: the connector is done but Core's import runs on those same rows.
-        // A v1 run has no agenda and its provider call is over, so it deletes directly.
-        if (discovery.getConnectorInterfaceUuid() != null && !DiscoveryRunLifecycle.isTerminal(discovery.getStatus())) {
-            // A PROCESSING run has already left the connector, so cancel refuses it too: waiting is the only way out.
-            String remedy = DiscoveryRunLifecycle.hasLeftTheConnector(discovery.getStatus())
-                    ? "wait for it to end"
-                    : "cancel it first";
-            throw new ValidationException("Discovery " + uuid.getValue() + " is " + discovery.getStatus().getLabel()
-                    + " and cannot be deleted; " + remedy);
-        }
-        Long certsDeleted = discoveryCertificateRepository.deleteByDiscovery(discovery);
-        logger.debug("Deleted {} discovery certificates", certsDeleted);
-
-        Integer certContentsDeleted = certificateContentRepository.deleteUnusedCertificateContents();
-        logger.debug("Deleted {} unused certificate contents", certContentsDeleted);
-
-        attributeEngine.deleteObjectAttributeContent(Resource.DISCOVERY, discovery.getUuid());
-        commentService.removeObjectComments(Resource.DISCOVERY, discovery.getUuid());
-        discoveryRepository.delete(discovery);
-        triggerInternalService.deleteTriggerAssociations(Resource.DISCOVERY, discovery.getUuid());
-
-        try {
-            String referenceUuid = discovery.getDiscoveryConnectorReference();
-            if (referenceUuid != null && !referenceUuid.isEmpty()) {
-                Connector connector = connectorRepository
-                        .findByUuid(discovery.getConnectorUuid())
-                        .orElseThrow(() -> new NotFoundException(Connector.class, discovery.getConnectorUuid()));
-                ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(connector.getUuid());
-                DiscoverySyncApiClient client = connectorApiFactory.getDiscoveryApiClient(connectorDto);
-                client.removeDiscovery(connectorDto, referenceUuid);
-            }
-        } catch (ConnectorException e) {
-            logger.warn("Failed to delete discovery in the connector. But core history is deleted");
-            logger.warn(e.getMessage());
-        } catch (Exception e) {
-            logger.warn(e.getMessage());
-        }
+        deleteRunAndConnectorCopy(uuid);
     }
 
     @Override
     @ExternalAuthorization(resource = Resource.DISCOVERY, action = ResourceAction.DELETE)
     @Async
+    @OutsideTransaction
     public void bulkRemoveDiscovery(List<SecuredUUID> discoveryUuids) throws NotFoundException {
         UUID loggedUserUuid = UUID.fromString(AuthHelper.getUserIdentification().getUuid());
         List<UUID> refused = new ArrayList<>();
+        List<UUID> failed = new ArrayList<>();
         for (SecuredUUID uuid : discoveryUuids) {
             try {
-                deleteDiscovery(uuid);
+                deleteRunAndConnectorCopy(uuid);
             } catch (ValidationException | NotFoundException e) {
                 // A v2 run still at its connector refuses deletion until it is cancelled, and a run someone else
                 // deleted between the selection and this async pass is already gone. Neither may decide the fate of
                 // the rest of the batch, which would otherwise stop here and leave the caller a single error.
                 refused.add(uuid.getValue());
                 logger.debug("Discovery {} was not deleted in the bulk request: {}", uuid.getValue(), e.getMessage());
+            } catch (RuntimeException e) {
+                // Each run deletes in a transaction of its own, so this one rolled back alone and the rest go on.
+                failed.add(uuid.getValue());
+                logger.warn("Discovery {} could not be deleted in the bulk request", uuid.getValue(), e);
             }
         }
         notificationProducer
                 .produceInternalNotificationMessage(Resource.DISCOVERY, null,
                         NotificationRecipient.buildUserNotificationRecipient(loggedUserUuid),
-                        refused.isEmpty()
-                                ? "Discovery histories have been deleted."
-                                : "Discovery histories have been deleted, except " + refused.size()
-                                        + " that are still running. Cancel those first.",
-                        null);
+                        bulkDeleteOutcome(refused.size(), failed.size()), null);
+    }
+
+    static String bulkDeleteOutcome(int refused, int failed) {
+        List<String> leftBehind = new ArrayList<>();
+        if (refused > 0) {
+            leftBehind.add(refused + " that were still running or already deleted");
+        }
+        if (failed > 0) {
+            leftBehind.add(failed + " that could not be deleted");
+        }
+        if (leftBehind.isEmpty()) {
+            return "Discovery histories have been deleted.";
+        }
+        return "Discovery histories have been deleted, except " + String.join(" and ", leftBehind) + ".";
+    }
+
+    /**
+     * Commits the local delete before asking the connector to delete its copy, so a slow connector holds no lock or
+     * connection and a failed local delete leaves the copy alone. A failed connector delete is only logged, since
+     * Core's run is already gone.
+     */
+    private void deleteRunAndConnectorCopy(SecuredUUID uuid) throws NotFoundException {
+        discoveryRunWriter.deleteRun(uuid).ifPresent(this::deleteConnectorCopyV1);
+    }
+
+    private void deleteConnectorCopyV1(DiscoveryRunWriter.ConnectorCopyV1 copy) {
+        try {
+            // A deregistration evicts the cached route only on the replica that ran it, so ask the database.
+            if (connectorRepository.findByUuid(copy.connectorUuid()).isEmpty()) {
+                return;
+            }
+            ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(copy.connectorUuid());
+            DiscoverySyncApiClient client = connectorApiFactory.getDiscoveryApiClient(connectorDto);
+            client.removeDiscovery(connectorDto, copy.reference());
+        } catch (Exception e) {
+            logger
+                    .warn("Connector {} failed to delete its copy {} of a discovery Core has deleted",
+                            copy.connectorUuid(), copy.reference(), RedactedFailure.forLog(e));
+        }
     }
 
     @Override
@@ -905,7 +912,8 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     // hold a transaction open -- a slow or hostile connector would pin a pooled connection for its whole timeout.
     // Everything this method then persists commits as one unit, in DiscoveryRunWriter's own transaction.
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public DiscoveryDetailDto createDiscovery(final DiscoveryDto request, final boolean saveEntity)
+    public DiscoveryDetailDto createDiscovery(final DiscoveryDto request, final boolean saveEntity,
+            final boolean scheduled)
             throws AlreadyExistException, ConnectorException, AttributeException, NotFoundException {
         if (discoveryRepository.findByName(request.getName()).isPresent()) {
             throw new AlreadyExistException(Discovery.class, request.getName());
@@ -927,6 +935,7 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
             authorizationEnforcer
                     .enforce(Resource.CONNECTOR, ResourceAction.ANY, SecuredUUID.fromUUID(connector.getUuid()));
         }
+        validateWindow(request, discoveryInterface, scheduled);
         validateRequestedResources(request, connector, discoveryInterface);
         validateRunAttributes(request, connector, discoveryInterface);
         Map<Resource, List<BaseAttribute>> resourceDefinitions = fetchResourceDefinitions(request, connector);
@@ -953,6 +962,10 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
         discovery.setConnectorStatus(DiscoveryStatus.IN_PROGRESS);
         discovery.setConnectorUuid(connector.getUuid());
         discovery.setKind(request.getKind());
+        if (request.getWindow() != null) {
+            discovery.setWindowMode(request.getWindow().getMode());
+            discovery.setWindowLookback(request.getWindow().getLookback());
+        }
 
         if (saveEntity) {
             return discoveryRunWriter.createRun(discovery, request, connector.getUuid(), resourceDefinitions);

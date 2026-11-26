@@ -28,7 +28,6 @@ import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.time.Instant;
 import java.time.OffsetDateTime;
-import java.util.ArrayList;
 import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -74,18 +73,10 @@ public class X509CertificateValidator implements ICertificateValidator {
     }
 
     @Override
-    public CertificateValidationStatus validateCertificate(Certificate certificate, boolean isCompleteChain)
+    public CertificateValidationStatus validateCertificate(List<Certificate> certificateChain, boolean isCompleteChain)
             throws CertificateException {
+        Certificate certificate = certificateChain.getFirst();
         logger.debug("Initiating the certificate validation: {}", certificate.toStringShort());
-
-        ArrayList<Certificate> certificateChain = new ArrayList<>();
-        Certificate lastCertificate = certificate;
-        do {
-            certificateChain.add(lastCertificate);
-            lastCertificate = lastCertificate.getIssuerCertificateUuid() == null
-                    ? null
-                    : certificateRepository.findByUuid(lastCertificate.getIssuerCertificateUuid()).orElse(null);
-        } while (lastCertificate != null);
 
         X509Certificate x509Certificate;
         X509Certificate x509IssuerCertificate = null;

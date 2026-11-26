@@ -32,6 +32,7 @@ import static org.slf4j.LoggerFactory.getLogger;
         MessagingProperties.class,
         MessagingConcurrencyProperties.class,
         StatusPollProperties.class,
+        RenewalInfoProperties.class,
         DiscoveryWorkProperties.class})
 public class JmsConfig {
     private static final Logger logger = getLogger(JmsConfig.class);

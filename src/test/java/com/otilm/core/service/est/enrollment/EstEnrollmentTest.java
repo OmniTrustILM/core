@@ -8,13 +8,16 @@ import com.otilm.api.exception.CertificateOperationException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.core.certificate.CertificateOperation;
 import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.est.EstAuthenticationPolicy;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.core.aop.AuditOperationDataOverride;
 import com.otilm.core.certificate.request.RequestAttributePolicyViolationException;
+import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.est.EstProfile;
@@ -288,6 +291,26 @@ class EstEnrollmentTest {
                                 .equals(route.raProfile().getAuthorityInstanceReference().getUuid())),
                         argThat(raProfile -> raProfile.getValue().equals(route.raProfile().getUuid())),
                         eq(registrationUuid.toString()), same(completion));
+    }
+
+    @Test
+    void rejectsTheRequestWithoutCompletingTheRegistration_whenTheTypeCannotBeEnrolledThroughEst() {
+        // given
+        var refusal = UnsupportedCertificateTypeException
+                .unsupportedOperation(CertificateType.X509.getCode(), CertificateOperation.ENROLL_EST);
+        stubRegistration(CertificateState.REGISTERED, null);
+        stubCompletionRequest();
+        doThrow(refusal).when(clientOperationService).requireEnrollmentSupport(any(), eq(CertificateProtocol.EST));
+
+        // when
+        ThrowingCallable enroll = () -> enrollment.enroll(route, aRegistrationClient(), csr, credentials());
+
+        // then
+        assertThatThrownBy(enroll).isInstanceOfSatisfying(EstException.class, e -> {
+            assertThat(e.error()).isEqualTo(EstError.REQUEST_REJECTED);
+            assertThat(e.detail()).contains(refusal.getMessage());
+        });
+        verifyNoInteractions(clientOperationExternalService);
     }
 
     @Test
