@@ -11,6 +11,7 @@ Class <com.otilm.core.util.builders.CryptographicKeyItemBasicModelBuilder> does 
 Class <com.otilm.core.util.builders.CryptographicKeyItemBuilder> does not have modifier FINAL in (CryptographicKeyItemBuilder.java:0)
 Class <com.otilm.core.util.builders.DiscoveredKeyDtoBuilder> does not have modifier FINAL in (DiscoveredKeyDtoBuilder.java:0)
 Class <com.otilm.core.util.builders.EcdsaSignatureAttributesBuilder> does not have modifier FINAL in (EcdsaSignatureAttributesBuilder.java:0)
+Class <com.otilm.core.util.builders.EstProfileRequestDtoBuilder> does not have modifier FINAL in (EstProfileRequestDtoBuilder.java:0)
 Class <com.otilm.core.util.builders.KeyPairRequestDtoBuilder> does not have modifier FINAL in (KeyPairRequestDtoBuilder.java:0)
 Class <com.otilm.core.util.builders.ProviderKeyItemBuilder> does not have modifier FINAL in (ProviderKeyItemBuilder.java:0)
 Class <com.otilm.core.util.builders.RequestAttributeV3Builder> does not have modifier FINAL in (RequestAttributeV3Builder.java:0)
