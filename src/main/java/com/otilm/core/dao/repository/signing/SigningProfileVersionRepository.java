@@ -2,6 +2,7 @@ package com.otilm.core.dao.repository.signing;
 
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.core.dao.entity.signing.SigningProfileVersion;
+import com.otilm.core.signing.CertificateHoldingVersion;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -56,4 +57,16 @@ public interface SigningProfileVersionRepository extends JpaRepository<SigningPr
             ORDER BY v.signingProfile.name
             """)
     List<String> findProfileNamesBySigningKeyAndWorkflowIn(UUID keyUuid, Collection<SigningWorkflowType> workflowTypes);
+
+    /**
+     * Every stored version that holds one of the certificates, superseded versions too: they keep their certificate for
+     * the key's signing history.
+     */
+    @Query("""
+            SELECT new com.otilm.core.signing.CertificateHoldingVersion(
+                v.certificateUuid, p.name, v.version, p.latestVersion)
+            FROM SigningProfileVersion v JOIN v.signingProfile p
+            WHERE v.certificateUuid IN :certificateUuids
+            """)
+    List<CertificateHoldingVersion> findVersionsHoldingCertificates(Collection<UUID> certificateUuids);
 }
