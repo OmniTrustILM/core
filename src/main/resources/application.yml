@@ -22,6 +22,7 @@ caching:
     ttl-minutes: ${CERT_CHAINS_CACHE_TTL_MINUTES:5}
     max-size: ${CERT_CHAINS_CACHE_MAX_SIZE:1000}
   # Signing-certificate cache holds certificate data + structural references for the signing hot path.
+  # Each instance caches on its own, so a revoked certificate keeps signing on other instances for up to this TTL.
   signing-certs:
     ttl-minutes: ${SIGNING_CERTS_CACHE_TTL_MINUTES:5}
     max-size: ${SIGNING_CERTS_CACHE_MAX_SIZE:1000}

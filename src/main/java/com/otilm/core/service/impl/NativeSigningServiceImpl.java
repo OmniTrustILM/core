@@ -1,11 +1,15 @@
 package com.otilm.core.service.impl;
 
 import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.signing.nativesigning.SignDocumentItemDto;
 import com.otilm.api.model.client.signing.nativesigning.SignDocumentRequestDto;
 import com.otilm.api.model.client.signing.nativesigning.SignDocumentResponseDto;
 import com.otilm.api.model.client.signing.nativesigning.SignDocumentResultDto;
+import com.otilm.api.model.client.signing.nativesigning.SignRawRequestDto;
+import com.otilm.api.model.client.signing.nativesigning.SignRawResponseDto;
+import com.otilm.api.model.client.signing.nativesigning.SignRawResultDto;
 import com.otilm.api.model.common.signature.DocumentTransferMode;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.signing.SigningProtocol;
@@ -13,6 +17,7 @@ import com.otilm.core.aop.OutsideTransaction;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.resolved.ResolvedManagedContentSigningProfile;
+import com.otilm.core.model.signing.resolved.ResolvedManagedRawSigningProfile;
 import com.otilm.core.model.signing.resolved.ResolvedSigningProfile;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -26,6 +31,14 @@ import com.otilm.core.signing.engine.error.SigningEngineFailure;
 import com.otilm.core.signing.engine.resolver.SigningProfileResolverFactory;
 import com.otilm.core.signing.nativesigning.IlmNativeProfileResolver;
 import com.otilm.core.signing.nativesigning.NativeOperation;
+import com.otilm.core.signing.rawsigning.ManagedRawSigningEngine;
+import com.otilm.core.signing.rawsigning.RawSigningItem;
+import com.otilm.core.signing.rawsigning.RawSigningRequest;
+import com.otilm.core.signing.rawsigning.RawSigningResult;
+import com.otilm.core.util.CertificateUtil;
+import java.security.GeneralSecurityException;
+import java.security.cert.X509Certificate;
+import java.util.ArrayList;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,13 +52,15 @@ public class NativeSigningServiceImpl implements NativeSigningExternalService {
     private final IlmNativeProfileResolver nativeProfileResolver;
     private final SigningProfileResolverFactory signingProfileResolverFactory;
     private final ManagedContentSigningEngine contentSigningEngine;
+    private final ManagedRawSigningEngine rawSigningEngine;
 
     public NativeSigningServiceImpl(IlmNativeProfileResolver nativeProfileResolver,
             SigningProfileResolverFactory signingProfileResolverFactory,
-            ManagedContentSigningEngine contentSigningEngine) {
+            ManagedContentSigningEngine contentSigningEngine, ManagedRawSigningEngine rawSigningEngine) {
         this.nativeProfileResolver = nativeProfileResolver;
         this.signingProfileResolverFactory = signingProfileResolverFactory;
         this.contentSigningEngine = contentSigningEngine;
+        this.rawSigningEngine = rawSigningEngine;
     }
 
     @Override
@@ -58,16 +73,46 @@ public class NativeSigningServiceImpl implements NativeSigningExternalService {
         SigningProfileModel<?, ?> signingProfile = nativeProfileResolver
                 .resolve(signingProfileUuid.getValue(), NativeOperation.SIGN_DOCUMENT);
         ContentSigningRequest contentSigningRequest = contentSigningRequest(request);
-        ResolvedManagedContentSigningProfile contentSigningProfile = contentSigningProfile(signingProfile);
+        ResolvedManagedContentSigningProfile contentSigningProfile = resolvedProfile(signingProfile,
+                ResolvedManagedContentSigningProfile.class, "a managed content-signing profile");
         List<SignedItem> signed = contentSigningEngine
                 .sign(contentSigningRequest, signingProfile, contentSigningProfile, SigningProtocol.ILM_NATIVE);
         return signDocumentResponse(signed);
     }
 
-    private ResolvedManagedContentSigningProfile contentSigningProfile(SigningProfileModel<?, ?> signingProfile)
-            throws SigningEngineException {
+    @Override
+    // NOT_SUPPORTED opens no transaction, so the rollback rule S8989 asks for never applies.
+    @SuppressWarnings("java:S8989")
+    @OutsideTransaction
+    @ExternalAuthorization(resource = Resource.SIGNING_PROFILE, action = ResourceAction.SIGN)
+    public SignRawResponseDto signRaw(SecuredUUID signingProfileUuid, SignRawRequestDto request)
+            throws NotFoundException, SigningEngineException {
+        SigningProfileModel<?, ?> signingProfile = nativeProfileResolver
+                .resolve(signingProfileUuid.getValue(), NativeOperation.SIGN_RAW);
+        ResolvedManagedRawSigningProfile rawSigningProfile = resolvedProfile(signingProfile,
+                ResolvedManagedRawSigningProfile.class, "a managed raw-signing profile");
+        requirePinnedCertificate(rawSigningProfile, request.getCertificateFingerprint());
+        List<byte[]> signerCertificateChain = encodedChain(rawSigningProfile);
+        RawSigningResult result = rawSigningEngine
+                .sign(rawSigningRequest(request), signingProfile, rawSigningProfile, SigningProtocol.ILM_NATIVE);
+        return signRawResponse(signerCertificateChain, result);
+    }
+
+    /**
+     * The native gate already admitted only managed profiles of the operation's workflow. Any other resolution is a
+     * misconfiguration.
+     */
+    private <P extends ResolvedSigningProfile> P resolvedProfile(SigningProfileModel<?, ?> signingProfile,
+            Class<P> expectedType, String expectedKind) throws SigningEngineException {
         try {
-            return resolvedContentSigningProfile(signingProfile);
+            ResolvedSigningProfile resolved = signingProfileResolverFactory.resolve(signingProfile);
+            if (!expectedType.isInstance(resolved)) {
+                throw new SigningEngineException(SigningEngineFailure.MISCONFIGURED,
+                        "Signing Profile '%s' resolved to %s, not %s"
+                                .formatted(signingProfile.name(), resolved.getClass().getSimpleName(), expectedKind),
+                        "The system is misconfigured.");
+            }
+            return expectedType.cast(resolved);
         } catch (SigningEngineException e) {
             throw loggedResolutionFailure(signingProfile, e);
         } catch (RuntimeException e) {
@@ -88,19 +133,43 @@ public class NativeSigningServiceImpl implements NativeSigningExternalService {
     }
 
     /**
-     * The native gate already admitted only managed content-signing profiles. Any other resolution is a
-     * misconfiguration.
+     * A caller pins the signing certificate it expects for its items, and the refusal comes before the key is used. The
+     * pin is compared with the certificate this instance signs with, which reflects a profile or certificate change
+     * committed on another instance only once the cached entry expires.
      */
-    private ResolvedManagedContentSigningProfile resolvedContentSigningProfile(SigningProfileModel<?, ?> signingProfile)
+    private static void requirePinnedCertificate(ResolvedManagedRawSigningProfile profile, String pinnedFingerprint)
             throws SigningEngineException {
-        ResolvedSigningProfile resolved = signingProfileResolverFactory.resolve(signingProfile);
-        if (!(resolved instanceof ResolvedManagedContentSigningProfile contentSigningProfile)) {
-            throw new SigningEngineException(SigningEngineFailure.MISCONFIGURED,
-                    "Signing Profile '%s' resolved to %s, not a managed content-signing profile"
-                            .formatted(signingProfile.name(), resolved.getClass().getSimpleName()),
-                    "The system is misconfigured.");
+        if (pinnedFingerprint == null) {
+            return;
         }
-        return contentSigningProfile;
+        X509Certificate signingCertificate = profile.resolvedScheme().chain().signingCertificate();
+        String signingCertificateFingerprint = fingerprintOf(profile, signingCertificate);
+        if (!signingCertificateFingerprint.equalsIgnoreCase(pinnedFingerprint)) {
+            throw new ValidationException(
+                    "The signing certificate of Signing Profile '%s' is not the one the request names"
+                            .formatted(profile.name()));
+        }
+    }
+
+    private static String fingerprintOf(ResolvedManagedRawSigningProfile profile, X509Certificate certificate)
+            throws SigningEngineException {
+        try {
+            return CertificateUtil.getThumbprint(certificate);
+        } catch (GeneralSecurityException e) {
+            throw loggedCertificateFailure(profile, "fingerprint the signing certificate", e);
+        }
+    }
+
+    /**
+     * The profile's certificates were parsed from their encoding, so encoding or hashing one fails only on a platform
+     * fault.
+     */
+    private static SigningEngineException loggedCertificateFailure(ResolvedManagedRawSigningProfile profile,
+            String failedStep, GeneralSecurityException cause) {
+        LOG.error("Native signing could not {} of signing profile '{}'", failedStep, profile.name(), cause);
+        return new SigningEngineException(SigningEngineFailure.STEP_FAILED,
+                "could not %s of Signing Profile '%s'".formatted(failedStep, profile.name()), cause,
+                "Internal error during signing");
     }
 
     /** A native request carries no separately authorized digest. */
@@ -132,5 +201,42 @@ public class NativeSigningServiceImpl implements NativeSigningExternalService {
                         item.content().output(), item.content().mediaType()))
                 .toList();
         return new SignDocumentResponseDto(results);
+    }
+
+    private static RawSigningRequest rawSigningRequest(SignRawRequestDto request) {
+        List<RawSigningItem> items = request
+                .getItems()
+                .stream()
+                .map(item -> new RawSigningItem(item.getIdentifier(), item.getData()))
+                .toList();
+        return new RawSigningRequest(request.getSignatureInputMode(), request.getDigestAlgorithm(), items);
+    }
+
+    /** Encoded before the run, so a failure here stops the request before the key is used or a record is staged. */
+    private static List<byte[]> encodedChain(ResolvedManagedRawSigningProfile profile) throws SigningEngineException {
+        List<X509Certificate> chain = profile.resolvedScheme().chain().chain();
+        List<byte[]> encodedChain = new ArrayList<>(chain.size());
+        for (X509Certificate certificate : chain) {
+            encodedChain.add(encoded(profile, certificate));
+        }
+        return encodedChain;
+    }
+
+    private static SignRawResponseDto signRawResponse(List<byte[]> signerCertificateChain, RawSigningResult result) {
+        List<SignRawResultDto> results = result
+                .items()
+                .stream()
+                .map(item -> new SignRawResultDto(item.identifier(), item.signingRecordUuid(), item.signature()))
+                .toList();
+        return new SignRawResponseDto(result.signatureAlgorithm(), signerCertificateChain, results);
+    }
+
+    private static byte[] encoded(ResolvedManagedRawSigningProfile profile, X509Certificate certificate)
+            throws SigningEngineException {
+        try {
+            return certificate.getEncoded();
+        } catch (GeneralSecurityException e) {
+            throw loggedCertificateFailure(profile, "encode the certificate chain", e);
+        }
     }
 }

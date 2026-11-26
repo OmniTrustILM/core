@@ -576,6 +576,7 @@ signingProfiles:list | SigningProfileServiceImpl.getSearchableFieldInformation()
 signingProfiles:list | SigningProfileServiceImpl.listResourceObjects(SecurityFilter, List, PaginationRequestDto) | checks [] | reads []
 signingProfiles:list | SigningProfileServiceImpl.listSigningProfiles(SearchRequestDto, SecurityFilter) | checks [] | reads [Resource.SIGNING_PROFILE]
 signingProfiles:sign | NativeSigningServiceImpl.signDocument(SecuredUUID, SignDocumentRequestDto) | checks [] | reads []
+signingProfiles:sign | NativeSigningServiceImpl.signRaw(SecuredUUID, SignRawRequestDto) | checks [] | reads []
 signingProfiles:update | SigningProfileServiceImpl.activateIlmNative(SecuredUUID) | checks [] | reads []
 signingProfiles:update | SigningProfileServiceImpl.activateTsp(SecuredUUID, SecuredUUID, String) | checks [TspProfileInternalService.getTspProfileEntity tspProfiles:detail] | reads []
 signingProfiles:update | SigningProfileServiceImpl.deactivateIlmNative(SecuredUUID) | checks [] | reads []

@@ -8,7 +8,7 @@ import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
  */
 public enum NativeOperation {
 
-    SIGN_HASH(SigningWorkflowType.RAW_SIGNING),
+    SIGN_RAW(SigningWorkflowType.RAW_SIGNING),
     SIGN_DOCUMENT(SigningWorkflowType.CONTENT_SIGNING);
 
     private final SigningWorkflowType servedWorkflow;

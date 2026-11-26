@@ -35,23 +35,22 @@ class IlmNativeGateTest {
         SigningProfileModel<?, ?> tspOnly = buildManagedRawModel(List.of(SigningProtocol.TSP));
 
         // when
-        ThrowingCallable requireForHashSigning = () -> IlmNativeGate
-                .require(tspOnly, PROFILE, NativeOperation.SIGN_HASH);
+        ThrowingCallable requireForRawSigning = () -> IlmNativeGate.require(tspOnly, PROFILE, NativeOperation.SIGN_RAW);
 
         // then
-        assertThatThrownBy(requireForHashSigning)
+        assertThatThrownBy(requireForRawSigning)
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("'invoices' does not have the ILM_NATIVE protocol enabled");
     }
 
     @Test
-    void admitsHashSigning_whenManagedRawModelHasIlmNative() {
+    void admitsRawSigning_whenManagedRawModelHasIlmNative() {
         // given
         SigningProfileModel<?, ?> ilmNativeRaw = buildManagedRawModel(List.of(SigningProtocol.ILM_NATIVE));
 
         // when
         Throwable failure = catchThrowable(
-                () -> IlmNativeGate.require(ilmNativeRaw, PROFILE, NativeOperation.SIGN_HASH));
+                () -> IlmNativeGate.require(ilmNativeRaw, PROFILE, NativeOperation.SIGN_RAW));
 
         // then
         assertThat(failure).isNull();
@@ -64,7 +63,7 @@ class IlmNativeGateTest {
 
         // when
         ThrowingCallable requireRequestedProfile = () -> IlmNativeGate
-                .require(otherProfile, PROFILE, NativeOperation.SIGN_HASH);
+                .require(otherProfile, PROFILE, NativeOperation.SIGN_RAW);
 
         // then
         assertThatThrownBy(requireRequestedProfile)
@@ -99,11 +98,11 @@ class IlmNativeGateTest {
                 .build();
 
         // when
-        ThrowingCallable requireForHashSigning = () -> IlmNativeGate
-                .require(delegated, PROFILE, NativeOperation.SIGN_HASH);
+        ThrowingCallable requireForRawSigning = () -> IlmNativeGate
+                .require(delegated, PROFILE, NativeOperation.SIGN_RAW);
 
         // then
-        assertThatThrownBy(requireForHashSigning)
+        assertThatThrownBy(requireForRawSigning)
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("uses delegated signing; the native API signs only with keys ILM manages");
     }
@@ -115,7 +114,7 @@ class IlmNativeGateTest {
 
         // when
         ThrowingCallable requireRequestedProfile = () -> IlmNativeGate
-                .require(otherTspOnly, PROFILE, NativeOperation.SIGN_HASH);
+                .require(otherTspOnly, PROFILE, NativeOperation.SIGN_RAW);
 
         // then
         assertThatThrownBy(requireRequestedProfile).isInstanceOf(NotFoundException.class);
@@ -134,11 +133,11 @@ class IlmNativeGateTest {
                 .build();
 
         // when
-        ThrowingCallable requireForHashSigning = () -> IlmNativeGate
-                .require(disabled, PROFILE, NativeOperation.SIGN_HASH);
+        ThrowingCallable requireForRawSigning = () -> IlmNativeGate
+                .require(disabled, PROFILE, NativeOperation.SIGN_RAW);
 
         // then
-        assertThatThrownBy(requireForHashSigning)
+        assertThatThrownBy(requireForRawSigning)
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("Signing profile 'invoices' is disabled.");
     }
@@ -191,11 +190,10 @@ class IlmNativeGateTest {
                 SigningScheme.MANAGED);
 
         // when
-        ThrowingCallable requireForHashSigning = () -> IlmNativeGate
-                .require(withoutIlmNative, NativeOperation.SIGN_HASH);
+        ThrowingCallable requireForRawSigning = () -> IlmNativeGate.require(withoutIlmNative, NativeOperation.SIGN_RAW);
 
         // then
-        assertThatThrownBy(requireForHashSigning)
+        assertThatThrownBy(requireForRawSigning)
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("Signing profile 'invoices' does not have the ILM_NATIVE protocol enabled.");
     }
@@ -207,10 +205,10 @@ class IlmNativeGateTest {
                 SigningScheme.MANAGED);
 
         // when
-        ThrowingCallable requireForHashSigning = () -> IlmNativeGate.require(disabled, NativeOperation.SIGN_HASH);
+        ThrowingCallable requireForRawSigning = () -> IlmNativeGate.require(disabled, NativeOperation.SIGN_RAW);
 
         // then
-        assertThatThrownBy(requireForHashSigning)
+        assertThatThrownBy(requireForRawSigning)
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("Signing profile 'invoices' is disabled.");
     }
