@@ -56,7 +56,7 @@ public interface ResourceInternalService {
 
     /**
      * A field whose values are the objects of another resource, listing only the objects the caller may list. When the
-     * caller may list none of them, the field is offered as text instead.
+     * caller has no list access to that resource, the field is offered as text instead.
      */
     SearchFieldDataDto prepareFieldResourceSearch(FilterField filterField);
 

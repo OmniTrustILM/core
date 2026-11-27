@@ -44,6 +44,7 @@ import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.RoleAssignmentGuard;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
+import com.otilm.core.security.authz.SecurityResourceFilter;
 import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.CertificateUploadService;
 import com.otilm.core.service.GroupExternalService;
@@ -423,7 +424,20 @@ public class UserManagementServiceImpl implements UserManagementExternalService,
     @Override
     public List<NameAndUuidDto> listResourceObjects(SecurityFilter filter, List<SearchFilterRequestDto> filters,
             PaginationRequestDto pagination) {
-        return listUsers().stream().map(u -> new NameAndUuidDto(u.getUuid(), u.getUsername())).toList();
+        SecurityResourceFilter userFilter = filter == null ? null : filter.getResourceFilter();
+        boolean restricted = userFilter != null
+                && (userFilter.areOnlySpecificObjectsAllowed() || !userFilter.getForbiddenObjects().isEmpty());
+        return listUsers()
+                .stream()
+                .filter(u -> !restricted || isPermitted(userFilter, UUID.fromString(u.getUuid())))
+                .map(u -> new NameAndUuidDto(u.getUuid(), u.getUsername()))
+                .toList();
+    }
+
+    // Users come from the identity provider rather than a repository, so the filter is applied in memory.
+    private static boolean isPermitted(SecurityResourceFilter userFilter, UUID userUuid) {
+        return !userFilter.getForbiddenObjects().contains(userUuid)
+                && (!userFilter.areOnlySpecificObjectsAllowed() || userFilter.getAllowedObjects().contains(userUuid));
     }
 
     @Override
