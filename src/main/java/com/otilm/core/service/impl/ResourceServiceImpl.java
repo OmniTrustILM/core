@@ -37,6 +37,7 @@ import com.otilm.core.enums.SearchFieldTypeEnum;
 import com.otilm.core.exception.DanglingReferenceException;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.AnyPrincipalEndpoint;
+import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.ExternalAuthorizationDynamic;
 import com.otilm.core.security.authz.ObjectActionResolver;
 import com.otilm.core.security.authz.ObjectFilterAspect;
@@ -105,6 +106,13 @@ public class ResourceServiceImpl implements ResourceExternalService, ResourceInt
     @Autowired
     public void setObjectFilterAspect(ObjectFilterAspect objectFilterAspect) {
         this.objectFilterAspect = objectFilterAspect;
+    }
+
+    private AuthorizationEnforcer authorizationEnforcer;
+
+    @Autowired
+    public void setAuthorizationEnforcer(AuthorizationEnforcer authorizationEnforcer) {
+        this.authorizationEnforcer = authorizationEnforcer;
     }
 
     private ObjectActionResolver objectActionResolver;
@@ -245,9 +253,7 @@ public class ResourceServiceImpl implements ResourceExternalService, ResourceInt
                     // Filter field has values of all objects of another entity
                 } else if (filterField.getFieldResource() != null) {
                     fieldDataDtos
-                            .add(SearchHelper
-                                    .prepareSearch(filterField,
-                                            listScopedFieldResourceObjects(filterField.getFieldResource())));
+                            .add(SearchHelper.prepareSearch(filterField, listRuleFieldResourceObjects(filterField)));
                     // Filter field has values of all possible values of a property
                 } else {
                     fieldDataDtos
@@ -265,6 +271,27 @@ public class ResourceServiceImpl implements ResourceExternalService, ResourceInt
         }
 
         return searchFieldDataByGroupDtos;
+    }
+
+    @Override
+    public SearchFieldDataDto prepareFieldResourceSearch(FilterField filterField) {
+        if (!authorizationEnforcer.isAuthorized(filterField.getFieldResource(), ResourceAction.LIST)) {
+            return SearchHelper.prepareTextSearch(filterField);
+        }
+        return SearchHelper
+                .prepareSearch(filterField,
+                        listScopedFieldResourceObjects(filterField.getFieldResource())
+                                .stream()
+                                .map(NameAndUuidDto::getName)
+                                .toList());
+    }
+
+    // The resource's listing votes on its list action, so a caller with no access to the resource is answered here.
+    private List<NameAndUuidDto> listRuleFieldResourceObjects(FilterField filterField) throws NotSupportedException {
+        if (!authorizationEnforcer.isAuthorized(filterField.getFieldResource(), ResourceAction.LIST)) {
+            return List.of();
+        }
+        return listScopedFieldResourceObjects(filterField.getFieldResource());
     }
 
     private List<NameAndUuidDto> listScopedFieldResourceObjects(Resource fieldResource) throws NotSupportedException {
