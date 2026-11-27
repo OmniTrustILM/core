@@ -9,6 +9,7 @@ import com.otilm.core.certificate.type.Validity;
 import com.otilm.core.certificate.type.ValidityPrecision;
 import com.otilm.core.dao.entity.CvcCertificateEntity;
 import com.otilm.core.dao.entity.CvcCertificateRequestEntity;
+import com.otilm.core.util.CertificateUtil;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.UUID;
@@ -21,7 +22,7 @@ class CertificateDetailDtoMapperCvcTest {
     @Test
     void mapsTheCvcFieldsAndDates_whenTheCertificateIsCvc() {
         // given
-        CvcCertificateEntity certificate = aCvcCertificate();
+        CvcCertificateEntity certificate = createCvcCertificate();
 
         // when
         CertificateDetail dto = CertificateDetailDtoMapper.toDetailDto(certificate);
@@ -41,7 +42,7 @@ class CertificateDetailDtoMapperCvcTest {
     @Test
     void mapsTheCvcRequestFields_whenTheCertificateWasIssuedFromACvcRequest() throws Exception {
         // given
-        CvcCertificateEntity certificate = aCvcCertificate();
+        CvcCertificateEntity certificate = createCvcCertificate();
         CvcCertificateRequestEntity request = new CvcCertificateRequestEntity();
         request.setUuid(UUID.randomUUID());
         request.setCertificateRequestFormat(CertificateRequestFormat.CVC);
@@ -60,7 +61,55 @@ class CertificateDetailDtoMapperCvcTest {
         assertThat(cvc.getAuthorityReference()).isEqualTo("SEILMTERM00000");
     }
 
-    private static CvcCertificateEntity aCvcCertificate() {
+    @Test
+    void usesTheHolderReferenceAsDisplayName_whenTheCertificateIsCvc() {
+        // given
+        CvcCertificateEntity certificate = createCvcCertificate();
+
+        // when
+        CertificateDetail dto = CertificateDetailDtoMapper.toDetailDto(certificate);
+
+        // then
+        assertThat(dto.getDisplayName()).isEqualTo("SEILMTERM00001");
+        assertThat(dto.getCommonName()).isNull();
+    }
+
+    @Test
+    void showsThePlaceholderAsDisplayName_whenTheCvcHolderReferenceIsBlank() {
+        // given
+        CvcCertificateEntity certificate = createCvcCertificate();
+        certificate.setHolderReference(" ");
+
+        // when
+        CertificateDetail dto = CertificateDetailDtoMapper.toDetailDto(certificate);
+
+        // then
+        assertThat(dto.getDisplayName()).isEqualTo(CertificateUtil.EMPTY_COMMON_NAME_PLACEHOLDER);
+        assertThat(dto.getCommonName()).isNull();
+    }
+
+    @Test
+    void usesTheHolderReferenceAsDisplayName_whenTheRequestIsCvc() throws Exception {
+        // given
+        CvcCertificateEntity certificate = createCvcCertificate();
+        CvcCertificateRequestEntity request = new CvcCertificateRequestEntity();
+        request.setUuid(UUID.randomUUID());
+        request.setCertificateRequestFormat(CertificateRequestFormat.CVC);
+        request.setContent("AAAA");
+        request.setHolderReference("SEILMTERM00001");
+        certificate.setCertificateRequest(request);
+
+        // when
+        CertificateDetail dto = CertificateDetailDtoMapper.toDetailDto(certificate);
+
+        // then
+        assertThat(dto.getCertificateRequest().getDisplayName()).isEqualTo("SEILMTERM00001");
+        assertThat(dto.getCertificateRequest().getCommonName()).isNull();
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static CvcCertificateEntity createCvcCertificate() {
         CvcCertificateEntity certificate = new CvcCertificateEntity();
         certificate.setUuid(UUID.randomUUID());
         certificate.setHolderReference("SEILMTERM00001");

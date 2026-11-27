@@ -16,6 +16,7 @@ import jakarta.persistence.EntityManager;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import org.hibernate.Hibernate;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Sort;
@@ -37,7 +38,7 @@ class CvcCertificateEntityITest extends BaseSpringBootTest {
     @Transactional
     void loadsAllCvcFields_whenACvcCertificateWasStored() {
         // given
-        CvcCertificateEntity stored = certificateRepository.save(aCvcCertificate("fp-1", "SEILMTERM00001"));
+        CvcCertificateEntity stored = certificateRepository.save(createCvcCertificate("fp-1", "SEILMTERM00001"));
         entityManager.flush();
         entityManager.clear();
 
@@ -83,8 +84,8 @@ class CvcCertificateEntityITest extends BaseSpringBootTest {
     @Transactional
     void storesBoth_whenTwoCertificatesShareAHolderReferenceAndAPublicKey() {
         // given
-        CvcCertificateEntity newCertificate = aCvcCertificate("fp-new", "SEILMCVCA00002");
-        CvcCertificateEntity linkCertificate = aCvcCertificate("fp-link", "SEILMCVCA00002");
+        CvcCertificateEntity newCertificate = createCvcCertificate("fp-new", "SEILMCVCA00002");
+        CvcCertificateEntity linkCertificate = createCvcCertificate("fp-link", "SEILMCVCA00002");
         newCertificate.setPublicKeyFingerprint("same-key");
         linkCertificate.setPublicKeyFingerprint("same-key");
 
@@ -108,7 +109,7 @@ class CvcCertificateEntityITest extends BaseSpringBootTest {
         X509CertificateEntity x509 = aCertificate().withSubjectDn("CN=mixed").build();
         x509.setNotAfter(java.util.Date.from(Instant.parse("2027-01-01T00:00:00Z")));
         certificateRepository.save(x509);
-        certificateRepository.save(aCvcCertificate("fp-mixed", "SEILMTERM00003"));
+        certificateRepository.save(createCvcCertificate("fp-mixed", "SEILMTERM00003"));
         entityManager.flush();
         entityManager.clear();
 
@@ -121,7 +122,49 @@ class CvcCertificateEntityITest extends BaseSpringBootTest {
         assertThat(byExpiry.get(1)).isInstanceOf(X509CertificateEntity.class);
     }
 
-    private static CvcCertificateEntity aCvcCertificate(String fingerprint, String holderReference) {
+    @Test
+    @Transactional
+    void unwrapsTheProxy_whenViewingALazyCertificateReferenceAsCvc() {
+        // given
+        CvcCertificateEntity stored = certificateRepository.save(createCvcCertificate("fp-lazy", "SEILMTERM00004"));
+        entityManager.flush();
+        entityManager.clear();
+        Certificate reference = certificateRepository.getReferenceById(stored.getUuid());
+
+        // when
+        CvcCertificateEntity viewed = CvcCertificateEntity.fromOrNull(reference);
+
+        // then
+        assertThat(viewed).isNotNull();
+        assertThat(Hibernate.unproxy(reference)).isSameAs(viewed);
+        assertThat(viewed.getHolderReference()).isEqualTo("SEILMTERM00004");
+    }
+
+    @Test
+    @Transactional
+    void unwrapsTheProxy_whenViewingALazyRequestReferenceAsCvc() throws Exception {
+        // given
+        CvcCertificateRequestEntity request = new CvcCertificateRequestEntity();
+        request.setCertificateRequestFormat(CertificateRequestFormat.CVC);
+        request.setContent("AAAA");
+        request.setHolderReference("SEILMTERM00005");
+        CvcCertificateRequestEntity stored = certificateRequestRepository.save(request);
+        entityManager.flush();
+        entityManager.clear();
+        CertificateRequestEntity reference = certificateRequestRepository.getReferenceById(stored.getUuid());
+
+        // when
+        CvcCertificateRequestEntity viewed = CvcCertificateRequestEntity.fromOrNull(reference);
+
+        // then
+        assertThat(viewed).isNotNull();
+        assertThat(Hibernate.unproxy(reference)).isSameAs(viewed);
+        assertThat(viewed.getHolderReference()).isEqualTo("SEILMTERM00005");
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static CvcCertificateEntity createCvcCertificate(String fingerprint, String holderReference) {
         CvcCertificateEntity certificate = new CvcCertificateEntity();
         certificate.setFingerprint(fingerprint);
         certificate.setHolderReference(holderReference);

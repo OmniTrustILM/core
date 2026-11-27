@@ -280,6 +280,8 @@ public class CertificateDetailDtoMapper {
     }
 
     private static void applyCvcDetails(CvcCertificateDetail dto, CvcCertificateEntity certificate) {
+        dto.setCommonName(null);
+        dto.setDisplayName(CertificateUtil.formatCommonName(certificate.getHolderReference()));
         dto.setHolderReference(certificate.getHolderReference());
         dto.setAuthorityReference(certificate.getAuthorityReference());
         dto.setRole(certificate.getRole());
@@ -289,6 +291,8 @@ public class CertificateDetailDtoMapper {
     }
 
     private static void applyCvcRequestDetails(CvcCertificateRequestDetail dto, CvcCertificateRequestEntity request) {
+        dto.setCommonName(null);
+        dto.setDisplayName(CertificateUtil.formatCommonName(request.getHolderReference()));
         dto.setHolderReference(request.getHolderReference());
         dto.setAuthorityReference(request.getAuthorityReference());
     }

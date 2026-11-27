@@ -19,7 +19,9 @@ class CvcCertificateEntityTest {
 
     @Test
     void reportsTheCvcType_whenACertificateOrRequestIsCreated() {
-        // given / when
+        // given — nothing stored yet
+
+        // when
         CvcCertificateEntity certificate = new CvcCertificateEntity();
         CvcCertificateRequestEntity request = new CvcCertificateRequestEntity();
 
@@ -32,9 +34,10 @@ class CvcCertificateEntityTest {
     void storesTheStartOfTheDayAfterTheExpirationDate_whenTheValidityHasDatePrecision() {
         // given
         CvcCertificateEntity certificate = new CvcCertificateEntity();
+        Validity validity = new Validity(EFFECTIVE_DAY, EXPIRATION_DAY, ValidityPrecision.DATE);
 
         // when
-        certificate.applyValidity(new Validity(EFFECTIVE_DAY, EXPIRATION_DAY, ValidityPrecision.DATE));
+        certificate.applyValidity(validity);
 
         // then
         assertThat(certificate.getNotBefore().toInstant()).isEqualTo(EFFECTIVE_DAY);
@@ -47,9 +50,13 @@ class CvcCertificateEntityTest {
         CvcCertificateEntity certificate = new CvcCertificateEntity();
         certificate.applyValidity(new Validity(EFFECTIVE_DAY, EXPIRATION_DAY, ValidityPrecision.DATE));
 
-        // when / then
-        assertThat(certificate.getEffectiveDate()).isEqualTo(LocalDate.of(2026, 1, 15));
-        assertThat(certificate.getExpirationDate()).isEqualTo(LocalDate.of(2026, 4, 14));
+        // when
+        LocalDate effectiveDate = certificate.getEffectiveDate();
+        LocalDate expirationDate = certificate.getExpirationDate();
+
+        // then
+        assertThat(effectiveDate).isEqualTo(LocalDate.of(2026, 1, 15));
+        assertThat(expirationDate).isEqualTo(LocalDate.of(2026, 4, 14));
     }
 
     @Test
@@ -57,31 +64,43 @@ class CvcCertificateEntityTest {
         // given
         CvcCertificateEntity certificate = new CvcCertificateEntity();
 
-        // when / then
-        assertThat(certificate.getEffectiveDate()).isNull();
-        assertThat(certificate.getExpirationDate()).isNull();
+        // when
+        LocalDate effectiveDate = certificate.getEffectiveDate();
+        LocalDate expirationDate = certificate.getExpirationDate();
+
+        // then
+        assertThat(effectiveDate).isNull();
+        assertThat(expirationDate).isNull();
     }
 
     @Test
-    void viewsTheCertificateAsCvc_whenItIsCvc() {
+    void viewsTheCertificateAndRequestAsCvc_whenTheyAreCvc() {
         // given
         CvcCertificateEntity certificate = new CvcCertificateEntity();
         CvcCertificateRequestEntity request = new CvcCertificateRequestEntity();
 
-        // when / then
-        assertThat(CvcCertificateEntity.fromOrNull(certificate)).isSameAs(certificate);
-        assertThat(CvcCertificateRequestEntity.fromOrNull(request)).isSameAs(request);
+        // when
+        CvcCertificateEntity viewedCertificate = CvcCertificateEntity.fromOrNull(certificate);
+        CvcCertificateRequestEntity viewedRequest = CvcCertificateRequestEntity.fromOrNull(request);
+
+        // then
+        assertThat(viewedCertificate).isSameAs(certificate);
+        assertThat(viewedRequest).isSameAs(request);
     }
 
     @Test
-    void viewsNothing_whenTheCertificateIsX509() {
+    void viewsNothing_whenTheCertificateAndRequestAreX509() {
         // given
         X509CertificateEntity certificate = aCertificate().build();
         X509CertificateRequestEntity request = new X509CertificateRequestEntity();
 
-        // when / then
-        assertThat(CvcCertificateEntity.fromOrNull(certificate)).isNull();
-        assertThat(CvcCertificateRequestEntity.fromOrNull(request)).isNull();
+        // when
+        CvcCertificateEntity viewedCertificate = CvcCertificateEntity.fromOrNull(certificate);
+        CvcCertificateRequestEntity viewedRequest = CvcCertificateRequestEntity.fromOrNull(request);
+
+        // then
+        assertThat(viewedCertificate).isNull();
+        assertThat(viewedRequest).isNull();
     }
 
     @Test

@@ -70,10 +70,10 @@ class CvcCertificateColumnsMigrationITest extends BaseMigrationTest {
             cvcRowsAfterInsert = count(statement, "certificate", "certificate_type = 'CVC'");
         }
 
-        subjectDnAfter = columnOf("certificate", "subject_dn", certificateUuid);
-        holderReferenceAfter = columnOf("certificate", "holder_reference", certificateUuid);
-        requestSubjectDnAfter = columnOf("certificate_request", "subject_dn", requestUuid);
-        requestHolderReferenceAfter = columnOf("certificate_request", "holder_reference", requestUuid);
+        subjectDnAfter = readColumn("certificate", "subject_dn", certificateUuid);
+        holderReferenceAfter = readColumn("certificate", "holder_reference", certificateUuid);
+        requestSubjectDnAfter = readColumn("certificate_request", "subject_dn", requestUuid);
+        requestHolderReferenceAfter = readColumn("certificate_request", "holder_reference", requestUuid);
     }
 
     @Test
@@ -111,6 +111,8 @@ class CvcCertificateColumnsMigrationITest extends BaseMigrationTest {
         assertThat(cvcRows).isEqualTo(1);
     }
 
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
     private String loadMigrationScript() throws Exception {
         return new ClassPathResource(MIGRATION_RESOURCE)
                 .getContentAsString(StandardCharsets.UTF_8)
@@ -125,7 +127,7 @@ class CvcCertificateColumnsMigrationITest extends BaseMigrationTest {
         }
     }
 
-    private String columnOf(String table, String column, UUID uuid) throws SQLException {
+    private String readColumn(String table, String column, UUID uuid) throws SQLException {
         try (Connection connection = dataSource.getConnection();
                 Statement statement = connection.createStatement();
                 ResultSet resultSet = statement
