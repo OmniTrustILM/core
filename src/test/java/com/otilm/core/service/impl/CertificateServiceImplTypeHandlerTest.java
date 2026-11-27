@@ -26,6 +26,7 @@ import com.otilm.core.service.CertificateEventHistoryInternalService;
 import com.otilm.core.service.CryptographicKeyInternalService;
 import com.otilm.core.service.RaProfileInternalService;
 import com.otilm.core.service.ResourceObjectAssociationService;
+import com.otilm.core.util.CertificateUtil;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Date;
@@ -161,6 +162,18 @@ class CertificateServiceImplTypeHandlerTest {
             // then
             verify(certificateRequestRepository).save(requestEntity);
             verify(requestEntity).setContent(storedContent);
+        }
+
+        @Test
+        void fingerprintsTheEncodingTheHandlerRead_whenTheRequestIsOfAnotherType() throws Exception {
+            // given
+            var fingerprintOfTheEncodingRead = CertificateUtil.getThumbprint(encodingTheHandlerRead);
+
+            // when
+            submit();
+
+            // then
+            verify(requestEntity).setFingerprint(fingerprintOfTheEncodingRead);
         }
 
         // ── Helpers ───────────────────────────────────────────────────────────

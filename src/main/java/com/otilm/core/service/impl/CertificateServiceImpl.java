@@ -1770,15 +1770,12 @@ public class CertificateServiceImpl
         // written from the CA response at issuance. The request belongs to this certificate alone, as in
         // submitCertificateRequest.
         //
-        // Unlike submitCertificateRequest, fingerprint and stored content here are derived from
-        // request.encoded() — the normalized encoding that the handler above actually parsed —
-        // rather than from a single Base64.decode() of the input string. submitCertificateRequest's callers
-        // (see ClientOperationServiceImpl#generateBase64EncodedCsr) already normalize the CSR before invoking
-        // it, so decoding the input there is sufficient. This endpoint receives the operator-supplied CSR
-        // directly from the API request with no such upstream normalization, and it is not guaranteed to be
-        // plain base64(DER): PEM armor and double base64 encoding are common client mistakes. Storing the raw
-        // string here would silently persist the un-normalized (and possibly PEM-wrapped) encoding, which is
-        // later replayed verbatim to the connector on register-bound issue
+        // As in submitCertificateRequest, fingerprint and stored content are derived from request.encoded() —
+        // the normalized encoding that the handler above actually parsed — rather than from the input string.
+        // This endpoint receives the operator-supplied CSR directly from the API request, and it is not
+        // guaranteed to be plain base64(DER): PEM armor and double base64 encoding are common client mistakes.
+        // Storing the raw string here would silently persist the un-normalized (and possibly PEM-wrapped)
+        // encoding, which is later replayed verbatim to the connector on register-bound issue
         // (AuthorityProviderV3Adapter.issueRegistered), producing a request the connector cannot parse as DER.
         byte[] normalizedDer = request.encoded();
         final String fingerprint = CertificateUtil.getThumbprint(normalizedDer);
