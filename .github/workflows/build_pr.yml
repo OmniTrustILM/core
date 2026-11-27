@@ -318,6 +318,8 @@ jobs:
             selection=("-Dsurefire.includesFile=$includes")
           fi
           mvn -B -U -ntp "${selection[@]}" -DfailIfNoTests=true \
+            -Darchunit.freeze.store.default.allowStoreCreation=false \
+            -Darchunit.freeze.store.default.allowStoreUpdate=false \
             jacoco:prepare-agent@prepare-agent surefire:test@default-test "$MVNARG"
 
       - name: Upload coverage exec
