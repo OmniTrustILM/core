@@ -79,7 +79,8 @@ class CertificateDetailDtoMapperCvcTest {
     void showsThePlaceholderAsDisplayName_whenTheCvcHolderReferenceIsBlank() {
         // given
         CvcCertificateEntity certificate = createCvcCertificate();
-        certificate.setHolderReference(" ");
+        String blankHolderReference = " ";
+        certificate.setHolderReference(blankHolderReference);
 
         // when
         CertificateDetail dto = CertificateDetailDtoMapper.toDetailDto(certificate);
