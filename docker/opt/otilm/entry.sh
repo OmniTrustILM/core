@@ -8,4 +8,4 @@ case "$(echo "${PLATFORM_LOG_FORMAT}" | tr -d '[:space:]' | tr '[:upper:]' '[:lo
     ecs|logstash) ;;
     *) log "INFO" "Launching the Core" ;;
 esac
-exec java $JAVA_OPTS -jar ./app.jar
+exec java --enable-native-access=ALL-UNNAMED $JAVA_OPTS -jar ./app.jar
