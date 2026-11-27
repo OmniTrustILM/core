@@ -7,17 +7,21 @@ import com.otilm.core.certificate.type.ParsedRequest;
 import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
 import com.otilm.core.certificate.type.ValidityPrecision;
 import java.nio.charset.StandardCharsets;
+import java.security.PublicKey;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import static com.otilm.core.util.StubCertificateFixtures.STUB_NOT_AFTER;
 import static com.otilm.core.util.StubCertificateFixtures.STUB_NOT_BEFORE;
 import static com.otilm.core.util.StubCertificateFixtures.certificate;
 import static com.otilm.core.util.StubCertificateFixtures.keyPair;
 import static com.otilm.core.util.StubCertificateFixtures.request;
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -216,5 +220,69 @@ class StubCertificateTypeHandlerTest {
 
         // then
         assertThat(violations).isEmpty();
+    }
+
+    @Test
+    void returnsTheKeyTheRequestWasReadWith_whenAskedForItsPublicKeyByDefault() throws Exception {
+        // given
+        ParsedRequest request = handler.parseRequest(request("holder-one", true, "")).orElseThrow();
+
+        // when
+        PublicKey publicKey = handler.publicKeyOf(request);
+
+        // then
+        assertThat(publicKey).isEqualTo(keyPair().getPublic());
+    }
+
+    @Test
+    void reportsNoAlternativeKey_whenReadingARequestByDefault() throws Exception {
+        // given
+        ParsedRequest request = handler.parseRequest(request("holder-one", true, "")).orElseThrow();
+
+        // when
+        Optional<PublicKey> alternativeKey = handler.alternativePublicKey(request);
+
+        // then
+        assertThat(alternativeKey).isEmpty();
+    }
+
+    @Test
+    void raisesNoWarning_whenValidatingRequestAttributesByDefault() throws Exception {
+        // given
+        ParsedRequest request = handler.parseRequest(request("holder-one", true, "")).orElseThrow();
+
+        // when
+        List<String> warnings = handler.validateRequestAttributes(request, null);
+
+        // then
+        assertThat(warnings).isEmpty();
+    }
+
+    @Test
+    void recognisesAnotherHolderOrIssuer_whenComparingCertificatesByDefault() {
+        // given
+        var certificate = aCertificate().withPublicKeyFingerprint("key").build();
+        var other = aCertificate().withPublicKeyFingerprint("key").build();
+
+        // when
+        boolean same = handler.sameHolderAndIssuer(certificate, other);
+
+        // then
+        assertThat(same).isFalse();
+    }
+
+    @ParameterizedTest
+    @CsvSource({"key, true", "another-key, false"})
+    void comparesThePublicKeyFingerprints_whenAskedWhetherCertificatesShareTheirKeys(String otherFingerprint,
+            boolean expectedSame) {
+        // given
+        var certificate = aCertificate().withPublicKeyFingerprint("key").build();
+        var other = aCertificate().withPublicKeyFingerprint(otherFingerprint).build();
+
+        // when
+        boolean same = handler.sameKeys(certificate, other);
+
+        // then
+        assertThat(same).isEqualTo(expectedSame);
     }
 }

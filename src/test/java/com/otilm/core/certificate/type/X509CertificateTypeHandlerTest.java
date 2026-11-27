@@ -9,20 +9,28 @@ import com.otilm.api.model.core.certificate.CertificateFormat;
 import com.otilm.api.model.core.certificate.CertificateFormatEncoding;
 import com.otilm.api.model.core.certificate.CertificateOperation;
 import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CertificateSubjectType;
 import com.otilm.api.model.core.certificate.X509CertificateDetail;
 import com.otilm.api.model.core.certificate.X509CertificateRequestDetail;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.oid.OidCategory;
+import com.otilm.core.certificate.request.ProtocolRequestAttributeValidator;
 import com.otilm.core.certificate.type.stub.StubCertificateTypeHandler;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.CertificateRequestEntity;
+import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.X509CertificateEntity;
+import com.otilm.core.dao.entity.X509CertificateRequestEntity;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.helpers.CertificateGeneratorHelper.CertificateChainInfo;
+import com.otilm.core.model.request.CertificateRequest;
 import com.otilm.core.oid.OidHandler;
 import com.otilm.core.oid.OidRecord;
+import com.otilm.core.service.CertificateChainService;
 import com.otilm.core.service.CryptographicOperationInternalService;
 import com.otilm.core.util.CertificateTestUtil;
 import com.otilm.core.util.CertificateUtil;
+import com.otilm.core.util.builders.CertificateBuilder;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -31,6 +39,7 @@ import java.io.OutputStreamWriter;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
+import java.security.NoSuchAlgorithmException;
 import java.security.PublicKey;
 import java.security.Security;
 import java.security.cert.CertificateException;
@@ -74,6 +83,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class X509CertificateTypeHandlerTest {
@@ -836,6 +847,170 @@ class X509CertificateTypeHandlerTest {
     }
 
     @Test
+    void fillsTheRequestedIdentity_whenStampingARequestedCertificate() throws Exception {
+        // given
+        KeyPair holderKeys = chain.getEndEntityCertificateKeyPair();
+        ParsedRequest request = parsedPkcs10(holderKeys, SUBJECT_DN);
+        var placeholder = aCertificate().withState(CertificateState.REQUESTED).build();
+
+        // when
+        Certificate stamped = handler.stampRequested(placeholder, request);
+
+        // then
+        assertThat(stamped).isSameAs(placeholder);
+        assertThat(placeholder.getSubjectDn()).contains("handler-test-holder");
+        assertThat(placeholder.getCommonName()).isEqualTo("handler-test-holder");
+        assertThat(placeholder.getPublicKeyFingerprint()).isNotBlank();
+        assertThat(placeholder.getState()).isEqualTo(CertificateState.REQUESTED);
+    }
+
+    @Test
+    void throwsNoSuchAlgorithm_whenStampingARequestWhoseKeyAlgorithmIsUnknown() throws Exception {
+        // given
+        ParsedRequest unknownKeyAlgorithm = handler
+                .readRequest(Base64.getEncoder().encodeToString(createPkcs10WithUnknownKeyAlgorithm(SUBJECT_DN)),
+                        CertificateRequestFormat.PKCS10);
+        var placeholder = aCertificate().build();
+
+        // when
+        ThrowingCallable stamp = () -> handler.stampRequested(placeholder, unknownKeyAlgorithm);
+
+        // then
+        assertThatThrownBy(stamp).isInstanceOf(NoSuchAlgorithmException.class);
+        assertThat(placeholder.getSubjectDn()).isNull();
+    }
+
+    @Test
+    void createsAnX509RequestWithItsIdentityFormatAndSignatureAlgorithm_whenAskedForANewCertificateRequest()
+            throws Exception {
+        // given
+        ParsedRequest request = parsedPkcs10(chain.getEndEntityCertificateKeyPair(), SUBJECT_DN);
+
+        // when
+        CertificateRequestEntity created = handler.newCertificateRequest(request);
+
+        // then
+        assertThat(created).isInstanceOfSatisfying(X509CertificateRequestEntity.class, x509Request -> {
+            assertThat(x509Request.getSubjectDn()).contains("handler-test-holder");
+            assertThat(x509Request.getCommonName()).isEqualTo("handler-test-holder");
+            assertThat(x509Request.getCertificateRequestFormat()).isEqualTo(CertificateRequestFormat.PKCS10);
+            assertThat(x509Request.getSignatureAlgorithm()).isEqualTo("SHA256withRSA");
+            assertThat(x509Request.getAltSignatureAlgorithm()).isNull();
+        });
+    }
+
+    @Test
+    void throwsNoSuchAlgorithm_whenAskedForThePublicKeyOfARequestWhoseKeyAlgorithmIsUnknown() throws Exception {
+        // given
+        ParsedRequest unknownKeyAlgorithm = handler
+                .readRequest(Base64.getEncoder().encodeToString(createPkcs10WithUnknownKeyAlgorithm(SUBJECT_DN)),
+                        CertificateRequestFormat.PKCS10);
+
+        // when
+        ThrowingCallable decode = () -> handler.publicKeyOf(unknownKeyAlgorithm);
+
+        // then
+        assertThatThrownBy(decode).isInstanceOf(NoSuchAlgorithmException.class);
+    }
+
+    @Test
+    void reportsNoAlternativeKey_whenTheRequestCarriesNone() throws Exception {
+        // given
+        ParsedRequest request = parsedPkcs10(chain.getEndEntityCertificateKeyPair(), SUBJECT_DN);
+
+        // when
+        Optional<PublicKey> alternativeKey = handler.alternativePublicKey(request);
+
+        // then
+        assertThat(alternativeKey).isEmpty();
+    }
+
+    @Test
+    void returnsTheWarningsOfTheValidator_whenValidatingRequestAttributes() throws Exception {
+        // given
+        var policyWarning = "the request asks for a name the profile does not allow";
+        var raProfile = new RaProfile();
+        var validator = mock(ProtocolRequestAttributeValidator.class);
+        when(validator.validate(any(CertificateRequest.class), eq(raProfile))).thenReturn(List.of(policyWarning));
+        handler.setRequestAttributeValidator(validator);
+        ParsedRequest request = parsedPkcs10(chain.getEndEntityCertificateKeyPair(), SUBJECT_DN);
+
+        // when
+        List<String> warnings = handler.validateRequestAttributes(request, raProfile);
+
+        // then
+        assertThat(warnings).containsExactly(policyWarning);
+    }
+
+    @Test
+    void recognisesTheSameHolderAndIssuer_whenTheNamesAndTheIssuerSerialNumberMatch() {
+        // given
+        var certificate = anIssuedCertificate("cn=holder").build();
+        var renewed = anIssuedCertificate("cn=holder").build();
+
+        // when
+        boolean same = handler.sameHolderAndIssuer(certificate, renewed);
+
+        // then
+        assertThat(same).isTrue();
+    }
+
+    @Test
+    void recognisesAnotherHolder_whenTheSubjectNamesDiffer() {
+        // given
+        var certificate = anIssuedCertificate("cn=holder").build();
+        var otherHolder = anIssuedCertificate("cn=another-holder").build();
+
+        // when
+        boolean same = handler.sameHolderAndIssuer(certificate, otherHolder);
+
+        // then
+        assertThat(same).isFalse();
+    }
+
+    @Test
+    void linksTheIssuer_whenTheIssuerSerialNumberOfAnEndEntityIsUnknown() throws Exception {
+        // given
+        var chainService = mock(CertificateChainService.class);
+        handler.setChainService(chainService);
+        var unlinked = anIssuedCertificate("cn=holder").withIssuerSerialNumber(null).build();
+        var linked = anIssuedCertificate("cn=holder").build();
+
+        // when
+        handler.sameHolderAndIssuer(unlinked, linked);
+
+        // then
+        verify(chainService).updateCertificateChain(unlinked);
+        verify(chainService, never()).updateCertificateChain(linked);
+    }
+
+    @Test
+    void recognisesTheSameKeys_whenThePublicAndAlternativeKeyFingerprintsMatch() {
+        // given
+        var certificate = aCertificate().withPublicKeyFingerprint("key").withAltKeyFingerprint("alt-key").build();
+        var renewed = aCertificate().withPublicKeyFingerprint("key").withAltKeyFingerprint("alt-key").build();
+
+        // when
+        boolean same = handler.sameKeys(certificate, renewed);
+
+        // then
+        assertThat(same).isTrue();
+    }
+
+    @Test
+    void recognisesOtherKeys_whenOnlyTheAlternativeKeyFingerprintDiffers() {
+        // given
+        var certificate = aCertificate().withPublicKeyFingerprint("key").withAltKeyFingerprint("alt-key").build();
+        var rekeyed = aCertificate().withPublicKeyFingerprint("key").withAltKeyFingerprint("new-alt-key").build();
+
+        // when
+        boolean same = handler.sameKeys(certificate, rekeyed);
+
+        // then
+        assertThat(same).isFalse();
+    }
+
+    @Test
     void returnsTheBase64OfTheCertificateWithoutPemLines_whenAskedForTheContentToStore() throws Exception {
         // given
         X509Certificate issuedCertificate = chain.getEndEntityCertificate();
@@ -979,6 +1154,20 @@ class X509CertificateTypeHandlerTest {
             }
         }
         return blocks;
+    }
+
+    private ParsedRequest parsedPkcs10(KeyPair keys, String subjectDn) throws Exception {
+        return handler
+                .readRequest(Base64.getEncoder().encodeToString(pkcs10(keys, subjectDn)),
+                        CertificateRequestFormat.PKCS10);
+    }
+
+    private static CertificateBuilder anIssuedCertificate(String subjectDnNormalized) {
+        return aCertificate()
+                .withSubjectType(CertificateSubjectType.END_ENTITY)
+                .withSubjectDnNormalized(subjectDnNormalized)
+                .withIssuerDnNormalized("cn=issuer")
+                .withIssuerSerialNumber("0a");
     }
 
     private ParsedCertificate parsedCertificate(X509Certificate certificate) throws Exception {

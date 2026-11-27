@@ -1935,7 +1935,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
             // when
             CertificateDetail certificateDetailDto = certificateService
                     .submitCertificateRequest(SAMPLE_PKCS10, CertificateRequestFormat.PKCS10, List.of(), List.of(),
-                            List.of(), List.of(), null, null, raProfile.getUuid(), null, protocolInfo);
+                            List.of(), List.of(), null, null, raProfile.getUuid(), null, protocolInfo, null);
             Certificate certificateToBeIssued = certificateRepository
                     .findWithAssociationsByUuid(UUID.fromString(certificateDetailDto.getUuid()))
                     .orElseThrow();
@@ -1953,12 +1953,12 @@ class CertificateServiceITest extends BaseSpringBootTest {
             // given
             CertificateDetail first = certificateService
                     .submitCertificateRequest(SAMPLE_PKCS10, CertificateRequestFormat.PKCS10, List.of(), List.of(),
-                            List.of(), List.of(), null, null, raProfile.getUuid(), null, null);
+                            List.of(), List.of(), null, null, raProfile.getUuid(), null, null, null);
 
             // when
             CertificateDetail second = certificateService
                     .submitCertificateRequest(SAMPLE_PKCS10, CertificateRequestFormat.PKCS10, List.of(), List.of(),
-                            List.of(), List.of(), null, null, raProfile.getUuid(), null, null);
+                            List.of(), List.of(), null, null, raProfile.getUuid(), null, null, null);
 
             // then
             assertThat(second.getCertificateRequest().getUuid()).isNotEqualTo(first.getCertificateRequest().getUuid());
@@ -1976,7 +1976,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
             List<String> statements = SqlCapture
                     .during(() -> certificateService
                             .submitCertificateRequest(SAMPLE_PKCS10, CertificateRequestFormat.PKCS10, List.of(),
-                                    List.of(), List.of(), List.of(), null, null, raProfile.getUuid(), null, null))
+                                    List.of(), List.of(), List.of(), null, null, raProfile.getUuid(), null, null, null))
                     .statements();
 
             // then

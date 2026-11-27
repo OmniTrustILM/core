@@ -85,6 +85,7 @@ import com.otilm.core.certificate.type.CertificateTypeHandler;
 import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
 import com.otilm.core.certificate.type.IssuedCertificateRefusedException;
 import com.otilm.core.certificate.type.ParsedCertificate;
+import com.otilm.core.certificate.type.ParsedRequest;
 import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
 import com.otilm.core.comparator.SearchFieldDataComparator;
 import com.otilm.core.config.cache.CacheConfig;
@@ -147,7 +148,6 @@ import com.otilm.core.messaging.model.NotificationRecipient;
 import com.otilm.core.messaging.model.ValidationMessage;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
 import com.otilm.core.model.auth.ResourceAction;
-import com.otilm.core.model.request.CertificateRequest;
 import com.otilm.core.model.request.CertificateRequestKeys;
 import com.otilm.core.model.signing.CertificatePurposeRequirements;
 import com.otilm.core.model.signing.SigningCertificate;
@@ -191,7 +191,6 @@ import com.otilm.core.service.writer.registration.CertificateRegistrationAuthori
 import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.util.AuthHelper;
 import com.otilm.core.util.CertificateEligibilityUtil;
-import com.otilm.core.util.CertificateRequestUtils;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.FilterPredicatesBuilder;
 import com.otilm.core.util.KeySizeUtil;
@@ -242,7 +241,6 @@ import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.function.TriFunction;
 import org.bouncycastle.asn1.x509.Extension;
-import org.bouncycastle.operator.DefaultAlgorithmNameFinder;
 import org.slf4j.MarkerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -1756,10 +1754,10 @@ public class CertificateServiceImpl
                             .formatted(certificate.toStringShort()));
         }
 
-        CertificateRequest request;
+        CertificateTypeHandler handler = typeHandlerRegistry.require(certificate.getCertificateType().getCode());
+        ParsedRequest request;
         try {
-            request = CertificateRequestUtils
-                    .createCertificateRequest(issueRequest.getRequest(), issueRequest.getFormat());
+            request = handler.readRequest(issueRequest.getRequest(), issueRequest.getFormat());
         } catch (IllegalArgumentException | CertificateRequestException e) {
             throw new CertificateRequestException(
                     "Error when creating a Certificate Request from provided content for certificate with UUID "
@@ -1773,7 +1771,7 @@ public class CertificateServiceImpl
         // submitCertificateRequest.
         //
         // Unlike submitCertificateRequest, fingerprint and stored content here are derived from
-        // request.getEncoded() — the normalized DER that createCertificateRequest above actually parsed —
+        // request.encoded() — the normalized encoding that the handler above actually parsed —
         // rather than from a single Base64.decode() of the input string. submitCertificateRequest's callers
         // (see ClientOperationServiceImpl#generateBase64EncodedCsr) already normalize the CSR before invoking
         // it, so decoding the input there is sufficient. This endpoint receives the operator-supplied CSR
@@ -1782,24 +1780,20 @@ public class CertificateServiceImpl
         // string here would silently persist the un-normalized (and possibly PEM-wrapped) encoding, which is
         // later replayed verbatim to the connector on register-bound issue
         // (AuthorityProviderV3Adapter.issueRegistered), producing a request the connector cannot parse as DER.
-        byte[] normalizedDer = request.getEncoded();
+        byte[] normalizedDer = request.encoded();
         final String fingerprint = CertificateUtil.getThumbprint(normalizedDer);
-        X509CertificateRequestEntity certificateRequestEntity = new X509CertificateRequestEntity();
-        CertificateUtil.prepareCertificateRequestEntityFromCsr(certificateRequestEntity, request);
+        CertificateRequestEntity certificateRequestEntity = handler.newCertificateRequest(request);
         certificateRequestEntity.setCertificateRequestFormat(issueRequest.getFormat());
         certificateRequestEntity.setFingerprint(fingerprint);
         certificateRequestEntity.setContent(Base64.getEncoder().encodeToString(normalizedDer));
-        setCertificateRequestEntitySignatureAlgorithms(request, certificateRequestEntity);
         certificateRequestRepository.save(certificateRequestEntity);
 
         certificate.setCertificateRequest(certificateRequestEntity);
         certificate.setCertificateRequestUuid(certificateRequestEntity.getUuid());
-        certificate.setKeyUuid(getCertificateRequestKey(certificateRequestEntity, request.getPublicKey()));
-        if (request.getAltPublicKey() != null) {
-            // Preserve the hybrid/PQC alternative key's inventory linkage, mirroring the canonical
-            // CSR-attach path; the request entity is managed here, so its alt-key fields flush at commit.
-            setCertificateRequestAltKey(certificateRequestEntity, request.getAltPublicKey());
-        }
+        certificate.setKeyUuid(getCertificateRequestKey(certificateRequestEntity, request.publicKey()));
+        // Preserve the hybrid/PQC alternative key's inventory linkage, mirroring the canonical
+        // CSR-attach path; the request entity is managed here, so its alt-key fields flush at commit.
+        setCertificateRequestAltKey(null, certificateRequestEntity, handler.alternativePublicKey(request).orElse(null));
         certificateRepository.save(certificate);
         // The issue attributes commit with the request they were sent for; replacing them drops those of a completion
         // whose approval was refused.
@@ -2525,25 +2519,35 @@ public class CertificateServiceImpl
 
     @Override
     public CertificateRequestKeys findRequestKeys(String csr, CertificateRequestFormat csrFormat, UUID keyUuid,
-            UUID altKeyUuid) throws NoSuchAlgorithmException, CertificateRequestException {
-        byte[] decodedCsr = Base64.getDecoder().decode(csr);
-        return requestKeys(CertificateRequestUtils.createCertificateRequest(decodedCsr, csrFormat), keyUuid,
-                altKeyUuid);
+            UUID altKeyUuid, CertificateType certificateType)
+            throws NoSuchAlgorithmException, CertificateRequestException {
+        CertificateTypeHandler handler = requestHandlerOf(certificateType);
+        // content that is not Base64 is refused by the decoder, before the handler reads it
+        Base64.getDecoder().decode(csr);
+        return requestKeys(handler, handler.readRequest(csr, csrFormat), keyUuid, altKeyUuid);
+    }
+
+    // by default, a request is an X.509 one
+    private CertificateTypeHandler requestHandlerOf(CertificateType certificateType) {
+        return typeHandlerRegistry
+                .require((certificateType != null ? certificateType : CertificateType.X509).getCode());
     }
 
     /**
      * The given keys, else the inventory keys the request's public keys match, the ones
      * {@link #getCertificateRequestKey} would link it to.
      */
-    private CertificateRequestKeys requestKeys(CertificateRequest request, UUID keyUuid, UUID altKeyUuid)
-            throws NoSuchAlgorithmException, CertificateRequestException {
+    private CertificateRequestKeys requestKeys(CertificateTypeHandler handler, ParsedRequest request, UUID keyUuid,
+            UUID altKeyUuid) throws NoSuchAlgorithmException, CertificateRequestException {
         UUID key = keyUuid;
-        if (key == null && request.getPublicKey() != null) {
-            key = cryptographicKeyService.findKeyByFingerprint(publicKeyFingerprint(request.getPublicKey()));
+        PublicKey publicKey = key == null ? handler.publicKeyOf(request) : null;
+        if (publicKey != null) {
+            key = cryptographicKeyService.findKeyByFingerprint(publicKeyFingerprint(publicKey));
         }
         UUID altKey = altKeyUuid;
-        if (altKey == null && request.getAltPublicKey() != null) {
-            altKey = cryptographicKeyService.findKeyByFingerprint(publicKeyFingerprint(request.getAltPublicKey()));
+        PublicKey altPublicKey = altKey == null ? handler.alternativePublicKey(request).orElse(null) : null;
+        if (altPublicKey != null) {
+            altKey = cryptographicKeyService.findKeyByFingerprint(publicKeyFingerprint(altPublicKey));
         }
         return new CertificateRequestKeys(key, altKey);
     }
@@ -2564,20 +2568,20 @@ public class CertificateServiceImpl
             CertificateRequestFormat certificateRequestFormat, List<RequestAttribute> signatureAttributes,
             List<RequestAttribute> altSignatureAttributes, List<RequestAttribute> csrAttributes,
             List<RequestAttribute> issueAttributes, UUID keyUuid, UUID altKeyUuid, UUID raProfileUuid,
-            UUID predecessorCertificateUuid, CertificateProtocolInfo protocolInfo) throws NoSuchAlgorithmException,
-            ConnectorException, AttributeException, CertificateRequestException, NotFoundException {
+            UUID predecessorCertificateUuid, CertificateProtocolInfo protocolInfo, CertificateType certificateType)
+            throws NoSuchAlgorithmException, ConnectorException, AttributeException, CertificateRequestException,
+            NotFoundException {
         // Issue-attribute merge/validation is performed by the caller before the request transaction opens,
         // so no connector round-trip runs while this transaction (and its DB connection) is held.
         RaProfile raProfile = raProfileService.getRaProfileEntity(SecuredUUID.fromUUID(raProfileUuid));
+        CertificateTypeHandler handler = requestHandlerOf(certificateType);
 
         // create certificate request from CSR and parse the data
         byte[] decodedCsr = Base64.getDecoder().decode(certificateRequest);
-        CertificateRequest request = CertificateRequestUtils
-                .createCertificateRequest(decodedCsr, certificateRequestFormat);
+        ParsedRequest request = handler.readRequest(certificateRequest, certificateRequestFormat);
 
-        X509CertificateEntity certificate = new X509CertificateEntity();
         // prepare certificate request data for certificate
-        CertificateUtil.prepareCertificateFromCsr(certificate, request);
+        Certificate certificate = handler.stampRequested(handler.newCertificate(), request);
 
         certificate.setState(CertificateState.REQUESTED);
         certificate.setComplianceStatus(ComplianceStatus.NOT_CHECKED);
@@ -2587,17 +2591,15 @@ public class CertificateServiceImpl
         // Signature attributes are written under the connector of the key they belong to.
         CertificateRequestKeys signingKeys = isEmpty(signatureAttributes) && isEmpty(altSignatureAttributes)
                 ? new CertificateRequestKeys(null, null)
-                : requestKeys(request, keyUuid, altKeyUuid);
+                : requestKeys(handler, request, keyUuid, altKeyUuid);
         UUID signatureAttributeOwner = cryptographicKeyService.getSignAttributeOwner(signingKeys.keyUuid());
         UUID altSignatureAttributeOwner = cryptographicKeyService.getSignAttributeOwner(signingKeys.altKeyUuid());
 
         // Every certificate gets a request of its own, even for a CSR already stored: the compliance result kept on
         // the request is checked for the certificate's RA profile.
-        X509CertificateRequestEntity certificateRequestEntity = certificate
-                .prepareCertificateRequest(certificateRequestFormat);
+        CertificateRequestEntity certificateRequestEntity = handler.newCertificateRequest(request);
         certificateRequestEntity.setFingerprint(CertificateUtil.getThumbprint(decodedCsr));
         certificateRequestEntity.setContent(certificateRequest);
-        setCertificateRequestEntitySignatureAlgorithms(request, certificateRequestEntity);
         certificateRequestRepository.save(certificateRequestEntity);
 
         List<ResponseAttribute> requestAttributes = attributeEngine
@@ -2621,10 +2623,11 @@ public class CertificateServiceImpl
         if (keyUuid != null) {
             certificateRequestEntity.setKeyUuid(keyUuid);
         } else {
-            keyUuid = getCertificateRequestKey(certificateRequestEntity, request.getPublicKey());
+            keyUuid = getCertificateRequestKey(certificateRequestEntity, request.publicKey());
         }
 
-        setCertificateRequestAltKey(altKeyUuid, certificateRequestEntity, request);
+        setCertificateRequestAltKey(altKeyUuid, certificateRequestEntity,
+                handler.alternativePublicKey(request).orElse(null));
 
         certificate.setCertificateRequest(certificateRequestEntity);
         certificate.setCertificateRequestUuid(certificateRequestEntity.getUuid());
@@ -2744,32 +2747,22 @@ public class CertificateServiceImpl
         }
     }
 
-    private void setCertificateRequestAltKey(UUID altKeyUuid, X509CertificateRequestEntity certificateRequestEntity,
-            CertificateRequest request) throws NoSuchAlgorithmException, CertificateRequestException {
+    // only an X.509 request has an alternative key
+    private void setCertificateRequestAltKey(UUID altKeyUuid, CertificateRequestEntity certificateRequestEntity,
+            PublicKey altPublicKey) throws NoSuchAlgorithmException {
+        X509CertificateRequestEntity x509Request = X509CertificateRequestEntity.fromOrNull(certificateRequestEntity);
+        if (x509Request == null) {
+            return;
+        }
         if (altKeyUuid != null) {
-            certificateRequestEntity.setAltKeyUuid(altKeyUuid);
-            if (request.getAltPublicKey() != null) {
-                certificateRequestEntity
-                        .setAltPublicKeyAlgorithm(CertificateUtil
-                                .getKeyAlgorithmStringFromProviderName(request.getAltPublicKey().getAlgorithm()));
+            x509Request.setAltKeyUuid(altKeyUuid);
+            if (altPublicKey != null) {
+                x509Request
+                        .setAltPublicKeyAlgorithm(
+                                CertificateUtil.getKeyAlgorithmStringFromProviderName(altPublicKey.getAlgorithm()));
             }
-        } else if (request.getAltPublicKey() != null) {
-            setCertificateRequestAltKey(certificateRequestEntity, request.getAltPublicKey());
-        }
-    }
-
-    private static void setCertificateRequestEntitySignatureAlgorithms(CertificateRequest request,
-            X509CertificateRequestEntity certificateRequestEntity) {
-        DefaultAlgorithmNameFinder algFinder = new DefaultAlgorithmNameFinder();
-        if (request.getSignatureAlgorithm() != null) {
-            certificateRequestEntity
-                    .setSignatureAlgorithm(
-                            algFinder.getAlgorithmName(request.getSignatureAlgorithm()).replace("WITH", "with"));
-        }
-        if (request.getAltSignatureAlgorithm() != null) {
-            certificateRequestEntity
-                    .setAltSignatureAlgorithm(
-                            algFinder.getAlgorithmName(request.getAltSignatureAlgorithm()).replace("WITH", "with"));
+        } else if (altPublicKey != null) {
+            setCertificateRequestAltKey(x509Request, altPublicKey);
         }
     }
 
@@ -3124,6 +3117,11 @@ public class CertificateServiceImpl
         }
 
         validateSubjectTypes(certificate, associatedCertificate);
+        if (certificate.getCertificateType() != associatedCertificate.getCertificateType()) {
+            throw new ValidationException("Cannot associate certificates of different types: %s and %s"
+                    .formatted(certificate.getCertificateType().getLabel(),
+                            associatedCertificate.getCertificateType().getLabel()));
+        }
 
         CertificateRelation certificateRelation = new CertificateRelation();
         CertificateRelationId id = determineCertificateRelationId(certificate, associatedCertificate);
@@ -3206,46 +3204,17 @@ public class CertificateServiceImpl
                 || successorCertificateState == CertificateState.REVOKED;
     }
 
+    // a certificate of another type, or of a type without a handler, can only replace the other
     private CertificateRelationType determineRelationType(Certificate certificate, Certificate associatedCertificate) {
-        if (sameDnsAndIssuerSN(certificate, associatedCertificate)) {
-            if (Objects.equals(certificate.getPublicKeyFingerprint(), associatedCertificate.getPublicKeyFingerprint())
-                    && Objects
-                            .equals(X509CertificateEntity.from(certificate).getAltKeyFingerprint(),
-                                    X509CertificateEntity.from(associatedCertificate).getAltKeyFingerprint())) {
-                return CertificateRelationType.RENEWAL;
-            } else {
-                return CertificateRelationType.REKEY;
-            }
-        } else {
+        CertificateTypeHandler handler = certificate.getCertificateType() == associatedCertificate.getCertificateType()
+                ? typeHandlerRegistry.find(certificate.getCertificateType().getCode()).orElse(null)
+                : null;
+        if (handler == null || !handler.sameHolderAndIssuer(certificate, associatedCertificate)) {
             return CertificateRelationType.REPLACEMENT;
         }
-    }
-
-    private boolean sameDnsAndIssuerSN(Certificate certificateToCompare, Certificate sourceToCompare) {
-        X509CertificateEntity certificate = X509CertificateEntity.from(certificateToCompare);
-        X509CertificateEntity sourceCertificate = X509CertificateEntity.from(sourceToCompare);
-        if (isNotSelfSigned(certificate) && certificate.getIssuerSerialNumber() == null) {
-            try {
-                chainService.updateCertificateChain(certificate);
-            } catch (CertificateException e) {
-                // Leave issuer SN null
-            }
-        }
-        if (isNotSelfSigned(sourceCertificate) && sourceCertificate.getIssuerSerialNumber() == null) {
-            try {
-                chainService.updateCertificateChain(sourceCertificate);
-            } catch (CertificateException e) {
-                // Leave issuer SN null
-            }
-        }
-        return Objects.equals(certificate.getIssuerDnNormalized(), sourceCertificate.getIssuerDnNormalized())
-                && Objects.equals(certificate.getSubjectDnNormalized(), sourceCertificate.getSubjectDnNormalized())
-                && Objects.equals(certificate.getIssuerSerialNumber(), sourceCertificate.getIssuerSerialNumber());
-    }
-
-    private static boolean isNotSelfSigned(Certificate certificate) {
-        return certificate.getSubjectType() == CertificateSubjectType.END_ENTITY
-                || certificate.getSubjectType() == CertificateSubjectType.INTERMEDIATE_CA;
+        return handler.sameKeys(certificate, associatedCertificate)
+                ? CertificateRelationType.RENEWAL
+                : CertificateRelationType.REKEY;
     }
 
     @Override
@@ -3611,8 +3580,8 @@ public class CertificateServiceImpl
     @Override
     public ResourceObjectContentData getResourceObjectContent(UUID uuid) throws NotFoundException, AttributeException {
         ResourceCertificateContentData contentData = new ResourceCertificateContentData();
-        contentData.setCertificateType(CertificateType.X509);
         Certificate certificate = getCertificateEntity(SecuredUUID.fromUUID(uuid));
+        contentData.setCertificateType(certificate.getCertificateType());
         if (certificate.getCertificateContent() == null) {
             throw new AttributeException("Certificate without content cannot be set as resource object in attribute.");
         }
