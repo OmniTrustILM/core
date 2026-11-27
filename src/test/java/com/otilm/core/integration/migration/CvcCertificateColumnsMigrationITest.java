@@ -9,6 +9,7 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.List;
 import java.util.UUID;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeAll;
@@ -20,11 +21,14 @@ import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Verifies {@code V202611261000__cvc_certificate_columns.sql} against rows seeded before the columns existed.
+ * Verifies {@code V202611261000__cvc_certificate_columns.sql} and
+ * {@code V202611261001__cvc_certificate_request_columns.sql} against rows seeded before the columns existed.
  */
 class CvcCertificateColumnsMigrationITest extends BaseMigrationTest {
 
-    private static final String MIGRATION_RESOURCE = "db/migration/V202611261000__cvc_certificate_columns.sql";
+    private static final List<String> MIGRATION_RESOURCES = List
+            .of("db/migration/V202611261000__cvc_certificate_columns.sql",
+                    "db/migration/V202611261001__cvc_certificate_request_columns.sql");
     private static final String SUBJECT_DN = "CN=before-the-columns";
 
     @Autowired
@@ -70,7 +74,9 @@ class CvcCertificateColumnsMigrationITest extends BaseMigrationTest {
             statement
                     .execute("ALTER TABLE certificate_request DROP COLUMN holder_reference, "
                             + "DROP COLUMN authority_reference, DROP COLUMN authenticated_by");
-            statement.execute(loadMigrationScript());
+            for (String resource : MIGRATION_RESOURCES) {
+                statement.execute(loadMigrationScript(resource));
+            }
 
             cvcUuid = UUID.randomUUID();
             insertCvcCertificate(statement, cvcUuid, "cvc-fingerprint", "key-1");
@@ -169,8 +175,8 @@ class CvcCertificateColumnsMigrationITest extends BaseMigrationTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private String loadMigrationScript() throws Exception {
-        return new ClassPathResource(MIGRATION_RESOURCE).getContentAsString(StandardCharsets.UTF_8);
+    private static String loadMigrationScript(String resource) throws Exception {
+        return new ClassPathResource(resource).getContentAsString(StandardCharsets.UTF_8);
     }
 
     private static void insertCvcCertificate(Statement statement, UUID uuid, String fingerprint,
