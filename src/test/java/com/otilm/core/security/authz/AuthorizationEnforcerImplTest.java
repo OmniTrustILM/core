@@ -259,24 +259,30 @@ class AuthorizationEnforcerImplTest {
     }
 
     @Test
-    void allowsListing_withoutConsultingTheProfile_whenCoreGrantsTheListAction() {
+    void allowsListingResourceWide_withoutConsultingTheProfile_whenCoreGrantsTheListAction() {
         // given
         when(core.decide(any(), any())).thenReturn(new AuthorizationDecision(true));
 
-        // when + then
-        assertThatCode(() -> enforcer.enforceListing(Resource.CERTIFICATE)).doesNotThrowAnyException();
+        // when
+        ListingAccess access = enforcer.enforceListing(Resource.CERTIFICATE);
+
+        // then
+        assertThat(access).isEqualTo(ListingAccess.RESOURCE_WIDE);
         verifyNoInteractions(resourceListingRule);
     }
 
     @Test
-    void allowsListing_whenCoreDeniesTheListActionButTheProfileListsTheResource() {
+    void allowsRestrictedListing_whenCoreDeniesTheListActionButTheProfileListsTheResource() {
         // given
         SecurityContextHolder.getContext().setAuthentication(platformAuthWithProfile());
         when(core.decide(any(), any())).thenReturn(new AuthorizationDecision(false));
         when(resourceListingRule.canList(any(), eq(Resource.CERTIFICATE))).thenReturn(true);
 
-        // when + then
-        assertThatCode(() -> enforcer.enforceListing(Resource.CERTIFICATE)).doesNotThrowAnyException();
+        // when
+        ListingAccess access = enforcer.enforceListing(Resource.CERTIFICATE);
+
+        // then
+        assertThat(access).isEqualTo(ListingAccess.RESTRICTED);
     }
 
     @Test

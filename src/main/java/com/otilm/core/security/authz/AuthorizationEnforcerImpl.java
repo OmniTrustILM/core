@@ -59,9 +59,12 @@ public class AuthorizationEnforcerImpl implements AuthorizationEnforcer {
     }
 
     @Override
-    public void enforceListing(Resource resource) {
-        if (isAuthorized(resource, ResourceAction.LIST) || isListedInProfile(resource)) {
-            return;
+    public ListingAccess enforceListing(Resource resource) {
+        if (isAuthorized(resource, ResourceAction.LIST)) {
+            return ListingAccess.RESOURCE_WIDE;
+        }
+        if (isListedInProfile(resource)) {
+            return ListingAccess.RESTRICTED;
         }
         AuthHelper.setDeniedPermissionResourceAction(resource.getCode(), ResourceAction.LIST.getCode());
         throw new AccessDeniedException(

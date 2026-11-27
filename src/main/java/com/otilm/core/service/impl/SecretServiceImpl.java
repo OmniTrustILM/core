@@ -83,6 +83,7 @@ import com.otilm.core.security.authn.client.UserManagementApiClient;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.ExternalAuthorizationProgrammatic;
+import com.otilm.core.security.authz.ListingAccess;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
@@ -297,7 +298,8 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
     @Override
     @ExternalAuthorizationProgrammatic(resource = Resource.SECRET, action = ResourceAction.LIST)
     public List<SearchFieldDataByGroupDto> getSearchableFieldInformation() {
-        authorizationEnforcer.enforceListing(Resource.SECRET);
+        boolean storedValuesVisible = authorizationEnforcer
+                .enforceListing(Resource.SECRET) == ListingAccess.RESOURCE_WIDE;
         List<SearchFieldDataByGroupDto> searchFieldDataByGroupDtos = attributeEngine
                 .getResourceSearchableFields(Resource.SECRET, false);
         List<SearchFieldDataDto> fieldDataDtos = new ArrayList<>(List
@@ -319,22 +321,22 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
                                                 .map(ComplianceStatus::getCode)
                                                 .toList()),
                         SearchHelper
-                                .prepareSearch(FilterField.SECRET_GROUP_NAME,
-                                        groupRepository.findAll().stream().map(Group::getName).toList()),
+                                .prepareStoredValueSearch(FilterField.SECRET_GROUP_NAME, storedValuesVisible,
+                                        () -> groupRepository.findAll().stream().map(Group::getName).toList()),
                         SearchHelper
-                                .prepareSearch(FilterField.SECRET_OWNER,
-                                        userManagementApiClient
+                                .prepareStoredValueSearch(FilterField.SECRET_OWNER, storedValuesVisible,
+                                        () -> userManagementApiClient
                                                 .getUsers()
                                                 .getData()
                                                 .stream()
                                                 .map(UserDto::getUsername)
                                                 .toList()),
                         SearchHelper
-                                .prepareSearch(FilterField.SECRET_SOURCE_VAULT_PROFILE,
-                                        vaultProfileRepository.findAllNames()),
+                                .prepareStoredValueSearch(FilterField.SECRET_SOURCE_VAULT_PROFILE, storedValuesVisible,
+                                        vaultProfileRepository::findAllNames),
                         SearchHelper
-                                .prepareSearch(FilterField.SECRET_SYNC_VAULT_PROFILE,
-                                        vaultProfileRepository.findAllNames())));
+                                .prepareStoredValueSearch(FilterField.SECRET_SYNC_VAULT_PROFILE, storedValuesVisible,
+                                        vaultProfileRepository::findAllNames)));
 
         fieldDataDtos.sort(new SearchFieldDataComparator());
         searchFieldDataByGroupDtos.add(new SearchFieldDataByGroupDto(fieldDataDtos, FilterFieldSource.PROPERTY));

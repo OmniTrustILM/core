@@ -88,6 +88,7 @@ import com.otilm.core.security.authn.client.UserManagementApiClient;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.ExternalAuthorizationProgrammatic;
+import com.otilm.core.security.authz.ListingAccess;
 import com.otilm.core.security.authz.ObjectFilterAspect;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -971,8 +972,8 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     @Override
     @ExternalAuthorizationProgrammatic(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.LIST)
     public List<SearchFieldDataByGroupDto> getSearchableFieldInformation() {
-        authorizationEnforcer.enforceListing(Resource.CRYPTOGRAPHIC_KEY);
-        return getSearchableFieldsMap();
+        return getSearchableFieldsMap(
+                authorizationEnforcer.enforceListing(Resource.CRYPTOGRAPHIC_KEY) == ListingAccess.RESOURCE_WIDE);
     }
 
     @Override
@@ -1677,18 +1678,18 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
         return true;
     }
 
-    private List<SearchFieldDataByGroupDto> getSearchableFieldsMap() {
+    private List<SearchFieldDataByGroupDto> getSearchableFieldsMap(boolean storedValuesVisible) {
         final List<SearchFieldDataByGroupDto> searchFieldDataByGroupDtos = attributeEngine
                 .getResourceSearchableFields(Resource.CRYPTOGRAPHIC_KEY, false);
 
         List<SearchFieldDataDto> fields = List
                 .of(SearchHelper.prepareSearch(FilterField.CKI_NAME),
                         SearchHelper
-                                .prepareSearch(FilterField.CK_GROUP,
-                                        groupRepository.findAll().stream().map(Group::getName).toList()),
+                                .prepareStoredValueSearch(FilterField.CK_GROUP, storedValuesVisible,
+                                        () -> groupRepository.findAll().stream().map(Group::getName).toList()),
                         SearchHelper
-                                .prepareSearch(FilterField.CK_OWNER,
-                                        userManagementApiClient
+                                .prepareStoredValueSearch(FilterField.CK_OWNER, storedValuesVisible,
+                                        () -> userManagementApiClient
                                                 .getUsers()
                                                 .getData()
                                                 .stream()
@@ -1699,8 +1700,8 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
                                         Arrays.stream(KeyUsage.values()).map(KeyUsage::getCode).toList()),
                         SearchHelper.prepareSearch(FilterField.CKI_LENGTH),
                         SearchHelper
-                                .prepareSearch(FilterField.CKI_PARAMETER_SET,
-                                        cryptographicKeyItemRepository.findStoredParameterSets()),
+                                .prepareStoredValueSearch(FilterField.CKI_PARAMETER_SET, storedValuesVisible,
+                                        cryptographicKeyItemRepository::findStoredParameterSets),
                         SearchHelper.prepareSearch(FilterField.CKI_ENABLED),
                         SearchHelper.prepareSearch(FilterField.CKI_CREATED),
                         SearchHelper
@@ -1716,11 +1717,15 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
                                 .prepareSearch(FilterField.CKI_CRYPTOGRAPHIC_ALGORITHM,
                                         Arrays.stream(KeyAlgorithm.values()).map(KeyAlgorithm::getCode).toList()),
                         SearchHelper
-                                .prepareSearch(FilterField.CK_TOKEN_PROFILE,
-                                        tokenProfileRepository.findAll().stream().map(TokenProfile::getName).toList()),
+                                .prepareStoredValueSearch(FilterField.CK_TOKEN_PROFILE, storedValuesVisible,
+                                        () -> tokenProfileRepository
+                                                .findAll()
+                                                .stream()
+                                                .map(TokenProfile::getName)
+                                                .toList()),
                         SearchHelper
-                                .prepareSearch(FilterField.CK_TOKEN_INSTANCE,
-                                        tokenInstanceReferenceRepository
+                                .prepareStoredValueSearch(FilterField.CK_TOKEN_INSTANCE, storedValuesVisible,
+                                        () -> tokenInstanceReferenceRepository
                                                 .findAll()
                                                 .stream()
                                                 .map(TokenInstanceReference::getName)
