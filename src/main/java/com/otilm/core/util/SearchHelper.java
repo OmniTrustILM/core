@@ -25,6 +25,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -156,6 +157,23 @@ public class SearchHelper {
             }
         }
 
+        return fieldDataDto;
+    }
+
+    /**
+     * A field whose value list is read from stored data across all objects, such as the names of every RA profile or
+     * the users who own anything. When the caller may not see all of that data, the list is neither read nor returned
+     * and the field is offered as text, so its values can still be typed in under the same conditions.
+     */
+    public static SearchFieldDataDto prepareStoredValueSearch(final FilterField filterField,
+            final boolean storedValuesVisible, final Supplier<? extends List<?>> storedValues) {
+        if (storedValuesVisible) {
+            return prepareSearch(filterField, storedValues.get());
+        }
+        SearchFieldDataDto fieldDataDto = prepareSearch(filterField);
+        fieldDataDto.setType(FilterFieldType.STRING);
+        fieldDataDto.setMultiValue(false);
+        fieldDataDto.setValue(null);
         return fieldDataDto;
     }
 

@@ -60,6 +60,7 @@ com/otilm/core/integration/security/authz/ExternalAuthorizationDynamicITest.java
 com/otilm/core/integration/security/authz/ExternalAuthorizationStaticITest.java
 com/otilm/core/integration/security/authz/ObjectActionEnforcementITest.java
 com/otilm/core/integration/security/authz/ObjectActionResolverITest.java
+com/otilm/core/integration/security/authz/SearchableFieldsListingITest.java
 com/otilm/core/integration/service/AcmeServiceITest.java
 com/otilm/core/integration/service/AuthenticationCacheITest.java
 com/otilm/core/integration/service/AuthorizationCacheITest.java

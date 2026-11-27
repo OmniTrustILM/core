@@ -35,6 +35,15 @@ public interface AuthorizationEnforcer {
      */
     void enforce(Resource resource, ResourceAction action, List<SecuredUUID> objectUuids) throws AccessDeniedException;
 
+    /**
+     * Authorizes the current principal to list {@code resource} when it holds a resource-level list grant or, failing
+     * that, when the resource is among the listings of its profile, which also admit a principal that owns, or through
+     * a group may see, an object of the resource.
+     *
+     * @return which of the two admitted the principal
+     */
+    ListingAccess enforceListing(Resource resource) throws AccessDeniedException;
+
     /** Whether the current principal may perform {@code action} on the object, decided exactly as {@code enforce}. */
     boolean isAuthorized(Resource resource, ResourceAction action, SecuredUUID objectUuid);
 

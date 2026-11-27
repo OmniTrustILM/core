@@ -158,6 +158,8 @@ import com.otilm.core.security.authn.client.AuthenticationCache;
 import com.otilm.core.security.authn.client.UserManagementApiClient;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.ExternalAuthorization;
+import com.otilm.core.security.authz.ExternalAuthorizationProgrammatic;
+import com.otilm.core.security.authz.ListingAccess;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
@@ -1340,8 +1342,10 @@ public class CertificateServiceImpl
     }
 
     @Override
-    @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.LIST)
+    @ExternalAuthorizationProgrammatic(resource = Resource.CERTIFICATE, action = ResourceAction.LIST)
     public List<SearchFieldDataByGroupDto> getSearchableFieldInformationByGroup() {
+        boolean storedValuesVisible = authorizationEnforcer
+                .enforceListing(Resource.CERTIFICATE) == ListingAccess.RESOURCE_WIDE;
         final List<SearchFieldDataByGroupDto> searchFieldDataByGroupDtos = attributeEngine
                 .getResourceSearchableFields(Resource.CERTIFICATE, false);
 
@@ -1350,17 +1354,17 @@ public class CertificateServiceImpl
                         SearchHelper.prepareSearch(FilterField.SERIAL_NUMBER),
                         SearchHelper.prepareSearch(FilterField.ISSUER_SERIAL_NUMBER),
                         SearchHelper
-                                .prepareSearch(FilterField.RA_PROFILE_NAME,
-                                        raProfileRepository.findAll().stream().map(RaProfile::getName).toList()),
+                                .prepareStoredValueSearch(FilterField.RA_PROFILE_NAME, storedValuesVisible,
+                                        () -> raProfileRepository.findAll().stream().map(RaProfile::getName).toList()),
                         SearchHelper
-                                .prepareSearch(FilterField.GROUP_NAME,
-                                        groupRepository.findAll().stream().map(Group::getName).toList()),
+                                .prepareStoredValueSearch(FilterField.GROUP_NAME, storedValuesVisible,
+                                        () -> groupRepository.findAll().stream().map(Group::getName).toList()),
                         SearchHelper
-                                .prepareSearch(FilterField.CERT_LOCATION_NAME,
-                                        locationRepository.findAll().stream().map(Location::getName).toList()),
+                                .prepareStoredValueSearch(FilterField.CERT_LOCATION_NAME, storedValuesVisible,
+                                        () -> locationRepository.findAll().stream().map(Location::getName).toList()),
                         SearchHelper
-                                .prepareSearch(FilterField.OWNER,
-                                        userManagementApiClient
+                                .prepareStoredValueSearch(FilterField.OWNER, storedValuesVisible,
+                                        () -> userManagementApiClient
                                                 .getUsers()
                                                 .getData()
                                                 .stream()
@@ -1387,11 +1391,12 @@ public class CertificateServiceImpl
                         SearchHelper.prepareSearch(FilterField.ISSUER_COMMON_NAME),
                         SearchHelper.prepareSearch(FilterField.FINGERPRINT),
                         SearchHelper
-                                .prepareSearch(FilterField.SIGNATURE_ALGORITHM,
-                                        new ArrayList<>(certificateRepository.findDistinctSignatureAlgorithm())),
+                                .prepareStoredValueSearch(FilterField.SIGNATURE_ALGORITHM, storedValuesVisible,
+                                        () -> new ArrayList<>(certificateRepository.findDistinctSignatureAlgorithm())),
                         SearchHelper
-                                .prepareSearch(FilterField.ALT_SIGNATURE_ALGORITHM,
-                                        new ArrayList<>(x509CertificateRepository.findDistinctAltSignatureAlgorithm())),
+                                .prepareStoredValueSearch(FilterField.ALT_SIGNATURE_ALGORITHM, storedValuesVisible,
+                                        () -> new ArrayList<>(
+                                                x509CertificateRepository.findDistinctAltSignatureAlgorithm())),
                         SearchHelper.prepareSearch(FilterField.NOT_AFTER),
                         SearchHelper.prepareSearch(FilterField.NOT_BEFORE),
                         SearchHelper.prepareSearch(FilterField.RENEWAL_WINDOW_START),
@@ -1419,17 +1424,18 @@ public class CertificateServiceImpl
                                                 .map(CertificateValidationStatus::getCode)
                                                 .toList()),
                         SearchHelper
-                                .prepareSearch(FilterField.PUBLIC_KEY_ALGORITHM,
-                                        new ArrayList<>(certificateRepository.findDistinctPublicKeyAlgorithm())),
+                                .prepareStoredValueSearch(FilterField.PUBLIC_KEY_ALGORITHM, storedValuesVisible,
+                                        () -> new ArrayList<>(certificateRepository.findDistinctPublicKeyAlgorithm())),
                         SearchHelper
-                                .prepareSearch(FilterField.ALT_PUBLIC_KEY_ALGORITHM,
-                                        new ArrayList<>(x509CertificateRepository.findDistinctAltPublicKeyAlgorithm())),
+                                .prepareStoredValueSearch(FilterField.ALT_PUBLIC_KEY_ALGORITHM, storedValuesVisible,
+                                        () -> new ArrayList<>(
+                                                x509CertificateRepository.findDistinctAltPublicKeyAlgorithm())),
                         SearchHelper
-                                .prepareSearch(FilterField.KEY_SIZE,
-                                        new ArrayList<>(certificateRepository.findDistinctKeySize())),
+                                .prepareStoredValueSearch(FilterField.KEY_SIZE, storedValuesVisible,
+                                        () -> new ArrayList<>(certificateRepository.findDistinctKeySize())),
                         SearchHelper
-                                .prepareSearch(FilterField.ALT_KEY_SIZE,
-                                        new ArrayList<>(x509CertificateRepository.findDistinctAltKeySize())),
+                                .prepareStoredValueSearch(FilterField.ALT_KEY_SIZE, storedValuesVisible,
+                                        () -> new ArrayList<>(x509CertificateRepository.findDistinctAltKeySize())),
                         SearchHelper
                                 .prepareSearch(FilterField.KEY_USAGE,
                                         Arrays
@@ -1460,20 +1466,36 @@ public class CertificateServiceImpl
                                                 .map(CertificateRelationType::getCode)
                                                 .toList()),
                         SearchHelper
-                                .prepareSearch(FilterField.ACME_PROFILE,
-                                        acmeProfileRepository.findAll().stream().map(AcmeProfile::getName).toList()),
+                                .prepareStoredValueSearch(FilterField.ACME_PROFILE, storedValuesVisible,
+                                        () -> acmeProfileRepository
+                                                .findAll()
+                                                .stream()
+                                                .map(AcmeProfile::getName)
+                                                .toList()),
                         SearchHelper
-                                .prepareSearch(FilterField.SCEP_PROFILE,
-                                        scepProfileRepository.findAll().stream().map(ScepProfile::getName).toList()),
+                                .prepareStoredValueSearch(FilterField.SCEP_PROFILE, storedValuesVisible,
+                                        () -> scepProfileRepository
+                                                .findAll()
+                                                .stream()
+                                                .map(ScepProfile::getName)
+                                                .toList()),
                         SearchHelper
-                                .prepareSearch(FilterField.CMP_PROFILE,
-                                        cmpProfileRepository.findAll().stream().map(CmpProfile::getName).toList()),
+                                .prepareStoredValueSearch(FilterField.CMP_PROFILE, storedValuesVisible,
+                                        () -> cmpProfileRepository
+                                                .findAll()
+                                                .stream()
+                                                .map(CmpProfile::getName)
+                                                .toList()),
                         SearchHelper
-                                .prepareSearch(FilterField.EST_PROFILE,
-                                        estProfileRepository.findAll().stream().map(EstProfile::getName).toList()),
+                                .prepareStoredValueSearch(FilterField.EST_PROFILE, storedValuesVisible,
+                                        () -> estProfileRepository
+                                                .findAll()
+                                                .stream()
+                                                .map(EstProfile::getName)
+                                                .toList()),
                         SearchHelper
-                                .prepareSearch(FilterField.ACME_ACCOUNT,
-                                        acmeAccountRepository
+                                .prepareStoredValueSearch(FilterField.ACME_ACCOUNT, storedValuesVisible,
+                                        () -> acmeAccountRepository
                                                 .findAll()
                                                 .stream()
                                                 .map(AcmeAccount::getAccountId)
