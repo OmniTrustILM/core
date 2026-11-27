@@ -13,6 +13,8 @@ import com.otilm.api.model.core.auth.AttributeResource;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.other.ResourceObjectDto;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
+import com.otilm.api.model.core.search.SearchFieldDataDto;
+import com.otilm.core.enums.FilterField;
 
 import java.util.List;
 import java.util.Map;
@@ -51,6 +53,12 @@ public interface ResourceInternalService {
             PaginationRequestDto pagination) throws NotFoundException;
 
     boolean hasResourceExtensionService(Resource resource);
+
+    /**
+     * A field whose values are the objects of another resource, listing only the objects the caller may list. When the
+     * caller may list none of them, the field is offered as text instead.
+     */
+    SearchFieldDataDto prepareFieldResourceSearch(FilterField filterField);
 
     void loadResourceObjectContentData(AttributeCallback callback, RequestAttributeCallback requestAttributeCallback,
             Map<String, AttributeResource> resources) throws NotFoundException, AttributeException, ConnectorException;

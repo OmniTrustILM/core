@@ -243,6 +243,71 @@ class SearchableFieldsListingITest extends BaseSpringBootTest {
         }
     }
 
+    @ParameterizedTest
+    @EnumSource(value = Resource.class, names = {"CERTIFICATE", "CRYPTOGRAPHIC_KEY", "SECRET"})
+    void offersGroupAndOwnerAsText_whenTheUserMayListNeitherGroupsNorUsers(Resource resource) {
+        // given
+        injectProfile(false, """
+                [{"name": "%s", "allowAllActions": false, "actions": ["list"], "objects": []}]
+                """.formatted(resource.getCode()));
+        denyResourceAccess(Resource.GROUP, ResourceAction.LIST);
+        denyObjectAccess(Resource.GROUP, ResourceAction.LIST);
+        denyResourceAccess(Resource.USER, ResourceAction.LIST);
+        seedStoredValues();
+
+        // when
+        List<SearchFieldDataByGroupDto> fields = searchableFields(resource);
+
+        // then
+        assertOfferedAsText(field(fields, groupField(resource)));
+        assertOfferedAsText(field(fields, ownerField(resource)));
+    }
+
+    @Test
+    void offersRaProfileAsText_whenTheUserMayListCertificatesButNoRaProfile() {
+        // given
+        denyResourceAccess(Resource.RA_PROFILE, ResourceAction.LIST);
+        denyObjectAccess(Resource.RA_PROFILE, ResourceAction.LIST);
+        injectProfile(false, """
+                [{"name": "certificates", "allowAllActions": false, "actions": ["list"], "objects": []}]
+                """);
+        seedStoredValues();
+
+        // when
+        List<SearchFieldDataByGroupDto> fields = certificateService.getSearchableFieldInformationByGroup();
+
+        // then
+        assertOfferedAsText(field(fields, FilterField.RA_PROFILE_NAME));
+        assertThat(valuesOf(field(fields, FilterField.CERT_LOCATION_NAME))).containsExactly(LOCATION_NAME);
+    }
+
+    @Test
+    void listsOnlyPermittedRaProfiles_whenTheUserMayListSomeOfThem() {
+        // given
+        RaProfile permitted = saveRaProfile();
+        RaProfile hidden = new RaProfile();
+        hidden.setName("hidden RA profile");
+        raProfileRepository.save(hidden);
+        denyResourceAccess(Resource.RA_PROFILE, ResourceAction.LIST);
+        restrictObjectAccess(Resource.RA_PROFILE, ResourceAction.LIST, List.of(permitted.getUuid()));
+        injectProfile(false, """
+                [{"name": "certificates", "allowAllActions": false, "actions": ["list"], "objects": []}]
+                """);
+
+        // when
+        List<SearchFieldDataByGroupDto> fields = certificateService.getSearchableFieldInformationByGroup();
+
+        // then
+        SearchFieldDataDto raProfileField = field(fields, FilterField.RA_PROFILE_NAME);
+        assertThat(raProfileField.getType()).isEqualTo(FilterFieldType.LIST);
+        assertThat(valuesOf(raProfileField)).containsExactly(RA_PROFILE_NAME);
+    }
+
+    private static void assertOfferedAsText(SearchFieldDataDto field) {
+        assertThat(field.getValue()).as(field.getFieldIdentifier()).isNull();
+        assertThat(field.getType()).as(field.getFieldIdentifier()).isEqualTo(FilterFieldType.STRING);
+    }
+
     @Test
     void matchesTypedValues_whenWithheldFieldsAreFilteredAsText() {
         // given
@@ -311,18 +376,11 @@ class SearchableFieldsListingITest extends BaseSpringBootTest {
     private static List<FilterField> withheldFields(Resource resource) {
         return switch (resource) {
             case CERTIFICATE -> List
-                    .of(FilterField.RA_PROFILE_NAME, FilterField.GROUP_NAME, FilterField.CERT_LOCATION_NAME,
-                            FilterField.OWNER, FilterField.SIGNATURE_ALGORITHM, FilterField.ALT_SIGNATURE_ALGORITHM,
+                    .of(FilterField.SIGNATURE_ALGORITHM, FilterField.ALT_SIGNATURE_ALGORITHM,
                             FilterField.PUBLIC_KEY_ALGORITHM, FilterField.ALT_PUBLIC_KEY_ALGORITHM,
-                            FilterField.KEY_SIZE, FilterField.ALT_KEY_SIZE, FilterField.ACME_PROFILE,
-                            FilterField.SCEP_PROFILE, FilterField.CMP_PROFILE, FilterField.EST_PROFILE,
-                            FilterField.ACME_ACCOUNT);
-            case CRYPTOGRAPHIC_KEY -> List
-                    .of(FilterField.CK_GROUP, FilterField.CK_OWNER, FilterField.CKI_PARAMETER_SET,
-                            FilterField.CK_TOKEN_PROFILE, FilterField.CK_TOKEN_INSTANCE);
-            case SECRET -> List
-                    .of(FilterField.SECRET_GROUP_NAME, FilterField.SECRET_OWNER,
-                            FilterField.SECRET_SOURCE_VAULT_PROFILE, FilterField.SECRET_SYNC_VAULT_PROFILE);
+                            FilterField.KEY_SIZE, FilterField.ALT_KEY_SIZE);
+            case CRYPTOGRAPHIC_KEY -> List.of(FilterField.CKI_PARAMETER_SET);
+            case SECRET -> List.of();
             default -> throw new IllegalArgumentException(resource.name());
         };
     }

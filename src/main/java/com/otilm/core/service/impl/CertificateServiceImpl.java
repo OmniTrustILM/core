@@ -32,7 +32,6 @@ import com.otilm.api.model.common.attribute.v3.content.data.ResourceCertificateC
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceObjectContentData;
 import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
 import com.otilm.api.model.core.auth.Resource;
-import com.otilm.api.model.core.auth.UserDto;
 import com.otilm.api.model.core.certificate.CertificateChainDownloadResponseDto;
 import com.otilm.api.model.core.certificate.CertificateChainResponseDto;
 import com.otilm.api.model.core.certificate.CertificateComplianceResultDto;
@@ -107,12 +106,6 @@ import com.otilm.core.dao.entity.RaProfile_;
 import com.otilm.core.dao.entity.RegistrationState;
 import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.X509CertificateRequestEntity;
-import com.otilm.core.dao.entity.acme.AcmeAccount;
-import com.otilm.core.dao.entity.acme.AcmeProfile;
-import com.otilm.core.dao.entity.cmp.CmpProfile;
-import com.otilm.core.dao.entity.est.EstProfile;
-import com.otilm.core.dao.entity.scep.ScepProfile;
-import com.otilm.core.dao.repository.AcmeProfileRepository;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateProtocolAssociationRepository;
 import com.otilm.core.dao.repository.CertificateRegistrationAuthorizationRepository;
@@ -122,14 +115,10 @@ import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CertificateRequestRepository;
 import com.otilm.core.dao.repository.DiscoveryCertificateRepository;
 import com.otilm.core.dao.repository.GroupAssociationRepository;
-import com.otilm.core.dao.repository.GroupRepository;
-import com.otilm.core.dao.repository.LocationRepository;
 import com.otilm.core.dao.repository.ProtocolCertificateAssociationsRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.dao.repository.X509CertificateRepository;
-import com.otilm.core.dao.repository.acme.AcmeAccountRepository;
 import com.otilm.core.dao.repository.cmp.CmpProfileRepository;
-import com.otilm.core.dao.repository.est.EstProfileRepository;
 import com.otilm.core.dao.repository.scep.ScepProfileRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.events.handlers.CertificateExpiringEventHandler;
@@ -152,7 +141,6 @@ import com.otilm.core.model.request.CertificateRequestKeys;
 import com.otilm.core.model.signing.CertificatePurposeRequirements;
 import com.otilm.core.model.signing.SigningCertificate;
 import com.otilm.core.security.authn.client.AuthenticationCache;
-import com.otilm.core.security.authn.client.UserManagementApiClient;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.ExternalAuthorizationProgrammatic;
@@ -175,6 +163,7 @@ import com.otilm.core.service.LocationExternalService;
 import com.otilm.core.service.LocationInternalService;
 import com.otilm.core.service.RaProfileCertificateRequestAttributeService;
 import com.otilm.core.service.RaProfileInternalService;
+import com.otilm.core.service.ResourceInternalService;
 import com.otilm.core.service.ResourceObjectAssociationService;
 import com.otilm.core.service.handler.KeystoreAvailability;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
@@ -306,11 +295,9 @@ public class CertificateServiceImpl
     private RaProfileCertificateRequestAttributeService requestAttributeService;
     private CertificateRegistrationAuthorizationRepository registrationAuthorizationRepository;
     private RaProfileInternalService raProfileService;
-    private GroupRepository groupRepository;
     private GroupAssociationRepository groupAssociationRepository;
     private CertificateRenewalInfoRepository renewalInfoRepository;
     private RenewalWindowWriter renewalWindowWriter;
-    private LocationRepository locationRepository;
     private CertificateContentRepository certificateContentRepository;
     private DiscoveryCertificateContentWriter discoveryCertificateContentWriter;
     private AuditorAware<String> auditorAware;
@@ -322,18 +309,15 @@ public class CertificateServiceImpl
     private LocationInternalService locationInternalService;
     private CryptographicKeyInternalService cryptographicKeyService;
     private AuthorizationEnforcer authorizationEnforcer;
+    private ResourceInternalService resourceService;
     private EventProducer eventProducer;
     private NotificationProducer notificationProducer;
-    private UserManagementApiClient userManagementApiClient;
     private CrlService crlService;
     private ProtocolCertificateAssociationsRepository protocolCertificateAssociationsRepository;
     private CertificateRelationRepository certificateRelationRepository;
-    private AcmeProfileRepository acmeProfileRepository;
     private ScepProfileRepository scepProfileRepository;
     private CmpProfileRepository cmpProfileRepository;
-    private EstProfileRepository estProfileRepository;
     private EstProfileWriter estProfileWriter;
-    private AcmeAccountRepository acmeAccountRepository;
 
     private AttributeEngine attributeEngine;
     private AttributeColumnProjector attributeColumnProjector;
@@ -397,11 +381,6 @@ public class CertificateServiceImpl
     }
 
     @Autowired
-    public void setAcmeAccountRepository(AcmeAccountRepository acmeAccountRepository) {
-        this.acmeAccountRepository = acmeAccountRepository;
-    }
-
-    @Autowired
     public void setGroupAssociationRepository(GroupAssociationRepository groupAssociationRepository) {
         this.groupAssociationRepository = groupAssociationRepository;
     }
@@ -441,18 +420,8 @@ public class CertificateServiceImpl
     }
 
     @Autowired
-    public void setEstProfileRepository(EstProfileRepository estProfileRepository) {
-        this.estProfileRepository = estProfileRepository;
-    }
-
-    @Autowired
     public void setEstProfileWriter(EstProfileWriter estProfileWriter) {
         this.estProfileWriter = estProfileWriter;
-    }
-
-    @Autowired
-    public void setAcmeProfileRepository(AcmeProfileRepository acmeProfileRepository) {
-        this.acmeProfileRepository = acmeProfileRepository;
     }
 
     @Autowired
@@ -534,16 +503,6 @@ public class CertificateServiceImpl
     }
 
     @Autowired
-    public void setGroupRepository(GroupRepository groupRepository) {
-        this.groupRepository = groupRepository;
-    }
-
-    @Autowired
-    public void setLocationRepository(LocationRepository locationRepository) {
-        this.locationRepository = locationRepository;
-    }
-
-    @Autowired
     public void setCertificateContentRepository(CertificateContentRepository certificateContentRepository) {
         this.certificateContentRepository = certificateContentRepository;
     }
@@ -592,6 +551,11 @@ public class CertificateServiceImpl
     }
 
     @Autowired
+    public void setResourceService(ResourceInternalService resourceService) {
+        this.resourceService = resourceService;
+    }
+
+    @Autowired
     public void setEventProducer(EventProducer eventProducer) {
         this.eventProducer = eventProducer;
     }
@@ -599,11 +563,6 @@ public class CertificateServiceImpl
     @Autowired
     public void setNotificationProducer(NotificationProducer notificationProducer) {
         this.notificationProducer = notificationProducer;
-    }
-
-    @Autowired
-    public void setUserManagementApiClient(UserManagementApiClient userManagementApiClient) {
-        this.userManagementApiClient = userManagementApiClient;
     }
 
     @Autowired
@@ -1277,23 +1236,10 @@ public class CertificateServiceImpl
                 .of(SearchHelper.prepareSearch(FilterField.COMMON_NAME),
                         SearchHelper.prepareSearch(FilterField.SERIAL_NUMBER),
                         SearchHelper.prepareSearch(FilterField.ISSUER_SERIAL_NUMBER),
-                        SearchHelper
-                                .prepareStoredValueSearch(FilterField.RA_PROFILE_NAME, storedValuesVisible,
-                                        () -> raProfileRepository.findAll().stream().map(RaProfile::getName).toList()),
-                        SearchHelper
-                                .prepareStoredValueSearch(FilterField.GROUP_NAME, storedValuesVisible,
-                                        () -> groupRepository.findAll().stream().map(Group::getName).toList()),
-                        SearchHelper
-                                .prepareStoredValueSearch(FilterField.CERT_LOCATION_NAME, storedValuesVisible,
-                                        () -> locationRepository.findAll().stream().map(Location::getName).toList()),
-                        SearchHelper
-                                .prepareStoredValueSearch(FilterField.OWNER, storedValuesVisible,
-                                        () -> userManagementApiClient
-                                                .getUsers()
-                                                .getData()
-                                                .stream()
-                                                .map(UserDto::getUsername)
-                                                .toList()),
+                        resourceService.prepareFieldResourceSearch(FilterField.RA_PROFILE_NAME),
+                        resourceService.prepareFieldResourceSearch(FilterField.GROUP_NAME),
+                        resourceService.prepareFieldResourceSearch(FilterField.CERT_LOCATION_NAME),
+                        resourceService.prepareFieldResourceSearch(FilterField.OWNER),
                         SearchHelper
                                 .prepareSearch(FilterField.CERTIFICATE_STATE,
                                         Arrays
@@ -1389,41 +1335,11 @@ public class CertificateServiceImpl
                                                 .stream(CertificateRelationType.values())
                                                 .map(CertificateRelationType::getCode)
                                                 .toList()),
-                        SearchHelper
-                                .prepareStoredValueSearch(FilterField.ACME_PROFILE, storedValuesVisible,
-                                        () -> acmeProfileRepository
-                                                .findAll()
-                                                .stream()
-                                                .map(AcmeProfile::getName)
-                                                .toList()),
-                        SearchHelper
-                                .prepareStoredValueSearch(FilterField.SCEP_PROFILE, storedValuesVisible,
-                                        () -> scepProfileRepository
-                                                .findAll()
-                                                .stream()
-                                                .map(ScepProfile::getName)
-                                                .toList()),
-                        SearchHelper
-                                .prepareStoredValueSearch(FilterField.CMP_PROFILE, storedValuesVisible,
-                                        () -> cmpProfileRepository
-                                                .findAll()
-                                                .stream()
-                                                .map(CmpProfile::getName)
-                                                .toList()),
-                        SearchHelper
-                                .prepareStoredValueSearch(FilterField.EST_PROFILE, storedValuesVisible,
-                                        () -> estProfileRepository
-                                                .findAll()
-                                                .stream()
-                                                .map(EstProfile::getName)
-                                                .toList()),
-                        SearchHelper
-                                .prepareStoredValueSearch(FilterField.ACME_ACCOUNT, storedValuesVisible,
-                                        () -> acmeAccountRepository
-                                                .findAll()
-                                                .stream()
-                                                .map(AcmeAccount::getAccountId)
-                                                .toList()));
+                        resourceService.prepareFieldResourceSearch(FilterField.ACME_PROFILE),
+                        resourceService.prepareFieldResourceSearch(FilterField.SCEP_PROFILE),
+                        resourceService.prepareFieldResourceSearch(FilterField.CMP_PROFILE),
+                        resourceService.prepareFieldResourceSearch(FilterField.EST_PROFILE),
+                        resourceService.prepareFieldResourceSearch(FilterField.ACME_ACCOUNT));
 
         fields = new ArrayList<>(fields);
         fields.sort(new SearchFieldDataComparator());

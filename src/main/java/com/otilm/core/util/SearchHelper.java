@@ -161,15 +161,20 @@ public class SearchHelper {
     }
 
     /**
-     * A field whose value list is read from stored data across all objects, such as the names of every RA profile or
-     * the users who own anything. When the caller may not see all of that data, the list is neither read nor returned
-     * and the field is offered as text, so its values can still be typed in under the same conditions.
+     * A field whose value list is read from stored data across all objects, such as the signature algorithms of every
+     * certificate. When the caller may not see all of that data, the list is neither read nor returned and the field is
+     * offered as text, so its values can still be typed in under the same conditions.
      */
     public static SearchFieldDataDto prepareStoredValueSearch(final FilterField filterField,
             final boolean storedValuesVisible, final Supplier<? extends List<?>> storedValues) {
         if (storedValuesVisible) {
             return prepareSearch(filterField, storedValues.get());
         }
+        return prepareTextSearch(filterField);
+    }
+
+    /** A list field offered as free text, for a caller who may not see its values. */
+    public static SearchFieldDataDto prepareTextSearch(final FilterField filterField) {
         SearchFieldDataDto fieldDataDto = prepareSearch(filterField);
         fieldDataDto.setType(FilterFieldType.STRING);
         fieldDataDto.setMultiValue(false);

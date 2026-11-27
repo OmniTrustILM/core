@@ -32,11 +32,13 @@ import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.api.model.core.search.SearchFieldDataDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.dao.repository.SecurityFilterRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.enums.SearchFieldTypeEnum;
 import com.otilm.core.exception.DanglingReferenceException;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.AnyPrincipalEndpoint;
+import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.ExternalAuthorizationDynamic;
 import com.otilm.core.security.authz.ObjectActionResolver;
 import com.otilm.core.security.authz.ObjectFilterAspect;
@@ -53,6 +55,9 @@ import com.otilm.core.util.FilterPredicatesBuilder;
 import com.otilm.core.util.SearchHelper;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import jakarta.persistence.metamodel.Attribute;
+import jakarta.persistence.metamodel.Bindable;
+import jakarta.persistence.metamodel.SingularAttribute;
 import jakarta.transaction.Transactional;
 import java.io.Serializable;
 import java.util.ArrayList;
@@ -66,7 +71,9 @@ import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.data.repository.support.Repositories;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -105,6 +112,22 @@ public class ResourceServiceImpl implements ResourceExternalService, ResourceInt
     @Autowired
     public void setObjectFilterAspect(ObjectFilterAspect objectFilterAspect) {
         this.objectFilterAspect = objectFilterAspect;
+    }
+
+    private AuthorizationEnforcer authorizationEnforcer;
+
+    private ApplicationContext applicationContext;
+
+    private Repositories repositories;
+
+    @Autowired
+    public void setApplicationContext(ApplicationContext applicationContext) {
+        this.applicationContext = applicationContext;
+    }
+
+    @Autowired
+    public void setAuthorizationEnforcer(AuthorizationEnforcer authorizationEnforcer) {
+        this.authorizationEnforcer = authorizationEnforcer;
     }
 
     private ObjectActionResolver objectActionResolver;
@@ -265,6 +288,54 @@ public class ResourceServiceImpl implements ResourceExternalService, ResourceInt
         }
 
         return searchFieldDataByGroupDtos;
+    }
+
+    @Override
+    public SearchFieldDataDto prepareFieldResourceSearch(FilterField filterField) {
+        Resource fieldResource = filterField.getFieldResource();
+        boolean resourceWide = authorizationEnforcer.isAuthorized(fieldResource, ResourceAction.LIST);
+        List<String> names;
+        if (fieldResource == Resource.USER) {
+            // Users are listed from the identity provider, which a security filter cannot narrow.
+            if (!resourceWide) {
+                return SearchHelper.prepareTextSearch(filterField);
+            }
+            names = listScopedFieldResourceObjects(fieldResource).stream().map(NameAndUuidDto::getName).toList();
+        } else {
+            names = listPermittedNames(filterField);
+        }
+        if (names.isEmpty() && !resourceWide) {
+            return SearchHelper.prepareTextSearch(filterField);
+        }
+        return SearchHelper.prepareSearch(filterField, names);
+    }
+
+    /**
+     * Reads the names straight from the field resource's repository: its service's listing carries a resource-wide list
+     * check of its own, which would refuse a caller permitted only some of the objects.
+     */
+    @SuppressWarnings("unchecked")
+    private List<String> listPermittedNames(FilterField filterField) {
+        SecurityFilter filter = SecurityFilter.create();
+        objectFilterAspect
+                .populateSecurityFilter(filterField.getFieldResource(), ResourceAction.LIST, null, null, filter);
+        List<Attribute> joins = filterField.getJoinAttributes();
+        Class<?> entity = ((Bindable<?>) joins.get(joins.size() - 1)).getBindableJavaType();
+        SecurityFilterRepository<Object, ?> repository = (SecurityFilterRepository<Object, ?>) repositories()
+                .getRepositoryFor(entity)
+                .orElseThrow(() -> new IllegalStateException("No repository for " + entity.getSimpleName()));
+        return repository
+                .listResourceObjects(filter, (SingularAttribute<Object, String>) filterField.getFieldAttribute())
+                .stream()
+                .map(NameAndUuidDto::getName)
+                .toList();
+    }
+
+    private Repositories repositories() {
+        if (repositories == null) {
+            repositories = new Repositories(applicationContext);
+        }
+        return repositories;
     }
 
     private List<NameAndUuidDto> listScopedFieldResourceObjects(Resource fieldResource) throws NotSupportedException {

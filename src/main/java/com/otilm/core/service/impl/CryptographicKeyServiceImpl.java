@@ -29,7 +29,6 @@ import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.core.auth.Resource;
-import com.otilm.api.model.core.auth.UserDto;
 import com.otilm.api.model.core.cryptography.key.KeyDetailDto;
 import com.otilm.api.model.core.cryptography.key.KeyDto;
 import com.otilm.api.model.core.cryptography.key.KeyEvent;
@@ -57,13 +56,11 @@ import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.CryptographicKeyItem_;
 import com.otilm.core.dao.entity.CryptographicKey_;
-import com.otilm.core.dao.entity.Group;
 import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
-import com.otilm.core.dao.repository.GroupRepository;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.enums.FilterField;
@@ -84,7 +81,6 @@ import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.crypto.TokenInstanceFullModel;
 import com.otilm.core.model.crypto.TokenProfileBasicModel;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
-import com.otilm.core.security.authn.client.UserManagementApiClient;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.ExternalAuthorizationProgrammatic;
@@ -97,6 +93,7 @@ import com.otilm.core.security.authz.SecurityResourceFilter;
 import com.otilm.core.service.CryptographicKeyEventHistoryService;
 import com.otilm.core.service.CryptographicKeyExternalService;
 import com.otilm.core.service.CryptographicKeyInternalService;
+import com.otilm.core.service.ResourceInternalService;
 import com.otilm.core.service.ResourceObjectAssociationService;
 import com.otilm.core.service.handler.KeyCreationRules;
 import com.otilm.core.service.handler.KeyRemovalGates;
@@ -173,13 +170,13 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
 
     private KeyCreationRules keyCreationRules;
     private AuthorizationEnforcer authorizationEnforcer;
+    private ResourceInternalService resourceService;
     private ResourceObjectAssociationService objectAssociationService;
     private NotificationProducer notificationProducer;
     private KeyProviderAdapterFactory keyProviderAdapterFactory;
     private CryptographicKeyWriter cryptographicKeyWriter;
     private CertificateKeyWriter certificateKeyWriter;
     private KeyRemovalGates keyRemovalGates;
-    private UserManagementApiClient userManagementApiClient;
     private CacheEvictor cacheEvictor;
     private KeyOperationCache keyOperationCache;
     // --------------------------------------------------------------------------------
@@ -189,7 +186,6 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     private CryptographicKeyItemRepository cryptographicKeyItemRepository;
     private TokenProfileRepository tokenProfileRepository;
     private TokenInstanceReferenceRepository tokenInstanceReferenceRepository;
-    private GroupRepository groupRepository;
     private CertificateRepository certificateRepository;
 
     private static TriFunction<Root<CryptographicKeyItem>, CriteriaBuilder, CriteriaQuery<?>, Predicate> createAdditionalWhereClauseForBulkDeleteBatch(
@@ -209,11 +205,6 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     @Autowired
     public void setKeyProviderAdapterFactory(KeyProviderAdapterFactory keyProviderAdapterFactory) {
         this.keyProviderAdapterFactory = keyProviderAdapterFactory;
-    }
-
-    @Autowired
-    public void setUserManagementApiClient(UserManagementApiClient userManagementApiClient) {
-        this.userManagementApiClient = userManagementApiClient;
     }
 
     @Autowired
@@ -249,6 +240,11 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     @Autowired
     public void setAuthorizationEnforcer(AuthorizationEnforcer authorizationEnforcer) {
         this.authorizationEnforcer = authorizationEnforcer;
+    }
+
+    @Autowired
+    public void setResourceService(ResourceInternalService resourceService) {
+        this.resourceService = resourceService;
     }
 
     @Autowired
@@ -294,11 +290,6 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     @Autowired
     public void setTokenProfileRepository(TokenProfileRepository tokenProfileRepository) {
         this.tokenProfileRepository = tokenProfileRepository;
-    }
-
-    @Autowired
-    public void setGroupRepository(GroupRepository groupRepository) {
-        this.groupRepository = groupRepository;
     }
 
     @Autowired
@@ -1684,17 +1675,8 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
 
         List<SearchFieldDataDto> fields = List
                 .of(SearchHelper.prepareSearch(FilterField.CKI_NAME),
-                        SearchHelper
-                                .prepareStoredValueSearch(FilterField.CK_GROUP, storedValuesVisible,
-                                        () -> groupRepository.findAll().stream().map(Group::getName).toList()),
-                        SearchHelper
-                                .prepareStoredValueSearch(FilterField.CK_OWNER, storedValuesVisible,
-                                        () -> userManagementApiClient
-                                                .getUsers()
-                                                .getData()
-                                                .stream()
-                                                .map(UserDto::getUsername)
-                                                .toList()),
+                        resourceService.prepareFieldResourceSearch(FilterField.CK_GROUP),
+                        resourceService.prepareFieldResourceSearch(FilterField.CK_OWNER),
                         SearchHelper
                                 .prepareSearch(FilterField.CKI_USAGE,
                                         Arrays.stream(KeyUsage.values()).map(KeyUsage::getCode).toList()),
@@ -1716,20 +1698,8 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
                         SearchHelper
                                 .prepareSearch(FilterField.CKI_CRYPTOGRAPHIC_ALGORITHM,
                                         Arrays.stream(KeyAlgorithm.values()).map(KeyAlgorithm::getCode).toList()),
-                        SearchHelper
-                                .prepareStoredValueSearch(FilterField.CK_TOKEN_PROFILE, storedValuesVisible,
-                                        () -> tokenProfileRepository
-                                                .findAll()
-                                                .stream()
-                                                .map(TokenProfile::getName)
-                                                .toList()),
-                        SearchHelper
-                                .prepareStoredValueSearch(FilterField.CK_TOKEN_INSTANCE, storedValuesVisible,
-                                        () -> tokenInstanceReferenceRepository
-                                                .findAll()
-                                                .stream()
-                                                .map(TokenInstanceReference::getName)
-                                                .toList())
+                        resourceService.prepareFieldResourceSearch(FilterField.CK_TOKEN_PROFILE),
+                        resourceService.prepareFieldResourceSearch(FilterField.CK_TOKEN_INSTANCE)
 
                 );
         fields = new ArrayList<>(fields);

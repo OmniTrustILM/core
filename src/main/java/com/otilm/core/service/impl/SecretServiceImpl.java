@@ -29,7 +29,6 @@ import com.otilm.api.model.connector.secrets.SecretType;
 import com.otilm.api.model.connector.secrets.UpdateSecretRequestDto;
 import com.otilm.api.model.connector.secrets.content.SecretContent;
 import com.otilm.api.model.core.auth.Resource;
-import com.otilm.api.model.core.auth.UserDto;
 import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.api.model.core.connector.v2.ConnectorDetailDto;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
@@ -64,7 +63,6 @@ import com.otilm.core.dao.entity.VaultInstance;
 import com.otilm.core.dao.entity.VaultProfile;
 import com.otilm.core.dao.entity.VaultProfile_;
 import com.otilm.core.dao.repository.ApprovalRepository;
-import com.otilm.core.dao.repository.GroupRepository;
 import com.otilm.core.dao.repository.Secret2SyncVaultProfileRepository;
 import com.otilm.core.dao.repository.SecretRepository;
 import com.otilm.core.dao.repository.SecretVersionRepository;
@@ -79,17 +77,16 @@ import com.otilm.core.messaging.model.SecretActionData;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.reference.ObjectRef;
 import com.otilm.core.reference.ObjectReferenceGuard;
-import com.otilm.core.security.authn.client.UserManagementApiClient;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.ExternalAuthorizationProgrammatic;
-import com.otilm.core.security.authz.ListingAccess;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.service.AttributeResourceService;
 import com.otilm.core.service.CommentInternalService;
+import com.otilm.core.service.ResourceInternalService;
 import com.otilm.core.service.ResourceObjectAssociationService;
 import com.otilm.core.service.SecretExternalService;
 import com.otilm.core.service.SecretInternalService;
@@ -146,6 +143,7 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
     private AttributeEngine attributeEngine;
     private ConnectorRequestAttributesBuilder connectorRequestAttributesBuilder;
     private AuthorizationEnforcer authorizationEnforcer;
+    private ResourceInternalService resourceService;
 
     private VaultProfileRepository vaultProfileRepository;
     private VaultInstanceRepository vaultInstanceRepository;
@@ -154,9 +152,6 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
     private ObjectReferenceGuard referenceGuard;
     private SecretVersionRepository secretVersionRepository;
     private Secret2SyncVaultProfileRepository secret2SyncVaultProfileRepository;
-
-    private GroupRepository groupRepository;
-    private UserManagementApiClient userManagementApiClient;
 
     private ResourceObjectAssociationService objectAssociationService;
     private ConnectorExternalService connectorService;
@@ -256,6 +251,11 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
     }
 
     @Autowired
+    public void setResourceService(ResourceInternalService resourceService) {
+        this.resourceService = resourceService;
+    }
+
+    @Autowired
     public void setObjectAssociationService(ResourceObjectAssociationService objectAssociationService) {
         this.objectAssociationService = objectAssociationService;
     }
@@ -285,21 +285,10 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
         this.vaultInstanceRepository = vaultInstanceRepository;
     }
 
-    @Autowired
-    public void setUserManagementApiClient(UserManagementApiClient userManagementApiClient) {
-        this.userManagementApiClient = userManagementApiClient;
-    }
-
-    @Autowired
-    public void setGroupRepository(GroupRepository groupRepository) {
-        this.groupRepository = groupRepository;
-    }
-
     @Override
     @ExternalAuthorizationProgrammatic(resource = Resource.SECRET, action = ResourceAction.LIST)
     public List<SearchFieldDataByGroupDto> getSearchableFieldInformation() {
-        boolean storedValuesVisible = authorizationEnforcer
-                .enforceListing(Resource.SECRET) == ListingAccess.RESOURCE_WIDE;
+        authorizationEnforcer.enforceListing(Resource.SECRET);
         List<SearchFieldDataByGroupDto> searchFieldDataByGroupDtos = attributeEngine
                 .getResourceSearchableFields(Resource.SECRET, false);
         List<SearchFieldDataDto> fieldDataDtos = new ArrayList<>(List
@@ -320,23 +309,10 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
                                                 .stream(ComplianceStatus.values())
                                                 .map(ComplianceStatus::getCode)
                                                 .toList()),
-                        SearchHelper
-                                .prepareStoredValueSearch(FilterField.SECRET_GROUP_NAME, storedValuesVisible,
-                                        () -> groupRepository.findAll().stream().map(Group::getName).toList()),
-                        SearchHelper
-                                .prepareStoredValueSearch(FilterField.SECRET_OWNER, storedValuesVisible,
-                                        () -> userManagementApiClient
-                                                .getUsers()
-                                                .getData()
-                                                .stream()
-                                                .map(UserDto::getUsername)
-                                                .toList()),
-                        SearchHelper
-                                .prepareStoredValueSearch(FilterField.SECRET_SOURCE_VAULT_PROFILE, storedValuesVisible,
-                                        vaultProfileRepository::findAllNames),
-                        SearchHelper
-                                .prepareStoredValueSearch(FilterField.SECRET_SYNC_VAULT_PROFILE, storedValuesVisible,
-                                        vaultProfileRepository::findAllNames)));
+                        resourceService.prepareFieldResourceSearch(FilterField.SECRET_GROUP_NAME),
+                        resourceService.prepareFieldResourceSearch(FilterField.SECRET_OWNER),
+                        resourceService.prepareFieldResourceSearch(FilterField.SECRET_SOURCE_VAULT_PROFILE),
+                        resourceService.prepareFieldResourceSearch(FilterField.SECRET_SYNC_VAULT_PROFILE)));
 
         fieldDataDtos.sort(new SearchFieldDataComparator());
         searchFieldDataByGroupDtos.add(new SearchFieldDataByGroupDto(fieldDataDtos, FilterFieldSource.PROPERTY));
