@@ -306,9 +306,11 @@ public interface CertificateInternalService extends ResourceExtensionService {
      * ones, else the inventory keys its public keys match.
      *
      * @param csr Base64-encoded certificate request, as passed to {@link #submitCertificateRequest}
+     * @param certificateType the type whose handler reads the request, or null for X.509
      */
     CertificateRequestKeys findRequestKeys(String csr, CertificateRequestFormat csrFormat, UUID keyUuid,
-            UUID altKeyUuid) throws NoSuchAlgorithmException, CertificateRequestException;
+            UUID altKeyUuid, CertificateType certificateType)
+            throws NoSuchAlgorithmException, CertificateRequestException;
 
     /**
      * Create certificate request entity and certificate in status New, store it in the database ready for issuing
@@ -331,14 +333,15 @@ public interface CertificateInternalService extends ResourceExtensionService {
      * @param altKeyUuid UUID of the alternative key used to sign the hybrid CSR
      * @param raProfileUuid UUID of the RA profile to be used to issue certificate
      * @param predecessorCertificateUuid UUID of the predecessor certificate specified in case of renew/rekey operation
+     * @param certificateType the type whose handler reads the request and supplies the entities, or null for X.509
      * return Certificate detail DTO
      */
     CertificateDetail submitCertificateRequest(String csr, CertificateRequestFormat csrFormat,
             List<RequestAttribute> signatureAttributes, List<RequestAttribute> altSignatureAttributes,
             List<RequestAttribute> csrAttributes, List<RequestAttribute> issueAttributes, UUID keyUuid, UUID altKeyUuid,
-            UUID raProfileUuid, UUID predecessorCertificateUuid, CertificateProtocolInfo protocolInfo)
-            throws NoSuchAlgorithmException, ConnectorException, AttributeException, CertificateRequestException,
-            NotFoundException;
+            UUID raProfileUuid, UUID predecessorCertificateUuid, CertificateProtocolInfo protocolInfo,
+            CertificateType certificateType) throws NoSuchAlgorithmException, ConnectorException, AttributeException,
+            CertificateRequestException, NotFoundException;
 
     /**
      * Function to change the Certificate Entity from CSR to Certificate

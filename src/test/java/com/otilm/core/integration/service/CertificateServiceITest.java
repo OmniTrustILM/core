@@ -5,8 +5,6 @@ import com.github.tomakehurst.wiremock.client.WireMock;
 import com.otilm.api.exception.AlreadyExistException;
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.CertificateOperationException;
-import com.otilm.api.exception.CertificateRequestException;
-import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.NotSupportedException;
 import com.otilm.api.exception.ValidationException;
@@ -1920,8 +1918,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
         }
 
         @Test
-        void appliesProtocolAssociations_whenSubmittingRequest() throws AlreadyExistException, AttributeException,
-                NotFoundException, NoSuchAlgorithmException, ConnectorException, CertificateRequestException {
+        void appliesProtocolAssociations_whenSubmittingRequest() throws Exception {
             // given
             mockUpdateUser();
             mockServer
@@ -1945,7 +1942,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
             // when
             CertificateDetail certificateDetailDto = certificateService
                     .submitCertificateRequest(SAMPLE_PKCS10, CertificateRequestFormat.PKCS10, List.of(), List.of(),
-                            List.of(), List.of(), null, null, raProfile.getUuid(), null, protocolInfo);
+                            List.of(), List.of(), null, null, raProfile.getUuid(), null, protocolInfo, null);
             Certificate certificateToBeIssued = certificateRepository
                     .findWithAssociationsByUuid(UUID.fromString(certificateDetailDto.getUuid()))
                     .orElseThrow();
@@ -1963,12 +1960,12 @@ class CertificateServiceITest extends BaseSpringBootTest {
             // given
             CertificateDetail first = certificateService
                     .submitCertificateRequest(SAMPLE_PKCS10, CertificateRequestFormat.PKCS10, List.of(), List.of(),
-                            List.of(), List.of(), null, null, raProfile.getUuid(), null, null);
+                            List.of(), List.of(), null, null, raProfile.getUuid(), null, null, null);
 
             // when
             CertificateDetail second = certificateService
                     .submitCertificateRequest(SAMPLE_PKCS10, CertificateRequestFormat.PKCS10, List.of(), List.of(),
-                            List.of(), List.of(), null, null, raProfile.getUuid(), null, null);
+                            List.of(), List.of(), null, null, raProfile.getUuid(), null, null, null);
 
             // then
             assertThat(second.getCertificateRequest().getUuid()).isNotEqualTo(first.getCertificateRequest().getUuid());
@@ -1986,7 +1983,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
             List<String> statements = SqlCapture
                     .during(() -> certificateService
                             .submitCertificateRequest(SAMPLE_PKCS10, CertificateRequestFormat.PKCS10, List.of(),
-                                    List.of(), List.of(), List.of(), null, null, raProfile.getUuid(), null, null))
+                                    List.of(), List.of(), List.of(), null, null, raProfile.getUuid(), null, null, null))
                     .statements();
 
             // then

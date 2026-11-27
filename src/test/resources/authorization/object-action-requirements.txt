@@ -152,7 +152,7 @@ certificates:checkCompliance | CertificateServiceImpl.checkCompliance(List) | ch
 certificates:create | CertificateServiceImpl.checkCreatePermissions() | checks [] | reads []
 certificates:create | CertificateServiceImpl.createCertificate(String, CertificateType) | checks [] | reads []
 certificates:create | CertificateServiceImpl.createCertificateEntity(X509Certificate) | checks [] | reads []
-certificates:create | CertificateServiceImpl.submitCertificateRequest(String, CertificateRequestFormat, List, List, List, List, UUID, UUID, UUID, UUID, CertificateProtocolInfo) | checks [RaProfileInternalService.evaluateCertificateRaProfilePermissions certificates:detail under raProfiles:members, RaProfileInternalService.getRaProfileEntity raProfiles:detail] | reads [Resource.CERTIFICATE, Resource.CERTIFICATE_REQUEST]
+certificates:create | CertificateServiceImpl.submitCertificateRequest(String, CertificateRequestFormat, List, List, List, List, UUID, UUID, UUID, UUID, CertificateProtocolInfo, CertificateType) | checks [RaProfileInternalService.evaluateCertificateRaProfilePermissions certificates:detail under raProfiles:members, RaProfileInternalService.getRaProfileEntity raProfiles:detail] | reads [Resource.CERTIFICATE, Resource.CERTIFICATE_REQUEST]
 certificates:create | CertificateServiceImpl.uploadAsync(UploadCertificateRequestDto) | checks [] | reads []
 certificates:create | CertificateServiceImpl.uploadSync(UploadCertificateRequestDto) | checks [] | reads []
 certificates:create | ClientOperationServiceImpl.issueCertificate(String, LegacyClientCertificateSignRequestDto) | checks [ClientOperationExternalService.checkAccessPermissions raProfiles:detail under authorities:detail] | reads [Resource.RA_PROFILE]
