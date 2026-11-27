@@ -19,8 +19,8 @@ class SigningProfileCertificateUseTest {
         @Test
         void splitsProfilesIntoCurrentAndSupersededOnly_whenVersionsOfSeveralProfilesHoldTheCertificate() {
             // given
-            var currentVersion = new CertificateHoldingVersion(CERTIFICATE_UUID, "signing-profile", 2, 2);
-            var supersededVersion = new CertificateHoldingVersion(CERTIFICATE_UUID, "renewed-profile", 1, 3);
+            var currentVersion = new CertificateHold(CERTIFICATE_UUID, "signing-profile", true);
+            var supersededVersion = new CertificateHold(CERTIFICATE_UUID, "renewed-profile", false);
 
             // when
             Map<UUID, SigningProfileCertificateUse> uses = SigningProfileCertificateUse
@@ -35,8 +35,8 @@ class SigningProfileCertificateUseTest {
         @Test
         void namesProfileOnlyAsCurrent_whenItsCurrentAndSupersededVersionsBothHoldTheCertificate() {
             // given
-            var supersededVersion = new CertificateHoldingVersion(CERTIFICATE_UUID, "signing-profile", 1, 2);
-            var currentVersion = new CertificateHoldingVersion(CERTIFICATE_UUID, "signing-profile", 2, 2);
+            var supersededVersion = new CertificateHold(CERTIFICATE_UUID, "signing-profile", false);
+            var currentVersion = new CertificateHold(CERTIFICATE_UUID, "signing-profile", true);
 
             // when
             Map<UUID, SigningProfileCertificateUse> uses = SigningProfileCertificateUse
@@ -48,26 +48,30 @@ class SigningProfileCertificateUseTest {
         }
 
         @Test
-        void namesEachProfileOnceAlphabetically_whenSeveralVersionsOfAProfileHoldTheCertificate() {
+        void sortsProfileNames_whenHoldsArriveInReverseOrder() {
             // given
-            var laterVersionOfZulu = new CertificateHoldingVersion(CERTIFICATE_UUID, "zulu", 2, 3);
-            var alpha = new CertificateHoldingVersion(CERTIFICATE_UUID, "alpha", 1, 3);
-            var earlierVersionOfZulu = new CertificateHoldingVersion(CERTIFICATE_UUID, "zulu", 1, 3);
+            var zuluCurrent = new CertificateHold(CERTIFICATE_UUID, "zulu-current", true);
+            var alphaCurrent = new CertificateHold(CERTIFICATE_UUID, "alpha-current", true);
+            var zuluSuperseded = new CertificateHold(CERTIFICATE_UUID, "zulu-superseded", false);
+            var alphaSuperseded = new CertificateHold(CERTIFICATE_UUID, "alpha-superseded", false);
 
             // when
             Map<UUID, SigningProfileCertificateUse> uses = SigningProfileCertificateUse
-                    .byCertificate(List.of(laterVersionOfZulu, alpha, earlierVersionOfZulu));
+                    .byCertificate(List.of(zuluCurrent, alphaCurrent, zuluSuperseded, alphaSuperseded));
 
             // then
-            assertThat(uses.get(CERTIFICATE_UUID).supersededOnlyProfiles()).containsExactly("alpha", "zulu");
+            assertThat(uses.get(CERTIFICATE_UUID).currentVersionProfiles())
+                    .containsExactly("alpha-current", "zulu-current");
+            assertThat(uses.get(CERTIFICATE_UUID).supersededOnlyProfiles())
+                    .containsExactly("alpha-superseded", "zulu-superseded");
         }
 
         @Test
         void keepsEachCertificateApart_whenVersionsHoldSeveral() {
             // given
             var otherCertificateUuid = UUID.fromString("0b7d6f1c-2a4e-4c1e-9a53-7f6a1b902d8e");
-            var holdingThisCertificate = new CertificateHoldingVersion(CERTIFICATE_UUID, "signing-profile", 1, 1);
-            var holdingOtherCertificate = new CertificateHoldingVersion(otherCertificateUuid, "other-profile", 1, 1);
+            var holdingThisCertificate = new CertificateHold(CERTIFICATE_UUID, "signing-profile", true);
+            var holdingOtherCertificate = new CertificateHold(otherCertificateUuid, "other-profile", true);
 
             // when
             Map<UUID, SigningProfileCertificateUse> uses = SigningProfileCertificateUse

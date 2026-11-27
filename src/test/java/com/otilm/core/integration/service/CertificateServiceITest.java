@@ -32,6 +32,7 @@ import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.common.error.ProblemDetailExtended;
+import com.otilm.api.model.common.events.data.InternalNotificationEventData;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateChainResponseDto;
@@ -66,6 +67,7 @@ import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
+import com.otilm.api.model.core.notification.RecipientType;
 import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.core.attribute.CsrAttributes;
@@ -130,6 +132,8 @@ import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.messaging.jms.producers.NotificationProducer;
+import com.otilm.core.messaging.model.NotificationMessage;
+import com.otilm.core.messaging.model.NotificationRecipient;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.signing.CertificatePurposeRequirements;
@@ -205,6 +209,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.Cache;
@@ -2146,23 +2151,28 @@ class CertificateServiceITest extends BaseSpringBootTest {
             certificateService.bulkDeleteCertificate(SecurityFilter.create(), request);
 
             // then
-            verify(notificationProducer)
-                    .produceInternalNotificationMessage(Mockito.eq(Resource.CERTIFICATE),
-                            Mockito.eq(heldByCurrentVersion.getUuid()), any(),
-                            Mockito.eq("Unable to delete certificate " + heldByCurrentVersion.getUuid()),
-                            Mockito
-                                    .eq("Could not delete certificate held-by-current-version with UUID "
-                                            + heldByCurrentVersion.getUuid()
-                                            + ": it is used by the current version of Signing Profile(s): signing-profile."));
-            verify(notificationProducer)
-                    .produceInternalNotificationMessage(Mockito.eq(Resource.CERTIFICATE),
-                            Mockito.eq(heldBySupersededVersion.getUuid()), any(),
-                            Mockito.eq("Unable to delete certificate " + heldBySupersededVersion.getUuid()),
-                            Mockito
-                                    .eq("Could not delete certificate held-by-superseded-version with UUID "
+            UUID requesterUuid = UUID.fromString(AuthHelper.getUserIdentification().getUuid());
+            List<NotificationMessage> skipNotifications = captureInternalNotifications();
+            assertThat(skipNotifications)
+                    .extracting(NotificationMessage::getResource, NotificationMessage::getObjectUuid,
+                            message -> ((InternalNotificationEventData) message.getData()).getText(),
+                            message -> ((InternalNotificationEventData) message.getData()).getDetail())
+                    .containsExactlyInAnyOrder(tuple(Resource.CERTIFICATE, heldByCurrentVersion.getUuid(),
+                            "Unable to delete certificate " + heldByCurrentVersion.getUuid(),
+                            "Could not delete certificate held-by-current-version with UUID "
+                                    + heldByCurrentVersion.getUuid()
+                                    + ": it is used by the current version of Signing Profile(s): signing-profile."),
+                            tuple(Resource.CERTIFICATE, heldBySupersededVersion.getUuid(),
+                                    "Unable to delete certificate " + heldBySupersededVersion.getUuid(),
+                                    "Could not delete certificate held-by-superseded-version with UUID "
                                             + heldBySupersededVersion.getUuid()
                                             + ": it is kept by superseded versions of Signing Profile(s)"
                                             + " (released only by deleting the Signing Profile, which first requires deleting its signing records): renewed-profile."));
+            assertThat(skipNotifications)
+                    .allSatisfy(message -> assertThat(message.getRecipients())
+                            .extracting(NotificationRecipient::getRecipientType,
+                                    NotificationRecipient::getRecipientUuid)
+                            .containsExactly(tuple(RecipientType.USER, requesterUuid)));
         }
 
         @Test
@@ -2193,6 +2203,17 @@ class CertificateServiceITest extends BaseSpringBootTest {
                                     .withSerialNumber(UUID.randomUUID().toString())
                                     .withFingerprint(UUID.randomUUID().toString())
                                     .build()));
+        }
+
+        /** The internal notifications the mocked producer's after-commit listener received. */
+        private List<NotificationMessage> captureInternalNotifications() {
+            ArgumentCaptor<NotificationMessage> published = ArgumentCaptor.forClass(NotificationMessage.class);
+            verify(notificationProducer, Mockito.atLeastOnce()).onNotificationMessage(published.capture());
+            return published
+                    .getAllValues()
+                    .stream()
+                    .filter(message -> message.getData() instanceof InternalNotificationEventData)
+                    .toList();
         }
 
         private static RemoveCertificateDto createRemovalRequest(Certificate... certificates) {

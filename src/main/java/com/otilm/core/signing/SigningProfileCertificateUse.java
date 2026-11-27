@@ -25,24 +25,23 @@ public record SigningProfileCertificateUse(List<String> currentVersionProfiles, 
         supersededOnlyProfiles = List.copyOf(supersededOnlyProfiles);
     }
 
-    /** The use of each certificate any of the versions holds; a certificate none holds has no entry. */
-    public static Map<UUID, SigningProfileCertificateUse> byCertificate(
-            Collection<CertificateHoldingVersion> versions) {
-        return versions
+    /** The use of each certificate any of the holds names; a certificate none names has no entry. */
+    public static Map<UUID, SigningProfileCertificateUse> byCertificate(Collection<CertificateHold> holds) {
+        return holds
                 .stream()
                 .collect(Collectors
-                        .groupingBy(CertificateHoldingVersion::certificateUuid,
+                        .groupingBy(CertificateHold::certificateUuid,
                                 Collectors.collectingAndThen(Collectors.toList(), SigningProfileCertificateUse::of)));
     }
 
-    private static SigningProfileCertificateUse of(List<CertificateHoldingVersion> versionsOfOneCertificate) {
+    private static SigningProfileCertificateUse of(List<CertificateHold> holdsOnOneCertificate) {
         SortedSet<String> currentVersionNames = new TreeSet<>();
         SortedSet<String> supersededVersionNames = new TreeSet<>();
-        for (CertificateHoldingVersion version : versionsOfOneCertificate) {
-            if (version.isCurrent()) {
-                currentVersionNames.add(version.signingProfileName());
+        for (CertificateHold hold : holdsOnOneCertificate) {
+            if (hold.currentVersion()) {
+                currentVersionNames.add(hold.signingProfileName());
             } else {
-                supersededVersionNames.add(version.signingProfileName());
+                supersededVersionNames.add(hold.signingProfileName());
             }
         }
         supersededVersionNames.removeAll(currentVersionNames);
