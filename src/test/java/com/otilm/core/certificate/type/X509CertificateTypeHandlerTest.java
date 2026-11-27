@@ -850,7 +850,7 @@ class X509CertificateTypeHandlerTest {
     void fillsTheRequestedIdentity_whenStampingARequestedCertificate() throws Exception {
         // given
         KeyPair holderKeys = chain.getEndEntityCertificateKeyPair();
-        ParsedRequest request = parsedPkcs10(holderKeys, SUBJECT_DN);
+        ParsedRequest request = parsePkcs10(holderKeys, SUBJECT_DN);
         var placeholder = aCertificate().withState(CertificateState.REQUESTED).build();
 
         // when
@@ -884,7 +884,7 @@ class X509CertificateTypeHandlerTest {
     void createsAnX509RequestWithItsIdentityFormatAndSignatureAlgorithm_whenAskedForANewCertificateRequest()
             throws Exception {
         // given
-        ParsedRequest request = parsedPkcs10(chain.getEndEntityCertificateKeyPair(), SUBJECT_DN);
+        ParsedRequest request = parsePkcs10(chain.getEndEntityCertificateKeyPair(), SUBJECT_DN);
 
         // when
         CertificateRequestEntity created = handler.newCertificateRequest(request);
@@ -916,7 +916,7 @@ class X509CertificateTypeHandlerTest {
     @Test
     void reportsNoAlternativeKey_whenTheRequestCarriesNone() throws Exception {
         // given
-        ParsedRequest request = parsedPkcs10(chain.getEndEntityCertificateKeyPair(), SUBJECT_DN);
+        ParsedRequest request = parsePkcs10(chain.getEndEntityCertificateKeyPair(), SUBJECT_DN);
 
         // when
         Optional<PublicKey> alternativeKey = handler.alternativePublicKey(request);
@@ -933,7 +933,7 @@ class X509CertificateTypeHandlerTest {
         var validator = mock(ProtocolRequestAttributeValidator.class);
         when(validator.validate(any(CertificateRequest.class), eq(raProfile))).thenReturn(List.of(policyWarning));
         handler.setRequestAttributeValidator(validator);
-        ParsedRequest request = parsedPkcs10(chain.getEndEntityCertificateKeyPair(), SUBJECT_DN);
+        ParsedRequest request = parsePkcs10(chain.getEndEntityCertificateKeyPair(), SUBJECT_DN);
 
         // when
         List<String> warnings = handler.validateRequestAttributes(request, raProfile);
@@ -945,8 +945,9 @@ class X509CertificateTypeHandlerTest {
     @Test
     void recognisesTheSameHolderAndIssuer_whenTheNamesAndTheIssuerSerialNumberMatch() {
         // given
-        var certificate = anIssuedCertificate("cn=holder").build();
-        var renewed = anIssuedCertificate("cn=holder").build();
+        var sameSubject = "cn=holder";
+        var certificate = anIssuedCertificate(sameSubject).build();
+        var renewed = anIssuedCertificate(sameSubject).build();
 
         // when
         boolean same = handler.sameHolderAndIssuer(certificate, renewed);
@@ -958,8 +959,9 @@ class X509CertificateTypeHandlerTest {
     @Test
     void recognisesAnotherHolder_whenTheSubjectNamesDiffer() {
         // given
+        var otherSubject = "cn=another-holder";
         var certificate = anIssuedCertificate("cn=holder").build();
-        var otherHolder = anIssuedCertificate("cn=another-holder").build();
+        var otherHolder = anIssuedCertificate(otherSubject).build();
 
         // when
         boolean same = handler.sameHolderAndIssuer(certificate, otherHolder);
@@ -987,8 +989,16 @@ class X509CertificateTypeHandlerTest {
     @Test
     void recognisesTheSameKeys_whenThePublicAndAlternativeKeyFingerprintsMatch() {
         // given
-        var certificate = aCertificate().withPublicKeyFingerprint("key").withAltKeyFingerprint("alt-key").build();
-        var renewed = aCertificate().withPublicKeyFingerprint("key").withAltKeyFingerprint("alt-key").build();
+        var sameKey = "key";
+        var sameAlternativeKey = "alt-key";
+        var certificate = aCertificate()
+                .withPublicKeyFingerprint(sameKey)
+                .withAltKeyFingerprint(sameAlternativeKey)
+                .build();
+        var renewed = aCertificate()
+                .withPublicKeyFingerprint(sameKey)
+                .withAltKeyFingerprint(sameAlternativeKey)
+                .build();
 
         // when
         boolean same = handler.sameKeys(certificate, renewed);
@@ -1000,8 +1010,9 @@ class X509CertificateTypeHandlerTest {
     @Test
     void recognisesOtherKeys_whenOnlyTheAlternativeKeyFingerprintDiffers() {
         // given
+        var newAlternativeKey = "new-alt-key";
         var certificate = aCertificate().withPublicKeyFingerprint("key").withAltKeyFingerprint("alt-key").build();
-        var rekeyed = aCertificate().withPublicKeyFingerprint("key").withAltKeyFingerprint("new-alt-key").build();
+        var rekeyed = aCertificate().withPublicKeyFingerprint("key").withAltKeyFingerprint(newAlternativeKey).build();
 
         // when
         boolean same = handler.sameKeys(certificate, rekeyed);
@@ -1156,7 +1167,7 @@ class X509CertificateTypeHandlerTest {
         return blocks;
     }
 
-    private ParsedRequest parsedPkcs10(KeyPair keys, String subjectDn) throws Exception {
+    private ParsedRequest parsePkcs10(KeyPair keys, String subjectDn) throws Exception {
         return handler
                 .readRequest(Base64.getEncoder().encodeToString(pkcs10(keys, subjectDn)),
                         CertificateRequestFormat.PKCS10);

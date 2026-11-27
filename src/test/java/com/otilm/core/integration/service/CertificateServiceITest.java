@@ -5,8 +5,6 @@ import com.github.tomakehurst.wiremock.client.WireMock;
 import com.otilm.api.exception.AlreadyExistException;
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.CertificateOperationException;
-import com.otilm.api.exception.CertificateRequestException;
-import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.NotSupportedException;
 import com.otilm.api.exception.ValidationException;
@@ -1910,8 +1908,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
         }
 
         @Test
-        void appliesProtocolAssociations_whenSubmittingRequest() throws AlreadyExistException, AttributeException,
-                NotFoundException, NoSuchAlgorithmException, ConnectorException, CertificateRequestException {
+        void appliesProtocolAssociations_whenSubmittingRequest() throws Exception {
             // given
             mockUpdateUser();
             mockServer

@@ -15,7 +15,6 @@ import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
 import com.otilm.core.certificate.type.ParsedRequest;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
-import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.CertificateRelation;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.RaProfile;
@@ -45,6 +44,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import static com.otilm.core.util.StubCertificateFixtures.keyPair;
+import static com.otilm.core.util.builders.CertificateContentBuilder.aCertificateContent;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -100,9 +100,10 @@ class CertificateServiceImplTypeHandlerTest {
         @Mock
         private CertificateRequestEntity requestEntity;
 
+        private final byte[] encodingTheHandlerRead = "the request as the handler read it"
+                .getBytes(StandardCharsets.UTF_8);
         private final ParsedRequest parsedRequest = new ParsedRequest(OTHER_TYPE.getCode(),
-                CertificateRequestFormat.PKCS10, "a request of another type".getBytes(StandardCharsets.UTF_8), "holder",
-                keyPair().getPublic());
+                CertificateRequestFormat.PKCS10, encodingTheHandlerRead, "holder", keyPair().getPublic());
         private final UUID raProfileUuid = UUID.randomUUID();
 
         @BeforeEach
@@ -150,16 +151,16 @@ class CertificateServiceImplTypeHandlerTest {
         }
 
         @Test
-        void storesTheRequestEntityOfTheHandlerWithTheSubmittedContent_whenTheRequestIsOfAnotherType()
-                throws Exception {
-            // given — the handler of the other type supplies the request entity
+        void storesTheRequestEntityOfTheHandlerWithTheEncodingItRead_whenTheRequestIsOfAnotherType() throws Exception {
+            // given
+            var storedContent = Base64.getEncoder().encodeToString(encodingTheHandlerRead);
 
             // when
             submit();
 
             // then
             verify(certificateRequestRepository).save(requestEntity);
-            verify(requestEntity).setContent(REQUEST_CONTENT);
+            verify(requestEntity).setContent(storedContent);
         }
 
         // ── Helpers ───────────────────────────────────────────────────────────
@@ -188,8 +189,8 @@ class CertificateServiceImplTypeHandlerTest {
         void takesTheRelationTypeFromTheHandler_whenAssociatingCertificatesOfAnotherType(boolean sameHolderAndIssuer,
                 boolean sameKeys, CertificateRelationType expectedRelation) throws Exception {
             // given
-            Certificate predecessor = anIssuedCertificate(OTHER_TYPE, new Date(1_000));
-            Certificate successor = anIssuedCertificate(OTHER_TYPE, new Date(2_000));
+            Certificate predecessor = stubIssuedCertificate(OTHER_TYPE, new Date(1_000));
+            Certificate successor = stubIssuedCertificate(OTHER_TYPE, new Date(2_000));
             when(otherTypeHandler.sameHolderAndIssuer(successor, predecessor)).thenReturn(sameHolderAndIssuer);
             if (sameHolderAndIssuer) {
                 when(otherTypeHandler.sameKeys(successor, predecessor)).thenReturn(sameKeys);
@@ -201,14 +202,14 @@ class CertificateServiceImplTypeHandlerTest {
                             SecuredUUID.fromUUID(predecessor.getUuid()));
 
             // then
-            assertThat(savedRelation().getRelationType()).isEqualTo(expectedRelation);
+            assertThat(captureSavedRelation().getRelationType()).isEqualTo(expectedRelation);
         }
 
         @Test
         void refusesTheAssociation_whenTheCertificatesAreOfDifferentTypes() {
             // given
-            UUID x509Predecessor = aCertificateOfType(CertificateType.X509);
-            UUID successor = aCertificateOfType(OTHER_TYPE);
+            UUID x509Predecessor = stubCertificateOfType(CertificateType.X509);
+            UUID successor = stubCertificateOfType(OTHER_TYPE);
 
             // when
             ThrowingCallable associate = () -> service
@@ -223,7 +224,7 @@ class CertificateServiceImplTypeHandlerTest {
 
         // ── Helpers ───────────────────────────────────────────────────────────
 
-        private Certificate anIssuedCertificate(CertificateType type, Date notBefore) {
+        private Certificate stubIssuedCertificate(CertificateType type, Date notBefore) {
             UUID uuid = UUID.randomUUID();
             Certificate certificate = mock(Certificate.class);
             when(certificate.getUuid()).thenReturn(uuid);
@@ -234,7 +235,7 @@ class CertificateServiceImplTypeHandlerTest {
             return certificate;
         }
 
-        private UUID aCertificateOfType(CertificateType type) {
+        private UUID stubCertificateOfType(CertificateType type) {
             UUID uuid = UUID.randomUUID();
             Certificate certificate = mock(Certificate.class);
             when(certificate.getUuid()).thenReturn(uuid);
@@ -243,7 +244,7 @@ class CertificateServiceImplTypeHandlerTest {
             return uuid;
         }
 
-        private CertificateRelation savedRelation() {
+        private CertificateRelation captureSavedRelation() {
             ArgumentCaptor<CertificateRelation> saved = ArgumentCaptor.forClass(CertificateRelation.class);
             verify(certificateRelationRepository).save(saved.capture());
             return saved.getValue();
@@ -258,8 +259,7 @@ class CertificateServiceImplTypeHandlerTest {
         void reportsTheTypeOfTheCertificate_whenItIsOfAnotherType() throws Exception {
             // given
             UUID uuid = UUID.randomUUID();
-            var content = new CertificateContent();
-            content.setContent("content of another type");
+            var content = aCertificateContent().withContent("content of another type").build();
             Certificate certificate = mock(Certificate.class);
             when(certificate.getCertificateType()).thenReturn(OTHER_TYPE);
             when(certificate.getCertificateContent()).thenReturn(content);

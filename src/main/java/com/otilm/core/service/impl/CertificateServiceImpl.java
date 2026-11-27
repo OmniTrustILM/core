@@ -2576,8 +2576,8 @@ public class CertificateServiceImpl
         RaProfile raProfile = raProfileService.getRaProfileEntity(SecuredUUID.fromUUID(raProfileUuid));
         CertificateTypeHandler handler = requestHandlerOf(certificateType);
 
-        // create certificate request from CSR and parse the data
-        byte[] decodedCsr = Base64.getDecoder().decode(certificateRequest);
+        // create certificate request from CSR and parse the data; content that is not Base64 is refused by the decoder
+        Base64.getDecoder().decode(certificateRequest);
         ParsedRequest request = handler.readRequest(certificateRequest, certificateRequestFormat);
 
         // prepare certificate request data for certificate
@@ -2597,9 +2597,11 @@ public class CertificateServiceImpl
 
         // Every certificate gets a request of its own, even for a CSR already stored: the compliance result kept on
         // the request is checked for the certificate's RA profile.
+        // The stored content and the fingerprint come from the encoding the handler read, which is what the
+        // connector gets, not from the content as it was submitted.
         CertificateRequestEntity certificateRequestEntity = handler.newCertificateRequest(request);
-        certificateRequestEntity.setFingerprint(CertificateUtil.getThumbprint(decodedCsr));
-        certificateRequestEntity.setContent(certificateRequest);
+        certificateRequestEntity.setFingerprint(CertificateUtil.getThumbprint(request.encoded()));
+        certificateRequestEntity.setContent(Base64.getEncoder().encodeToString(request.encoded()));
         certificateRequestRepository.save(certificateRequestEntity);
 
         List<ResponseAttribute> requestAttributes = attributeEngine
