@@ -21,15 +21,24 @@ class CvcCertificateEntityTest {
     private static final Instant EXPIRATION_DAY = Instant.parse("2026-04-14T00:00:00Z");
 
     @Test
-    void reportsTheCvcType_whenACertificateOrRequestIsCreated() {
+    void reportsTheCvcType_whenACertificateIsCreated() {
         // given — nothing stored yet
 
         // when
         CvcCertificateEntity certificate = new CvcCertificateEntity();
-        CvcCertificateRequestEntity request = new CvcCertificateRequestEntity();
 
         // then
         assertThat(certificate.getCertificateType()).isEqualTo(CertificateType.CVC);
+    }
+
+    @Test
+    void reportsTheCvcType_whenARequestIsCreated() {
+        // given — nothing stored yet
+
+        // when
+        CvcCertificateRequestEntity request = new CvcCertificateRequestEntity();
+
+        // then
         assertThat(request.getCertificateType()).isEqualTo(CertificateType.CVC);
     }
 
@@ -66,7 +75,8 @@ class CvcCertificateEntityTest {
     void givesTheUtcDates_whenTheDefaultTimeZoneIsWestOfUtc() {
         // given
         TimeZone defaultZone = TimeZone.getDefault();
-        TimeZone.setDefault(TimeZone.getTimeZone("America/Los_Angeles"));
+        TimeZone westOfUtcZone = TimeZone.getTimeZone("America/Los_Angeles");
+        TimeZone.setDefault(westOfUtcZone);
         try {
             CvcCertificateEntity certificate = new CvcCertificateEntity();
             certificate.applyValidity(new Validity(EFFECTIVE_DAY, EXPIRATION_DAY, ValidityPrecision.DATE));
@@ -109,32 +119,50 @@ class CvcCertificateEntityTest {
     }
 
     @Test
-    void viewsTheCertificateAndRequestAsCvc_whenTheyAreCvc() {
+    void viewsTheCertificateAsCvc_whenItIsCvc() {
         // given
         CvcCertificateEntity certificate = new CvcCertificateEntity();
-        CvcCertificateRequestEntity request = new CvcCertificateRequestEntity();
 
         // when
         CvcCertificateEntity viewedCertificate = CvcCertificateEntity.fromOrNull(certificate);
-        CvcCertificateRequestEntity viewedRequest = CvcCertificateRequestEntity.fromOrNull(request);
 
         // then
         assertThat(viewedCertificate).isSameAs(certificate);
+    }
+
+    @Test
+    void viewsTheRequestAsCvc_whenItIsCvc() {
+        // given
+        CvcCertificateRequestEntity request = new CvcCertificateRequestEntity();
+
+        // when
+        CvcCertificateRequestEntity viewedRequest = CvcCertificateRequestEntity.fromOrNull(request);
+
+        // then
         assertThat(viewedRequest).isSameAs(request);
     }
 
     @Test
-    void viewsNothing_whenTheCertificateAndRequestAreX509() {
+    void viewsNothing_whenTheCertificateIsX509() {
         // given
         X509CertificateEntity certificate = aCertificate().build();
-        X509CertificateRequestEntity request = new X509CertificateRequestEntity();
 
         // when
         CvcCertificateEntity viewedCertificate = CvcCertificateEntity.fromOrNull(certificate);
-        CvcCertificateRequestEntity viewedRequest = CvcCertificateRequestEntity.fromOrNull(request);
 
         // then
         assertThat(viewedCertificate).isNull();
+    }
+
+    @Test
+    void viewsNothing_whenTheRequestIsX509() {
+        // given
+        X509CertificateRequestEntity request = new X509CertificateRequestEntity();
+
+        // when
+        CvcCertificateRequestEntity viewedRequest = CvcCertificateRequestEntity.fromOrNull(request);
+
+        // then
         assertThat(viewedRequest).isNull();
     }
 

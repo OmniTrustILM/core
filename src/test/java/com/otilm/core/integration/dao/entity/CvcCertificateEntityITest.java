@@ -16,6 +16,7 @@ import jakarta.persistence.EntityManager;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.Month;
+import java.util.Date;
 import java.util.List;
 import org.hibernate.Hibernate;
 import org.junit.jupiter.api.Test;
@@ -88,10 +89,12 @@ class CvcCertificateEntityITest extends BaseSpringBootTest {
     @Transactional
     void storesBoth_whenTwoCertificatesShareAHolderReferenceAndAPublicKey() {
         // given
-        CvcCertificateEntity newCertificate = createCvcCertificate("fp-new", "SEILMCVCA00002");
-        CvcCertificateEntity linkCertificate = createCvcCertificate("fp-link", "SEILMCVCA00002");
-        newCertificate.setPublicKeyFingerprint("same-key");
-        linkCertificate.setPublicKeyFingerprint("same-key");
+        String sharedHolderReference = "SEILMCVCA00002";
+        String sharedPublicKey = "same-key";
+        CvcCertificateEntity newCertificate = createCvcCertificate("fp-new", sharedHolderReference);
+        CvcCertificateEntity linkCertificate = createCvcCertificate("fp-link", sharedHolderReference);
+        newCertificate.setPublicKeyFingerprint(sharedPublicKey);
+        linkCertificate.setPublicKeyFingerprint(sharedPublicKey);
 
         // when
         certificateRepository.saveAll(List.of(newCertificate, linkCertificate));
@@ -103,7 +106,7 @@ class CvcCertificateEntityITest extends BaseSpringBootTest {
         assertThat(stored)
                 .hasSize(2)
                 .allSatisfy(certificate -> assertThat(((CvcCertificateEntity) certificate).getHolderReference())
-                        .isEqualTo("SEILMCVCA00002"));
+                        .isEqualTo(sharedHolderReference));
     }
 
     @Test
@@ -111,7 +114,8 @@ class CvcCertificateEntityITest extends BaseSpringBootTest {
     void sortsAndLoadsEachSubclass_whenCvcAndX509CertificatesAreStoredTogether() {
         // given
         X509CertificateEntity x509 = aCertificate().withSubjectDn("CN=mixed").build();
-        x509.setNotAfter(java.util.Date.from(Instant.parse("2027-01-01T00:00:00Z")));
+        Date laterThanCvcExpiry = Date.from(Instant.parse("2027-01-01T00:00:00Z"));
+        x509.setNotAfter(laterThanCvcExpiry);
         certificateRepository.save(x509);
         certificateRepository.save(createCvcCertificate("fp-mixed", "SEILMTERM00003"));
         entityManager.flush();

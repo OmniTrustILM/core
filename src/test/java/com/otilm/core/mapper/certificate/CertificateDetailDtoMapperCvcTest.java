@@ -115,25 +115,47 @@ class CertificateDetailDtoMapperCvcTest {
     @Test
     void showsThePlaceholderAsDisplayName_whenTheCvcRequestHasNoHolderReference() throws Exception {
         // given
+        String missingHolderReference = null;
+        CvcCertificateEntity certificate = createCertificateWithRequestOf(missingHolderReference);
+
+        // when
+        String displayName = CertificateDetailDtoMapper
+                .toDetailDto(certificate)
+                .getCertificateRequest()
+                .getDisplayName();
+
+        // then
+        assertThat(displayName).isEqualTo(CertificateUtil.EMPTY_COMMON_NAME_PLACEHOLDER);
+    }
+
+    @Test
+    void showsThePlaceholderAsDisplayName_whenTheCvcRequestHolderReferenceIsBlank() throws Exception {
+        // given
+        String blankHolderReference = " ";
+        CvcCertificateEntity certificate = createCertificateWithRequestOf(blankHolderReference);
+
+        // when
+        String displayName = CertificateDetailDtoMapper
+                .toDetailDto(certificate)
+                .getCertificateRequest()
+                .getDisplayName();
+
+        // then
+        assertThat(displayName).isEqualTo(CertificateUtil.EMPTY_COMMON_NAME_PLACEHOLDER);
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static CvcCertificateEntity createCertificateWithRequestOf(String holderReference) throws Exception {
         CvcCertificateEntity certificate = createCvcCertificate();
         CvcCertificateRequestEntity request = new CvcCertificateRequestEntity();
         request.setUuid(UUID.randomUUID());
         request.setCertificateRequestFormat(CertificateRequestFormat.CVC);
         request.setContent("AAAA");
-        request.setHolderReference(null);
+        request.setHolderReference(holderReference);
         certificate.setCertificateRequest(request);
-
-        // when
-        String missing = CertificateDetailDtoMapper.toDetailDto(certificate).getCertificateRequest().getDisplayName();
-        request.setHolderReference(" ");
-        String blank = CertificateDetailDtoMapper.toDetailDto(certificate).getCertificateRequest().getDisplayName();
-
-        // then
-        assertThat(missing).isEqualTo(CertificateUtil.EMPTY_COMMON_NAME_PLACEHOLDER);
-        assertThat(blank).isEqualTo(CertificateUtil.EMPTY_COMMON_NAME_PLACEHOLDER);
+        return certificate;
     }
-
-    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static CvcCertificateEntity createCvcCertificate() {
         CvcCertificateEntity certificate = new CvcCertificateEntity();
