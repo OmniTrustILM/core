@@ -11,10 +11,15 @@ import com.otilm.api.model.core.certificate.CertificateFormatEncoding;
 import com.otilm.api.model.core.certificate.CertificateOperation;
 import com.otilm.api.model.core.certificate.CertificateRequestDetail;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
+import com.otilm.core.certificate.request.RequestAttributePolicyViolationException;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.RaProfile;
+import java.security.NoSuchAlgorithmException;
+import java.security.PublicKey;
 import java.security.cert.CertificateException;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -107,6 +112,61 @@ public interface CertificateTypeHandler {
      */
     default Certificate newCertificate() {
         throw UnsupportedCertificateTypeException.notStored(typeCode());
+    }
+
+    /**
+     * Fills the certificate with what the type stores about a certificate that is requested and not yet issued, and
+     * returns it as the entity of the type. The state of the certificate is left as it is.
+     */
+    Certificate stampRequested(Certificate certificate, ParsedRequest request)
+            throws CertificateRequestException, NoSuchAlgorithmException;
+
+    /**
+     * A new request entity of the type, filled with what the type stores about the request. The content, the
+     * fingerprint and the keys of the request are left to the caller.
+     */
+    CertificateRequestEntity newCertificateRequest(ParsedRequest request)
+            throws CertificateRequestException, NoSuchAlgorithmException;
+
+    /**
+     * The public key of the request, decoded for a caller that needs the reason when it cannot be. By default the key
+     * the request was read with, which is null when it could not be decoded; a type that can tell why overrides this to
+     * throw.
+     */
+    default PublicKey publicKeyOf(ParsedRequest request) throws CertificateRequestException, NoSuchAlgorithmException {
+        return request.publicKey();
+    }
+
+    /** The alternative public key of the request, for a type whose requests can carry one. By default none. */
+    default Optional<PublicKey> alternativePublicKey(ParsedRequest request)
+            throws CertificateRequestException, NoSuchAlgorithmException {
+        return Optional.empty();
+    }
+
+    /**
+     * Checks what the request asks for against the request attributes of the RA profile, for a type that has such
+     * attributes. By default nothing is checked.
+     *
+     * @return the warnings about the request; empty when there are none
+     * @throws CertificateException when the request attributes of the RA profile cannot be resolved
+     * @throws RequestAttributePolicyViolationException when a strict profile refuses the request
+     */
+    default List<String> validateRequestAttributes(ParsedRequest request, RaProfile raProfile)
+            throws CertificateException {
+        return List.of();
+    }
+
+    /**
+     * Whether the two stored certificates of the type name the same holder and the same issuer, as a certificate and
+     * the one that renews or rekeys it do. By default they do not, so that one replaces the other.
+     */
+    default boolean sameHolderAndIssuer(Certificate certificate, Certificate other) {
+        return false;
+    }
+
+    /** Whether the two stored certificates of the type certify the same keys. By default the public key decides. */
+    default boolean sameKeys(Certificate certificate, Certificate other) {
+        return Objects.equals(certificate.getPublicKeyFingerprint(), other.getPublicKeyFingerprint());
     }
 
     /**

@@ -14,21 +14,27 @@ import com.otilm.api.model.core.certificate.CertificateFormat;
 import com.otilm.api.model.core.certificate.CertificateFormatEncoding;
 import com.otilm.api.model.core.certificate.CertificateOperation;
 import com.otilm.api.model.core.certificate.CertificateRequestDetail;
+import com.otilm.api.model.core.certificate.CertificateSubjectType;
 import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.certificate.X509CertificateDetail;
 import com.otilm.api.model.core.certificate.X509CertificateRequestDetail;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.core.attribute.CertificateRequestAttributeProjector;
+import com.otilm.core.certificate.request.ProtocolRequestAttributeValidator;
 import com.otilm.core.certificate.request.RenewContentSeeder;
 import com.otilm.core.container.KeystoreDetection;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.CertificateRequestEntity;
+import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.X509CertificateEntity;
+import com.otilm.core.dao.entity.X509CertificateRequestEntity;
 import com.otilm.core.model.request.CertificateRequest;
 import com.otilm.core.model.request.CrmfCertificateRequest;
 import com.otilm.core.model.request.Pkcs10CertificateRequest;
 import com.otilm.core.oid.OidHandler;
 import com.otilm.core.oid.OidRecord;
+import com.otilm.core.service.CertificateChainService;
 import com.otilm.core.service.CryptographicOperationInternalService;
 import com.otilm.core.util.CertificateRequestUtils;
 import com.otilm.core.util.CertificateUtil;
@@ -51,6 +57,7 @@ import java.util.Base64;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -66,6 +73,7 @@ import org.bouncycastle.cms.CMSSignedDataGenerator;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.openssl.PEMParser;
 import org.bouncycastle.openssl.jcajce.JcaPEMWriter;
+import org.bouncycastle.operator.DefaultAlgorithmNameFinder;
 import org.bouncycastle.operator.jcajce.JcaContentVerifierProviderBuilder;
 import org.bouncycastle.util.encoders.DecoderException;
 import org.bouncycastle.util.io.pem.PemObject;
@@ -98,12 +106,26 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
             .of("-----BEGIN CERTIFICATE REQUEST-----", "-----BEGIN NEW CERTIFICATE REQUEST-----");
 
     private CryptographicOperationInternalService cryptographicOperationService;
+    private ProtocolRequestAttributeValidator requestAttributeValidator;
+    private CertificateChainService chainService;
 
     // signing a request goes through the key services, which reach back to the certificate services
     @Autowired
     public void setCryptographicOperationService(
             @Lazy CryptographicOperationInternalService cryptographicOperationService) {
         this.cryptographicOperationService = cryptographicOperationService;
+    }
+
+    // resolved lazily, so that building the handler does not pull in the RA profile services
+    @Autowired
+    public void setRequestAttributeValidator(@Lazy ProtocolRequestAttributeValidator requestAttributeValidator) {
+        this.requestAttributeValidator = requestAttributeValidator;
+    }
+
+    // the chain service stores certificates through the certificate services, which use this handler
+    @Autowired
+    public void setChainService(@Lazy CertificateChainService chainService) {
+        this.chainService = chainService;
     }
 
     @Override
@@ -366,6 +388,64 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
     }
 
     @Override
+    public Certificate stampRequested(Certificate certificate, ParsedRequest request)
+            throws CertificateRequestException, NoSuchAlgorithmException {
+        X509CertificateEntity entity = X509CertificateEntity.from(certificate);
+        CertificateUtil.prepareCertificateFromCsr(entity, x509Of(request));
+        return entity;
+    }
+
+    @Override
+    public CertificateRequestEntity newCertificateRequest(ParsedRequest request)
+            throws CertificateRequestException, NoSuchAlgorithmException {
+        CertificateRequest certificateRequest = x509Of(request);
+        X509CertificateRequestEntity entity = new X509CertificateRequestEntity();
+        CertificateUtil.prepareCertificateRequestEntityFromCsr(entity, certificateRequest);
+        entity.setCertificateRequestFormat(request.format());
+        setSignatureAlgorithms(entity, certificateRequest);
+        return entity;
+    }
+
+    @Override
+    public PublicKey publicKeyOf(ParsedRequest request) throws CertificateRequestException, NoSuchAlgorithmException {
+        return x509Of(request).getPublicKey();
+    }
+
+    @Override
+    public Optional<PublicKey> alternativePublicKey(ParsedRequest request)
+            throws CertificateRequestException, NoSuchAlgorithmException {
+        return Optional.ofNullable(x509Of(request).getAltPublicKey());
+    }
+
+    @Override
+    public List<String> validateRequestAttributes(ParsedRequest request, RaProfile raProfile)
+            throws CertificateException {
+        try {
+            return requestAttributeValidator.validate(x509Of(request), raProfile);
+        } catch (CertificateRequestException e) {
+            throw new CertificateException(e);
+        }
+    }
+
+    @Override
+    public boolean sameHolderAndIssuer(Certificate certificate, Certificate other) {
+        X509CertificateEntity x509Certificate = X509CertificateEntity.from(certificate);
+        X509CertificateEntity x509Other = X509CertificateEntity.from(other);
+        linkIssuerWhenUnknown(x509Certificate);
+        linkIssuerWhenUnknown(x509Other);
+        return Objects.equals(x509Certificate.getIssuerDnNormalized(), x509Other.getIssuerDnNormalized())
+                && Objects.equals(x509Certificate.getSubjectDnNormalized(), x509Other.getSubjectDnNormalized())
+                && Objects.equals(x509Certificate.getIssuerSerialNumber(), x509Other.getIssuerSerialNumber());
+    }
+
+    @Override
+    public boolean sameKeys(Certificate certificate, Certificate other) {
+        return Objects.equals(certificate.getPublicKeyFingerprint(), other.getPublicKeyFingerprint()) && Objects
+                .equals(X509CertificateEntity.from(certificate).getAltKeyFingerprint(),
+                        X509CertificateEntity.from(other).getAltKeyFingerprint());
+    }
+
+    @Override
     public Certificate stampIssued(Certificate certificate, ParsedCertificate issued) {
         X509CertificateEntity entity = X509CertificateEntity.from(certificate);
         CertificateUtil.stampIssuedFields(entity, x509Of(issued));
@@ -409,6 +489,32 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
             return new ParsedCertificate(typeCode(), certificate.getEncoded(), propertiesOf(certificate));
         } catch (NoSuchAlgorithmException e) {
             throw new CertificateException(e);
+        }
+    }
+
+    private void linkIssuerWhenUnknown(X509CertificateEntity certificate) {
+        boolean issuedByAnother = certificate.getSubjectType() == CertificateSubjectType.END_ENTITY
+                || certificate.getSubjectType() == CertificateSubjectType.INTERMEDIATE_CA;
+        if (issuedByAnother && certificate.getIssuerSerialNumber() == null) {
+            try {
+                chainService.updateCertificateChain(certificate);
+            } catch (CertificateException e) {
+                // the issuer serial number stays unknown
+            }
+        }
+    }
+
+    private static void setSignatureAlgorithms(X509CertificateRequestEntity entity, CertificateRequest request) {
+        DefaultAlgorithmNameFinder algFinder = new DefaultAlgorithmNameFinder();
+        if (request.getSignatureAlgorithm() != null) {
+            entity
+                    .setSignatureAlgorithm(
+                            algFinder.getAlgorithmName(request.getSignatureAlgorithm()).replace("WITH", "with"));
+        }
+        if (request.getAltSignatureAlgorithm() != null) {
+            entity
+                    .setAltSignatureAlgorithm(
+                            algFinder.getAlgorithmName(request.getAltSignatureAlgorithm()).replace("WITH", "with"));
         }
     }
 

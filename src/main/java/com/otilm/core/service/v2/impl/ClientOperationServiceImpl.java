@@ -60,7 +60,6 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.certificate.request.IssuanceDefinitionResolver;
-import com.otilm.core.certificate.request.ProtocolRequestAttributeValidator;
 import com.otilm.core.certificate.request.RegisterWireBuilder;
 import com.otilm.core.certificate.request.RequestAttributePolicyViolationException;
 import com.otilm.core.certificate.type.AuthorityCertificateTypes;
@@ -106,7 +105,6 @@ import com.otilm.core.messaging.model.IssueActionData;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.crypto.AttributesWithOwner;
-import com.otilm.core.model.request.CertificateRequest;
 import com.otilm.core.model.request.CertificateRequestKeys;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredParentUUID;
@@ -151,7 +149,6 @@ import com.otilm.core.service.writer.statuspoll.CertificateStatusPollWriter;
 import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.AuthHelper;
-import com.otilm.core.util.CertificateRequestUtils;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.MetaDefinitions;
 import java.io.IOException;
@@ -268,7 +265,6 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private AuthorityProviderAdapterFactory adapterFactory;
     private CertificateStateMachine stateMachine;
     private ConnectorCapabilityService capabilityService;
-    private ProtocolRequestAttributeValidator protocolRequestAttributeValidator;
     private IssuanceDefinitionResolver issuanceDefinitionResolver;
     private RegistrationChallengeStore registrationChallengeStore;
     private RegistrationChallengeGate registrationChallengeGate;
@@ -285,12 +281,6 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     @Autowired
     public void setCertificateRequestWriter(CertificateRequestWriter certificateRequestWriter) {
         this.certificateRequestWriter = certificateRequestWriter;
-    }
-
-    @Autowired
-    public void setProtocolRequestAttributeValidator(
-            ProtocolRequestAttributeValidator protocolRequestAttributeValidator) {
-        this.protocolRequestAttributeValidator = protocolRequestAttributeValidator;
     }
 
     @Autowired
@@ -620,7 +610,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         // must run before the issue-attribute merge.
         PreparedRequest prepared = prepareRequest(handlerOf(certificateType), request, raProfile);
         String certificateRequest = prepared.csr();
-        claimSignAttributeSchemas(certificateRequest, request);
+        claimSignAttributeSchemas(certificateRequest, request, certificateType);
         if (raProfile != null) {
             extendedAttributeService.mergeAndValidateIssueAttributes(raProfile, request.getIssueAttributes());
         }
@@ -632,7 +622,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                     .submitCertificateRequest(certificateRequest, request.getFormat(), request.getSignatureAttributes(),
                             request.getAltSignatureAttributes(), request.getCsrAttributes(),
                             request.getIssueAttributes(), request.getKeyUuid(), request.getAltKeyUuid(),
-                            request.getRaProfileUuid(), request.getSourceCertificateUuid(), protocolInfo);
+                            request.getRaProfileUuid(), request.getSourceCertificateUuid(), protocolInfo,
+                            certificateType);
             if (createCustomAttributes) {
                 certificate
                         .setCustomAttributes(attributeEngine
@@ -2497,8 +2488,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
         List<String> requestAttributeWarnings = List.of();
         if (registered) {
-            requestAttributeWarnings = completeRegistration(raProfile, certificate.getUuid(), request,
-                    challengeAuthorized);
+            requestAttributeWarnings = completeRegistration(handlerOf(certificate.getCertificateType()), raProfile,
+                    certificate.getUuid(), request, challengeAuthorized);
         } else {
             // a request stored earlier was not checked when it was stored; a registration is completed without asking
             authorityCertificateTypes.requireSupport(certificate.getCertificateType(), raProfile);
@@ -2519,7 +2510,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      *
      * @return the request-attribute warnings of the completion CSR
      */
-    private List<String> completeRegistration(RaProfile raProfile, UUID certificateUuid,
+    private List<String> completeRegistration(CertificateTypeHandler handler, RaProfile raProfile, UUID certificateUuid,
             ClientCertificateIssueRequestDto request, boolean challengeAuthorized)
             throws NotFoundException, CertificateException {
         // The CSR attach and completion attributes commit before the async ISSUE probe can deny, so gate here.
@@ -2530,7 +2521,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         }
         // Runs after the challenge gate above, so a caller who cannot authorize cannot probe the policy, and
         // before the attach below, so a strict violation rejects with nothing persisted.
-        List<String> requestAttributeWarnings = validateCompletionRequestAttributes(request, raProfile);
+        List<String> requestAttributeWarnings = validateCompletionRequestAttributes(handler, request, raProfile);
         mergeAndValidateCompletionIssueAttributes(raProfile.getUuid(), request.getAttributes());
         UUID certificateRequestUuid = attachCompletionRequest(certificateUuid, request);
         try {
@@ -3868,15 +3859,15 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      * Claims the signing schemas for the keys the request's signature attributes are stored under, the ones the
      * certificate service resolves for storage.
      */
-    private void claimSignAttributeSchemas(String certificateRequest, ClientCertificateRequestDto request)
-            throws NotFoundException, ConnectorException, AttributeException, NoSuchAlgorithmException,
-            CertificateRequestException {
+    private void claimSignAttributeSchemas(String certificateRequest, ClientCertificateRequestDto request,
+            CertificateType certificateType) throws NotFoundException, ConnectorException, AttributeException,
+            NoSuchAlgorithmException, CertificateRequestException {
         if (isEmpty(request.getSignatureAttributes()) && isEmpty(request.getAltSignatureAttributes())) {
             return;
         }
         CertificateRequestKeys keys = certificateService
-                .findRequestKeys(certificateRequest, request.getFormat(), request.getKeyUuid(),
-                        request.getAltKeyUuid());
+                .findRequestKeys(certificateRequest, request.getFormat(), request.getKeyUuid(), request.getAltKeyUuid(),
+                        certificateType);
         claimSignAttributeSchema(keys.keyUuid(), request.getSignatureAttributes());
         claimSignAttributeSchema(keys.altKeyUuid(), request.getAltSignatureAttributes());
     }
@@ -3911,11 +3902,11 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      * Only the parse is a client fault — a strict profile whose attribute set cannot be resolved is a server-side
      * inability, so that {@link CertificateException} propagates to the caller unshaped.
      */
-    private List<String> validateCompletionRequestAttributes(ClientCertificateIssueRequestDto request,
-            RaProfile raProfile) throws CertificateException {
-        CertificateRequest parsedRequest;
+    private List<String> validateCompletionRequestAttributes(CertificateTypeHandler handler,
+            ClientCertificateIssueRequestDto request, RaProfile raProfile) throws CertificateException {
+        ParsedRequest parsedRequest;
         try {
-            parsedRequest = CertificateRequestUtils.createCertificateRequest(request.getRequest(), request.getFormat());
+            parsedRequest = handler.readRequest(request.getRequest(), request.getFormat());
         } catch (CertificateRequestException | IllegalArgumentException e) {
             // Fixed text: an IllegalArgumentException here carries JDK or third-party wording (a base64 decoder's
             // "Illegal base64 character", an internal class name) that the global advice deliberately withholds.
@@ -3923,7 +3914,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             throw new ValidationException(ValidationError.create("Certificate signing request could not be parsed"));
         }
         try {
-            return protocolRequestAttributeValidator.validate(parsedRequest, raProfile);
+            return handler.validateRequestAttributes(parsedRequest, raProfile);
         } catch (CertificateException e) {
             // The cause is the connector failure, whose message is the authority's raw response body, and the
             // CertificateException advice appends cause messages to the response. Keep the platform-authored
@@ -3936,18 +3927,16 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     }
 
     /**
-     * Parse the uploaded CSR into typed content and delegate request-attribute policy validation to the shared
-     * {@link ProtocolRequestAttributeValidator}. A policy violation propagates as
-     * {@link RequestAttributePolicyViolationException} unchanged.
+     * Has the handler of the type read the uploaded request and check it against the request attributes of the RA
+     * profile. A policy violation propagates as {@link RequestAttributePolicyViolationException} unchanged.
      */
-    private List<String> validateUploadedRequestAttributes(String csr, CertificateRequestFormat requestFormat,
-            RaProfile raProfile) throws CertificateException {
+    private List<String> validateUploadedRequestAttributes(CertificateTypeHandler handler, String csr,
+            CertificateRequestFormat requestFormat, RaProfile raProfile) throws CertificateException {
         if (raProfile == null) {
             return List.of();
         }
         try {
-            CertificateRequest request = CertificateRequestUtils.createCertificateRequest(csr, requestFormat);
-            return protocolRequestAttributeValidator.validate(request, raProfile);
+            return handler.validateRequestAttributes(handler.readRequest(csr, requestFormat), raProfile);
         } catch (CertificateRequestException | IllegalArgumentException e) {
             logger.debug("Failed to parse uploaded CSR for request-attribute validation", e);
             throw new CertificateException("Uploaded certificate request could not be parsed for validation", e);
@@ -3963,7 +3952,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         List<String> warnings = List.of();
         if (request.getRequest() != null && !request.getRequest().isEmpty()) {
             csr = request.getRequest();
-            warnings = validateUploadedRequestAttributes(csr, requestFormat, raProfile);
+            warnings = validateUploadedRequestAttributes(handler, csr, requestFormat, raProfile);
         } else {
             // TODO: support for the CRMF should be handled also in case it should be generated
             if (requestFormat == CertificateRequestFormat.CRMF) {

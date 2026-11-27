@@ -16,6 +16,7 @@ import com.otilm.core.certificate.type.RequestSigning;
 import com.otilm.core.certificate.type.Validity;
 import com.otilm.core.certificate.type.ValidityPrecision;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.CertificateRequestEntity;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyFactory;
@@ -145,6 +146,16 @@ public class StubCertificateTypeHandler implements CertificateTypeHandler {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         certificates.forEach(certificate -> out.writeBytes(certificate.encoded()));
         return out.toByteArray();
+    }
+
+    @Override
+    public Certificate stampRequested(Certificate certificate, ParsedRequest request) {
+        throw new UnsupportedOperationException("The stub type has no entity to store a certificate in");
+    }
+
+    @Override
+    public CertificateRequestEntity newCertificateRequest(ParsedRequest request) {
+        throw new UnsupportedOperationException("The stub type has no entity to store a request in");
     }
 
     @Override
