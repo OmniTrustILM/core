@@ -32,4 +32,7 @@ public class CvcCertificateRequestEntity extends CertificateRequestEntity {
 
     @Column(name = "authority_reference")
     private String authorityReference;
+
+    @Column(name = "authenticated_by")
+    private String authenticatedBy;
 }

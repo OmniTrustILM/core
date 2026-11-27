@@ -122,6 +122,11 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
     }
 
     @Override
+    public Set<CertificateRequestFormat> supportedRequestFormats() {
+        return EnumSet.of(CertificateRequestFormat.PKCS10, CertificateRequestFormat.CRMF);
+    }
+
+    @Override
     public Optional<ParsedCertificate> parseCertificate(byte[] content) {
         if (KeystoreDetection.isKeystore(content)) {
             return Optional.empty();

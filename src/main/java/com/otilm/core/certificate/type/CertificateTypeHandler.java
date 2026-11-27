@@ -37,6 +37,11 @@ public interface CertificateTypeHandler {
     /** The format a request of this type is read in when the client does not name one. */
     CertificateRequestFormat defaultRequestFormat();
 
+    /** The formats a request of this type can be in; a request in another format is refused. */
+    default Set<CertificateRequestFormat> supportedRequestFormats() {
+        return Set.of(defaultRequestFormat());
+    }
+
     Optional<ParsedCertificate> parseCertificate(byte[] content);
 
     Optional<ParsedRequest> parseRequest(byte[] content);

@@ -53,6 +53,7 @@ class CvcCertificateEntityITest extends BaseSpringBootTest {
         assertThat(cvc.getHolderReference()).isEqualTo("SEILMTERM00001");
         assertThat(cvc.getAuthorityReference()).isEqualTo("SEILMDV00001");
         assertThat(cvc.getRole()).isEqualTo("terminal");
+        assertThat(cvc.getTerminalType()).isEqualTo("0.4.0.127.0.7.3.1.2.2");
         assertThat(cvc.getAccessRights()).isEqualTo("03");
         assertThat(cvc.getEffectiveDate()).isEqualTo(LocalDate.of(2026, Month.JANUARY, 15));
         assertThat(cvc.getExpirationDate()).isEqualTo(LocalDate.of(2026, Month.APRIL, 14));
@@ -66,7 +67,8 @@ class CvcCertificateEntityITest extends BaseSpringBootTest {
         request.setCertificateRequestFormat(CertificateRequestFormat.CVC);
         request.setContent("AAAA");
         request.setHolderReference("SEILMTERM00002");
-        request.setAuthorityReference("SEILMTERM00001");
+        request.setAuthorityReference("SEILMDV00001");
+        request.setAuthenticatedBy("SEILMTERM00001");
         CvcCertificateRequestEntity stored = certificateRequestRepository.save(request);
         entityManager.flush();
         entityManager.clear();
@@ -78,7 +80,8 @@ class CvcCertificateEntityITest extends BaseSpringBootTest {
         assertThat(loaded).isInstanceOf(CvcCertificateRequestEntity.class);
         CvcCertificateRequestEntity cvc = (CvcCertificateRequestEntity) loaded;
         assertThat(cvc.getHolderReference()).isEqualTo("SEILMTERM00002");
-        assertThat(cvc.getAuthorityReference()).isEqualTo("SEILMTERM00001");
+        assertThat(cvc.getAuthorityReference()).isEqualTo("SEILMDV00001");
+        assertThat(cvc.getAuthenticatedBy()).isEqualTo("SEILMTERM00001");
     }
 
     @Test
@@ -171,6 +174,7 @@ class CvcCertificateEntityITest extends BaseSpringBootTest {
         certificate.setHolderReference(holderReference);
         certificate.setAuthorityReference("SEILMDV00001");
         certificate.setRole("terminal");
+        certificate.setTerminalType("0.4.0.127.0.7.3.1.2.2");
         certificate.setAccessRights("03");
         certificate
                 .applyValidity(new Validity(Instant.parse("2026-01-15T00:00:00Z"),

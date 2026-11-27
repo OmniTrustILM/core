@@ -80,9 +80,6 @@ public class CertificateDetailDtoMapper {
     private static CertificateDetail buildDetailDto(Certificate certificate, boolean chainContext,
             Set<CertificateOperation> typeOperations) {
         final CertificateDetail dto = newDetail(certificate);
-        String commonName = CertificateUtil.formatCommonName(certificate.getCommonName());
-        dto.setCommonName(commonName);
-        dto.setDisplayName(commonName);
         dto.setIssuerCommonName(resolveIssuerCommonName(certificate));
         if (certificate.getCertificateContent() != null) {
             dto.setCertificateContent(certificate.getCertificateContent().getContent());
@@ -233,9 +230,6 @@ public class CertificateDetailDtoMapper {
         dto.setUuid(request.getUuid());
         dto.setContent(request.getContent());
         dto.setCertificateType(request.getCertificateType());
-        String requestCommonName = CertificateUtil.formatCommonName(request.getCommonName());
-        dto.setCommonName(requestCommonName);
-        dto.setDisplayName(requestCommonName);
         dto.setSignatureAlgorithm(request.getSignatureAlgorithm());
         dto.setPublicKeyAlgorithm(request.getPublicKeyAlgorithm());
         dto.setCertificateRequestFormat(request.getCertificateRequestFormat());
@@ -252,6 +246,9 @@ public class CertificateDetailDtoMapper {
 
     private static void applyX509RequestDetails(X509CertificateRequestDetail dto,
             X509CertificateRequestEntity request) {
+        String commonName = CertificateUtil.formatCommonName(request.getCommonName());
+        dto.setCommonName(commonName);
+        dto.setDisplayName(commonName);
         dto.setSubjectDn(request.getSubjectDn());
         dto.setSubjectAlternativeNames(CertificateUtil.deserializeSans(request.getSubjectAlternativeNames()));
         dto.setAltSignatureAlgorithm(request.getAltSignatureAlgorithm());
@@ -285,6 +282,7 @@ public class CertificateDetailDtoMapper {
         dto.setHolderReference(certificate.getHolderReference());
         dto.setAuthorityReference(certificate.getAuthorityReference());
         dto.setRole(certificate.getRole());
+        dto.setTerminalType(certificate.getTerminalType());
         dto.setAccessRights(certificate.getAccessRights());
         dto.setEffectiveDate(certificate.getEffectiveDate());
         dto.setExpirationDate(certificate.getExpirationDate());
@@ -295,9 +293,13 @@ public class CertificateDetailDtoMapper {
         dto.setDisplayName(CertificateUtil.formatCommonName(request.getHolderReference()));
         dto.setHolderReference(request.getHolderReference());
         dto.setAuthorityReference(request.getAuthorityReference());
+        dto.setAuthenticatedBy(request.getAuthenticatedBy());
     }
 
     private static void applyX509Details(X509CertificateDetail dto, X509CertificateEntity certificate) {
+        String commonName = CertificateUtil.formatCommonName(certificate.getCommonName());
+        dto.setCommonName(commonName);
+        dto.setDisplayName(commonName);
         if (certificate.getSubjectAlternativeNames() != null) {
             dto.setSubjectAlternativeNames(CertificateUtil.deserializeSans(certificate.getSubjectAlternativeNames()));
         }

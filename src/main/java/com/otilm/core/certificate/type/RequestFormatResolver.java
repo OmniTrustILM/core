@@ -18,11 +18,18 @@ public class RequestFormatResolver {
      * @param requested the format the client named, or null
      * @param type the type of the certificate the request is for; X.509 when null
      * @throws UnsupportedCertificateTypeException when no handler is registered for the type, whether or not a format
-     * was named, so that a request for a type that cannot be handled is refused instead of read as another type
+     * was named, so that a request for a type that cannot be handled is refused instead of read as another type, or
+     * when the named format is not one the type reads
      */
     public CertificateRequestFormat resolve(CertificateRequestFormat requested, CertificateType type) {
         CertificateType effectiveType = type != null ? type : CertificateType.X509;
         CertificateTypeHandler handler = registry.require(effectiveType.getCode());
-        return requested != null ? requested : handler.defaultRequestFormat();
+        if (requested == null) {
+            return handler.defaultRequestFormat();
+        }
+        if (!handler.supportedRequestFormats().contains(requested)) {
+            throw UnsupportedCertificateTypeException.unsupportedRequestFormat(effectiveType.getCode(), requested);
+        }
+        return requested;
     }
 }

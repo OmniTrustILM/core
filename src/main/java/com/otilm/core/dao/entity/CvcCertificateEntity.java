@@ -52,6 +52,9 @@ public class CvcCertificateEntity extends Certificate {
     @Column(name = "role")
     private String role;
 
+    @Column(name = "terminal_type")
+    private String terminalType;
+
     @Column(name = "access_rights")
     private String accessRights;
 

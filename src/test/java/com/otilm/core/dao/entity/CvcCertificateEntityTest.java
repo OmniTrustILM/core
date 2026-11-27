@@ -8,6 +8,8 @@ import com.otilm.core.certificate.type.ValidityPrecision;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.Month;
+import java.util.TimeZone;
+import org.hibernate.annotations.DynamicUpdate;
 import org.junit.jupiter.api.Test;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
@@ -58,6 +60,38 @@ class CvcCertificateEntityTest {
         // then
         assertThat(effectiveDate).isEqualTo(LocalDate.of(2026, Month.JANUARY, 15));
         assertThat(expirationDate).isEqualTo(LocalDate.of(2026, Month.APRIL, 14));
+    }
+
+    @Test
+    void givesTheUtcDates_whenTheDefaultTimeZoneIsWestOfUtc() {
+        // given
+        TimeZone defaultZone = TimeZone.getDefault();
+        TimeZone.setDefault(TimeZone.getTimeZone("America/Los_Angeles"));
+        try {
+            CvcCertificateEntity certificate = new CvcCertificateEntity();
+            certificate.applyValidity(new Validity(EFFECTIVE_DAY, EXPIRATION_DAY, ValidityPrecision.DATE));
+
+            // when
+            LocalDate effectiveDate = certificate.getEffectiveDate();
+            LocalDate expirationDate = certificate.getExpirationDate();
+
+            // then
+            assertThat(effectiveDate).isEqualTo(LocalDate.of(2026, Month.JANUARY, 15));
+            assertThat(expirationDate).isEqualTo(LocalDate.of(2026, Month.APRIL, 14));
+        } finally {
+            TimeZone.setDefault(defaultZone);
+        }
+    }
+
+    @Test
+    void updatesOnlyTheChangedColumns_whenACvcCertificateIsSaved() {
+        // given — Hibernate does not inherit the annotation from Certificate
+
+        // when
+        boolean dynamic = CvcCertificateEntity.class.isAnnotationPresent(DynamicUpdate.class);
+
+        // then
+        assertThat(dynamic).isTrue();
     }
 
     @Test
