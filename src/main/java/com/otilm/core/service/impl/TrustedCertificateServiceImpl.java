@@ -24,7 +24,7 @@ import org.springframework.web.client.HttpClientErrorException;
  * Implementation of {@link TrustedCertificateExternalService} for managing trusted certificates via the external
  * provisioning API.
  */
-@Service(Resource.Codes.TRUSTED_CERTIFICATE)
+@Service("trustedCertificateServiceV1")
 @Transactional
 @RequiredArgsConstructor
 public class TrustedCertificateServiceImpl implements TrustedCertificateExternalService {
@@ -71,7 +71,7 @@ public class TrustedCertificateServiceImpl implements TrustedCertificateExternal
             TrustedCertificateProvisioningRequestDTO provisioningRequest = new TrustedCertificateProvisioningRequestDTO(
                     request.getCertificateContent());
             TrustedCertificateProvisioningDTO provisioningDto = trustedCertificateProvisioningApiClient
-                    .createTrustedCertificate(provisioningRequest);
+                    .createTrustedCertificate(provisioningRequest, false);
             logger.info("Trusted certificate created successfully: {}", provisioningDto.uuid());
             return mapToDto(provisioningDto);
         } catch (Exception e) {
@@ -84,7 +84,7 @@ public class TrustedCertificateServiceImpl implements TrustedCertificateExternal
     public void deleteTrustedCertificate(SecuredUUID uuid) throws NotFoundException {
         logger.info("Deleting trusted certificate with UUID: {}", uuid);
         try {
-            trustedCertificateProvisioningApiClient.deleteTrustedCertificate(uuid.toString());
+            trustedCertificateProvisioningApiClient.deleteTrustedCertificate(uuid.toString(), false);
             logger.info("Trusted certificate deleted successfully: {}", uuid);
         } catch (HttpClientErrorException.NotFound e) {
             throw new NotFoundException("Trusted certificate", uuid.toString());

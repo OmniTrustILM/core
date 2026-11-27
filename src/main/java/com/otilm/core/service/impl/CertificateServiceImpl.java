@@ -126,6 +126,7 @@ import com.otilm.core.dao.repository.GroupRepository;
 import com.otilm.core.dao.repository.LocationRepository;
 import com.otilm.core.dao.repository.ProtocolCertificateAssociationsRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
+import com.otilm.core.dao.repository.TrustedCertificateRepository;
 import com.otilm.core.dao.repository.X509CertificateRepository;
 import com.otilm.core.dao.repository.acme.AcmeAccountRepository;
 import com.otilm.core.dao.repository.cmp.CmpProfileRepository;
@@ -175,6 +176,7 @@ import com.otilm.core.service.RaProfileCertificateRequestAttributeService;
 import com.otilm.core.service.RaProfileInternalService;
 import com.otilm.core.service.ResourceObjectAssociationService;
 import com.otilm.core.service.handler.KeystoreAvailability;
+import com.otilm.core.service.handler.SubtreeRevalidation;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine;
@@ -186,6 +188,7 @@ import com.otilm.core.service.writer.CertificateValidationWriter;
 import com.otilm.core.service.writer.ComplianceProfileAssociationWriter;
 import com.otilm.core.service.writer.DiscoveryCertificateContentWriter;
 import com.otilm.core.service.writer.PendingNotificationWriter;
+import com.otilm.core.service.writer.TrustedCertificateWriter;
 import com.otilm.core.service.writer.est.EstProfileWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationAuthorizationWriter;
 import com.otilm.core.settings.SettingsCache;
@@ -273,6 +276,7 @@ public class CertificateServiceImpl
     private static final String UNDEFINED_CERTIFICATE_OBJECT_NAME = CertificateEventHistoryInternalService.UNDEFINED_OBJECT_NAME;
 
     private static final String NOT_ISSUED_SUFFIX = " (Not Issued)";
+    private static final String TRUSTED_CERTIFICATE_REFUSAL = "Certificate is trusted. Remove trust first.";
 
     // The serial number, or "{commonName} (Not Issued)" for a certificate that has none yet
     private static final BiFunction<Root<Certificate>, CriteriaBuilder, Expression<String>> RESOURCE_OBJECT_NAME = (
@@ -341,6 +345,9 @@ public class CertificateServiceImpl
     private ResourceObjectAssociationService objectAssociationService;
     private CertificateProtocolAssociationRepository certificateProtocolAssociationRepository;
     private ApplicationEventPublisher applicationEventPublisher;
+    private SubtreeRevalidation subtreeRevalidation;
+    private TrustedCertificateRepository trustedCertificateRepository;
+    private TrustedCertificateWriter trustedCertificateWriter;
     private ValidationProducer validationProducer;
     private AuthenticationCache authenticationCache;
     private CertificateUploadService certificateUploadService;
@@ -651,6 +658,21 @@ public class CertificateServiceImpl
     }
 
     @Autowired
+    public void setSubtreeRevalidation(SubtreeRevalidation subtreeRevalidation) {
+        this.subtreeRevalidation = subtreeRevalidation;
+    }
+
+    @Autowired
+    public void setTrustedCertificateRepository(TrustedCertificateRepository trustedCertificateRepository) {
+        this.trustedCertificateRepository = trustedCertificateRepository;
+    }
+
+    @Autowired
+    public void setTrustedCertificateWriter(TrustedCertificateWriter trustedCertificateWriter) {
+        this.trustedCertificateWriter = trustedCertificateWriter;
+    }
+
+    @Autowired
     public void setAuthenticationCache(AuthenticationCache authenticationCache) {
         this.authenticationCache = authenticationCache;
     }
@@ -952,6 +974,15 @@ public class CertificateServiceImpl
                     "Could not delete certificate %s with UUID %s: Certificate is used by some user."
                             .formatted(certificate.getCommonName(), certificate.getUuid().toString()));
         }
+        // Checked before the location removals below, which reach connectors and cannot be rolled back.
+        if (trustedCertificateRepository.existsByCertificateUuid(certificate.getUuid())) {
+            certificateEventHistoryService
+                    .addEventHistorySurvivingRollback(certificate.getUuid(), CertificateEvent.DELETE,
+                            CertificateEventStatus.FAILED, TRUSTED_CERTIFICATE_REFUSAL, null);
+            throw new ValidationException("Could not delete certificate %s with UUID %s: %s"
+                    .formatted(certificate.getCommonName(), certificate.getUuid().toString(),
+                            TRUSTED_CERTIFICATE_REFUSAL));
+        }
 
         locationInternalService.removeCertificatesFromLocationsOnDelete(List.of(uuid));
 
@@ -1038,48 +1069,8 @@ public class CertificateServiceImpl
             return;
         }
         x509Certificate.setTrustedCa(trustedCa);
-        triggerSubtreeRevalidation(certificate);
-    }
-
-    private void triggerSubtreeRevalidation(Certificate ca) {
-        boolean platformEnabled = SettingsCache
-                .<PlatformSettingsDto>getSettings(SettingsSection.PLATFORM)
-                .getCertificates()
-                .getValidation()
-                .getEnabled();
-        List<UUID> toRevalidate = new ArrayList<>();
-        if (isEligibleForRevalidation(ca, platformEnabled)) {
-            toRevalidate.add(ca.getUuid());
-        }
-        toRevalidate
-                .addAll(certificateRepository
-                        .findAllDescendantCertificatesEligibleForValidation(ca.getUuid(), platformEnabled,
-                                certificateChainMaxDepth));
-        if (!toRevalidate.isEmpty()) {
-            log
-                    .debug("Publishing certificate validation event for CA subtree revalidation. caUuid={}, certificateCount={}",
-                            ca.getUuid(), toRevalidate.size());
-            applicationEventPublisher.publishEvent(new CertificateValidationEvent(toRevalidate));
-        }
-    }
-
-    /**
-     * Applies the same four eligibility rules to the CA node itself that
-     * {@link CertificateRepository#findAllDescendantCertificatesEligibleForValidation} applies to its descendants in
-     * SQL: not archived, certificate content present, validation status not REVOKED/EXPIRED, and RA-profile validation
-     * flag (falling back to the platform flag when unset). Keep both in sync.
-     */
-    private boolean isEligibleForRevalidation(Certificate certificate, boolean platformEnabled) {
-        if (certificate.isArchived() || certificate.getCertificateContent() == null) {
-            return false;
-        }
-        CertificateValidationStatus status = certificate.getValidationStatus();
-        if (status == CertificateValidationStatus.REVOKED || status == CertificateValidationStatus.EXPIRED) {
-            return false;
-        }
-        RaProfile raProfile = certificate.getRaProfile();
-        Boolean rpEnabled = raProfile != null ? raProfile.getValidationEnabled() : null;
-        return rpEnabled == null ? platformEnabled : rpEnabled;
+        subtreeRevalidation.publishFor(certificate);
+        trustedCertificateWriter.syncValidationPurpose(certificate.getUuid(), trustedCa);
     }
 
     @Async
@@ -1213,6 +1204,16 @@ public class CertificateServiceImpl
                             "Unable to delete certificate " + nonPermitted,
                             "The certificate cannot be found or cannot be authorized for deletion.");
         }
+
+        List<UUID> trustedUuids = trustedCertificateRepository.findCertificateUuidsByCertificateUuidIn(permittedUuids);
+        for (UUID trusted : trustedUuids) {
+            log.info("Unable to delete certificate {}. The certificate is trusted.", trusted);
+            notificationProducer
+                    .produceInternalNotificationMessage(Resource.CERTIFICATE, trusted,
+                            NotificationRecipient.buildUserNotificationRecipient(loggedUserUuid),
+                            "Unable to delete certificate " + trusted, TRUSTED_CERTIFICATE_REFUSAL);
+        }
+        permittedUuids = permittedUuids.stream().filter(uuid -> !trustedUuids.contains(uuid)).toList();
 
         if (permittedUuids.isEmpty()) {
             return 0;

@@ -32,6 +32,7 @@ public class TrustedCertificatesConfig {
     private static final String END_CERTIFICATE = "-----END CERTIFICATE-----";
 
     private TrustManager[] trustManagers;
+    private List<X509Certificate> trustedCertificates = List.of();
 
     @PostConstruct
     public void configureGlobalTrustStore() throws KeyStoreException, CertificateException, IOException,
@@ -46,7 +47,8 @@ public class TrustedCertificatesConfig {
 
         if (certString != null) {
             logger.info("Adding additional trusted certificates to cacerts");
-            List<X509Certificate> certificates = getTrustedCertificates(certString);
+            List<X509Certificate> certificates = parseTrustedCertificates(certString);
+            this.trustedCertificates = List.copyOf(certificates);
 
             int i = 0;
             for (X509Certificate certificate : certificates) {
@@ -96,7 +98,7 @@ public class TrustedCertificatesConfig {
         return keyStore;
     }
 
-    private List<X509Certificate> getTrustedCertificates(String trustedCerts) {
+    private List<X509Certificate> parseTrustedCertificates(String trustedCerts) {
         List<X509Certificate> certs = new ArrayList<>();
 
         if (!trustedCerts.contains(BEGIN_CERTIFICATE)) {
@@ -124,6 +126,15 @@ public class TrustedCertificatesConfig {
 
     public TrustManager[] getDefaultTrustManagers() {
         return this.trustManagers;
+    }
+
+    /**
+     * The certificates parsed from the deployment's trust bundle at startup, empty when none was provided.
+     *
+     * @return an unmodifiable list of the bundle's certificates
+     */
+    public List<X509Certificate> getTrustedCertificates() {
+        return trustedCertificates;
     }
 
 }

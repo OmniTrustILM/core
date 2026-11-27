@@ -14,7 +14,9 @@ com/otilm/core/integration/migration/NotificationSettingsToEventSettingsITest.ja
 com/otilm/core/integration/migration/RepairDateAttributeContentMigrationITest.java
 com/otilm/core/integration/migration/ScheduledJobUniqueNameMigrationITest.java
 com/otilm/core/integration/migration/TokenProfileKeyTypesMigrationITest.java
+com/otilm/core/integration/migration/TrustedCertificateMigrationITest.java
 com/otilm/core/integration/provisioning/ProxyProvisioningServiceITest.java
+com/otilm/core/integration/provisioning/TrustedCertificateProvisioningClientITest.java
 com/otilm/core/integration/security/authn/tsp/TspProfileSecretEvictionITest.java
 com/otilm/core/integration/security/oauth2/JwtDecoderITest.java
 com/otilm/core/integration/security/oauth2/OAuth2AuthenticationSuccessHandlerITest.java
@@ -55,7 +57,10 @@ com/otilm/core/integration/service/ScheduledJobWriterITest.java
 com/otilm/core/integration/service/SecretServiceITest.java
 com/otilm/core/integration/service/SigningProfileRecordPolicyITest.java
 com/otilm/core/integration/service/TokenProfileServiceV2ITest.java
+com/otilm/core/integration/service/TrustedCertificatePlatformTrustITest.java
 com/otilm/core/integration/service/TrustedCertificateServiceITest.java
+com/otilm/core/integration/service/TrustedCertificateServiceV2ITest.java
+com/otilm/core/integration/service/TrustedCertificateWriterITest.java
 com/otilm/core/integration/service/VaultInstanceServiceITest.java
 com/otilm/core/integration/service/cmp/message/handler/CertConfirmMessageHandlerITest.java
 com/otilm/core/integration/service/cmp/message/handler/CmpRegistrationEnrolmentITest.java

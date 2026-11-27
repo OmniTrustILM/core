@@ -48,6 +48,10 @@ public interface X509CertificateRepository extends CertificateBaseRepository<X50
     @Query("UPDATE X509CertificateEntity c SET c.altKeyUuid = ?1, c.hybridCertificate = true WHERE c.uuid IN ?2")
     void setAltKeyUuidAndHybridCertificate(UUID keyUuid, List<UUID> uuids);
 
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE X509CertificateEntity c SET c.trustedCa = :trusted, c.updated = CURRENT_TIMESTAMP WHERE c.uuid = :uuid")
+    void updateTrustedCa(@Param("uuid") UUID uuid, @Param("trusted") boolean trusted);
+
     @Modifying
     @Query(value = """
             INSERT INTO {h-schema}certificate (

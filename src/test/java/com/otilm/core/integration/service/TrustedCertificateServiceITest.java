@@ -23,12 +23,13 @@ import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.containing;
 import static com.github.tomakehurst.wiremock.client.WireMock.delete;
 import static com.github.tomakehurst.wiremock.client.WireMock.deleteRequestedFor;
+import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -157,27 +158,28 @@ class TrustedCertificateServiceITest extends BaseSpringBootTest {
     }
 
     @Test
-    void testCreateTrustedCertificate_success() {
+    void createsTheRecord_withoutDeferringTheDeployment() {
+        // given
         wireMockServer
                 .stubFor(post(urlPathEqualTo("/api/v1/trusted-certificates"))
                         .willReturn(aResponse()
                                 .withStatus(201)
                                 .withHeader("Content-Type", "application/json")
                                 .withBody(TRUSTED_CERTIFICATE_JSON)));
-
-        TrustedCertificateRequestDto request = new TrustedCertificateRequestDto();
+        var request = new TrustedCertificateRequestDto();
         request.setCertificateContent(Base64.getDecoder().decode(TEST_CERTIFICATE_CONTENT));
 
-        TrustedCertificateDto dto = trustedCertificateService.createTrustedCertificate(request);
+        // when
+        TrustedCertificateDto created = trustedCertificateService.createTrustedCertificate(request);
 
-        assertNotNull(dto);
-        assertEquals(TEST_UUID, dto.getUuid());
-        assertEquals("CN=Test CA", dto.getIssuer());
-        assertEquals("CN=example.com", dto.getSubject());
-
+        // then
+        assertThat(created.getUuid()).isEqualTo(TEST_UUID);
+        assertThat(created.getIssuer()).isEqualTo("CN=Test CA");
+        assertThat(created.getSubject()).isEqualTo("CN=example.com");
         wireMockServer
                 .verify(postRequestedFor(urlPathEqualTo("/api/v1/trusted-certificates"))
-                        .withHeader("Content-Type", containing("application/json")));
+                        .withHeader("Content-Type", containing("application/json"))
+                        .withQueryParam("deferApply", equalTo("false")));
     }
 
     @Test
@@ -196,14 +198,19 @@ class TrustedCertificateServiceITest extends BaseSpringBootTest {
     }
 
     @Test
-    void testDeleteTrustedCertificate_success() {
+    void deletesTheRecord_withoutDeferringTheDeployment() throws Exception {
+        // given
         wireMockServer
                 .stubFor(delete(urlPathEqualTo("/api/v1/trusted-certificates/" + TEST_UUID))
                         .willReturn(aResponse().withStatus(204)));
 
-        assertDoesNotThrow(() -> trustedCertificateService.deleteTrustedCertificate(SecuredUUID.fromString(TEST_UUID)));
+        // when
+        trustedCertificateService.deleteTrustedCertificate(SecuredUUID.fromString(TEST_UUID));
 
-        wireMockServer.verify(deleteRequestedFor(urlPathEqualTo("/api/v1/trusted-certificates/" + TEST_UUID)));
+        // then
+        wireMockServer
+                .verify(deleteRequestedFor(urlPathEqualTo("/api/v1/trusted-certificates/" + TEST_UUID))
+                        .withQueryParam("deferApply", equalTo("false")));
     }
 
     @Test
@@ -244,11 +251,11 @@ class TrustedCertificateServiceITest extends BaseSpringBootTest {
         LocalDateTime notAfter = LocalDateTime.of(2025, Month.DECEMBER, 31, 23, 59);
 
         TrustedCertificateProvisioningDTO a1 = new TrustedCertificateProvisioningDTO(TEST_UUID, contentA1, "CN=CA",
-                "DNS:x", "1", "CN=x", "AB:CD", notBefore, notAfter);
+                "DNS:x", "1", "CN=x", "AB:CD", notBefore, notAfter, null, null);
         TrustedCertificateProvisioningDTO a2 = new TrustedCertificateProvisioningDTO(TEST_UUID, contentA2, "CN=CA",
-                "DNS:x", "1", "CN=x", "AB:CD", notBefore, notAfter);
+                "DNS:x", "1", "CN=x", "AB:CD", notBefore, notAfter, null, null);
         TrustedCertificateProvisioningDTO b = new TrustedCertificateProvisioningDTO(TEST_UUID, contentB, "CN=CA",
-                "DNS:x", "1", "CN=x", "AB:CD", notBefore, notAfter);
+                "DNS:x", "1", "CN=x", "AB:CD", notBefore, notAfter, null, null);
 
         assertEquals(a1, a2, "records with structurally identical bytes must compare equal");
         assertEquals(a1.hashCode(), a2.hashCode(), "structural equality requires equal hash codes");
@@ -260,9 +267,10 @@ class TrustedCertificateServiceITest extends BaseSpringBootTest {
     void testProvisioningDTO_equals_detectsNonArrayFieldDifferences() {
         byte[] content = "cert".getBytes();
         TrustedCertificateProvisioningDTO base = new TrustedCertificateProvisioningDTO(TEST_UUID, content, "CN=CA",
-                "DNS:x", "1", "CN=x", "AB:CD", null, null);
+                "DNS:x", "1", "CN=x", "AB:CD", null, null, null, null);
         TrustedCertificateProvisioningDTO differentUuid = new TrustedCertificateProvisioningDTO(
-                "00000000-0000-0000-0000-000000000000", content, "CN=CA", "DNS:x", "1", "CN=x", "AB:CD", null, null);
+                "00000000-0000-0000-0000-000000000000", content, "CN=CA", "DNS:x", "1", "CN=x", "AB:CD", null, null,
+                null, null);
 
         assertNotEquals(base, differentUuid);
     }
@@ -270,7 +278,7 @@ class TrustedCertificateServiceITest extends BaseSpringBootTest {
     @Test
     void testProvisioningDTO_equals_handlesNullAndForeignTypes() {
         TrustedCertificateProvisioningDTO dto = new TrustedCertificateProvisioningDTO(TEST_UUID, "cert".getBytes(), "i",
-                "s", "n", "su", "th", null, null);
+                "s", "n", "su", "th", null, null, null, null);
 
         assertNotEquals(null, dto);
         assertNotEquals("not-a-dto", dto);
@@ -280,7 +288,7 @@ class TrustedCertificateServiceITest extends BaseSpringBootTest {
     void testProvisioningDTO_toString_rendersByteArrayLengthInsteadOfRawBytes() {
         byte[] content = new byte[1216];
         TrustedCertificateProvisioningDTO dto = new TrustedCertificateProvisioningDTO(TEST_UUID, content, "CN=CA",
-                "DNS:x", "1", "CN=x", "AB:CD", null, null);
+                "DNS:x", "1", "CN=x", "AB:CD", null, null, null, null);
 
         String s = dto.toString();
         assertTrue(s.contains("byte[1216]"), "toString should render the byte[] length, was: " + s);

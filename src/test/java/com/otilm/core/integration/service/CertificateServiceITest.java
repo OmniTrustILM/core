@@ -19,6 +19,7 @@ import com.otilm.api.model.client.certificate.RemoveCertificateDto;
 import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
+import com.otilm.api.model.client.trustedcertificate.TrustedCertificatePlatformState;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.UuidDto;
 import com.otilm.api.model.common.attribute.common.AttributeType;
@@ -100,6 +101,7 @@ import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.RegistrationState;
 import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
+import com.otilm.core.dao.entity.TrustedCertificate;
 import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.X509CertificateRequestEntity;
 import com.otilm.core.dao.entity.acme.AcmeProfile;
@@ -128,6 +130,7 @@ import com.otilm.core.dao.repository.ProtocolCertificateAssociationsRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
+import com.otilm.core.dao.repository.TrustedCertificateRepository;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.messaging.jms.producers.NotificationProducer;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
@@ -147,6 +150,7 @@ import com.otilm.core.service.CertificateEventHistoryExternalService;
 import com.otilm.core.service.ResourceObjectAssociationService;
 import com.otilm.core.service.handler.authority.lifecycle.InvalidTransitionException;
 import com.otilm.core.service.impl.CertificateServiceImpl;
+import com.otilm.core.service.writer.TrustedCertificateWriter;
 import com.otilm.core.util.AuthHelper;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateTestData;
@@ -263,6 +267,12 @@ class CertificateServiceITest extends BaseSpringBootTest {
 
     @Autowired
     private CertificateRepository certificateRepository;
+
+    @Autowired
+    private TrustedCertificateRepository trustedCertificateRepository;
+
+    @Autowired
+    private TrustedCertificateWriter trustedCertificateWriter;
 
     @Autowired
     private CertificateRegistrationAuthorizationRepository authorizationRepository;
@@ -2028,6 +2038,137 @@ class CertificateServiceITest extends BaseSpringBootTest {
             X509CertificateTypeHandler handler = spy(x509Handler);
             doReturn(EnumSet.of(CertificateFormat.RAW)).when(handler).downloadFormats();
             return handler;
+        }
+    }
+
+    // ── TrustedCertificateGuards ─────────────────────────────────────────────
+    @Nested
+    class TrustedCertificateGuards {
+
+        @Test
+        void refusesToDelete_whenTheCertificateIsTrusted() {
+            // given
+            TrustedCertificate trust = trustedCertificateWriter.insert(certificate, true, false, null);
+            SecuredUUID uuid = certificate.getSecuredUuid();
+
+            // when
+            ThrowingCallable delete = () -> certificateService.deleteCertificate(uuid);
+
+            // then
+            assertThatThrownBy(delete)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("Certificate is trusted. Remove trust first.");
+            assertThat(certificateRepository.findByUuid(certificate.getUuid())).isPresent();
+            assertThat(trustedCertificateRepository.findById(trust.getUuid())).isPresent();
+        }
+
+        @Test
+        void reportsTheSkippedTrustedCertificate_whenBulkDeleting() {
+            // given
+            trustedCertificateWriter.insert(certificate, true, false, null);
+            X509CertificateEntity untrusted = certificateRepository
+                    .save(aCertificate()
+                            .withSerialNumber(UUID.randomUUID().toString())
+                            .withFingerprint(UUID.randomUUID().toString())
+                            .build());
+            RemoveCertificateDto request = new RemoveCertificateDto();
+            request.setUuids(List.of(certificate.getUuid().toString(), untrusted.getUuid().toString()));
+
+            // when
+            certificateService.bulkDeleteCertificate(SecurityFilter.create(), request);
+
+            // then
+            assertThat(certificateRepository.findByUuid(certificate.getUuid())).isPresent();
+            assertThat(certificateRepository.findByUuid(untrusted.getUuid())).isEmpty();
+            verify(notificationProducer)
+                    .produceInternalNotificationMessage(Mockito.eq(Resource.CERTIFICATE),
+                            Mockito.eq(certificate.getUuid()), any(),
+                            Mockito.eq("Unable to delete certificate " + certificate.getUuid()),
+                            Mockito.eq("Certificate is trusted. Remove trust first."));
+        }
+
+        @Test
+        void keepsTheTrust_whenArchivingATrustedCertificate() throws Exception {
+            // given
+            TrustedCertificate trust = trustedCertificateWriter.insert(certificate, true, false, null);
+
+            // when
+            certificateService.archiveCertificate(certificate.getSecuredUuid());
+
+            // then
+            assertThat(certificateRepository.findByUuid(certificate.getUuid()).orElseThrow().isArchived()).isTrue();
+            assertThat(trustedCertificateRepository.findById(trust.getUuid())).isPresent();
+        }
+
+        @Test
+        void archivesTheTrustedCertificateWithTheOthers_whenBulkArchiving() {
+            // given
+            TrustedCertificate trust = trustedCertificateWriter.insert(certificate, true, false, null);
+            X509CertificateEntity untrusted = certificateRepository
+                    .save(aCertificate()
+                            .withSerialNumber(UUID.randomUUID().toString())
+                            .withFingerprint(UUID.randomUUID().toString())
+                            .build());
+
+            // when
+            certificateService
+                    .bulkArchiveCertificates(List.of(certificate.getSecuredUuid(), untrusted.getSecuredUuid()));
+
+            // then
+            assertThat(certificateRepository.findByUuid(certificate.getUuid()).orElseThrow().isArchived()).isTrue();
+            assertThat(certificateRepository.findByUuid(untrusted.getUuid()).orElseThrow().isArchived()).isTrue();
+            assertThat(trustedCertificateRepository.findById(trust.getUuid())).isPresent();
+        }
+
+        @Test
+        void addsAValidationTrustRow_whenTrustedCaIsSet() throws Exception {
+            // given
+            certificate.setTrustedCa(false);
+            certificateRepository.save(certificate);
+            var request = aCertificateUpdateObjectsRequest().withTrustedCa(true).build();
+
+            // when
+            certificateService.updateCertificateObjects(certificate.getSecuredUuid(), request);
+
+            // then
+            assertThat(trustedCertificateRepository.findByCertificateUuid(certificate.getUuid()))
+                    .hasValueSatisfying(trust -> {
+                        assertThat(trust.isValidation()).isTrue();
+                        assertThat(trust.isPlatform()).isFalse();
+                    });
+        }
+
+        @Test
+        void removesTheValidationOnlyTrustRow_whenTrustedCaIsCleared() throws Exception {
+            // given
+            certificate.setTrustedCa(false);
+            certificateRepository.save(certificate);
+            TrustedCertificate trust = trustedCertificateWriter.insert(certificate, true, false, null);
+            var request = aCertificateUpdateObjectsRequest().withTrustedCa(false).build();
+
+            // when
+            certificateService.updateCertificateObjects(certificate.getSecuredUuid(), request);
+
+            // then
+            assertThat(trustedCertificateRepository.findById(trust.getUuid())).isEmpty();
+        }
+
+        @Test
+        void keepsThePlatformTrust_whenTrustedCaIsCleared() throws Exception {
+            // given
+            certificate.setTrustedCa(false);
+            certificateRepository.save(certificate);
+            TrustedCertificate trust = trustedCertificateWriter
+                    .insert(certificate, true, true, TrustedCertificatePlatformState.APPLIED);
+            var request = aCertificateUpdateObjectsRequest().withTrustedCa(false).build();
+
+            // when
+            certificateService.updateCertificateObjects(certificate.getSecuredUuid(), request);
+
+            // then
+            TrustedCertificate reloaded = trustedCertificateRepository.findById(trust.getUuid()).orElseThrow();
+            assertThat(reloaded.isValidation()).isFalse();
+            assertThat(reloaded.isPlatform()).isTrue();
         }
     }
 
