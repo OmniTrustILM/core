@@ -2,6 +2,7 @@ package com.otilm.core.dao.repository.signing;
 
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.core.dao.entity.signing.SigningProfileVersion;
+import com.otilm.core.signing.CertificateHold;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -56,4 +57,17 @@ public interface SigningProfileVersionRepository extends JpaRepository<SigningPr
             ORDER BY v.signingProfile.name
             """)
     List<String> findProfileNamesBySigningKeyAndWorkflowIn(UUID keyUuid, Collection<SigningWorkflowType> workflowTypes);
+
+    /**
+     * The profiles whose stored versions hold one of the certificates, superseded versions too: they keep their
+     * certificate for the key's signing history. A profile comes back at most twice per certificate, once for its
+     * current version and once for its superseded ones, however many versions it has.
+     */
+    @Query("""
+            SELECT DISTINCT new com.otilm.core.signing.CertificateHold(
+                v.certificateUuid, p.name, CASE WHEN v.version = p.latestVersion THEN true ELSE false END)
+            FROM SigningProfileVersion v JOIN v.signingProfile p
+            WHERE v.certificateUuid IN :certificateUuids
+            """)
+    List<CertificateHold> findCertificateHolds(Collection<UUID> certificateUuids);
 }
