@@ -1,5 +1,5 @@
 # Optimize stage
-FROM eclipse-temurin:21-jdk-alpine AS optimize
+FROM eclipse-temurin:25-jdk-alpine AS optimize
 
 COPY data/target/*.jar /app/app.jar
 
@@ -43,7 +43,7 @@ LABEL org.opencontainers.image.authors="ILM <support@otilm.com>"
 # add non root user ilm
 RUN addgroup --system --gid 10001 ilm && adduser --system --home /opt/otilm --uid 10001 --ingroup ilm ilm
 
-# apk upgrade should be removed once CVEs will be fixed in eclipse-temurin:21-jdk-alpine-3.23
+# Pick up Alpine security fixes published after the alpine:3.24 image was built
 RUN apk update && \
   apk --no-cache upgrade && \
   apk add --no-cache curl
