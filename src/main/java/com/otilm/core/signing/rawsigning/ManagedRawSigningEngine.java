@@ -1,14 +1,21 @@
 package com.otilm.core.signing.rawsigning;
 
+import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.SignatureInputMode;
 import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.core.aop.OutsideTransaction;
+import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
+import com.otilm.core.model.signing.SigningKeyItems;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.resolved.ResolvedManagedRawSigningProfile;
 import com.otilm.core.model.signing.resolved.ResolvedManagedScheme;
+import com.otilm.core.model.signing.resolved.ResolvedStaticKeyManagedSigning;
+import com.otilm.core.service.handler.DataDigestSigningCapability;
+import com.otilm.core.service.handler.DataDigestSigningCapability.Support;
 import com.otilm.core.signing.engine.batch.BatchAdmission;
 import com.otilm.core.signing.engine.batch.BatchRecordStager;
 import com.otilm.core.signing.engine.certificate.SigningCertificateValidatorFactory;
@@ -39,18 +46,26 @@ public class ManagedRawSigningEngine {
 
     private static final String CLIENT_MESSAGE = "Internal error during signing";
 
+    /** Says what is wrong and what fixes it, but names no provider, connector or key of the platform's setup. */
+    static final String PROVIDER_CANNOT_SIGN_DIGESTS = "The cryptography provider of this Signing Profile's signing key "
+            + "cannot sign data digests; the Signing Profile needs a key on a provider registered through a v2 "
+            + "connector that supports data digest signing";
+
     private final SignerFactory signerFactory;
     private final SigningCertificateValidatorFactory signingCertificateValidatorFactory;
     private final RawSigningKeyBinding keyBinding;
+    private final DataDigestSigningCapability dataDigestSigningCapability;
     private final RawSigningRecordFactory recordFactory;
     private final BatchRecordStager recordStager;
 
     public ManagedRawSigningEngine(SignerFactory signerFactory,
             SigningCertificateValidatorFactory signingCertificateValidatorFactory, RawSigningKeyBinding keyBinding,
-            RawSigningRecordFactory recordFactory, BatchRecordStager recordStager) {
+            DataDigestSigningCapability dataDigestSigningCapability, RawSigningRecordFactory recordFactory,
+            BatchRecordStager recordStager) {
         this.signerFactory = signerFactory;
         this.signingCertificateValidatorFactory = signingCertificateValidatorFactory;
         this.keyBinding = keyBinding;
+        this.dataDigestSigningCapability = dataDigestSigningCapability;
         this.recordFactory = recordFactory;
         this.recordStager = recordStager;
     }
@@ -88,6 +103,7 @@ public class ManagedRawSigningEngine {
         keyBinding.requireKeyNotShared(profile);
 
         Signer signer = signerFactory.create(profile.resolvedScheme());
+        requireDataDigestSigningProvider(profile);
         SignatureAlgorithm signatureAlgorithm = signer.getSignatureAlgorithm();
         DigestAlgorithm digestAlgorithm = digestAlgorithmOf(signatureAlgorithm, profile);
         requireDigestAlgorithm(request.digestAlgorithm(), digestAlgorithm);
@@ -154,6 +170,53 @@ public class ManagedRawSigningEngine {
                             .formatted(profile.name(), nok.logMessage()),
                     CLIENT_MESSAGE);
         }
+    }
+
+    /**
+     * Refuses a run whose signing key sits on a provider that cannot sign data digests.
+     *
+     * <p>
+     * <b>When it fires:</b> profile save refuses such a key, so the run meets one only when a provider lost the
+     * capability after the save.
+     *
+     * <p>
+     * <b>Recovery:</b> no retry succeeds until an operator restores the capability on the provider's registration or
+     * gives the profile a key on a provider that has it.
+     *
+     * <p>
+     * <b>Answer:</b> a refusal of the request rather than a fault of Core's, because the caller has to learn the cause
+     * from the answer; the log is not theirs to read.
+     */
+    private void requireDataDigestSigningProvider(ResolvedManagedRawSigningProfile profile)
+            throws SigningEngineException {
+        CryptographicKeyItemOperationModel privateKeyItem = privateKeyItemOf(profile.resolvedScheme());
+        Support support;
+        try {
+            support = dataDigestSigningCapability.of(privateKeyItem);
+        } catch (NotFoundException e) {
+            throw new SigningEngineException(SigningEngineFailure.MISCONFIGURED,
+                    "the token instance of the signing key of Signing Profile '%s' does not exist"
+                            .formatted(profile.name()),
+                    e, CLIENT_MESSAGE);
+        }
+        if (support == Support.SUPPORTED) {
+            return;
+        }
+        String reason = support == Support.VERSION_1_PROVIDER
+                ? "is registered as a version 1 connector, which cannot sign data digests"
+                : "does not advertise data digest signing";
+        throw new SigningEngineException(SigningEngineFailure.INVALID_INPUT,
+                "the cryptography provider of the signing key of Signing Profile '%s' %s"
+                        .formatted(profile.name(), reason),
+                PROVIDER_CANNOT_SIGN_DIGESTS);
+    }
+
+    /** Signer creation has already refused a key without a private key item. */
+    private static CryptographicKeyItemOperationModel privateKeyItemOf(ResolvedManagedScheme scheme) {
+        return switch (scheme) {
+            case ResolvedStaticKeyManagedSigning staticKey ->
+                SigningKeyItems.first(KeyType.PRIVATE_KEY, staticKey.keyItems()).orElseThrow();
+        };
     }
 
     /**

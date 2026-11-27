@@ -6,7 +6,10 @@ package com.otilm.core.signing.engine.error;
  */
 public enum SigningEngineFailure {
 
-    /** The caller supplied something the profile or the contract does not permit. */
+    /**
+     * The caller supplied something the profile or the contract does not permit, or asked for something the profile's
+     * current setup cannot do until an operator changes it.
+     */
     INVALID_INPUT,
 
     /** The caller's data is structurally wrong. */

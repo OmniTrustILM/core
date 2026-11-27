@@ -6,6 +6,7 @@ import com.otilm.api.model.client.signing.profile.scheme.OneTimeKeyManagedSignin
 import com.otilm.api.model.client.signing.profile.scheme.SigningSchemeRequestDto;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
+import com.otilm.core.service.handler.DataDigestSigningCapability.Support;
 import com.otilm.core.signing.engine.signer.PrehashedSigning;
 import java.util.EnumSet;
 import java.util.List;
@@ -36,6 +37,27 @@ public final class RawSigningProfileRules {
             throw new ValidationException(
                     "Signature algorithm %s cannot sign a data digest, which raw signing requires".formatted(code));
         }
+    }
+
+    /**
+     * A provider that cannot sign a digest as it is would fail every raw request, so the profile is refused while its
+     * operator is still setting it up. A token keeps the connector registration it was created on, so registering the
+     * provider anew does not move an existing key: the profile needs a certificate of a key on such a registration.
+     *
+     * @param certificateUuid the signing certificate whose key the profile signs with
+     * @param support whether the key's cryptography provider signs data digests
+     */
+    public static void requireDataDigestSigningProvider(UUID certificateUuid, Support support) {
+        if (support == Support.SUPPORTED) {
+            return;
+        }
+        String reason = support == Support.VERSION_1_PROVIDER
+                ? "is registered as a version 1 connector"
+                : "does not advertise data digest signing";
+        throw new ValidationException(("The cryptography provider of the signing key of certificate %s %s, so it "
+                + "cannot sign the data digests raw signing takes. Use a certificate whose key is on a cryptography "
+                + "provider registered through a v2 connector that supports data digest signing.")
+                .formatted(certificateUuid, reason));
     }
 
     /**
