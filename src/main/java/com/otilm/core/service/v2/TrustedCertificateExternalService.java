@@ -13,7 +13,8 @@ import com.otilm.core.security.authz.SecuredUUID;
 import java.util.List;
 
 /**
- * Service for managing trusted certificates via the external provisioning API.
+ * Trusted certificates API v2: which inventory certificates ILM trusts, for which purposes (validation, platform), and
+ * the platform's trust.
  */
 public interface TrustedCertificateExternalService {
 

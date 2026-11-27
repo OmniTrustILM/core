@@ -1211,8 +1211,7 @@ public class CertificateServiceImpl
             notificationProducer
                     .produceInternalNotificationMessage(Resource.CERTIFICATE, trusted,
                             NotificationRecipient.buildUserNotificationRecipient(loggedUserUuid),
-                            "Unable to delete certificate " + trusted,
-                            "The certificate is trusted; remove trust first.");
+                            "Unable to delete certificate " + trusted, TRUSTED_CERTIFICATE_REFUSAL);
         }
         permittedUuids = permittedUuids.stream().filter(uuid -> !trustedUuids.contains(uuid)).toList();
 

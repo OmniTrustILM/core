@@ -20,9 +20,6 @@ import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * REST controller implementation for trusted certificate management operations.
- */
 @RestController("trustedCertificateControllerV2")
 @RequiredArgsConstructor
 public class TrustedCertificateControllerImpl implements TrustedCertificateController {

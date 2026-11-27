@@ -2,6 +2,8 @@ package com.otilm.core.integration.service;
 
 import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
 import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.NotSupportedException;
+import com.otilm.api.model.client.trustedcertificate.v2.TrustedCertificateAddRequestDto;
 import com.otilm.api.model.client.trustedcertificate.v2.TrustedCertificateDto;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.v2.TrustedCertificateExternalService;
@@ -80,6 +82,7 @@ class TrustedCertificateServiceV2ITest extends BaseSpringBootTest {
         // then
         assertThat(detail.getIssuer()).isEqualTo("CN=Test CA");
         assertThat(detail.getNotAfter()).isEqualTo(OffsetDateTime.of(2025, 12, 31, 23, 59, 59, 0, ZoneOffset.UTC));
+        assertThat(detail.getThumbprint()).isNull();
     }
 
     @Test
@@ -95,5 +98,17 @@ class TrustedCertificateServiceV2ITest extends BaseSpringBootTest {
 
         // then
         assertThatThrownBy(getMissing).isInstanceOf(NotFoundException.class);
+    }
+
+    @Test
+    void throwsNotSupported_whenAddingBeforeCoreOwnsTheTrustList() {
+        // given — no trust list in Core yet
+        var request = new TrustedCertificateAddRequestDto();
+
+        // when
+        ThrowingCallable add = () -> trustedCertificateService.addTrustedCertificates(request);
+
+        // then
+        assertThatThrownBy(add).isInstanceOf(NotSupportedException.class).hasMessageContaining("Not implemented yet");
     }
 }

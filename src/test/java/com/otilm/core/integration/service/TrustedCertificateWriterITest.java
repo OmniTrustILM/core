@@ -76,7 +76,7 @@ class TrustedCertificateWriterITest extends BaseSpringBootTest {
     }
 
     @Test
-    void flagsTheCertificateAndQueuesRevalidation_whenInsertingWithValidation() {
+    void trustsTheCa_whenInsertingWithValidation() {
         // given
         X509CertificateEntity untrustedCa = persistCa(false);
 
@@ -171,7 +171,7 @@ class TrustedCertificateWriterITest extends BaseSpringBootTest {
     }
 
     @Test
-    void marksTheRemovalPendingAndKeepsValidation_whenThePlatformPurposeIsDropped() {
+    void keepsValidationWithRemovalPending_whenThePlatformPurposeIsDropped() {
         // given
         X509CertificateEntity ca = persistCa(false);
         TrustedCertificate row = writer.insert(ca, true, true, TrustedCertificatePlatformState.APPLIED);
@@ -189,7 +189,7 @@ class TrustedCertificateWriterITest extends BaseSpringBootTest {
     }
 
     @Test
-    void clearsTheFlagAndQueuesRevalidation_whenTheValidationPurposeIsDropped() {
+    void withdrawsCaTrust_whenTheValidationPurposeIsDropped() {
         // given
         X509CertificateEntity ca = persistCa(false);
         TrustedCertificate row = writer.insert(ca, true, true, TrustedCertificatePlatformState.APPLIED);
@@ -219,7 +219,7 @@ class TrustedCertificateWriterITest extends BaseSpringBootTest {
     }
 
     @Test
-    void clearsTheFlagAndQueuesRevalidation_whenDeletingAValidationRow() {
+    void withdrawsCaTrust_whenDeletingAValidationRow() {
         // given
         X509CertificateEntity ca = persistCa(false);
         TrustedCertificate row = writer.insert(ca, true, false, null);

@@ -2063,7 +2063,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
         }
 
         @Test
-        void skipsTheTrustedCertificateAndNotifies_whenBulkDeleting() {
+        void reportsTheSkippedTrustedCertificate_whenBulkDeleting() {
             // given
             trustedCertificateWriter.insert(certificate, true, false, null);
             X509CertificateEntity untrusted = certificateRepository
@@ -2084,11 +2084,11 @@ class CertificateServiceITest extends BaseSpringBootTest {
                     .produceInternalNotificationMessage(Mockito.eq(Resource.CERTIFICATE),
                             Mockito.eq(certificate.getUuid()), any(),
                             Mockito.eq("Unable to delete certificate " + certificate.getUuid()),
-                            Mockito.eq("The certificate is trusted; remove trust first."));
+                            Mockito.eq("Certificate is trusted. Remove trust first."));
         }
 
         @Test
-        void archivesAndKeepsTheTrust_whenTheCertificateIsTrusted() throws Exception {
+        void keepsTheTrust_whenArchivingATrustedCertificate() throws Exception {
             // given
             TrustedCertificate trust = trustedCertificateWriter.insert(certificate, true, false, null);
 

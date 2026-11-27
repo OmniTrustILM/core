@@ -28,9 +28,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.delete;
+import static com.github.tomakehurst.wiremock.client.WireMock.deleteRequestedFor;
+import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
+import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -106,6 +109,19 @@ class TrustedCertificatePlatformTrustITest extends BaseSpringBootTest {
         assertThat(created.uuid()).isEqualTo("p1");
         assertThat(created.fingerprintSha256()).isEqualTo(CertificateUtil.getThumbprint(certificate));
         assertThat(created.state()).isEqualTo(TrustedCertificatePlatformState.PENDING);
+    }
+
+    @Test
+    void defersTheDeployment_whenCreating() throws Exception {
+        // given
+        wireMockServer.stubFor(post(urlPathEqualTo(BASE_PATH)).willReturn(okJson("{\"uuid\":\"p1\"}").withStatus(201)));
+
+        // when
+        manager.create(pem);
+
+        // then
+        wireMockServer
+                .verify(postRequestedFor(urlPathEqualTo(BASE_PATH)).withQueryParam("deferApply", equalTo("true")));
     }
 
     @Test
@@ -233,7 +249,7 @@ class TrustedCertificatePlatformTrustITest extends BaseSpringBootTest {
     }
 
     @Test
-    void listsTheOtherItems_whenSomeContentIsNotACertificate() {
+    void listsItemsWithoutAFingerprint_whenTheirContentIsNotACertificate() {
         // given
         String malformedPem = Base64
                 .getEncoder()
@@ -255,6 +271,20 @@ class TrustedCertificatePlatformTrustITest extends BaseSpringBootTest {
         assertThat(listed.get(0).fingerprintSha256()).isNotNull();
         assertThat(listed.get(1).fingerprintSha256()).isNull();
         assertThat(listed.get(2).fingerprintSha256()).isNull();
+    }
+
+    @Test
+    void defersTheDeployment_whenDeleting() {
+        // given
+        wireMockServer.stubFor(delete(urlPathEqualTo(BASE_PATH + "/p1")).willReturn(aResponse().withStatus(204)));
+
+        // when
+        manager.delete("p1");
+
+        // then
+        wireMockServer
+                .verify(deleteRequestedFor(urlPathEqualTo(BASE_PATH + "/p1"))
+                        .withQueryParam("deferApply", equalTo("true")));
     }
 
     @Test
