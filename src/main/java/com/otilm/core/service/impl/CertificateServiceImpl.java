@@ -155,6 +155,7 @@ import com.otilm.core.security.authn.client.AuthenticationCache;
 import com.otilm.core.security.authn.client.UserManagementApiClient;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.ExternalAuthorization;
+import com.otilm.core.security.authz.ExternalAuthorizationProgrammatic;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
@@ -1264,8 +1265,9 @@ public class CertificateServiceImpl
     }
 
     @Override
-    @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.LIST)
+    @ExternalAuthorizationProgrammatic(resource = Resource.CERTIFICATE, action = ResourceAction.LIST)
     public List<SearchFieldDataByGroupDto> getSearchableFieldInformationByGroup() {
+        authorizationEnforcer.enforceListing(Resource.CERTIFICATE);
         final List<SearchFieldDataByGroupDto> searchFieldDataByGroupDtos = attributeEngine
                 .getResourceSearchableFields(Resource.CERTIFICATE, false);
 

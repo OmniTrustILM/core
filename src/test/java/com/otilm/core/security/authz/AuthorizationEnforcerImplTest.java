@@ -44,11 +44,14 @@ class AuthorizationEnforcerImplTest {
     @Mock
     PlatformAuthenticationClient authenticationClient;
 
+    @Mock
+    ResourceListingRule resourceListingRule;
+
     AuthorizationEnforcerImpl enforcer;
 
     @BeforeEach
     void createEnforcerForSignedInUser() {
-        enforcer = new AuthorizationEnforcerImpl(core, scope, authenticationClient);
+        enforcer = new AuthorizationEnforcerImpl(core, scope, authenticationClient, resourceListingRule);
         SecurityContextHolder.getContext().setAuthentication(platformAuth());
     }
 
@@ -253,6 +256,60 @@ class AuthorizationEnforcerImplTest {
     private AuthenticationInfo resolvableUser() {
         return new AuthenticationInfo(AuthMethod.USER_PROXY, UUID.randomUUID().toString(), "other-user", List.of(),
                 "{\"user\":{\"username\":\"other-user\"}}");
+    }
+
+    @Test
+    void allowsListing_withoutConsultingTheProfile_whenCoreGrantsTheListAction() {
+        // given
+        when(core.decide(any(), any())).thenReturn(new AuthorizationDecision(true));
+
+        // when + then
+        assertThatCode(() -> enforcer.enforceListing(Resource.CERTIFICATE)).doesNotThrowAnyException();
+        verifyNoInteractions(resourceListingRule);
+    }
+
+    @Test
+    void allowsListing_whenCoreDeniesTheListActionButTheProfileListsTheResource() {
+        // given
+        SecurityContextHolder.getContext().setAuthentication(platformAuthWithProfile());
+        when(core.decide(any(), any())).thenReturn(new AuthorizationDecision(false));
+        when(resourceListingRule.canList(any(), eq(Resource.CERTIFICATE))).thenReturn(true);
+
+        // when + then
+        assertThatCode(() -> enforcer.enforceListing(Resource.CERTIFICATE)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void deniesListing_whenCoreDeniesTheListActionAndTheProfileDoesNotListTheResource() {
+        // given
+        SecurityContextHolder.getContext().setAuthentication(platformAuthWithProfile());
+        when(core.decide(any(), any())).thenReturn(new AuthorizationDecision(false));
+        when(resourceListingRule.canList(any(), eq(Resource.SECRET))).thenReturn(false);
+
+        // when + then
+        assertThatThrownBy(() -> enforcer.enforceListing(Resource.SECRET))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining(Resource.SECRET.getCode() + ":" + ResourceAction.LIST.getCode());
+    }
+
+    @Test
+    void deniesListing_whenCoreDeniesTheListActionAndTheProfileCannotBeRead() {
+        // given
+        when(core.decide(any(), any())).thenReturn(new AuthorizationDecision(false));
+
+        // when + then
+        assertThatThrownBy(() -> enforcer.enforceListing(Resource.CERTIFICATE))
+                .isInstanceOf(AccessDeniedException.class);
+        verifyNoInteractions(resourceListingRule);
+    }
+
+    private PlatformAuthenticationToken platformAuthWithProfile() {
+        String profile = """
+                {"user": {"uuid": "%s", "username": "TestUser"},
+                 "permissions": {"allowAllResources": false, "resources": []}}
+                """.formatted(UUID.randomUUID());
+        return new PlatformAuthenticationToken(new PlatformUserDetails(
+                new AuthenticationInfo(AuthMethod.USER_PROXY, null, "TestUser", List.of(), profile)));
     }
 
     private PlatformAuthenticationToken platformAuth() {

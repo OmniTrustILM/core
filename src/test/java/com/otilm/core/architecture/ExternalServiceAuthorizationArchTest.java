@@ -43,6 +43,8 @@ public class ExternalServiceAuthorizationArchTest {
                     ExternalAuthorizationProgrammatic.class.getName(), ProtocolEndpoint.class.getName(),
                     SelfPrincipalEndpoint.class.getName(), UnauthenticatedEndpoint.class.getName());
 
+    private static final Set<String> ENFORCING_METHOD_NAMES = Set.of("enforce", "enforceListing");
+
     private static final DescribedPredicate<JavaClass> IMPLEMENTS_EXTERNAL_SERVICE = new DescribedPredicate<>(
             "implement an *ExternalService interface") {
         @Override
@@ -160,22 +162,23 @@ public class ExternalServiceAuthorizationArchTest {
 
     /**
      * A {@code @ExternalAuthorizationProgrammatic} method declares the resource/action pair for the auth-service sync
-     * but enforces imperatively, by calling {@link AuthorizationEnforcer#enforce} in its body. If that call is dropped,
-     * the action stays registered with the auth service while no longer being enforced — a silent authorization gap.
-     * This rule fails the build when such a method has no call to {@code enforce}. It does not check that the call's
-     * arguments match the declared pair; keeping them in sync remains a code-review concern.
+     * but enforces imperatively, by calling {@link AuthorizationEnforcer#enforce} or
+     * {@link AuthorizationEnforcer#enforceListing} in its body. If that call is dropped, the action stays registered
+     * with the auth service while no longer being enforced — a silent authorization gap. This rule fails the build when
+     * such a method has no such call. It does not check that the call's arguments match the declared pair; keeping them
+     * in sync remains a code-review concern.
      */
     @ArchTest
     static final ArchRule programmatic_auth_methods_must_call_enforce = methods()
             .that()
             .areAnnotatedWith(ExternalAuthorizationProgrammatic.class)
-            .should(new ArchCondition<>("call AuthorizationEnforcer.enforce in their body") {
+            .should(new ArchCondition<>("call AuthorizationEnforcer.enforce or enforceListing in their body") {
                 @Override
                 public void check(JavaMethod method, ConditionEvents events) {
                     boolean callsEnforce = method
                             .getMethodCallsFromSelf()
                             .stream()
-                            .anyMatch(call -> "enforce".equals(call.getTarget().getName())
+                            .anyMatch(call -> ENFORCING_METHOD_NAMES.contains(call.getTarget().getName())
                                     && call.getTarget().getOwner().isAssignableTo(AuthorizationEnforcer.class));
                     if (!callsEnforce) {
                         events

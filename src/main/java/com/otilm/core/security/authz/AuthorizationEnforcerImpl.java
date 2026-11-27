@@ -1,12 +1,15 @@
 package com.otilm.core.security.authz;
 
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.auth.UserProfileDto;
 import com.otilm.core.logging.LoggingHelper;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authn.PlatformAuthenticationToken;
 import com.otilm.core.security.authn.PlatformUserDetails;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
 import com.otilm.core.security.authn.client.PlatformAuthenticationClient;
+import com.otilm.core.util.AuthHelper;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
@@ -30,12 +33,14 @@ public class AuthorizationEnforcerImpl implements AuthorizationEnforcer {
     private final ExternalAuthorizationCore core;
     private final AuthorizationScope scope;
     private final PlatformAuthenticationClient authenticationClient;
+    private final ResourceListingRule resourceListingRule;
 
     public AuthorizationEnforcerImpl(ExternalAuthorizationCore core, AuthorizationScope scope,
-            @Lazy PlatformAuthenticationClient authenticationClient) {
+            @Lazy PlatformAuthenticationClient authenticationClient, @Lazy ResourceListingRule resourceListingRule) {
         this.core = core;
         this.scope = scope;
         this.authenticationClient = authenticationClient;
+        this.resourceListingRule = resourceListingRule;
     }
 
     @Override
@@ -51,6 +56,26 @@ public class AuthorizationEnforcerImpl implements AuthorizationEnforcer {
         if (!decision.isGranted()) {
             throw new AccessDeniedException("Access denied to %s:%s".formatted(resource.getCode(), action.getCode()));
         }
+    }
+
+    @Override
+    public void enforceListing(Resource resource) {
+        if (isAuthorized(resource, ResourceAction.LIST) || isListedInProfile(resource)) {
+            return;
+        }
+        AuthHelper.setDeniedPermissionResourceAction(resource.getCode(), ResourceAction.LIST.getCode());
+        throw new AccessDeniedException(
+                "Access denied to %s:%s".formatted(resource.getCode(), ResourceAction.LIST.getCode()));
+    }
+
+    private boolean isListedInProfile(Resource resource) {
+        UserProfileDto profile;
+        try {
+            profile = AuthHelper.getUserProfile();
+        } catch (ValidationException e) {
+            return false;
+        }
+        return profile.getPermissions() != null && resourceListingRule.canList(profile, resource);
     }
 
     @Override

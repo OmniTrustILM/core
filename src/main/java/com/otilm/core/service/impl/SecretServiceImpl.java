@@ -82,6 +82,7 @@ import com.otilm.core.reference.ObjectReferenceGuard;
 import com.otilm.core.security.authn.client.UserManagementApiClient;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.ExternalAuthorization;
+import com.otilm.core.security.authz.ExternalAuthorizationProgrammatic;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
@@ -294,8 +295,9 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
     }
 
     @Override
-    @ExternalAuthorization(resource = Resource.SECRET, action = ResourceAction.LIST)
+    @ExternalAuthorizationProgrammatic(resource = Resource.SECRET, action = ResourceAction.LIST)
     public List<SearchFieldDataByGroupDto> getSearchableFieldInformation() {
+        authorizationEnforcer.enforceListing(Resource.SECRET);
         List<SearchFieldDataByGroupDto> searchFieldDataByGroupDtos = attributeEngine
                 .getResourceSearchableFields(Resource.SECRET, false);
         List<SearchFieldDataDto> fieldDataDtos = new ArrayList<>(List
