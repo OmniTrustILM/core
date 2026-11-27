@@ -363,9 +363,10 @@ public class CryptographicOperationServiceImpl
     }
 
     // The raw run refuses such a key before it gets here, and within its request this read returns what that check
-    // read. A provider that loses the capability in between is caught by the signer's check of each signature against
-    // its digest, not here. Anything but SUPPORTED is refused, so a Support value added later cannot let a digest
-    // through.
+    // read, so a provider that loses the capability in between is not refused here. A conforming provider then refuses
+    // the mode itself; the signer's check of each signature against its digest catches only one that signs the wrong
+    // bytes, such as a digest it hashed again. Anything but SUPPORTED is refused, so a Support value added later cannot
+    // let a digest through.
     private void requireDataDigestSigning(CryptographicKeyItemOperationModel keyItem) throws NotFoundException {
         Support support = dataDigestSigningCapability.of(keyItem);
         if (support == Support.SUPPORTED) {

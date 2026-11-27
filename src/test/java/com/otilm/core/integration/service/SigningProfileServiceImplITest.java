@@ -516,7 +516,8 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         // Raw signing shares its key with no other workflow, so the raw and timestamping defaults each sign with one
         // of their own. A raw key needs a provider that signs data digests, which a version 1 provider cannot.
         rawSigningKeyPair = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
-        dataDigestSigningProvider = startDataDigestSigningProvider();
+        dataDigestSigningProvider = v2TokenFixture.start();
+        offerDataDigestSigning(dataDigestSigningProvider);
         persistV2KeyPair(dataDigestSigningProvider.token(), dataDigestSigningProvider.profile(), rawSigningKeyPair);
         timestampingKeyPair = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
         createTokenKey(timestampingKeyPair, KeyAlgorithm.RSA, "soft-timestamping-key-pair");
@@ -1143,7 +1144,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                             .withManagedContentSigning(UUID.fromString(contentSigningFormattingConnector.getUuid()))
                             .build());
 
-            // when — updated in place onto the v2-backed certificate
+            // when — moved onto the v2-backed certificate, which writes a new version because the key changes
             SigningProfileDto updated = signingProfileService
                     .updateSigningProfile(SecuredUUID.fromString(created.getUuid()),
                             aSigningProfileRequestFromExistingProfile(created)
@@ -5543,15 +5544,16 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         certificateRepository.save(stored);
     }
 
-    /** Offers SHA256withRSA, which {@link #buildRawKeySigningAttributes()} selects. */
-    private V2Token startDataDigestSigningProvider() throws JsonProcessingException {
-        V2Token provider = v2TokenFixture.start();
+    /**
+     * Has the provider declare data digest signing and offer SHA256withRSA, which
+     * {@link #buildRawKeySigningAttributes()} selects.
+     */
+    private void offerDataDigestSigning(V2Token provider) throws JsonProcessingException {
         provider.connectorMock().stubSignatureAlgorithmAttribute(SignatureAlgorithm.SHA256_WITH_RSA);
         v2TokenFixture.declare(provider, FeatureFlag.STATELESS, FeatureFlag.DATA_DIGEST_SIGNING);
-        return provider;
     }
 
-    /** The attributes a key on {@link #startDataDigestSigningProvider()} signs under, in the form a v2 schema takes. */
+    /** The attributes a key on {@link #offerDataDigestSigning} signs under, in the form a v2 schema takes. */
     private static List<RequestAttribute> buildRawKeySigningAttributes() {
         return SignatureAlgorithmMapping.toAttributes(SignatureAlgorithm.SHA256_WITH_RSA);
     }
