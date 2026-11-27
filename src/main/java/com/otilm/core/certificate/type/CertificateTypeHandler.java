@@ -11,6 +11,7 @@ import com.otilm.api.model.core.certificate.CertificateFormatEncoding;
 import com.otilm.api.model.core.certificate.CertificateOperation;
 import com.otilm.api.model.core.certificate.CertificateRequestDetail;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
+import com.otilm.core.certificate.request.RequestAttributePolicyViolationException;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.RaProfile;
@@ -129,7 +130,8 @@ public interface CertificateTypeHandler {
 
     /**
      * The public key of the request, decoded for a caller that needs the reason when it cannot be. By default the key
-     * the request was read with.
+     * the request was read with, which is null when it could not be decoded; a type that can tell why overrides this to
+     * throw.
      */
     default PublicKey publicKeyOf(ParsedRequest request) throws CertificateRequestException, NoSuchAlgorithmException {
         return request.publicKey();
@@ -147,6 +149,7 @@ public interface CertificateTypeHandler {
      *
      * @return the warnings about the request; empty when there are none
      * @throws CertificateException when the request attributes of the RA profile cannot be resolved
+     * @throws RequestAttributePolicyViolationException when a strict profile refuses the request
      */
     default List<String> validateRequestAttributes(ParsedRequest request, RaProfile raProfile)
             throws CertificateException {

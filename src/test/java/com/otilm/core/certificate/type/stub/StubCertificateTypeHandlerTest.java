@@ -261,8 +261,9 @@ class StubCertificateTypeHandlerTest {
     @Test
     void recognisesAnotherHolderOrIssuer_whenComparingCertificatesByDefault() {
         // given
-        var certificate = aCertificate().withPublicKeyFingerprint("key").build();
-        var other = aCertificate().withPublicKeyFingerprint("key").build();
+        var sharedKeyFingerprint = "key";
+        var certificate = aCertificate().withPublicKeyFingerprint(sharedKeyFingerprint).build();
+        var other = aCertificate().withPublicKeyFingerprint(sharedKeyFingerprint).build();
 
         // when
         boolean same = handler.sameHolderAndIssuer(certificate, other);
@@ -276,7 +277,8 @@ class StubCertificateTypeHandlerTest {
     void comparesThePublicKeyFingerprints_whenAskedWhetherCertificatesShareTheirKeys(String otherFingerprint,
             boolean expectedSame) {
         // given
-        var certificate = aCertificate().withPublicKeyFingerprint("key").build();
+        var referenceFingerprint = "key";
+        var certificate = aCertificate().withPublicKeyFingerprint(referenceFingerprint).build();
         var other = aCertificate().withPublicKeyFingerprint(otherFingerprint).build();
 
         // when

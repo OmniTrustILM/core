@@ -9,6 +9,7 @@ import com.otilm.api.model.core.certificate.CertificateRequestDetail;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
+import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.certificate.type.CertificateTypeHandler;
 import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
@@ -182,6 +183,85 @@ class CertificateServiceImplTypeHandlerTest {
             return service
                     .submitCertificateRequest(REQUEST_CONTENT, CertificateRequestFormat.PKCS10, List.of(), List.of(),
                             List.of(), List.of(), null, null, raProfileUuid, null, null, OTHER_TYPE);
+        }
+    }
+
+    // ── CompletedRegistration ─────────────────────────────────────────────────
+    @Nested
+    class CompletedRegistration {
+
+        private static final String REQUEST_CONTENT = "a request of another type";
+
+        @Mock
+        private CertificateRequestRepository certificateRequestRepository;
+        @Mock
+        private AttributeEngine attributeEngine;
+        @Mock
+        private Certificate registeredCertificate;
+        @Mock
+        private CertificateRequestEntity requestEntity;
+
+        private final byte[] encodingTheHandlerRead = "the request as the handler read it"
+                .getBytes(StandardCharsets.UTF_8);
+        private final ParsedRequest parsedRequest = new ParsedRequest(OTHER_TYPE.getCode(),
+                CertificateRequestFormat.PKCS10, encodingTheHandlerRead, "holder", keyPair().getPublic());
+        private final UUID certificateUuid = UUID.randomUUID();
+
+        @BeforeEach
+        void stubARegisteredCertificateOfAnotherType() throws Exception {
+            service.setCertificateRequestRepository(certificateRequestRepository);
+            service.setAttributeEngine(attributeEngine);
+
+            UUID raProfileUuid = UUID.randomUUID();
+            var raProfile = new RaProfile();
+            raProfile.setAuthorityInstanceReference(new AuthorityInstanceReference());
+            when(certificateRepository.findRaProfileUuidByUuid(certificateUuid)).thenReturn(Optional.of(raProfileUuid));
+            when(certificateRepository.findAndLockWithAssociationsByUuid(certificateUuid))
+                    .thenReturn(Optional.of(registeredCertificate));
+            when(registeredCertificate.getRaProfileUuid()).thenReturn(raProfileUuid);
+            when(registeredCertificate.getRaProfile()).thenReturn(raProfile);
+            when(registeredCertificate.getState()).thenReturn(CertificateState.REGISTERED);
+            when(registeredCertificate.getCertificateType()).thenReturn(OTHER_TYPE);
+
+            when(otherTypeHandler.readRequest(REQUEST_CONTENT, CertificateRequestFormat.PKCS10))
+                    .thenReturn(parsedRequest);
+            when(otherTypeHandler.newCertificateRequest(parsedRequest)).thenReturn(requestEntity);
+            when(otherTypeHandler.alternativePublicKey(parsedRequest)).thenReturn(Optional.empty());
+            when(requestEntity.getUuid()).thenReturn(UUID.randomUUID());
+            when(requestEntity.getKeyUuid()).thenReturn(UUID.randomUUID());
+        }
+
+        @Test
+        void attachesTheRequestEntityOfTheHandler_whenTheRegisteredCertificateIsOfAnotherType() throws Exception {
+            // given — the handler of the other type reads the request and supplies its entity
+
+            // when
+            complete();
+
+            // then
+            verify(certificateRequestRepository).save(requestEntity);
+            verify(registeredCertificate).setCertificateRequest(requestEntity);
+        }
+
+        @Test
+        void storesTheEncodingTheHandlerRead_whenTheRegisteredCertificateIsOfAnotherType() throws Exception {
+            // given
+            var storedContent = Base64.getEncoder().encodeToString(encodingTheHandlerRead);
+
+            // when
+            complete();
+
+            // then
+            verify(requestEntity).setContent(storedContent);
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private UUID complete() throws Exception {
+            var issueRequest = new ClientCertificateIssueRequestDto();
+            issueRequest.setRequest(REQUEST_CONTENT);
+            issueRequest.setFormat(CertificateRequestFormat.PKCS10);
+            return service.addCertificateRequestToExisting(certificateUuid, issueRequest);
         }
     }
 

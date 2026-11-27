@@ -1853,12 +1853,12 @@ public class CertificateServiceImpl
         // Storing the raw string here would silently persist the un-normalized (and possibly PEM-wrapped)
         // encoding, which is later replayed verbatim to the connector on register-bound issue
         // (AuthorityProviderV3Adapter.issueRegistered), producing a request the connector cannot parse as DER.
-        byte[] normalizedDer = request.encoded();
-        final String fingerprint = CertificateUtil.getThumbprint(normalizedDer);
+        byte[] encoded = request.encoded();
+        final String fingerprint = CertificateUtil.getThumbprint(encoded);
         CertificateRequestEntity certificateRequestEntity = handler.newCertificateRequest(request);
         certificateRequestEntity.setCertificateRequestFormat(issueRequest.getFormat());
         certificateRequestEntity.setFingerprint(fingerprint);
-        certificateRequestEntity.setContent(Base64.getEncoder().encodeToString(normalizedDer));
+        certificateRequestEntity.setContent(Base64.getEncoder().encodeToString(encoded));
         certificateRequestRepository.save(certificateRequestEntity);
 
         certificate.setCertificateRequest(certificateRequestEntity);
