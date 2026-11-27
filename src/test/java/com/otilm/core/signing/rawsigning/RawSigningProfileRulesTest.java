@@ -5,6 +5,7 @@ import com.otilm.api.model.client.signing.profile.scheme.ManagedSigningType;
 import com.otilm.api.model.client.signing.profile.scheme.OneTimeKeyManagedSigningRequestDto;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
+import com.otilm.core.service.handler.DataDigestSigningCapability.Support;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -82,6 +83,61 @@ class RawSigningProfileRulesTest {
             // when
             Throwable failure = catchThrowable(
                     () -> RawSigningProfileRules.requireDataDigestSigning(signsAGivenDigest));
+
+            // then
+            assertThat(failure).isNull();
+        }
+    }
+
+    // ── RequireDataDigestSigningProvider ──────────────────────────────────────
+
+    @Nested
+    class RequireDataDigestSigningProvider {
+
+        private final UUID certificateUuid = UUID.fromString("00000000-0000-0000-0000-0000000000c1");
+
+        @Test
+        void refusesNamingTheVersion1Connector_whenTheProviderIsVersion1() {
+            // given
+            var version1Provider = Support.VERSION_1_PROVIDER;
+
+            // when
+            ThrowingCallable require = () -> RawSigningProfileRules
+                    .requireDataDigestSigningProvider(certificateUuid, version1Provider);
+
+            // then
+            assertThatThrownBy(require)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining(certificateUuid.toString())
+                    .hasMessageContaining("is registered as a version 1 connector")
+                    .hasMessageContaining("whose key is on a cryptography provider registered through a v2 connector");
+        }
+
+        @Test
+        void refusesNamingTheMissingFeature_whenTheProviderDoesNotAdvertiseIt() {
+            // given
+            var providerWithoutTheFeature = Support.NOT_ADVERTISED;
+
+            // when
+            ThrowingCallable require = () -> RawSigningProfileRules
+                    .requireDataDigestSigningProvider(certificateUuid, providerWithoutTheFeature);
+
+            // then
+            assertThatThrownBy(require)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining(certificateUuid.toString())
+                    .hasMessageContaining("does not advertise data digest signing")
+                    .hasMessageContaining("whose key is on a cryptography provider registered through a v2 connector");
+        }
+
+        @Test
+        void admitsTheKey_whenTheProviderSignsDataDigests() {
+            // given
+            var signsDataDigests = Support.SUPPORTED;
+
+            // when
+            Throwable failure = catchThrowable(
+                    () -> RawSigningProfileRules.requireDataDigestSigningProvider(certificateUuid, signsDataDigests));
 
             // then
             assertThat(failure).isNull();
