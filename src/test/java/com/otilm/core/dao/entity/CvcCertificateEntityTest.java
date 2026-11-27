@@ -7,6 +7,7 @@ import com.otilm.core.certificate.type.Validity;
 import com.otilm.core.certificate.type.ValidityPrecision;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.Month;
 import org.junit.jupiter.api.Test;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
@@ -55,8 +56,8 @@ class CvcCertificateEntityTest {
         LocalDate expirationDate = certificate.getExpirationDate();
 
         // then
-        assertThat(effectiveDate).isEqualTo(LocalDate.of(2026, 1, 15));
-        assertThat(expirationDate).isEqualTo(LocalDate.of(2026, 4, 14));
+        assertThat(effectiveDate).isEqualTo(LocalDate.of(2026, Month.JANUARY, 15));
+        assertThat(expirationDate).isEqualTo(LocalDate.of(2026, Month.APRIL, 14));
     }
 
     @Test

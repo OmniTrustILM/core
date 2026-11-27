@@ -12,6 +12,7 @@ import com.otilm.core.dao.entity.CvcCertificateRequestEntity;
 import com.otilm.core.util.CertificateUtil;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.Month;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
@@ -35,8 +36,8 @@ class CertificateDetailDtoMapperCvcTest {
         assertThat(cvc.getAuthorityReference()).isEqualTo("SEILMDV00001");
         assertThat(cvc.getRole()).isEqualTo("terminal");
         assertThat(cvc.getAccessRights()).isEqualTo("03");
-        assertThat(cvc.getEffectiveDate()).isEqualTo(LocalDate.of(2026, 1, 15));
-        assertThat(cvc.getExpirationDate()).isEqualTo(LocalDate.of(2026, 4, 14));
+        assertThat(cvc.getEffectiveDate()).isEqualTo(LocalDate.of(2026, Month.JANUARY, 15));
+        assertThat(cvc.getExpirationDate()).isEqualTo(LocalDate.of(2026, Month.APRIL, 14));
     }
 
     @Test

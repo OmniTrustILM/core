@@ -15,6 +15,7 @@ import com.otilm.core.util.BaseSpringBootTest;
 import jakarta.persistence.EntityManager;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.Month;
 import java.util.List;
 import org.hibernate.Hibernate;
 import org.junit.jupiter.api.Test;
@@ -53,8 +54,8 @@ class CvcCertificateEntityITest extends BaseSpringBootTest {
         assertThat(cvc.getAuthorityReference()).isEqualTo("SEILMDV00001");
         assertThat(cvc.getRole()).isEqualTo("terminal");
         assertThat(cvc.getAccessRights()).isEqualTo("03");
-        assertThat(cvc.getEffectiveDate()).isEqualTo(LocalDate.of(2026, 1, 15));
-        assertThat(cvc.getExpirationDate()).isEqualTo(LocalDate.of(2026, 4, 14));
+        assertThat(cvc.getEffectiveDate()).isEqualTo(LocalDate.of(2026, Month.JANUARY, 15));
+        assertThat(cvc.getExpirationDate()).isEqualTo(LocalDate.of(2026, Month.APRIL, 14));
     }
 
     @Test
@@ -96,8 +97,8 @@ class CvcCertificateEntityITest extends BaseSpringBootTest {
 
         // then
         List<Certificate> stored = certificateRepository.findAll();
-        assertThat(stored).hasSize(2);
         assertThat(stored)
+                .hasSize(2)
                 .allSatisfy(certificate -> assertThat(((CvcCertificateEntity) certificate).getHolderReference())
                         .isEqualTo("SEILMCVCA00002"));
     }
