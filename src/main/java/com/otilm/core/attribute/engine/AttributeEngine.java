@@ -840,19 +840,27 @@ public class AttributeEngine {
             AttributeDefinition attributeDefinition, ProtectionLevel protectionLevel) throws AttributeException {
         if (protectionLevel == ProtectionLevel.ENCRYPTED && baseAttribute.getContent() != null) {
             List<String> encryptedContents = new ArrayList<>();
-            List<AttributeContent> encryptedContentItems = new ArrayList<>();
             for (AttributeContent contentItem : (List<AttributeContent>) baseAttribute.getContent()) {
                 encryptedContents.add(encryptAttributeContent(attributeDefinition, contentItem));
-                encryptedContentItems
-                        .add(AttributeVersionHelper
-                                .createEncryptedContent(contentItem.getReference(),
-                                        attributeDefinition.getContentType(), attributeDefinition.getVersion()));
             }
             attributeDefinition.setEncryptedData(encryptedContents);
-            return encryptedContentItems;
+            return encryptedContentPlaceholders(baseAttribute, attributeDefinition);
         } else {
             return baseAttribute.getContent();
         }
+    }
+
+    /** The placeholders a definition stores, and hands back to its caller, in place of encrypted default content. */
+    private static List<AttributeContent> encryptedContentPlaceholders(BaseAttribute baseAttribute,
+            AttributeDefinition attributeDefinition) {
+        List<AttributeContent> placeholders = new ArrayList<>();
+        for (AttributeContent contentItem : (List<AttributeContent>) baseAttribute.getContent()) {
+            placeholders
+                    .add(AttributeVersionHelper
+                            .createEncryptedContent(contentItem.getReference(), attributeDefinition.getContentType(),
+                                    attributeDefinition.getVersion()));
+        }
+        return placeholders;
     }
 
     public void validateUpdateDataAttributes(UUID connectorUuid, String operation,
@@ -1162,7 +1170,7 @@ public class AttributeEngine {
         if (attributeDefinition == null) {
             attributeDefinition = registerNew(newGroupDefinition(connectorUuid, attribute), lookup);
         }
-        attributeDefinition.setDefinition(attribute);
+        replaceDefinitionIfChanged(attributeDefinition, attribute);
         attributeDefinitionRepository.save(attributeDefinition);
     }
 
@@ -1216,22 +1224,92 @@ public class AttributeEngine {
         attributeDefinition.setRequired(dataAttribute.getProperties().isRequired());
         attributeDefinition.setReadOnly(dataAttribute.getProperties().isReadOnly());
 
-        encryptOrDecryptExistingContent(attributeDefinition, dataAttribute.getProperties().getProtectionLevel());
-        attributeDefinition.setProtectionLevel(dataAttribute.getProperties().getProtectionLevel());
+        ProtectionLevel protectionLevel = dataAttribute.getProperties().getProtectionLevel();
+        encryptOrDecryptExistingContent(attributeDefinition, protectionLevel);
+        attributeDefinition.setProtectionLevel(protectionLevel);
 
         // Persist the definition without extensible-list options, but do NOT strip them from the
         // caller's attribute: a listing endpoint returns that same object and the UI needs the
         // options as suggestions. (Secret containment on callback responses is handled separately.)
         if (!Boolean.TRUE.equals(attributeDefinition.isReadOnly())
                 && dataAttribute.getProperties().isExtensibleList()) {
-            attributeDefinition.setDefinition(copyWithoutContent(dataAttribute));
+            replaceDefinitionIfChanged(attributeDefinition, copyWithoutContent(dataAttribute));
+        } else if (storedDefinitionMatches(attributeDefinition, dataAttribute)) {
+            // The caller still gets placeholders in place of encrypted default content, as when it is written.
+            if (protectionLevel == ProtectionLevel.ENCRYPTED && dataAttribute.getContent() != null) {
+                dataAttribute.setContent(encryptedContentPlaceholders(dataAttribute, attributeDefinition));
+            }
         } else {
             dataAttribute
-                    .setContent(encryptDefaultAttributeContent(dataAttribute, attributeDefinition,
-                            dataAttribute.getProperties().getProtectionLevel()));
+                    .setContent(encryptDefaultAttributeContent(dataAttribute, attributeDefinition, protectionLevel));
             attributeDefinition.setDefinition(dataAttribute);
         }
         attributeDefinitionRepository.save(attributeDefinition);
+    }
+
+    /**
+     * Connectors declare the same definitions on every use, such as the issue attributes on every issuance. A new
+     * instance always differs from the stored one by {@code equals}, so replacing an unchanged definition would write
+     * the row each time.
+     */
+    private static void replaceDefinitionIfChanged(AttributeDefinition attributeDefinition, BaseAttribute candidate) {
+        if (!AttributeDefinitionValues.sameValue(attributeDefinition.getDefinition(), candidate)) {
+            attributeDefinition.setDefinition(candidate);
+        }
+    }
+
+    /**
+     * Returns whether the row stores the definition the connector sent. Encrypted default content is compared by the
+     * text it is encrypted from, as the ciphertext differs on every encryption, and a value decrypted into a typed one
+     * need not render as the connector sent it, like a date with milliseconds or a decimal beyond float precision. The
+     * rest of the definition is compared with the placeholders the row stores in place of that content.
+     */
+    private static boolean storedDefinitionMatches(AttributeDefinition attributeDefinition, DataAttribute dataAttribute)
+            throws AttributeException {
+        if (attributeDefinition.getProtectionLevel() != ProtectionLevel.ENCRYPTED
+                || dataAttribute.getContent() == null) {
+            return AttributeDefinitionValues.sameValue(attributeDefinition.getDefinition(), dataAttribute);
+        }
+        Optional<List<String>> storedPlaintexts = decryptedDefaultContent(attributeDefinition);
+        List<String> sentPlaintexts = plaintextsOf(dataAttribute, attributeDefinition);
+        if (storedPlaintexts.isEmpty() || !storedPlaintexts.get().equals(sentPlaintexts)) {
+            return false;
+        }
+        DataAttribute sentWithPlaceholders = copyWithoutContent(dataAttribute);
+        sentWithPlaceholders.setContent(encryptedContentPlaceholders(dataAttribute, attributeDefinition));
+        return AttributeDefinitionValues.sameValue(attributeDefinition.getDefinition(), sentWithPlaceholders);
+    }
+
+    /**
+     * Returns the text each stored default content item was encrypted from. A missing entry, or one that does not
+     * decrypt, such as after a key change, returns nothing, so the definition counts as changed and is written again.
+     */
+    private static Optional<List<String>> decryptedDefaultContent(AttributeDefinition attributeDefinition) {
+        List<String> encryptedData = attributeDefinition.getEncryptedData();
+        if (encryptedData == null || encryptedData.stream().anyMatch(Objects::isNull)) {
+            return Optional.empty();
+        }
+        List<String> plaintexts = new ArrayList<>();
+        for (String ciphertext : encryptedData) {
+            try {
+                plaintexts.add(SecretsUtil.decodeAndDecryptSecretString(ciphertext, SecretEncodingVersion.V1));
+            } catch (IllegalArgumentException | IllegalStateException e) {
+                logger
+                        .debug("Default content of attribute definition {} does not decrypt; writing the definition",
+                                attributeDefinition.getName(), e);
+                return Optional.empty();
+            }
+        }
+        return Optional.of(plaintexts);
+    }
+
+    private static List<String> plaintextsOf(BaseAttribute baseAttribute, AttributeDefinition attributeDefinition)
+            throws AttributeException {
+        List<String> plaintexts = new ArrayList<>();
+        for (AttributeContent contentItem : (List<AttributeContent>) baseAttribute.getContent()) {
+            plaintexts.add(plaintextOf(attributeDefinition, contentItem));
+        }
+        return plaintexts;
     }
 
     /**
@@ -1280,7 +1358,7 @@ public class AttributeEngine {
 
     /**
      * The first row of a data definition carries it without content: the registration that follows encrypts default
-     * content into the caller's attribute and writes the full definition, as it does for every registration.
+     * content into the caller's attribute and writes the full definition when it differs from this row.
      */
     private static AttributeDefinition newDataDefinition(UUID connectorUuid, String operation,
             DataAttribute dataAttribute) {
@@ -1392,7 +1470,7 @@ public class AttributeEngine {
         // definition already declares it, and those must fall through to be reconciled below.
         if (Objects.equals(attributeDefinition.getLabel(), label)
                 && attributeDefinition.getProtectionLevel() == protectionLevel
-                && sameSerializedDefinition(attributeDefinition.getDefinition(), definitionCopy)) {
+                && AttributeDefinitionValues.sameValue(attributeDefinition.getDefinition(), definitionCopy)) {
             return attributeDefinition;
         }
         // Re-protect stored content when the declared level diverges from the persisted one. This also
@@ -1445,24 +1523,6 @@ public class AttributeEngine {
             default ->
                 throw new IllegalStateException("Unsupported MetadataAttribute version for properties normalization: "
                         + definitionCopy.getVersion());
-        }
-    }
-
-    /**
-     * Compares definitions by their serialized form. The attribute model has no value-based equals on its nested types.
-     */
-    private static boolean sameSerializedDefinition(Object stored, Object candidate) {
-        try {
-            return ATTRIBUTES_OBJECT_MAPPER
-                    .writeValueAsString(stored)
-                    .equals(ATTRIBUTES_OBJECT_MAPPER.writeValueAsString(candidate));
-        } catch (JsonProcessingException e) {
-            // If either side cannot be rendered, fall back to writing the definition — correctness over the
-            // optimization.
-            logger
-                    .debug("Metadata definition comparison failed to serialize; persisting the definition unconditionally",
-                            e);
-            return false;
         }
     }
 
@@ -3048,27 +3108,25 @@ public class AttributeEngine {
 
     public static String encryptAttributeContent(AttributeDefinition attributeDefinition,
             AttributeContent attributeContentItem) throws AttributeException {
-        String encryptedData;
-        if ((AttributeContentData.class.isAssignableFrom(attributeDefinition.getContentType().getContentDataClass()))) {
-            try {
-                encryptedData = SecretsUtil
-                        .encryptAndEncodeSecretString(
-                                ATTRIBUTES_OBJECT_MAPPER.writeValueAsString(attributeContentItem.getData()),
-                                SecretEncodingVersion.V1);
-            } catch (JsonProcessingException e) {
-                throw new AttributeException("Error encrypting attribute content data: " + e.getMessage(),
-                        Objects.toString(attributeDefinition.getUuid(), null), attributeDefinition.getName(),
-                        attributeDefinition.getType(),
-                        attributeDefinition.getConnectorUuid() == null
-                                ? null
-                                : attributeDefinition.getConnectorUuid().toString());
-            }
+        String plaintext = plaintextOf(attributeDefinition, attributeContentItem);
+        return SecretsUtil.encryptAndEncodeSecretString(plaintext, SecretEncodingVersion.V1);
+    }
 
-        } else {
-            encryptedData = SecretsUtil
-                    .encryptAndEncodeSecretString(attributeContentItem.getData().toString(), SecretEncodingVersion.V1);
+    private static String plaintextOf(AttributeDefinition attributeDefinition, AttributeContent attributeContentItem)
+            throws AttributeException {
+        if (!AttributeContentData.class.isAssignableFrom(attributeDefinition.getContentType().getContentDataClass())) {
+            return attributeContentItem.getData().toString();
         }
-        return encryptedData;
+        try {
+            return ATTRIBUTES_OBJECT_MAPPER.writeValueAsString(attributeContentItem.getData());
+        } catch (JsonProcessingException e) {
+            throw new AttributeException("Error encrypting attribute content data: " + e.getMessage(),
+                    Objects.toString(attributeDefinition.getUuid(), null), attributeDefinition.getName(),
+                    attributeDefinition.getType(),
+                    attributeDefinition.getConnectorUuid() == null
+                            ? null
+                            : attributeDefinition.getConnectorUuid().toString());
+        }
     }
 
     /**
