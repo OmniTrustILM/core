@@ -51,6 +51,7 @@ import java.time.ZoneOffset;
 import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
@@ -190,6 +191,7 @@ class ClientOperationServiceImplIssueDispatchTest {
         CertificateType notIssued = CertificateType.SSH;
         CertificateTypeHandler sshHandler = mock(CertificateTypeHandler.class);
         when(sshHandler.typeCode()).thenReturn(notIssued.getCode());
+        when(sshHandler.supportedRequestFormats()).thenReturn(Set.of(CertificateRequestFormat.PKCS10));
         service
                 .setRequestFormatResolver(new RequestFormatResolver(
                         new CertificateTypeHandlerRegistry(List.of(new X509CertificateTypeHandler(), sshHandler))));

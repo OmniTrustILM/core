@@ -38,6 +38,34 @@ class RequestFormatResolverTest {
     }
 
     @Test
+    void throwsUnsupportedNamingFormatAndType_whenTheFormatDoesNotBelongToTheType() {
+        // given
+        CertificateRequestFormat unsupportedFormat = CertificateRequestFormat.CVC;
+
+        // when
+        ThrowingCallable resolveCvcForX509 = () -> resolver.resolve(unsupportedFormat, CertificateType.X509);
+
+        // then
+        assertThatThrownBy(resolveCvcForX509)
+                .isInstanceOf(UnsupportedCertificateTypeException.class)
+                .hasMessageContaining(unsupportedFormat.getCode())
+                .hasMessageContaining(CertificateType.X509.getCode());
+    }
+
+    @Test
+    void throwsUnsupportedNamingFormatAndType_whenNoTypeWasNamedAndTheFormatIsCvc() {
+        // given — a submission without a type, which is X.509
+        CertificateRequestFormat unsupportedFormat = CertificateRequestFormat.CVC;
+        CertificateType missingCertificateType = null;
+
+        // when
+        ThrowingCallable resolveCvcWithoutType = () -> resolver.resolve(unsupportedFormat, missingCertificateType);
+
+        // then
+        assertThatThrownBy(resolveCvcWithoutType).isInstanceOf(UnsupportedCertificateTypeException.class);
+    }
+
+    @Test
     void treatsTheCertificateAsX509_whenNoTypeWasNamed() {
         // given — a request without a format or a type
 
