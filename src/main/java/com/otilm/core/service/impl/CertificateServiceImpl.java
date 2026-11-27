@@ -30,6 +30,7 @@ import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceCertificateContentData;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceObjectContentData;
+import com.otilm.api.model.common.events.data.InternalNotificationEventData;
 import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.auth.UserDto;
@@ -131,6 +132,7 @@ import com.otilm.core.dao.repository.acme.AcmeAccountRepository;
 import com.otilm.core.dao.repository.cmp.CmpProfileRepository;
 import com.otilm.core.dao.repository.est.EstProfileRepository;
 import com.otilm.core.dao.repository.scep.ScepProfileRepository;
+import com.otilm.core.dao.repository.signing.SigningProfileVersionRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.events.handlers.CertificateExpiringEventHandler;
 import com.otilm.core.events.handlers.CertificateNotCompliantEventHandler;
@@ -143,6 +145,7 @@ import com.otilm.core.mapper.certificate.SigningCertificateMapper;
 import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.messaging.jms.producers.NotificationProducer;
 import com.otilm.core.messaging.jms.producers.ValidationProducer;
+import com.otilm.core.messaging.model.NotificationMessage;
 import com.otilm.core.messaging.model.NotificationRecipient;
 import com.otilm.core.messaging.model.ValidationMessage;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
@@ -189,6 +192,7 @@ import com.otilm.core.service.writer.PendingNotificationWriter;
 import com.otilm.core.service.writer.est.EstProfileWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationAuthorizationWriter;
 import com.otilm.core.settings.SettingsCache;
+import com.otilm.core.signing.SigningProfileCertificateUse;
 import com.otilm.core.util.AuthHelper;
 import com.otilm.core.util.CertificateEligibilityUtil;
 import com.otilm.core.util.CertificateRequestUtils;
@@ -332,6 +336,7 @@ public class CertificateServiceImpl
     private EstProfileRepository estProfileRepository;
     private EstProfileWriter estProfileWriter;
     private AcmeAccountRepository acmeAccountRepository;
+    private SigningProfileVersionRepository signingProfileVersionRepository;
 
     private AttributeEngine attributeEngine;
     private AttributeColumnProjector attributeColumnProjector;
@@ -436,6 +441,11 @@ public class CertificateServiceImpl
     @Autowired
     public void setScepProfileRepository(ScepProfileRepository scepProfileRepository) {
         this.scepProfileRepository = scepProfileRepository;
+    }
+
+    @Autowired
+    public void setSigningProfileVersionRepository(SigningProfileVersionRepository signingProfileVersionRepository) {
+        this.signingProfileVersionRepository = signingProfileVersionRepository;
     }
 
     @Autowired
@@ -952,6 +962,7 @@ public class CertificateServiceImpl
                     "Could not delete certificate %s with UUID %s: Certificate is used by some user."
                             .formatted(certificate.getCommonName(), certificate.getUuid().toString()));
         }
+        refuseDeleteWhileSigningProfilesHold(certificate);
 
         locationInternalService.removeCertificatesFromLocationsOnDelete(List.of(uuid));
 
@@ -983,6 +994,24 @@ public class CertificateServiceImpl
             certificate.setCertificateContent(null);
         }
         certificateRequestWriter.deleteUnreferenced(Stream.ofNullable(certificateRequestUuid).toList());
+    }
+
+    private void refuseDeleteWhileSigningProfilesHold(Certificate certificate) {
+        SigningProfileCertificateUse use = signingProfileUsesOf(List.of(certificate.getUuid()))
+                .get(certificate.getUuid());
+        if (use == null) {
+            return;
+        }
+        certificateEventHistoryService
+                .addEventHistorySurvivingRollback(certificate.getUuid(), CertificateEvent.DELETE,
+                        CertificateEventStatus.FAILED, use.historyMessage(), null);
+        throw new ValidationException(use
+                .deleteRefusal(CertificateUtil.formatCommonName(certificate.getCommonName()), certificate.getUuid()));
+    }
+
+    private Map<UUID, SigningProfileCertificateUse> signingProfileUsesOf(List<UUID> certificateUuids) {
+        return SigningProfileCertificateUse
+                .byCertificate(signingProfileVersionRepository.findCertificateHolds(certificateUuids));
     }
 
     @Override
@@ -1176,16 +1205,20 @@ public class CertificateServiceImpl
 
                 TransactionStatus txStatus = transactionManager.getTransaction(new DefaultTransactionDefinition());
                 try {
-                    deletedCount += bulkDeleteCertificateBatch(filter, batchUuids, loggedUserUuid);
+                    int deletedInBatch = bulkDeleteCertificateBatch(filter, batchUuids, loggedUserUuid);
                     transactionManager.commit(txStatus);
+                    deletedCount += deletedInBatch;
                 } catch (Exception e) {
-                    transactionManager.rollback(txStatus);
+                    // A failed commit has already rolled back and completed the transaction
+                    if (!txStatus.isCompleted()) {
+                        transactionManager.rollback(txStatus);
+                    }
                     log.error("Failed to process bulk deletion batch: {}", e.getMessage(), e);
                     notificationProducer
                             .produceInternalNotificationMessage(Resource.CERTIFICATE, batchUuids.getFirst(),
                                     NotificationRecipient.buildUserNotificationRecipient(loggedUserUuid),
                                     "Batch certificate deletion failed for " + batchUuids.size() + " certificates",
-                                    e.getMessage());
+                                    "The batch was rolled back and none of its certificates were deleted.");
                 }
             }
             log.debug("Bulk deleted {} of {} certificates.", deletedCount, totalToDelete);
@@ -1218,29 +1251,46 @@ public class CertificateServiceImpl
             return 0;
         }
 
-        // 2. Fetch certificates.
-        List<SecuredUUID> permittedSecuredUuids = permittedUuids.stream().map(SecuredUUID::fromUUID).toList();
-        List<Certificate> certificates = certificateRepository.findAllWithAssociationsByUuidIn(permittedUuids);
+        // 2. Fetch certificates and set aside those a Signing Profile version holds.
+        List<Certificate> fetched = certificateRepository.findAllWithAssociationsByUuidIn(permittedUuids);
+        Map<UUID, SigningProfileCertificateUse> uses = signingProfileUsesOf(permittedUuids);
+        refuseHeldCertificates(fetched, uses, loggedUserUuid);
+        List<Certificate> deletable = fetched.stream().filter(c -> !uses.containsKey(c.getUuid())).toList();
 
         // 3. Do the work.
-        locationInternalService.removeCertificatesFromLocationsOnDelete(permittedSecuredUuids);
+        deleteWithDependents(deletable);
+        return deletable.size();
+    }
 
-        crlService.clearCrlsForCaCertificate(permittedUuids);
+    /**
+     * Removes what depends on the certificates, then the certificates. It receives only the certificates the batch may
+     * delete, so none of its steps can reach one that was set aside, such as one a Signing Profile version holds.
+     */
+    private void deleteWithDependents(List<Certificate> certificates) {
+        if (certificates.isEmpty()) {
+            return;
+        }
+        List<UUID> certificateUuids = certificates.stream().map(Certificate::getUuid).toList();
+        List<SecuredUUID> securedCertificateUuids = certificateUuids.stream().map(SecuredUUID::fromUUID).toList();
+
+        locationInternalService.removeCertificatesFromLocationsOnDelete(securedCertificateUuids);
+
+        crlService.clearCrlsForCaCertificate(certificateUuids);
 
         certificates.forEach(c -> {
             c.setOwner(null);
             c.getGroups().clear();
         });
-        objectAssociationService.bulkRemoveObjectAssociations(Resource.CERTIFICATE, permittedUuids);
-        commentService.bulkRemoveObjectComments(Resource.CERTIFICATE, permittedUuids);
-        complianceProfileAssociationWriter.deleteAllForObjects(Resource.CERTIFICATE, permittedUuids);
-        pendingNotificationWriter.deleteForObjects(Resource.CERTIFICATE, permittedUuids);
-        attributeEngine.bulkDeleteObjectAttributeContent(Resource.CERTIFICATE, permittedUuids);
+        objectAssociationService.bulkRemoveObjectAssociations(Resource.CERTIFICATE, certificateUuids);
+        commentService.bulkRemoveObjectComments(Resource.CERTIFICATE, certificateUuids);
+        complianceProfileAssociationWriter.deleteAllForObjects(Resource.CERTIFICATE, certificateUuids);
+        pendingNotificationWriter.deleteForObjects(Resource.CERTIFICATE, certificateUuids);
+        attributeEngine.bulkDeleteObjectAttributeContent(Resource.CERTIFICATE, certificateUuids);
 
         // After the comment locks, as in deleteCertificate: the opposite order could deadlock the two paths
-        scepProfileRepository.clearCaCertificateReferenceIn(permittedUuids);
-        cmpProfileRepository.clearSigningCertificateReferenceIn(permittedUuids);
-        estProfileWriter.removeTrustedCaCertificates(permittedUuids);
+        scepProfileRepository.clearCaCertificateReferenceIn(certificateUuids);
+        cmpProfileRepository.clearSigningCertificateReferenceIn(certificateUuids);
+        estProfileWriter.removeTrustedCaCertificates(certificateUuids);
 
         List<UUID> certificateRequestUuids = certificates
                 .stream()
@@ -1251,7 +1301,33 @@ public class CertificateServiceImpl
         certificateRepository.deleteAllInBatch(certificates);
         certificateContentRepository.deleteUnusedCertificateContents();
         certificateRequestWriter.deleteUnreferenced(certificateRequestUuids);
-        return certificates.size();
+    }
+
+    /**
+     * Records the refused delete in the history of each certificate a Signing Profile version holds and tells the
+     * requester. Both belong to the batch's transaction: the history is kept and the notification sent only once the
+     * batch commits, and a notification that cannot be sent is logged without stopping the remaining batches.
+     */
+    private void refuseHeldCertificates(List<Certificate> certificates, Map<UUID, SigningProfileCertificateUse> uses,
+            UUID loggedUserUuid) {
+        for (Certificate certificate : certificates) {
+            SigningProfileCertificateUse use = uses.get(certificate.getUuid());
+            if (use == null) {
+                continue;
+            }
+            log.info("Skipped deleting certificate {}: a Signing Profile version holds it", certificate.getUuid());
+            certificateEventHistoryService
+                    .addEventHistory(certificate.getUuid(), CertificateEvent.DELETE, CertificateEventStatus.FAILED,
+                            use.historyMessage(), (String) null);
+            String refusal = use
+                    .deleteRefusal(CertificateUtil.formatCommonName(certificate.getCommonName()),
+                            certificate.getUuid());
+            InternalNotificationEventData notification = new InternalNotificationEventData(
+                    "Unable to delete certificate " + certificate.getUuid(), refusal);
+            applicationEventPublisher
+                    .publishEvent(new NotificationMessage(null, Resource.CERTIFICATE, certificate.getUuid(), null,
+                            NotificationRecipient.buildUserNotificationRecipient(loggedUserUuid), notification));
+        }
     }
 
     private static TriFunction<Root<Certificate>, CriteriaBuilder, CriteriaQuery<?>, Predicate> createAdditionalWhereClauseForBulkDeleteBatch(
