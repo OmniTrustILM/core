@@ -3112,9 +3112,6 @@ public class AttributeEngine {
         return SecretsUtil.encryptAndEncodeSecretString(plaintext, SecretEncodingVersion.V1);
     }
 
-    /**
-     * Returns the text content data is encrypted from: JSON for structured content data, the value's text otherwise.
-     */
     private static String plaintextOf(AttributeDefinition attributeDefinition, AttributeContent attributeContentItem)
             throws AttributeException {
         if (!AttributeContentData.class.isAssignableFrom(attributeDefinition.getContentType().getContentDataClass())) {
