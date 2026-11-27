@@ -22,7 +22,7 @@
         <log-schema.version>1.2</log-schema.version>
         <hsqldb.version>2.7.3</hsqldb.version>
         <nimbus-jose-jwt.version>10.10</nimbus-jose-jwt.version>
-        <mockwebserver.version>5.5.0</mockwebserver.version>
+        <mockwebserver.version>5.5.1</mockwebserver.version>
         <commons-beanutils.version>1.11.0</commons-beanutils.version>
         <testcontainers.version>1.21.4</testcontainers.version>
         <git-commit-id-maven.version>9.2.0</git-commit-id-maven.version>
