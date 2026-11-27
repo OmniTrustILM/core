@@ -22,6 +22,7 @@ import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.repository.CertificateRelationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CertificateRequestRepository;
+import com.otilm.core.model.request.CertificateRequestKeys;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CertificateEventHistoryInternalService;
 import com.otilm.core.service.CryptographicKeyInternalService;
@@ -29,6 +30,7 @@ import com.otilm.core.service.RaProfileInternalService;
 import com.otilm.core.service.ResourceObjectAssociationService;
 import com.otilm.core.util.CertificateUtil;
 import java.nio.charset.StandardCharsets;
+import java.security.PublicKey;
 import java.util.Base64;
 import java.util.Date;
 import java.util.List;
@@ -262,6 +264,66 @@ class CertificateServiceImplTypeHandlerTest {
             issueRequest.setRequest(REQUEST_CONTENT);
             issueRequest.setFormat(CertificateRequestFormat.PKCS10);
             return service.addCertificateRequestToExisting(certificateUuid, issueRequest);
+        }
+    }
+
+    // ── RequestKeys ───────────────────────────────────────────────────────────
+    @Nested
+    class RequestKeys {
+
+        private static final String REQUEST_CONTENT = Base64
+                .getEncoder()
+                .encodeToString("a request of another type".getBytes(StandardCharsets.UTF_8));
+
+        @Mock
+        private CryptographicKeyInternalService cryptographicKeyService;
+
+        private final PublicKey publicKeyOfTheRequest = keyPair().getPublic();
+        private final ParsedRequest parsedRequest = new ParsedRequest(OTHER_TYPE.getCode(),
+                CertificateRequestFormat.PKCS10, new byte[]{1}, "holder", publicKeyOfTheRequest);
+
+        @BeforeEach
+        void stubTheHandlerReadingTheRequest() throws Exception {
+            service.setCryptographicKeyInternalService(cryptographicKeyService);
+            when(otherTypeHandler.readRequest(REQUEST_CONTENT, CertificateRequestFormat.PKCS10))
+                    .thenReturn(parsedRequest);
+        }
+
+        @Test
+        void findsTheInventoryKeyOfThePublicKeyTheHandlerGives_whenNoKeyIsGiven() throws Exception {
+            // given
+            UUID inventoryKey = UUID.randomUUID();
+            String fingerprintOfTheHandlersKey = CertificateUtil
+                    .getThumbprint(Base64
+                            .getEncoder()
+                            .encodeToString(publicKeyOfTheRequest.getEncoded())
+                            .getBytes(StandardCharsets.UTF_8));
+            when(otherTypeHandler.publicKeyOf(parsedRequest)).thenReturn(publicKeyOfTheRequest);
+            when(otherTypeHandler.alternativePublicKey(parsedRequest)).thenReturn(Optional.empty());
+            when(cryptographicKeyService.findKeyByFingerprint(fingerprintOfTheHandlersKey)).thenReturn(inventoryKey);
+
+            // when
+            CertificateRequestKeys keys = service
+                    .findRequestKeys(REQUEST_CONTENT, CertificateRequestFormat.PKCS10, null, null, OTHER_TYPE);
+
+            // then
+            assertThat(keys.keyUuid()).isEqualTo(inventoryKey);
+        }
+
+        @Test
+        void keepsTheGivenKeys_whenTheyAreSuppliedWithTheRequest() throws Exception {
+            // given
+            UUID givenKey = UUID.randomUUID();
+            UUID givenAltKey = UUID.randomUUID();
+
+            // when
+            CertificateRequestKeys keys = service
+                    .findRequestKeys(REQUEST_CONTENT, CertificateRequestFormat.PKCS10, givenKey, givenAltKey,
+                            OTHER_TYPE);
+
+            // then
+            assertThat(keys).isEqualTo(new CertificateRequestKeys(givenKey, givenAltKey));
+            verifyNoInteractions(cryptographicKeyService);
         }
     }
 
