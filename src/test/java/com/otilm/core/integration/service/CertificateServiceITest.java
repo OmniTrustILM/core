@@ -5,8 +5,6 @@ import com.github.tomakehurst.wiremock.client.WireMock;
 import com.otilm.api.exception.AlreadyExistException;
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.CertificateOperationException;
-import com.otilm.api.exception.CertificateRequestException;
-import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.NotSupportedException;
 import com.otilm.api.exception.ValidationException;
@@ -32,6 +30,7 @@ import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.common.error.ProblemDetailExtended;
+import com.otilm.api.model.common.events.data.InternalNotificationEventData;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateChainResponseDto;
@@ -66,6 +65,7 @@ import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
+import com.otilm.api.model.core.notification.RecipientType;
 import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.core.attribute.CsrAttributes;
@@ -130,6 +130,8 @@ import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.messaging.jms.producers.NotificationProducer;
+import com.otilm.core.messaging.model.NotificationMessage;
+import com.otilm.core.messaging.model.NotificationRecipient;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.signing.CertificatePurposeRequirements;
@@ -159,6 +161,7 @@ import com.otilm.core.util.WireMockPorts;
 import com.otilm.core.util.X509ObjectToString;
 import com.otilm.core.util.builders.ComplianceProfileFixtures;
 import com.otilm.core.util.seeders.CertificateUploadTriggerSeeder;
+import com.otilm.core.util.seeders.SigningProfileSeeder;
 import com.otilm.core.validation.certificate.ICertificateValidator;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -178,6 +181,7 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.Date;
 import java.util.EnumSet;
@@ -203,6 +207,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.Cache;
@@ -344,6 +349,9 @@ class CertificateServiceITest extends BaseSpringBootTest {
 
     @Autowired
     private CertificateUploadTriggerSeeder certificateUploadTriggerSeeder;
+
+    @Autowired
+    private SigningProfileSeeder signingProfileSeeder;
 
     @Autowired
     private CacheManager cacheManager;
@@ -1910,8 +1918,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
         }
 
         @Test
-        void appliesProtocolAssociations_whenSubmittingRequest() throws AlreadyExistException, AttributeException,
-                NotFoundException, NoSuchAlgorithmException, ConnectorException, CertificateRequestException {
+        void appliesProtocolAssociations_whenSubmittingRequest() throws Exception {
             // given
             mockUpdateUser();
             mockServer
@@ -1935,7 +1942,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
             // when
             CertificateDetail certificateDetailDto = certificateService
                     .submitCertificateRequest(SAMPLE_PKCS10, CertificateRequestFormat.PKCS10, List.of(), List.of(),
-                            List.of(), List.of(), null, null, raProfile.getUuid(), null, protocolInfo);
+                            List.of(), List.of(), null, null, raProfile.getUuid(), null, protocolInfo, null);
             Certificate certificateToBeIssued = certificateRepository
                     .findWithAssociationsByUuid(UUID.fromString(certificateDetailDto.getUuid()))
                     .orElseThrow();
@@ -1953,12 +1960,12 @@ class CertificateServiceITest extends BaseSpringBootTest {
             // given
             CertificateDetail first = certificateService
                     .submitCertificateRequest(SAMPLE_PKCS10, CertificateRequestFormat.PKCS10, List.of(), List.of(),
-                            List.of(), List.of(), null, null, raProfile.getUuid(), null, null);
+                            List.of(), List.of(), null, null, raProfile.getUuid(), null, null, null);
 
             // when
             CertificateDetail second = certificateService
                     .submitCertificateRequest(SAMPLE_PKCS10, CertificateRequestFormat.PKCS10, List.of(), List.of(),
-                            List.of(), List.of(), null, null, raProfile.getUuid(), null, null);
+                            List.of(), List.of(), null, null, raProfile.getUuid(), null, null, null);
 
             // then
             assertThat(second.getCertificateRequest().getUuid()).isNotEqualTo(first.getCertificateRequest().getUuid());
@@ -1976,7 +1983,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
             List<String> statements = SqlCapture
                     .during(() -> certificateService
                             .submitCertificateRequest(SAMPLE_PKCS10, CertificateRequestFormat.PKCS10, List.of(),
-                                    List.of(), List.of(), List.of(), null, null, raProfile.getUuid(), null, null))
+                                    List.of(), List.of(), List.of(), null, null, raProfile.getUuid(), null, null, null))
                     .statements();
 
             // then
@@ -2028,6 +2035,188 @@ class CertificateServiceITest extends BaseSpringBootTest {
             X509CertificateTypeHandler handler = spy(x509Handler);
             doReturn(EnumSet.of(CertificateFormat.RAW)).when(handler).downloadFormats();
             return handler;
+        }
+    }
+
+    // ── SigningProfileHolds ──────────────────────────────────────────────────
+    @Nested
+    class SigningProfileHolds {
+
+        @Test
+        void refusesDelete_whenOnlyASupersededVersionHoldsTheCertificate() {
+            // given
+            Certificate renewedCertificate = saveCertificate("renewed");
+            signingProfileSeeder.seedRenewedOnto("renewed-profile", certificate, renewedCertificate);
+            SecuredUUID certificateUuid = certificate.getSecuredUuid();
+
+            // when
+            ThrowingCallable deleteCertificate = () -> certificateService.deleteCertificate(certificateUuid);
+
+            // then
+            assertThatThrownBy(deleteCertificate)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("it is kept by superseded versions of Signing Profile(s)"
+                            + " (released only by deleting the Signing Profile, which first requires deleting its signing records): renewed-profile.");
+            assertThat(certificateRepository.existsById(certificate.getUuid())).isTrue();
+        }
+
+        @Test
+        void refusesDelete_whenTheCurrentVersionHoldsTheCertificate() {
+            // given
+            signingProfileSeeder.seedSigningWith("signing-profile", certificate);
+            SecuredUUID certificateUuid = certificate.getSecuredUuid();
+
+            // when
+            ThrowingCallable deleteCertificate = () -> certificateService.deleteCertificate(certificateUuid);
+
+            // then
+            assertThatThrownBy(deleteCertificate)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("it is used by the current version of Signing Profile(s): signing-profile.");
+            assertThat(certificateRepository.existsById(certificate.getUuid())).isTrue();
+        }
+
+        @Test
+        void recordsFailedHistoryNamingTheProfile_whenRefusingDelete() {
+            // given
+            signingProfileSeeder.seedSigningWith("signing-profile", certificate);
+            SecuredUUID certificateUuid = certificate.getSecuredUuid();
+
+            // when
+            ThrowingCallable deleteCertificate = () -> certificateService.deleteCertificate(certificateUuid);
+
+            // then
+            assertThatThrownBy(deleteCertificate).isInstanceOf(ValidationException.class);
+            assertThat(certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(certificate))
+                    .filteredOn(history -> history.getEvent() == CertificateEvent.DELETE
+                            && history.getStatus() == CertificateEventStatus.FAILED)
+                    .extracting(CertificateEventHistory::getMessage)
+                    .containsExactly(
+                            "Certificate is used by the current version of Signing Profile(s): signing-profile");
+        }
+
+        @Test
+        void deletesCertificate_whenNoSigningProfileVersionHoldsIt() throws Exception {
+            // given
+            Certificate otherCertificate = saveCertificate("other");
+            signingProfileSeeder.seedSigningWith("signing-profile", otherCertificate);
+
+            // when
+            certificateService.deleteCertificate(certificate.getSecuredUuid());
+
+            // then
+            assertThat(certificateRepository.existsById(certificate.getUuid())).isFalse();
+            assertThat(certificateRepository.existsById(otherCertificate.getUuid())).isTrue();
+        }
+
+        @Test
+        void deletesOnlyUnheldCertificates_whenBulkDeletingMixedCertificates() {
+            // given
+            Certificate heldByCurrentVersion = saveCertificate("held-by-current-version");
+            Certificate heldBySupersededVersion = saveCertificate("held-by-superseded-version");
+            Certificate unheld = saveCertificate("unheld");
+            signingProfileSeeder.seedSigningWith("signing-profile", heldByCurrentVersion);
+            signingProfileSeeder
+                    .seedRenewedOnto("renewed-profile", heldBySupersededVersion, saveCertificate("renewed"));
+            RemoveCertificateDto request = createRemovalRequest(certificate, heldByCurrentVersion, unheld,
+                    heldBySupersededVersion);
+
+            // when
+            certificateService.bulkDeleteCertificate(SecurityFilter.create(), request);
+
+            // then
+            assertThat(certificateRepository.existsById(certificate.getUuid())).isFalse();
+            assertThat(certificateRepository.existsById(unheld.getUuid())).isFalse();
+            assertThat(certificateRepository.existsById(heldByCurrentVersion.getUuid())).isTrue();
+            assertThat(certificateRepository.existsById(heldBySupersededVersion.getUuid())).isTrue();
+            verify(notificationProducer, never())
+                    .produceInternalNotificationMessage(any(), any(), any(),
+                            Mockito.contains("Batch certificate deletion failed"), any());
+        }
+
+        @Test
+        void notifiesEachSkippedCertificateWithItsProfiles_whenBulkDeleting() {
+            // given
+            Certificate heldByCurrentVersion = saveCertificate("held-by-current-version");
+            Certificate heldBySupersededVersion = saveCertificate("held-by-superseded-version");
+            signingProfileSeeder.seedSigningWith("signing-profile", heldByCurrentVersion);
+            signingProfileSeeder
+                    .seedRenewedOnto("renewed-profile", heldBySupersededVersion, saveCertificate("renewed"));
+            RemoveCertificateDto request = createRemovalRequest(heldByCurrentVersion, heldBySupersededVersion);
+
+            // when
+            certificateService.bulkDeleteCertificate(SecurityFilter.create(), request);
+
+            // then
+            UUID requesterUuid = UUID.fromString(AuthHelper.getUserIdentification().getUuid());
+            List<NotificationMessage> skipNotifications = captureInternalNotifications();
+            assertThat(skipNotifications)
+                    .extracting(NotificationMessage::getResource, NotificationMessage::getObjectUuid,
+                            message -> ((InternalNotificationEventData) message.getData()).getText(),
+                            message -> ((InternalNotificationEventData) message.getData()).getDetail())
+                    .containsExactlyInAnyOrder(tuple(Resource.CERTIFICATE, heldByCurrentVersion.getUuid(),
+                            "Unable to delete certificate " + heldByCurrentVersion.getUuid(),
+                            "Could not delete certificate held-by-current-version with UUID "
+                                    + heldByCurrentVersion.getUuid()
+                                    + ": it is used by the current version of Signing Profile(s): signing-profile."),
+                            tuple(Resource.CERTIFICATE, heldBySupersededVersion.getUuid(),
+                                    "Unable to delete certificate " + heldBySupersededVersion.getUuid(),
+                                    "Could not delete certificate held-by-superseded-version with UUID "
+                                            + heldBySupersededVersion.getUuid()
+                                            + ": it is kept by superseded versions of Signing Profile(s)"
+                                            + " (released only by deleting the Signing Profile, which first requires deleting its signing records): renewed-profile."));
+            assertThat(skipNotifications)
+                    .allSatisfy(message -> assertThat(message.getRecipients())
+                            .extracting(NotificationRecipient::getRecipientType,
+                                    NotificationRecipient::getRecipientUuid)
+                            .containsExactly(tuple(RecipientType.USER, requesterUuid)));
+        }
+
+        @Test
+        void recordsFailedHistoryNamingTheProfile_whenBulkDeleteSkipsACertificate() {
+            // given
+            signingProfileSeeder.seedSigningWith("signing-profile", certificate);
+            RemoveCertificateDto request = createRemovalRequest(certificate);
+
+            // when
+            certificateService.bulkDeleteCertificate(SecurityFilter.create(), request);
+
+            // then
+            assertThat(certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(certificate))
+                    .filteredOn(history -> history.getEvent() == CertificateEvent.DELETE
+                            && history.getStatus() == CertificateEventStatus.FAILED)
+                    .extracting(CertificateEventHistory::getMessage)
+                    .containsExactly(
+                            "Certificate is used by the current version of Signing Profile(s): signing-profile");
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────────
+
+        private Certificate saveCertificate(String commonName) {
+            return certificateRepository
+                    .save(X509CertificateEntity
+                            .from(aCertificate()
+                                    .withCommonName(commonName)
+                                    .withSerialNumber(UUID.randomUUID().toString())
+                                    .withFingerprint(UUID.randomUUID().toString())
+                                    .build()));
+        }
+
+        /** The internal notifications the mocked producer's after-commit listener received. */
+        private List<NotificationMessage> captureInternalNotifications() {
+            ArgumentCaptor<NotificationMessage> published = ArgumentCaptor.forClass(NotificationMessage.class);
+            verify(notificationProducer, Mockito.atLeastOnce()).onNotificationMessage(published.capture());
+            return published
+                    .getAllValues()
+                    .stream()
+                    .filter(message -> message.getData() instanceof InternalNotificationEventData)
+                    .toList();
+        }
+
+        private static RemoveCertificateDto createRemovalRequest(Certificate... certificates) {
+            RemoveCertificateDto request = new RemoveCertificateDto();
+            request.setUuids(Arrays.stream(certificates).map(certificate -> certificate.getUuid().toString()).toList());
+            return request;
         }
     }
 

@@ -1,7 +1,9 @@
 package com.otilm.core.signing.rawsigning;
 
+import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.SignatureInputMode;
 import com.otilm.api.model.core.settings.PlatformSettingsDto;
@@ -9,10 +11,13 @@ import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.SigningSettingsDto;
 import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.core.dao.repository.signing.SigningProfileVersionRepository;
+import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.resolved.ResolvedManagedRawSigningProfile;
 import com.otilm.core.model.signing.resolved.ResolvedStaticKeyManagedSigning;
 import com.otilm.core.serialization.ObjectMapperFactory;
+import com.otilm.core.service.handler.DataDigestSigningCapability;
+import com.otilm.core.service.handler.DataDigestSigningCapability.Support;
 import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.signing.engine.batch.BatchRecordStager;
 import com.otilm.core.signing.engine.certificate.SigningCertificateValidator;
@@ -89,6 +94,8 @@ class ManagedRawSigningEngineTest {
     BatchRecordStager recordStager;
     @Mock
     SigningProfileVersionRepository signingProfileVersionRepository;
+    @Mock
+    DataDigestSigningCapability dataDigestSigningCapability;
 
     ManagedRawSigningEngine engine;
 
@@ -111,18 +118,20 @@ class ManagedRawSigningEngineTest {
     }
 
     @BeforeEach
-    void createEngineOverAnAcceptedCertificateAndSigner() throws SigningEngineException {
+    void createEngineOverAnAcceptedCertificateAndSigner() throws Exception {
         originalPlatformSettings = SettingsCache.getSettings(SettingsSection.PLATFORM);
         var recordFactory = new RawSigningRecordFactory(ObjectMapperFactory.storage(),
                 TestClockSource.ofWallTime(Instant.parse("2026-11-13T10:00:00Z")));
         engine = new ManagedRawSigningEngine(signerFactory, signingCertificateValidatorFactory,
-                new RawSigningKeyBinding(signingProfileVersionRepository), recordFactory, recordStager);
+                new RawSigningKeyBinding(signingProfileVersionRepository), dataDigestSigningCapability, recordFactory,
+                recordStager);
         lenient().when(signingCertificateValidatorFactory.getValidator(any())).thenReturn(signingCertificateValidator);
         lenient()
                 .when(signingCertificateValidator.validate(any(), any(), anyBoolean(), any()))
                 .thenReturn(ValidationResult.ok());
         lenient().when(signerFactory.create(any())).thenReturn(signer);
         lenient().when(signer.getSignatureAlgorithm()).thenReturn(SIGNATURE_ALGORITHM);
+        lenient().when(dataDigestSigningCapability.of(any())).thenReturn(Support.SUPPORTED);
     }
 
     @AfterEach
@@ -377,6 +386,67 @@ class ManagedRawSigningEngineTest {
     }
 
     @Test
+    void throwsInvalidInputNamingTheFix_whenTheKeysProviderIsVersion1() throws Exception {
+        // given
+        when(dataDigestSigningCapability.of(getPrivateKeyItem(profile))).thenReturn(Support.VERSION_1_PROVIDER);
+        var request = buildDigestRequest(IDENTIFIERS);
+
+        // when
+        ThrowingCallable sign = () -> engine.sign(request, model, profile, SigningProtocol.ILM_NATIVE);
+
+        // then
+        assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, refusal -> {
+            assertThat(refusal.failure()).isEqualTo(SigningEngineFailure.INVALID_INPUT);
+            assertThat(refusal.operatorMessage()).contains(profile.name()).contains("version 1 connector");
+            assertThat(refusal.clientMessage()).isEqualTo(ManagedRawSigningEngine.PROVIDER_CANNOT_SIGN_DIGESTS);
+        });
+        verify(signer, never()).signAll(anyList(), any());
+        verifyNoInteractions(recordStager);
+    }
+
+    @Test
+    void throwsInvalidInputNamingTheFix_whenTheKeysProviderDoesNotAdvertiseDataDigestSigning() throws Exception {
+        // given
+        when(dataDigestSigningCapability.of(getPrivateKeyItem(profile))).thenReturn(Support.NOT_ADVERTISED);
+        var request = buildDigestRequest(IDENTIFIERS);
+
+        // when
+        ThrowingCallable sign = () -> engine.sign(request, model, profile, SigningProtocol.ILM_NATIVE);
+
+        // then
+        assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, refusal -> {
+            assertThat(refusal.failure()).isEqualTo(SigningEngineFailure.INVALID_INPUT);
+            assertThat(refusal.operatorMessage())
+                    .contains(profile.name())
+                    .contains("does not advertise data digest signing");
+            assertThat(refusal.clientMessage()).isEqualTo(ManagedRawSigningEngine.PROVIDER_CANNOT_SIGN_DIGESTS);
+        });
+        verify(signer, never()).signAll(anyList(), any());
+        verifyNoInteractions(recordStager);
+    }
+
+    @Test
+    void throwsMisconfigured_whenTheSigningKeysTokenInstanceNoLongerExists() throws Exception {
+        // given
+        var tokenInstanceGone = new NotFoundException("token instance not found");
+        when(dataDigestSigningCapability.of(getPrivateKeyItem(profile))).thenThrow(tokenInstanceGone);
+        var request = buildDigestRequest(IDENTIFIERS);
+
+        // when
+        ThrowingCallable sign = () -> engine.sign(request, model, profile, SigningProtocol.ILM_NATIVE);
+
+        // then
+        assertThatThrownBy(sign)
+                .isInstanceOfSatisfying(SigningEngineException.class,
+                        failure -> assertThat(failure.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED))
+                .hasMessageContaining("Internal error during signing")
+                .getCause()
+                .isSameAs(tokenInstanceGone);
+        verify(signer, never()).signAll(anyList(), any());
+        verifyNoInteractions(recordStager);
+    }
+
+    @Test
     void failsWithStepFailed_whenACollaboratorThrowsUnexpectedly() throws Exception {
         // given
         var unexpectedFault = new IllegalStateException("repository unavailable");
@@ -452,6 +522,15 @@ class ManagedRawSigningEngineTest {
 
     private static UUID getSigningKeyUuid(ResolvedManagedRawSigningProfile profile) {
         return ((ResolvedStaticKeyManagedSigning) profile.resolvedScheme()).certificate().keyUuid();
+    }
+
+    private static CryptographicKeyItemOperationModel getPrivateKeyItem(ResolvedManagedRawSigningProfile profile) {
+        return ((ResolvedStaticKeyManagedSigning) profile.resolvedScheme())
+                .keyItems()
+                .stream()
+                .filter(keyItem -> keyItem.keyType() == KeyType.PRIVATE_KEY)
+                .findFirst()
+                .orElseThrow();
     }
 
     private static RawSigningRequest buildDigestRequest(List<String> identifiers) throws Exception {

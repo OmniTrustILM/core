@@ -2,10 +2,12 @@ package com.otilm.core.integration.signing.rawsigning;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.jayway.jsonpath.JsonPath;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.client.signing.nativesigning.SignRawItemDto;
 import com.otilm.api.model.client.signing.nativesigning.SignRawRequestDto;
 import com.otilm.api.model.client.signing.profile.SigningProfileDto;
+import com.otilm.api.model.client.signing.profile.SigningProfileRequestDto;
 import com.otilm.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
 import com.otilm.api.model.client.signing.profile.record.SigningRecordPolicyRequestDto;
 import com.otilm.api.model.client.signing.profile.scheme.ManagedSigningType;
@@ -120,6 +122,7 @@ import static com.otilm.core.util.CertificateTestData.DOCUMENT_SIGNING_OID;
 import static com.otilm.core.util.KeyMetaFixtures.keyIdMeta;
 import static com.otilm.core.util.builders.ResolvedManagedRawSigningProfileBuilder.aResolvedRawSigningProfile;
 import static com.otilm.core.util.builders.SigningProfileRequestDtoBuilder.aSigningProfileRequest;
+import static com.otilm.core.util.builders.SigningProfileRequestDtoBuilder.aSigningProfileRequestFromExistingProfile;
 import static com.otilm.core.util.builders.SigningRecordPolicyRequestDtoBuilder.aSigningRecordPolicyRequest;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -333,6 +336,45 @@ class RawSigningEngineITest extends BaseSpringBootTest {
         assertThat(loadRecords(profile)).isEmpty();
     }
 
+    @Test
+    void refusesToCreateTheProfile_whenTheKeysProviderDoesNotAdvertiseDataDigestSigning() {
+        // given
+        var profileName = "raw-on-a-provider-without-digests";
+        v2TokenFixture.declare(v2Token, FeatureFlag.STATELESS);
+
+        // when
+        ThrowingCallable create = () -> createRawProfile(profileName, RSA_PKCS1_SHA256);
+
+        // then
+        assertThatThrownBy(create)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("does not advertise data digest signing")
+                .hasMessageContaining("whose key is on a cryptography provider registered through a v2 connector");
+        assertThat(signingProfileRepository.findByName(profileName)).isEmpty();
+    }
+
+    @Test
+    void refusesToUpdateTheProfile_whenTheKeysProviderStoppedAdvertisingDataDigestSigning() throws Exception {
+        // given
+        SigningProfileDto profile = createRawProfile("raw-provider-withdrew-digests", RSA_PKCS1_SHA256);
+        v2TokenFixture.declare(v2Token, FeatureFlag.STATELESS);
+        var changedDescription = "now signs for another team";
+        SigningProfileRequestDto update = aSigningProfileRequestFromExistingProfile(profile)
+                .withDescription(changedDescription)
+                .build();
+
+        // when
+        ThrowingCallable save = () -> signingProfileService
+                .updateSigningProfile(SecuredUUID.fromString(profile.getUuid()), update);
+
+        // then
+        assertThatThrownBy(save)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("does not advertise data digest signing");
+        assertThat(signingProfileRepository.findByName(profile.getName()).orElseThrow().getDescription())
+                .isNotEqualTo(changedDescription);
+    }
+
     // ── IlmNativeSignRaw ──────────────────────────────────────────────────────
 
     @Nested
@@ -455,6 +497,27 @@ class RawSigningEngineITest extends BaseSpringBootTest {
             assertThat(messages)
                     .containsExactly("The signing certificate of Signing Profile '%s' is not the one the request names"
                             .formatted(profile.getName()));
+            v2Token.connectorMock().verifyNoOperationRequest("sign");
+            assertThat(loadRecords(profile)).isEmpty();
+        }
+
+        @Test
+        void answers422NamingTheFix_whenTheKeysProviderStoppedAdvertisingDataDigestSigning() throws Exception {
+            // given — the profile was saved and served ILM_NATIVE while its provider still signed digests
+            SigningProfileDto profile = createIlmNativeRawProfile("native-raw-provider-withdrew-digests",
+                    RSA_PKCS1_SHA256);
+            v2TokenFixture.declare(v2Token, FeatureFlag.STATELESS);
+
+            // when
+            MockHttpServletResponse response = signRaw(profile.getUuid(), buildSignRawRequest(DigestAlgorithm.SHA_256));
+
+            // then
+            assertThat(response.getStatus()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT.value());
+            List<String> messages = read(response, "$");
+            assertThat(messages)
+                    .containsExactly("The cryptography provider of this Signing Profile's signing key cannot sign "
+                            + "data digests; the Signing Profile needs a key on a provider registered through a v2 "
+                            + "connector that supports data digest signing");
             v2Token.connectorMock().verifyNoOperationRequest("sign");
             assertThat(loadRecords(profile)).isEmpty();
         }
